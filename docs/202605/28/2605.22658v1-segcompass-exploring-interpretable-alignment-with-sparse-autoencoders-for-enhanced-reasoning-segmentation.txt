@@ -1,0 +1,862 @@
+Title: SegCompass: Exploring Interpretable Alignment with Sparse Autoencoders for Enhanced Reasoning Segmentation
+
+URL Source: https://arxiv.org/pdf/2605.22658v1
+
+Published Time: Fri, 22 May 2026 01:22:31 GMT
+
+Number of Pages: 15
+
+Markdown Content:
+## SegCompass : Exploring Interpretable Alignment with Sparse Autoencoders for Enhanced Reasoning Segmentation 
+
+Zhenyu Lu 1,2,5, Liupeng Li 3,2, Jinpeng Wang 3,*, Haoqian Kang 6,3†, Yan Feng 4, Ke Chen 2, Yaowei Wang 3,2,∗
+
+> 1
+
+Shenzhen Institutes of Advanced Technology, Chinese Academy of Sciences 2Peng Cheng Laboratory 
+
+> 3
+
+Harbin Institute of Technology, Shenzhen 4Meituan, Beijing 5University of Chinese Academy of Sciences 
+
+> 6
+
+College of Computer Science and Technology, Jilin University 
+
+zhenyulu22@m.fudan.edu.cn; wangjp26@gmail.com; wangyaowei@hit.edu.cn 
+
+Abstract 
+
+While large language models provide strong compositional reasoning, existing reasoning segmentation pipelines fail to transparently connect this reasoning to visual perception. Current methods, such as latent query alignment , are end-to-end yet opaque “black boxes”. Conversely, textual local-ization readout is merely readable, not truly interpretable, often functioning as an unconstrained post-hoc step. To bridge this interpretability gap, we propose SegCompass ,an end-to-end model that leverages a Sparse Autoencoder (SAE) to forge an explicit, interpretable, and differen-tiable alignment pathway. Given an image-instruction pair, 
+
+SegCompass first generates a chain-of-thought (CoT) trace. The core of our method is an SAE that maps both the CoT and visual tokens into a shared, high-dimensional sparse concept space. A query codebook selects salient con-cepts from this space, which are then spatially grounded by a slot mapper into a multi-slot heatmap that guides the fi-nal mask decoder. The entire model is trained jointly, uni-fying reinforcement learning for the reasoning path with standard segmentation supervision. This SAE-driven inter-face provides a “white-box” connection that is significantly more traceable than latent queries and more coherent than textual readouts. Extensive experiments on five challeng-ing benchmarks demonstrate that SegCompass matches or surpasses state-of-the-art performance. Crucially, our visual and quantitative analyses show a strong correlation between the quality of the learned sparse concepts and final mask accuracy, confirming that SegCompass achieves su-perior results through its enhanced and inspectable align-ment. Code is available at https://github.com/ ZhenyuLU-Heliodore/SegCompass .
+
+> *Jinpeng Wang and Yaowei Wang are corresponding authors.
+> †Work done during the undergraduate internship at HITSZ.
+
+1. Introduction 
+
+Reasoning segmentation [7, 21] is a foundational compo-nent of vision systems guided by natural language instruc-tions. Beyond simple captioning, many real-world scenar-ios, such as robotic manipulation and video analysis, neces-sitate spatial localization based on complex, multi-step in-structions (e.g., “Segment the mug that matches the plate’s color and is closest to the sink”). While recent advances in large language models [1, 2, 26] exhibit powerful composi-tional and commonsense reasoning, this capability remains inadequately integrated with dense visual perception in cur-rent pipelines. Consequently, the interpretability and con-trollability of how the model infers and locates targets have become critical yet challenging research aspects. Current work on reasoning segmentation typically fol-lows one of two routes for connecting reasoning outputs with the segmentation module. Latent query alignment ap-proaches [3, 21, 24, 37] map hidden representations from the reasoning module to latent queries that interact with vi-sual features to predict masks. While this route is trained end-to-end, it remains opaque: intermediate decisions are encapsulated and function as a black box. Textual localiza-tion readout approaches [5, 22, 30, 31] first generate dis-crete localization tokens (e.g., box coordinates or patch in-dices), often via chain-of-thought (CoT) [12, 51] rollouts. These tokens are then utilized in what is effectively an in-dependent post-processing step to prompt the segmentation module. The rationale in this second route is merely read-able, yet not truly interpretable: the CoT is unconstrained, the derivation of spatial cues is obscure, and the textual to-kens themselves often carry insufficient semantic detail. In short, a mechanism that provides an interpretable and ver-ifiable connection from the reasoning process to the final mask prediction remains elusive. Motivated by this gap, we seek a mechanism that can create a ”white-box” connection between reasoning and perception. We believe that the discrete, high-        
+
+> arXiv:2605.22658v1 [cs.CV] 21 May 2026 Ifi rst identify …
+> white ceramic bowl
+> fi lled with red tomato
+> soup, sandwich cut into
+> two triangular halves;
+> next … Here are the 4
+> reference positions:
+> <REF> …… Multi-slot
+> Heatmap
+> SegCompass
+> Predicted
+> Masks
+> Image
+> Input Please Segment
+> the complete collection
+> of things arranged on
+> the big white dish.
+> Activated
+> Tokens
+> It is <SEG> .
+> Decoder Multi-Modal
+> LLM
+> (a) Latent Query Alignment
+> Multi-Modal
+> LLM
+> (b) Textual Localization Readout
+> <Think>…
+> <Answer>… Decoder
+> (c) Interpretable Alignment
+> Multi-Modal
+> LLM
+> <Think>…
+> <REF>…<REF> Sparse
+> AutoEncoder
+> Sparsify
+> Activations Heatmap
+> Encoded
+
+Figure 1. Left: Comparison of alignment strategies for reasoning segmentation. (a) Latent Query Alignment relies on opaque latent vectors. (b) Textual Localization Readout uses unconstrained textual cues as a post-hoc signal. (c) Our proposed Interpretable Align-ment introduces a SAE as an interpretable bridge, which transforms reasoning tokens into sparse concept activations. These activations generate a multi-slot heatmap, explicitly linking the model’s reasoning process to the final segmentation mask. Right: SegCompass ’s interpretable alignment interface. The core of our method is visibly linking this reasoning to perception: the concepts identified in the CoT (e.g., “white ceramic bowl”) are explicitly grounded onto the image via a Multi-slot Heatmap. This provides a white-box view of how the model comprehends and localizes each instruction part, with intermediate Activated Tokens visualizing the sparse concept space. 
+
+dimensional, and semantically meaningful features learned by Sparse Autoencoders (SAEs) [15, 34, 44] are ideally suited for this purpose, as they are inherently designed to capture interpretable concepts. We therefore introduce 
+
+SegCompass , an SAE-driven interpretable segmentation model that explicitly aligns CoT reasoning with segmenta-tion. SegCompass operates end-to-end. Concretely, given an image-instruction pair, the model first reasons to pro-duce a CoT trace and multi-object concentration tokens. The SAE then maps both the visual tokens and the chain of thought into a shared high-dimensional sparse feature space . These features robustly encode semantically rich concepts from both the image and the reasoning trace. A query codebook selects the salient concepts and aggregates these sparse features into multi-object concept representa-tions. Next, a slot mapper [8, 32] allows the concentration tokens and these concept representations to attend to image features, yielding a multi-slot heatmap that a decoder con-verts into the final segmentation masks. This entire mech-anism enables the SAE to both explain the reasoning pro-cess and guide the segmentation head, offering stronger in-terpretability than latent query alignment and a more trans-parent, coherent alignment than textual localization readout. Concurrently, we optimize the reasoning path by reinforce-ment learning and jointly supervise the segmentation path, unifying both components under a single training objective. Across standard benchmark datasets, including gRef-COCO [25], RefCOCO [17], RefCOCO+, RefCOCOg [35], and ReasonSeg [21], SegCompass matches or surpasses best results under comparable evaluation protocols. Fur-thermore, our qualitative and quantitative analyses of in-terpretability reveal a strong correlation between the sparse concept features and the predicted masks. These extensive experimental results demonstrate that SegCompass is not only high-performing but also genuinely interpretable, vali-dating that the SAE-derived sparse concepts and their code-book aggregation consistently improve mask quality. We summarize our contributions as follows. • Novel Formulation. We propose SegCompass , a new end-to-end architecture that, for the first time, integrates a SAE to forge an explicit and interpretable link between CoT reasoning and dense visual segmentation. • Sparse Concept Interface. We design an SAE-driven sparse concept interface, which maps both language rea-soning traces and visual tokens into a shared, high-dimensional, and informative concept space, creating a transparent pathway from reasoning to mask generation. • Unified Optimization Strategy. We successfully unify the reasoning path (trained via reinforcement learning) and the segmentation path (trained via supervised learn-ing) under an end-to-end optimization stage. • Promising Performance with Interpretability. Our model matches or surpasses top methods on 5 challeng-ing benchmarks. Qualitative and quantitative analysis demonstrates interpretability insights. 
+
+2. Related Work 
+
+2.1. Referring and Reasoning Segmentation 
+
+Referring segmentation localizes target objects based on a short instruction, while reasoning segmentation requires compositional understanding. Early methods [6, 25, 52, 56, Interpretable Alignment 
+
+Reasoning  
+
+> Three people situated on the
+> right, along with the individual
+> positioned in the middle.
+
+Multi-Modal 
+
+LLM 𝐀 𝐀 
+
+𝐀 img, 𝐀 txt
+
+Segmentation CoT 𝐀 𝐀 
+
+> ···
+
+𝐀 img 𝐀 
+
+Image 
+
+Encoder 
+
+ℱenc
+
+Mask 
+
+Decoder 
+
+ℱdec
+
+> Transformer
+> Block
+> ···
+> ···
+> ···
+> ···
+> ···
+
+𝐀 𝐀 
+
+𝐀 
+
+ℎ 𝐀 
+
+CodeBook 
+
+ℋ𝐀 𝐀 
+
+𝐀 
+
+𝐀        
+
+> Latent Feature Text Token Concentration Tokens Sparse Activations Image Key Concept Representation
+> Sparse
+> Autoencoder Figure 2. SegCompass pipeline. Given input, the policy generates CoT and concentration tokens. SAE maps the reasoning process into a high-dimensional sparse concept space, and subsequent modules encode it into concept representations. Both concentration tokens and concept representations act as queries that attend to image keys, producing a multi-slot heatmap that is decoded into the predicted masks.
+
+62, 63] typically rely on specific text encoders to parse the text and predict the mask. Recently, LISA [21] bridges the gap between multimodal large language models (MLLMs) and reasoning segmentation by introducing a special to-ken. Subsequent works, including PerceptionGPT [37], PixelLM [40], SegLLM [50], OMG-LLaVA [59], Ground-Hog [60], GLaMM [38], UniPixel [29], UniRES [46], LIRA [24], RAS [3], follow the same paradigm, utilizing LLM latent features and decoding them into segmentation masks. In addition, some works, such as SAM4MLLM [5], Seg-Zero [30], Seg-R1 [57], and VisionReasoner [31], use MLLMs to generate textual coordinates of boxes and points via chain-of-thought, and then feed them to SAM for mask prediction. In a similar vein, Text4Seg [22] generates textual patch indices and applies CRF [19] or SAM for mask refinement. However, existing methods either rely on opaque latent query alignments or textual localization that expose rationales but fail to provide explicit, interpretable spatial cues, leaving a gap between reasoning and mask generation. In contrast, our SegCompass bridges reason-ing and segmentation through an interpretable pathway that maps reasoning outputs to mask predictions using sparse concept encoding and GRPO [42] training. 
+
+2.2. Sparse Autoencoders 
+
+Sparse Autoencoders (SAEs) [10, 11, 15, 44] interpret the internal mechanism of LLMs by disentangling the complex, superimposed features within LLMs into more interpretable components. Specifically, an SAE, trained to reconstruct activations of a target layer under sparsity constraints, ex-tracts a richer set of single-activation features, offering a finer-grained basis for concept interpretation and enabling more detailed analysis of the model’s internal representa-tions and learned knowledge. Prior works [4, 9, 13, 54] have employed SAEs to analyze the model behavior and control the model output related to unsafe content. Re-cently, SAE-V [34] extends the SAE paradigm to multi-modal LLMs, yielding more interpretable and disentangled latent representations. We build on this insight by align-ing interpretable representations with downstream segmen-tation tasks, enabling a transparent connection from reason-ing outputs to mask generation. 
+
+3. Method 
+
+3.1. Architecture 
+
+Overall. As shown in Fig. 2, SegCompass aligns rea-soning and segmentation through a sparse-concept pathway. Given an image-instruction pair (ximg , xtxt ), the MLLM policy πθ (·) generates a token sequence y1: T that contains the chain-of-thought (CoT) and Ks concentration tokens. We read its hidden states to obtain the embeddings of con-centration tokens. The sparse autoencoder (SAE) [34] en-codes the hidden states from (ximg , xtxt , y1: T ) at a cho-sen layer, into a high-dimensional sparse space. Then the query codebook C ∈ Rdsae ×dc (with dsae the SAE dimen-sion and dc the concept representation dimension) selects these sparse features, and Transformer [47] encoder blocks aggregate them into Ks concept representations. In parallel, The vision encoder Fenc (·) extracts image features to serve as image keys. The concentration token embeddings and concept representations are fused into Ks queries, which attend over the image keys and yield an observable Ks-slot heatmap with confidences (Hk, c k)Ks 
+
+> k=1
+
+via the slot map-per Fslot (·). Finally, the mask decoder Fdec (·) converts the heatmap into the predicted masks ˆM .
+
+Reasoning Module. We use LLaVA-1.5 [27] and Qwen2.5-VL [2] as our MLLM backbone. Follow-ing DeepSeek-R1 [12], we adopt multi-modal chain-of-thought (MCoT) [51] to leverage the reasoning capabilities of MLLMs on compositional instructions. Specifically, we use an instruction prompt to elicit both the CoT and Ks con-centration tokens. Given (ximg , xtxt ), the model is asked to (i) reason in a <think>...</think> block and then (ii) output Ks concentration tokens, where Ks is a hyper-parameter. Under this setup, the policy πθ generates the token sequence y1: T via next token prediction. Formally, the process is given in 
+
+yt ∼ πθ (· | y0: t−1, ximg , xtxt ) , t = 1 , . . . , T,  (1) where y1: T includes both the CoT and the concentration to-kens. We obtain the Ks concentration tokens’ embeddings 
+
+(ek)Ks 
+
+> k=1
+
+by locating their positions in the sequence and reading the corresponding hidden states from the MLLM. 
+
+Interpretable Alignment (Overview). We pass the im-age–text prefill together with CoT through an SAE, which encodes the problem statement and reasoning process into sparse concept features. A learned query codebook then selects salient concepts, and Transformer encoder blocks aggregate them into Ks concept representations (rk)Ks
+
+> k=1
+
+.Next, we fuse the concentration token embeddings with the concept representations using a lightweight MLP to form slot queries Q ∈ RKs×dq . In parallel, the vision backbone encodes ximg into image keys K ∈ Rh×w×dk . In practice we adopt ViT-H (the SAM [18] image encoder) as the vision backbone. Finally, a slot mapper Fslot (·) operates on Q and 
+
+K, computing multi-head attention scores and aggregat-ing features across heads to produce a multi-slot heatmap 
+
+(Hk)Ks 
+
+> k=1
+
+and per-slot confidences (ck)Ks
+
+> k=1
+
+. Formally, the process is given by 
+
+K = Fenc (ximg ) ,
+
+Qk = MLP  Concat( ek, rk), k = 1 , . . . , K s,
+
+(Hk, c k)Ks 
+
+> k=1
+
+= Fslot (Q, K) .
+
+(2) 
+
+Segmentation Decoder. The decoder has two lightweight components. First, three stacked 2D convolutional blocks resample the heatmap to the decoder resolution, yielding a feature map. Second, following the SAM [18] decoder de-sign, we employ a Two-Way Transformer to perform bidi-rectional cross-attention between image keys and the fea-ture map. Formally, the process is 
+
+ˆM = Fdec 
+
+
+
+K, (Hk, c k)Ks
+
+> k=1
+
+
+
+. (3) 
+
+3.2. Interpretable Alignment 
+
+Sparse Autoencoder. A sparse autoencoder (SAE) [34] factorizes token representations into a small set of sparse in-terpretable features. For a sequence processed by an LLM, we take tokens’ hidden states z ∈ RT ×dπ at a chosen layer, where T is the sequence length and dπ is the hidden dimen-sion of LLM policy (notation follows Sec. 3.1). The SAE encoder Esae (·) applies a linear map followed by a sparsi-fying activation to produce high-dimensional sparse activa-tions h(z) ∈ RT ×dsae with dsae ≫ dπ (e.g., dsae = 65536 
+
+and dπ = 4096 ). Each coordinate acts as a dictionary atom that activates only when its concept is present. The de-coder Dsae (·) is a linear map that projects h(z) back to ˆz
+
+in the original space, reconstructing z. This overcomplete sparse coding promotes feature disentanglement and makes features easy to select or aggregate downstream, and it ap-plies uniformly to text and vision tokens. z    
+
+> Concentration Tokens Sparse Activation sConcept Representations Image Feature
+> Codebook
+> 𝐀
+> S𝐀 𝐀 𝐀 𝐀
+> Transformer Block
+> ℎ𝐀
+> ···
+> ···
+> ···
+> Fusion
+> 𝐀 MHA  Score  ℋ𝐀
+> 𝐀 𝐀
+> Map Head Conf Head
+
+Figure 3. Detailed architecture from the query codebook to the slot mapper. Inputs: sparse features from the SAE. Outputs: a multi-slot heatmap with per-slot confidences. 
+
+Query Codebook & Slot Mapper. As shown in Fig. 3, we apply a query codebook with Transformer encoder blocks to select and aggregate h(z), and use a slot mapper to yield multi-slot heatmap with confidences. Specifically, we first filter nonzero activations in the sparse concept space to ob-tain index–concept pairs {(j, h j (z)) }j∈S (z), where the sup-port set is defined in 
+
+S(z) = {j ∈ { 1, . . . , d sae } : hj (z)̸ = 0 } . (4) Moreover, |S (z)|≪ dsae (see analysis in Sec. 4.3). Sec-ond, we use the codebook C ∈ Rdsae ×dc to decode 
+
+{(j, h j (z)) }j∈S (z) into the dense space. Then we ini-tialize Ks concept representations and, together with 
+
+{C(hj (z)) }j∈S (z), pass them through Transformer en-coder blocks with self-attention to obtain (rk)Ks
+
+> k=1
+
+. Finally, using Sec. 3.1 to form the queries Q and keys K, we com-pute the multi-slot heatmap and the corresponding confi-dences as in 
+
+S = (QW Qi )( KW Ki )⊤/pdh
+
+Nh
+
+> i=1
+
+,
+
+(Hk)Ks 
+
+> k=1
+
+= Fmap (S), (ck)Ks 
+
+> k=1
+
+= Fconf (S),
+
+(5) where Q ∈ RKs×dq , K ∈ Rh×w×dk , W Qi ∈ Rdq ×dh , W Ki ∈
+
+Rdk ×dh , dh is the head dimension, Nh is the number of heads, the map head Fmap : RNh×Ks×h×w → RKs×h×w,and the confidence head Fconf : RNh×Ks×h×w → RKs .
+
+Interpretable Pathway. The alignment is interpretable end-to-end. The SAE surfaces active dictionary atoms as explicit index–activation pairs (j, h j (z)) j∈S (z), yield-ing concept-level attribution in a high-dimensional sparse space. A learned query codebook and Transformer encoder blocks then select and consolidate these sparse concepts into Ks concept representations (rk)Ks 
+
+> k=1
+
+while preserving provenance (which indices from S(z) contributed and with what weights). Finally, the slot mapper Fslot maps the re-sulting queries and vision keys to an observable multi-slot heatmap (Hk)Ks 
+
+> k=1
+
+and per-slot confidences (ck)Ks
+
+> k=1
+
+, mak-ing each slot’s spatial footprint and reliability directly in-spectable. Detailed analyses are provided in Sec. 4.3. 
+
+3.3. Learning Objectives 
+
+Overall. We train the whole system with the objective that couples reinforcement learning [42] on the language path with segmentation supervision on the vision path. For each (ximg , xtxt ), the policy πθ rolls out a group of re-sponses y(i) 
+
+> 1: Ti
+> Gi=1
+
+with the group size G, and we compute the GRPO [42] loss LGRPO from the advantages. In paral-lel, the multi-slot heatmap and confidences (Hk, c k)Ks 
+
+> k=1
+
+are matched with the ground truth masks Mgt . Mgt supervises 
+
+(Hk)Ks 
+
+> k=1
+
+and ˆM , while the binary targets (yk)Ks 
+
+> k=1
+
+derived from the matching supervise (ck)Ks
+
+> k=1
+
+. Formally, with coef-ficients λS and λC , the overall objective is given in 
+
+L = LGRPO 
+
+y(i)
+
+> 1: Ti
+> Gi=1
+
+
+
++ λS LSEG 
+
+
+
+(Hk)Ks 
+
+> k=1
+
+, ˆM , Mgt 
+
+
+
++ λC LCONF 
+
+
+
+(ck)Ks 
+
+> k=1
+
+, (yk)Ks
+
+> k=1
+
+
+
+,
+
+(6) where (·) denotes ordered sequences and {·} denotes un-ordered sets. Each loss term is specified in the following paragraphs. 
+
+SAE Learning Objective. We pretrain the SAE to recon-struct token representations while enforcing sparsity in the activation space. Given hidden states z and the encoded sparse activations h(z) = Esae (z), the objective balances reconstruction fidelity and sparsity: 
+
+LSAE (z) = ∥z − ˆz∥22 + α∥h(z)∥1. (7) Here ˆz = Dsae 
+
+ h(z) reconstructs z to preserve informa-tion. The ℓ1 penalty drives most coordinates of h(z) to zero, yielding a compact concept basis, and α is a control factor. 
+
+Reinforcement Learning Objective. Following Shao et al. [42], we optimize the policy πθ with the GRPO ob-jective. We specify the GRPO loss LGRPO in the Appendix. For each sampled response in a group, we compute a seg-mentation reward and a format reward. For segmentation reward, we perform bipartite matching between predicted masks ˆM and ground truth masks Mgt , and assign each matched pair a score that combines predicted confidence and mask IoU. We score CoT formatting via a set of regular-expression checks as the format reward. Both rewards are normalized to [0 , 1] with fixed coefficients. Further imple-mentation details are provided in Appendix. 
+
+Supervised Segmentation Objectives. The segmentation objectives comprise a segmentation loss and a confidence loss. Losses are computed only on matched pairs between predictions and ground truths, via bipartite matching. First, a binary cross entropy (BCE) loss on the multi-slot heatmap 
+
+(Hk)Ks 
+
+> k=1
+
+encourages concentrated spatial evidence. Sec-ond, a dice loss [36] on the predicted masks ˆM directly supervises mask quality with the coefficient λD . Using the same matching, slot confidences (ck)Ks 
+
+> k=1
+
+are trained with BCE against the binary targets (yk)Ks 
+
+> k=1
+
+∈ { 0, 1}Ks (1 if the slot is matched to any ground truth instance, 0 otherwise). Formally, the segmentation objectives are 
+
+LSEG = LBCE 
+
+ (Hk)Ks 
+
+> k=1
+
+, Mgt 
+
+ + λD LDICE 
+
+  ˆM , Mgt 
+
+,
+
+LCONF = 1
+
+KsKsX
+
+> k=1
+
+LBCE 
+
+ ck, y k
+
+.
+
+4. Experiments 
+
+Research Questions. We aim to answer the following re-search questions in this section: 
+
+RQ1: Does the model achieve higher accuracy in reason-ing segmentation and state-of-the-art results on stan-dard benchmarks relative to prior methods? 
+
+RQ2: How does the model’s interpretability manifest, and does qualitative and quantitative evidence support the claim that the SAE explains the model’s reasoning pro-cess? 
+
+RQ3: How do the reinforcement learning and segmenta-tion supervision contribute to performance, how does the choice of vision backbone affect results, and how sensitive is the model to GRPO hyperparameters? 
+
+4.1. Experimental Setup 
+
+Backbones, Datasets and Metrics. Our experiments use three MLLM backbones: Qwen2.5-VL-7B [2], LLaVA-1.5-7B [27], and LLaVA-1.5-13B. Using 200K samples from OBELICS [23], we pretrain SAEs separately for each backbone. We train SegCompass with each backbone on the training sets of RefCOCO [17], RefCOCO+, Re-fCOCOg [35], and gRefCOCO (multi-object) [25]. We evaluate on the official validation and test splits of Ref-COCO(+/g) and gRefCOCO. We further assess zero-shot reasoning segmentation by evaluating on ReasonSeg (vali-dation and test) without using its images for training. Fol-lowing common practice, we report cIoU (the cumulative intersection over the cumulative union) on RefCOCO(+/g), and both cIoU and gIoU (mean of per-image IoU) on gRef-COCO and ReasonSeg. 
+
+Baselines. We compare our method with 27 prior works, grouped into 3 categories according to their architecture. Methods without LLMs include methods that do not rely on LLMs to encode textual instructions for mask genera-tion, such as VLT [6], CRIS [52], LAVT [56], ReLA [25], X-Decoder [62], and SEEM [63]. Latent Query Align-ment Methods, including LISA [21], PerceptionGPT [37], PixelLM [40], LaSagnA [53], OMG-LLaVA [59], Ground-Hog [60], GLaMM [38], SegLLM [50], UniPixel [29], UniRES [28], UFO [46], LIRA [24], HiMTok [49], RAS [3], and X-SAM [48], typically take hidden fea-tures or queries from a large language model and decode them into segmentation masks. Textual Localization Read-out Methods, which includes SAM4MLLM [5], Seg-R1-7B [57], Seg-Zero-7B [30], VisionReasoner-7B [31], SAM R1-7B [14], and Text4Seg [22], use an MLLM to emit dis-crete location tokens (e.g., box coordinates or patch indices) which are then converted into masks. 
+
+Implementation Details. For each experiment, we train on 8 NVIDIA A100 (80 GB) GPUs. For GRPO, we ab-late the number of samples at {2, 4, 6, 8}. We weight the two reward components as 0.7 for segmentation and 0.3 for CoT formatting. For single-object datasets, we use the soft IoU as the segmentation score. For multi-object datasets, we add a binary confidence score (1 if matched, 0 other-wise). The format score is computed under specific regular expression rules for five conditions (see Appendix). For the slot mapper, we set the maximum number of slots to 6. Loss coefficients λS , λC and λD are set to 1.0, 0.2 and 0.6, respec-tively. The base learning rate for the MLLM backbone is set to 2e-6, and we apply multipliers of 25 × for the query code-book, 80 × for the slot mapper, and 10 × for mask decoder. We use the AdamW [33] optimizer with weight decay 0.01 and adopt OneCycleLR [45] as the learning rate scheduler. Full configurations are provided in Appendix. Selections of significant hyper-parameters are revealed in Section 4.4. 
+
+4.2. Overall Performance (RQ1) 
+
+We evaluate the effectiveness of SegCompass by conduct-ing experiments on three standard benchmarks: the Ref-COCO series, gRefCOCO, and ReasonSeg. 
+
+Results on RefCOCO(+/g). Following the evaluation pro-tocols of prior reasoning segmentation methods [3, 21], we conduct experiments on the RefCOCO series. As shown in Table 1, our SegCompass achieves the best performance on almost all splits. Moreover, under the same base model and model size conditions, our model achieves significant performance improvements, demonstrating the effective-ness. In addition, compared to Seg-Zero, SAM-R1, and Vi-sionReasoner trained via GRPO, SegCompass performs better. This advantage stems from our designed sparse fea-
+
+Table 1. Comparison of methods on RefCOCO, RefCOCO+, and RefCOCOg datasets. Backbones: 1 LLaVA-1.5, 2 Qwen2.5-VL, 3
+
+InternVL-2.5, 4 InternVL-2, 5 Phi-3, 6 LLaVA-1.6.                                                                                                                                                                                                                                                                                                           
+
+> Method RefCOCO RefCOCO+ RefCOCOg val testA testB val testA testB val test
+> Method without LLMs
+> VLT [6] 67.5 70.5 65.2 56.3 61.0 50.1 55.0 57.7 CRIS [52] 70.5 73.2 66.1 62.3 68.1 53.7 59.9 60.4 LAVT [56] 72.7 75.8 68.8 62.1 68.4 55.1 61.2 62.1 ReLA [25] 73.8 76.5 70.2 66.0 71.0 57.7 65.0 66.0 X-Decoder [62] ––––––64.6 –SEEM [63] ––––––65.7 –
+> Latent Query Alignment Method
+> LISA-7B 1[21] 74.9 79.1 72.3 65.1 70.8 58.1 67.9 70.6 LISA-13B 1[21] 76.0 78.8 72.9 65.0 70.2 58.1 69.5 70.5 PerceptionGPT-7B 1[37] 75.1 78.6 71.7 68.5 73.9 61.3 70.3 71.7 PerceptionGPT-13B 1[37] 75.3 79.1 72.1 68.9 74.0 61.9 70.7 71.9 PixelLM-7B 1[40] 73.0 76.5 68.2 66.3 71.7 58.3 69.3 70.5 LaSagnA-7B 1[53] 76.8 78.7 73.8 66.4 70.6 60.1 70.6 71.9 OMG-LLaVA-7B 1[59] 78.0 80.3 74.1 69.1 73.1 63.0 72.9 72.9 GroundHog-7B 1[60] 78.5 79.9 75.7 70.5 75.0 64.9 74.1 74.6 GLaMM-7B 1[38] 79.5 83.2 76.9 72.6 78.7 64.6 74.2 74.9 SegLLM-7B 1[50] 80.2 81.5 75.4 70.3 73.0 62.5 72.6 73.6 UniPixel-7B 2[29] 80.8 83.0 77.4 75.3 80.1 70.0 76.4 77.1 UniRES-7B 1[28] 80.2 81.8 75.8 71.6 76.0 64.4 73.8 74.1 UFO-8B 3[46] 81.0 82.6 78.6 77.1 80.4 72.6 76.7 77.3 LIRA-8B 4[24] 81.8 83.4 78.1 76.3 81.1 70.5 78.4 78.2 HiMTok-8B 3[49] 85.9 86.3 83.9 80.5 83.7 76.4 80.1 80.9 RAS-13B 1[3] 81.0 83.5 79.0 75.1 80.0 70.3 76.0 77.5 X-SAM-3.8B 5[48] 85.1 87.1 83.4 78.0 81.0 74.4 83.8 83.9
+> Textual Localization Readout Method
+> SAM4MLLM-7B 6[5] 79.6 82.8 76.1 73.5 77.8 65.8 74.5 75.6 Seg-R1-7B 2[57] 74.3 78.7 67.6 62.6 70.9 57.9 71.0 71.4 Seg-Zero-7B 2[30] –80.3 ––76.2 ––72.6 VisionReasoner-7B 2[31] –78.9 ––74.9 ––71.3 SAM-R1-7B 2[14] –79.2 ––74.7 ––73.1 Text4Seg-7B 1[22] 79.3 81.9 76.2 72.1 77.6 66.1 72.1 73.9 Text4Seg-13B 1[22] 80.2 82.7 77.3 73.7 78.6 67.6 74.0 75.1
+> Interpretable Alignment Method
+> SegCompass -7B 180.0 82.9 79.2 77.2 83.9 71.8 79.4 77.6
+> SegCompass -7B 285.3 87.5 83.6 78.3 84.7 76.6 82.8 81.0
+> SegCompass -13B 186.3 87.3 84.1 80.5 84.6 76.9 84.0 81.3
+
+ture interface that applies sparse concept features to align thought reasoning with segmentation. 
+
+Multi-object Results on gRefCOCO. We evaluate on the gRefCOCO, a benchmark posing challenges in referring to multiple objects. The comparisons on gRefCOCO are presented in Table 2. Our SegCompass sets the new state-of-the-art among the 7B and 13B models on most of the splits and metrics, maintaining its competitive edge in multi-object reasoning segmentation tasks. These outcomes highlight the robustness and versatility of SegCompass in handling more complex segmentation challenges. 
+
+Zero-shot Results on ReasonSeg. We evaluate on the ReasonSeg in a zero-shot setting to validate the general-ization ability of SegCompass on complex reasoning seg-mentation scenarios. From Table 3, our SegCompass also demonstrates superior results compared to prior state-of-the-art methods. Notably, we find that methods trained with reinforcement learning, such as Seg-Zero, SAM-R1, Vi-Table 2. Comparison of methods on gRefCOCO. * indicates zero-shot performance. Backbones: 1 LLaVA-1.5, 2 Qwen2.5-VL, 3
+
+InternVL-2.5, 4 InternVL-2, 5 Phi-3, 6 LLaVA-1.6. 
+
+Method Year val testA testB gIoU cIoU gIoU cIoU gIoU cIoU 
+
+Method without LLMs 
+
+MattNet [58] 2018 48.2 47.5 59.3 58.6 46.1 45.3 LTS [16] 2021 52.7 52.3 62.6 61.8 50.4 49.9 VLT [6] 2021 52.0 52.5 63.2 62.1 50.8 50.5 CRIS [52] 2022 56.2 55.3 63.4 63.8 51.7 51.0 LAVT [56] 2022 58.4 57.6 65.9 65.3 55.8 55.0 ReLA [25] 2023 63.6 62.4 70.0 69.3 61.0 59.9 
+
+Latent Query Alignment Method 
+
+LISA-7B 1 [21] 2024 61.6 61.7 66.2 68.5 58.8 60.6 LISA-13B 1 [21] 2024 63.4 62.9 68.1 69.6 61.8 62.2 GSVA-7B 1 [55] 2024 66.5 63.3 71.1 69.9 62.2 60.5 GSVA-13B 1 [55] 2024 68.0 64.0 71.8 70.5 63.8 61.3 GroundHog-7B 1 [60] 2024 66.7 – – – – –LaSagnA-7B* 1 [53] 2024 32.4 38.1 47.3 50.4 38.9 42.1 OMG-LLaVA-7B* 1 [59] 2024 36.1 39.3 50.1 52.4 42.2 43.7 LIRA-8B* 4 [24] 2025 36.7 40.9 50.4 52.4 42.4 44.9 HiMTok-8B 3 [49] 2025 72.1 70.4 73.5 74.9 71.7 72.0 
+
+UniRES-7B 1 [28] 2025 74.4 69.9 76.0 74.5 69.8 66.6 RAS-13B 1 [3] 2025 74.6 70.5 77.5 77.0 69.4 67.9 
+
+Textual Localization Readout Method 
+
+SAM4MLLM-7B 6 [5] 2024 71.9 67.8 74.2 72.2 65.3 63.4 Text4Seg-7B 1 [22] 2025 73.6 67.9 74.1 72.8 66.1 64.8 Text4Seg-13B 1 [22] 2025 74.8 69.8 75.1 74.3 68.0 67.1 
+
+Interpretable Alignment Method 
+
+SegCompass -7B 1 75.0 70.6 76.1 72.6 68.2 66.7 
+
+SegCompass -7B 2 76.1 72.2 76.8 76.5 70.0 72.8 
+
+SegCompass -13B 1 76.8 72.2 77.7 77.3 71.9 72.4 
+
+sionReasoner, and our SegCompass , consistently outper-form other methods, demonstrating the generalization ben-efits of reinforcement learning for segmentation models. 10 4 10 3 10 2 10 1 10 0 10 1
+
+Activation Threshold          
+
+> 0
+> 5
+> 10
+> 15
+> 20
+> 25
+> 30
+> 35
+> 40
+> Avg. Activations
+> Question
+> Instance
+> CoT
+> Background
+> 10 410 310 210 110 010 1
+
+Activation Threshold 
+
+> 0
+> 50
+> 100
+> 150
+> 200
+> 250
+> 300
+> 350
+> Avg. Activations
+> Question
+> Instance
+> CoT
+> Background
+
+Figure 4. Activation patterns. Average number of active sparse features per token type across activation thresholds. Left: LLaVA-1.5-7B. Right: Qwen2.5-VL-7B. 
+
+4.3. Interpretability Analysis (RQ2) 
+
+Interpretable Activation Patterns. We analyze the dis-tribution of SAE activations across token types (Figure 4). For a threshold τ , we count the number of active dimen-sions in the dsae = 65 ,536 -dimensional space and report the per-token mean for four types: question and CoT to-kens from text, and instance and background tokens from image features. Two patterns emerge. First, across thresh-olds, instance and CoT tokens activate the most features. 
+
+Table 3. Zero-shot comparison of methods on ReasonSeg dataset. Backbones: 1 LLaVA-1.5, 2 Qwen2.5-VL, 3 InternVL-2.5, 4
+
+InternVL-2, 5 Phi-3, 6 LLaVA-1.6. 
+
+Method Year val test gIoU cIoU gIoU cIoU 
+
+Method without LLMs 
+
+ReLA [25] 2023 22.4 19.9 21.3 22.0 X-Decoder [62] 2023 22.6 17.9 21.7 16.3 SEEM [63] 2023 25.5 21.2 24.3 18.7 Grounded-SAM [39] 2024 26.0 14.5 21.3 16.4 
+
+Latent Query Alignment Method 
+
+LISA-7B 1 [21] 2024 53.6 52.3 48.7 48.8 LISA-13B 1 [21] 2024 57.7 60.3 53.8 50.8 LaSagnA-7B 1 [53] 2024 48.8 47.2 – –GroundHog-7B 1 [60] 2024 56.2 – – –SegLLM-7B 1 [50] 2025 57.2 54.3 52.4 48.4 UFO-8B 3 [46] 2025 – – 60.0 –UniPixel-7B 2 [29] 2025 60.5 58.7 – –X-SAM-3.8B 5 [48] 2025 56.6 32.9 57.8 41.0 HiMTok-8B 3 [49] 2025 60.7 67.0 60.8 66.2 
+
+Textual Localization Readout Method 
+
+SAM4MLLM-7B 6 [5] 2024 46.7 48.1 – –Seg-R1-7B 2 [57] 2025 58.6 41.2 56.7 53.7 Seg-Zero-7B 2 [30] 2025 62.6 62.0 57.5 52.0 VisionReasoner-7B 2 [31] 2025 66.3 – 63.6 –SAM-R1-7B 2 [14] 2025 64.0 55.8 60.2 54.3 
+
+Interpretable Alignment Method 
+
+SegCompass -7B 1 66.3 65.6 61.0 63.0 
+
+SegCompass -7B 2 66.6 66.3 64.0 64.8 
+
+SegCompass -13B 1 67.4 67.2 64.2 66.5 
+
+Question tokens are lower but above background, and back-ground is consistently lowest, which indicates semantic se-lectivity and an interpretable focus on segmented objects and the reasoning process. Second, most curves are insen-sitive when τ < 0.1, indicating that once a token activates a feature, its activation is typically well above small thresh-olds rather than marginal noise. Finally, Qwen2.5-VL-7B shows higher activation counts and larger separations be-tween token types than LLaVA-1.5-7B, consistent with the stronger downstream results reported in Section 4.2. 0.1 0.2 0.3 0.4 0.5 
+
+Top-K% Activated Tokens     
+
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> 0.4
+> 0.5
+> 0.6
+> 0.7
+> 0.8
+> Instance Coverage
+> Random Baseline
+> RefCOCOg
+> gRefCOCO
+> ReasonSeg
+> 0.1 0.2 0.3 0.4 0.5
+
+Top-K% Activated Tokens 
+
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> 0.4
+> 0.5
+> 0.6
+> 0.7
+> 0.8
+> Instance Coverage
+> Random Baseline
+> RefCOCOg
+> gRefCOCO
+> ReasonSeg
+
+Figure 5. Instance Coverage Rate vs. Top-K Percentage. Left: 
+
+LLaVA-1.5-7B. Right: Qwen2.5-VL-7B. 
+
+Instance Coverage Analysis. Figure 5 reports, for each instance, the probability that its pixels are covered by the union of the top-K % activated tokens, where tokens are ranked by activation magnitude. A random-K % baseline (uniformly sampling K % of tokens) is shown for reference. Table 4. Effect of training mode.             
+
+> Reinforcement Learning Segmentation Supervision RefCOCOg gRefCOCO ReasonSeg
+> ✓✗65.9 63.0 40.1
+> ✗✓77.9 74.0 59.3
+> ✓✓81.3 77.3 66.5
+
+Table 5. Effect of vision backbone.              
+
+> Vision Backbone Params (B) RefCOCOg gRefCOCO ReasonSeg ViT-B 0.09 78.8 75.0 58.8 ViT-L 0.31 80.1 76.2 63.9 ViT-H 0.64 81.3 77.3 66.5
+
+Table 6. Effect of reward function.              
+
+> Format Score Segmentation Score RefCOCOg gRefCOCO ReasonSeg 0.0 1.0 79.1 75.0 63.9 0.5 0.5 81.0 76.8 66.2 0.3 0.7 81.3 77.3 66.5
+
+Although the SAE is only pretrained and never exposed to segmentation supervision, top-K % activations yield markedly higher instance coverage than the random base-line, indicating object-sensitive activations aligned with the referred entities. Moreover, Qwen2.5-VL-7B attains higher coverage than LLaVA-1.5-7B, consistent with the patterns observed in Figure 4. Moreover, we analyze the correlation between modules in Appendix. 
+
+4.4. Ablation Study (RQ3) 
+
+To better demonstrate the impact of different contributing factors, we conduct ablation studies with SegCompass -13B on RefCOCOg, gRefCOCO, and ReasonSeg. Our investigation centered around the following aspects: the group size of GRPO training, the training mode, the vision backbone of segmentation, and the reward function. These studies provide insights into the effectiveness and stability of our method. 2 4 6 8      
+
+> GRPO Group Size
+> 50
+> 55
+> 60
+> 65
+> 70
+> 75
+> 80
+> 85
+> 90
+> cIoU
+> 76.9
+> 79.2 80.4 81.3
+> 72.6
+> 75.0 76.8 77.3
+> 61.9
+> 64.0 65.1 66.5
+> RefCOCOg
+> gRefCOCO
+> ReasonSeg
+> 0
+> 100
+> 200
+> 300
+> 400
+> 500
+> 600
+> Samples to Convergence  (×10 3)Samples to Convergence
+
+Figure 6. Effect of GRPO group size on performance and sam-pling cost. We report cIoU vs. group size G on RefCOCOg, gRe-fCOCO, and ReasonSeg, and plot the total number of sampled re-sponses required for convergence. 
+
+GRPO Group Size. The group size refers to the num-ber of answers sampled for each question during rollout and is the important parameters of GRPO. We conduct experi-ments on different group sizes, as shown in Figure 6. We can see that increasing the group size can achieve effective performance improvement. The advantage of a larger group size is that it allows the model to see a larger sample space, and the difference between positive and negative samples within the group is more pronounced. In addition, we also count the total number of rollout samples when the train-ing loss fluctuates less than 5% within a certain step (i.e. Samples to Convergence) in Figure 6. We find that, under different group sizes, the difference in the total number of rollout samples during GRPO training convergence is small, but larger group sizes can achieve better performance. 
+
+Training Mode. We compare the effect of different train-ing modes (i.e. training objective function), including rein-forcement learning, segmentation supervision, and a com-bined objective, for SegCompass -13B. As shown in Ta-ble 4, the combined objective achieves the best perfor-mance. The reason for this phenomenon is that reinforce-ment learning can enhance reasoning, while supervised sig-nals can enhance mask generation. They are more effective together for complex reasoning segmentation. 
+
+Vision Backbone. We verify the impact of the size of visual backbone on the segmentation performance of 
+
+SegCompass -13B. The experimental results are presented in Table 5. From the experimental results, it can be found that larger visual backbones have better segmentation per-formance. The larger visual backbone has stronger repre-sentation capacity and can provide more information for de-coding segmentation results. 
+
+Reward Function. We also evaluate alternative reward designs. Table 6 compares combinations of the format score and the segmentation score. The segmentation score con-tributes more to segmentation performance. This advantage stems from the segmentation score’s direct correlation with the quality of segmentation results, while the format score only regulates the behavior of the model. 
+
+5. Conclusion 
+
+In this work, we introduced SegCompass , a novel frame-work that successfully bridges the interpretability gap in reasoning segmentation. Our core innovation is an SAE that forges an explicit “white-box” alignment between CoT rea-soning and mask prediction. The SAE maps both CoT and visual tokens into a shared sparse concept space, which is then grounded into a multi-slot heatmap to guide the final segmentation. This end-to-end framework, jointly trained with GRPO and segmentation supervision, bypasses the opacity of latent queries and the ambiguity of textual read-outs. SegCompass achieves state-of-the-art performance across five challenging benchmarks. Our quantitative and visual analyses confirm that this strong performance is di-rectly linked to the quality of the learned sparse concepts, which provide an inspectable pathway from reasoning to perception. Acknowledgments 
+
+We sincerely thank the anonymous reviewers and chairs for their efforts and suggestions, greatly helping us improve the manuscript. This work is supported in part by the Na-tional Natural Science Foundation of China under grants 62536003 and 624B2088, and in part by the project of Peng Cheng Laboratory (PCL2025A14). 
+
+References 
+
+[1] Jinze Bai, Shuai Bai, Shusheng Yang, Shijie Wang, Sinan Tan, Peng Wang, Junyang Lin, Chang Zhou, and Jingren Zhou. Qwen-vl: A versatile vision-language model for un-derstanding, localization, text reading, and beyond, 2023. 1 [2] Shuai Bai, Keqin Chen, Xuejing Liu, Jialin Wang, Wenbin Ge, Sibo Song, Kai Dang, Peng Wang, Shijie Wang, Jun Tang, et al. Qwen2.5-vl technical report. arXiv preprint arXiv:2502.13923 , 2025. 1, 4, 5 [3] Shengcao Cao, Zijun Wei, Jason Kuen, Kangning Liu, Lingzhi Zhang, Jiuxiang Gu, HyunJoon Jung, Liang-Yan Gui, and Yu-Xiong Wang. Refer to anything with vision-language prompts. arXiv preprint arXiv:2506.05342 , 2025. 1, 3, 6, 7 [4] Sviatoslav Chalnev, Matthew Siu, and Arthur Conmy. Im-proving steering vectors by targeting sparse autoencoder fea-tures. arXiv preprint arXiv:2411.02193 , 2024. 3 [5] Yi-Chia Chen, Wei-Hua Li, Cheng Sun, Yu-Chiang Frank Wang, and Chu-Song Chen. Sam4mllm: Enhance multi-modal large language model for referring expression seg-mentation. In European Conference on Computer Vision ,pages 323–340. Springer, 2024. 1, 3, 6, 7 [6] Henghui Ding, Chang Liu, Suchen Wang, and Xudong Jiang. Vision-language transformer and query generation for refer-ring segmentation. In Proceedings of the IEEE/CVF interna-tional conference on computer vision , pages 16321–16330, 2021. 2, 6, 7 [7] Henghui Ding, Song Tang, Shuting He, Chang Liu, Zuxuan Wu, and Yu-Gang Jiang. Multimodal referring segmentation: A survey. arXiv preprint arXiv:2508.00265 , 2025. 1 [8] Ke Fan, Zechen Bai, Tianjun Xiao, Tong He, Max Horn, Yanwei Fu, Francesco Locatello, and Zheng Zhang. Adap-tive slot attention: Object discovery with dynamic slot num-ber. In Proceedings of the IEEE/CVF Conference on Com-puter Vision and Pattern Recognition , pages 23062–23071, 2024. 2 [9] Javier Ferrando, Oscar Obeso, Senthooran Rajamanoharan, and Neel Nanda. Do i know this entity? knowledge aware-ness and hallucinations in language models. arXiv preprint arXiv:2411.14257 , 2024. 3 [10] Andrey Galichin, Alexey Dontsov, Polina Druzhinina, An-ton Razzhigaev, Oleg Y Rogov, Elena Tutubalina, and Ivan Oseledets. I have covered all the bases here: Interpreting reasoning features in large language models via sparse au-toencoders. arXiv preprint arXiv:2503.18878 , 2025. 3 [11] Leo Gao, Tom Dupr´ e la Tour, Henk Tillman, Gabriel Goh, Rajan Troll, Alec Radford, Ilya Sutskever, Jan Leike, and Jeffrey Wu. Scaling and evaluating sparse autoencoders. 
+
+arXiv preprint arXiv:2406.04093 , 2024. 3 [12] Daya Guo, Dejian Yang, Haowei Zhang, Junxiao Song, Ruoyu Zhang, Runxin Xu, Qihao Zhu, Shirong Ma, Peiyi Wang, Xiao Bi, et al. Deepseek-r1 incentivizes reasoning in llms through reinforcement learning. Nature , 645(8081): 633–638, 2025. 1, 4, 2 [13] Zirui He, Haiyan Zhao, Yiran Qiao, Fan Yang, Ali Payani, Jing Ma, and Mengnan Du. Saif: A sparse autoencoder framework for interpreting and steering instruction follow-ing of language models. arXiv preprint arXiv:2502.11356 ,2025. 3 [14] Jiaqi Huang, Zunnan Xu, Jun Zhou, Ting Liu, Yicheng Xiao, Mingwen Ou, Bowen Ji, Xiu Li, and Kehong Yuan. Sam-r1: Leveraging sam for reward feedback in multimodal segmentation via reinforcement learning. arXiv preprint arXiv:2505.22596 , 2025. 6, 7 [15] Robert Huben, Hoagy Cunningham, Logan Riggs Smith, Aidan Ewart, and Lee Sharkey. Sparse autoencoders find highly interpretable features in language models. In The Twelfth International Conference on Learning Representa-tions , 2024. 2, 3 [16] Ya Jing, Tao Kong, Wei Wang, Liang Wang, Lei Li, and Tie-niu Tan. Locate then segment: A strong pipeline for referring image segmentation. In Proceedings of the IEEE/CVF Con-ference on Computer Vision and Pattern Recognition , pages 9858–9867, 2021. 7 [17] Sahar Kazemzadeh, Vicente Ordonez, Mark Matten, and Tamara Berg. Referitgame: Referring to objects in pho-tographs of natural scenes. In Proceedings of the 2014 con-ference on empirical methods in natural language processing (EMNLP) , pages 787–798, 2014. 2, 5, 1 [18] Alexander Kirillov, Eric Mintun, Nikhila Ravi, Hanzi Mao, Chloe Rolland, Laura Gustafson, Tete Xiao, Spencer White-head, Alexander C Berg, Wan-Yen Lo, et al. Segment any-thing. In Proceedings of the IEEE/CVF international confer-ence on computer vision , pages 4015–4026, 2023. 4 [19] Philipp Kr¨ ahenb¨ uhl and Vladlen Koltun. Efficient inference in fully connected crfs with gaussian edge potentials. Ad-vances in neural information processing systems , 24, 2011. 3[20] Woosuk Kwon, Zhuohan Li, Siyuan Zhuang, Ying Sheng, Lianmin Zheng, Cody Hao Yu, Joseph Gonzalez, Hao Zhang, and Ion Stoica. Efficient memory management for large language model serving with pagedattention. In Pro-ceedings of the 29th symposium on operating systems prin-ciples , pages 611–626, 2023. 1 [21] Xin Lai, Zhuotao Tian, Yukang Chen, Yanwei Li, Yuhui Yuan, Shu Liu, and Jiaya Jia. Lisa: Reasoning segmentation via large language model. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition ,pages 9579–9589, 2024. 1, 2, 3, 6, 7 [22] Mengcheng Lan, Chaofeng Chen, Yue Zhou, Jiaxing Xu, Yiping Ke, Xinjiang Wang, Litong Feng, and Wayne Zhang. Text4seg: Reimagining image segmentation as text genera-tion. In The Thirteenth International Conference on Learn-ing Representations , 2025. 1, 3, 6, 7 [23] Hugo Laurenc ¸on, Lucile Saulnier, L´ eo Tronchon, Stas Bek-man, Amanpreet Singh, Anton Lozhkov, Thomas Wang, Sid-dharth Karamcheti, Alexander Rush, Douwe Kiela, et al. Obelics: An open web-scale filtered dataset of interleaved image-text documents. Advances in Neural Information Pro-cessing Systems , 36:71683–71702, 2023. 5 [24] Zhang Li, Biao Yang, Qiang Liu, Shuo Zhang, Zhiyin Ma, Liang Yin, Linger Deng, Yabo Sun, Yuliang Liu, and Xiang Bai. Lira: Inferring segmentation in large multi-modal mod-els with local interleaved region assistance. In Proceedings of the IEEE/CVF International Conference on Computer Vi-sion , pages 24056–24067, 2025. 1, 3, 6, 7 [25] Chang Liu, Henghui Ding, and Xudong Jiang. Gres: Gen-eralized referring expression segmentation. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 23592–23601, 2023. 2, 5, 6, 7, 1 [26] Haotian Liu, Chunyuan Li, Qingyang Wu, and Yong Jae Lee. Visual instruction tuning. Advances in neural information processing systems , 36:34892–34916, 2023. 1 [27] Haotian Liu, Chunyuan Li, Yuheng Li, and Yong Jae Lee. Improved baselines with visual instruction tuning. In Pro-ceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 26296–26306, 2024. 4, 5, 1 [28] Jing Liu, Wenxuan Wang, Yisi Zhang, Yepeng Tang, Xingjian He, Longteng Guo, Tongtian Yue, and Xinlong Wang. Towards unified referring expression segmentation across omni-level visual target granularities. arXiv preprint arXiv:2504.01954 , 2025. 6, 7 [29] Ye Liu, Zongyang Ma, Junfu Pu, Zhongang Qi, Yang Wu, Ying Shan, and Chang Wen Chen. Unipixel: Unified object referring and segmentation for pixel-level visual reasoning. 
+
+arXiv preprint arXiv:2509.18094 , 2025. 3, 6, 7 [30] Yuqi Liu, Bohao Peng, Zhisheng Zhong, Zihao Yue, Fanbin Lu, Bei Yu, and Jiaya Jia. Seg-zero: Reasoning-chain guided segmentation via cognitive reinforcement. arXiv preprint arXiv:2503.06520 , 2025. 1, 3, 6, 7 [31] Yuqi Liu, Tianyuan Qu, Zhisheng Zhong, Bohao Peng, Shu Liu, Bei Yu, and Jiaya Jia. Visionreasoner: Unified visual perception and reasoning via reinforcement learning. arXiv preprint arXiv:2505.12081 , 2025. 1, 3, 6, 7 [32] Francesco Locatello, Dirk Weissenborn, Thomas Un-terthiner, Aravindh Mahendran, Georg Heigold, Jakob Uszkoreit, Alexey Dosovitskiy, and Thomas Kipf. Object-centric learning with slot attention, 2020. URL https://arxiv. org/abs , 2006. 2 [33] Ilya Loshchilov and Frank Hutter. Decoupled weight de-cay regularization. In International Conference on Learning Representations , 2019. 6 [34] Hantao Lou, Changye Li, Jiaming Ji, and Yaodong Yang. SAE-v: Interpreting multimodal models for enhanced align-ment. In Forty-second International Conference on Machine Learning , 2025. 2, 3, 4, 1 [35] Junhua Mao, Jonathan Huang, Alexander Toshev, Oana Camburu, Alan L Yuille, and Kevin Murphy. Generation and comprehension of unambiguous object descriptions. In 
+
+Proceedings of the IEEE conference on computer vision and pattern recognition , pages 11–20, 2016. 2, 5, 1 [36] Fausto Milletari, Nassir Navab, and Seyed-Ahmad Ahmadi. V-net: Fully convolutional neural networks for volumetric medical image segmentation. In 2016 fourth international conference on 3D vision (3DV) , pages 565–571. Ieee, 2016. 5[37] Renjie Pi, Lewei Yao, Jiahui Gao, Jipeng Zhang, and Tong Zhang. Perceptiongpt: Effectively fusing visual percep-tion into llm. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 27124– 27133, 2024. 1, 3, 6 [38] Hanoona Rasheed, Muhammad Maaz, Sahal Shaji, Abdel-rahman Shaker, Salman Khan, Hisham Cholakkal, Rao M Anwer, Eric Xing, Ming-Hsuan Yang, and Fahad S Khan. Glamm: Pixel grounding large multimodal model. In Pro-ceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 13009–13018, 2024. 3, 6 [39] Tianhe Ren, Shilong Liu, Ailing Zeng, Jing Lin, Kunchang Li, He Cao, Jiayu Chen, Xinyu Huang, Yukang Chen, Feng Yan, et al. Grounded sam: Assembling open-world models for diverse visual tasks. arXiv preprint arXiv:2401.14159 ,2024. 7 [40] Zhongwei Ren, Zhicheng Huang, Yunchao Wei, Yao Zhao, Dongmei Fu, Jiashi Feng, and Xiaojie Jin. Pixellm: Pixel reasoning with large multimodal model. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 26374–26383, 2024. 3, 6 [41] John Schulman, Filip Wolski, Prafulla Dhariwal, Alec Rad-ford, and Oleg Klimov. Proximal policy optimization algo-rithms. arXiv preprint arXiv:1707.06347 , 2017. 2 [42] Zhihong Shao, Peiyi Wang, Qihao Zhu, Runxin Xu, Junxiao Song, Xiao Bi, Haowei Zhang, Mingchuan Zhang, YK Li, Yang Wu, et al. Deepseekmath: Pushing the limits of math-ematical reasoning in open language models. arXiv preprint arXiv:2402.03300 , 2024. 3, 5, 1, 2 [43] Guangming Sheng, Chi Zhang, Zilingfeng Ye, Xibin Wu, Wang Zhang, Ru Zhang, Yanghua Peng, Haibin Lin, and Chuan Wu. Hybridflow: A flexible and efficient rlhf frame-work. In Proceedings of the Twentieth European Conference on Computer Systems , pages 1279–1297, 2025. 1 [44] Dong Shu, Xuansheng Wu, Haiyan Zhao, Daking Rai, Ziyu Yao, Ninghao Liu, and Mengnan Du. A survey on sparse autoencoders: Interpreting the internal mechanisms of large language models. arXiv preprint arXiv:2503.05613 , 2025. 2, 3 [45] Leslie N Smith and Nicholay Topin. Super-convergence: Very fast training of neural networks using large learn-ing rates. In Artificial intelligence and machine learning for multi-domain operations applications , pages 369–386. SPIE, 2019. 6 [46] Hao Tang, Chenwei Xie, Haiyang Wang, Xiaoyi Bao, Tingyu Weng, Pandeng Li, Yun Zheng, and Liwei Wang. Ufo: A unified approach to fine-grained visual perception via open-ended language interface. arXiv preprint arXiv:2503.01342 ,2025. 3, 6, 7 [47] Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszko-reit, Llion Jones, Aidan N Gomez, Łukasz Kaiser, and Illia Polosukhin. Attention is all you need. Advances in neural information processing systems , 30, 2017. 3, 1 [48] Hao Wang, Limeng Qiao, Zequn Jie, Zhijian Huang, Chengjian Feng, Qingfang Zheng, Lin Ma, Xiangyuan Lan, and Xiaodan Liang. X-sam: From segment anything to any segmentation. arXiv preprint arXiv:2508.04655 , 2025. 6, 7 [49] Tao Wang, Changxu Cheng, Lingfeng Wang, Senda Chen, and Wuyue Zhao. Himtok: Learning hierarchical mask to-kens for image segmentation with large multimodal model. 
+
+arXiv preprint arXiv:2503.13026 , 2025. 6, 7 [50] XuDong Wang, Shaolun Zhang, Shufan Li, Kehan Li, Kon-stantinos Kallidromitis, Yusuke Kato, Kazuki Kozuka, and Trevor Darrell. SegLLM: Multi-round reasoning segmenta-tion with large language models. In The Thirteenth Interna-tional Conference on Learning Representations , 2025. 3, 6, 7[51] Yaoting Wang, Shengqiong Wu, Yuecheng Zhang, Shuicheng Yan, Ziwei Liu, Jiebo Luo, and Hao Fei. Multimodal chain-of-thought reasoning: A comprehensive survey. arXiv preprint arXiv:2503.12605 , 2025. 1, 4 [52] Zhaoqing Wang, Yu Lu, Qiang Li, Xunqiang Tao, Yandong Guo, Mingming Gong, and Tongliang Liu. Cris: Clip-driven referring image segmentation. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 11686–11695, 2022. 2, 6, 7 [53] Cong Wei, Haoxian Tan, Yujie Zhong, Yujiu Yang, and Lin Ma. Lasagna: Language-based segmentation assistant for complex queries. arXiv preprint arXiv:2404.08506 , 2024. 6, 7[54] Xuansheng Wu, Jiayi Yuan, Wenlin Yao, Xiaoming Zhai, and Ninghao Liu. Interpreting and steering llms with mu-tual information-based explanations on sparse autoencoders. 
+
+arXiv preprint arXiv:2502.15576 , 2025. 3 [55] Zhuofan Xia, Dongchen Han, Yizeng Han, Xuran Pan, Shiji Song, and Gao Huang. Gsva: Generalized segmentation via multimodal large language models. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 3858–3869, 2024. 7 [56] Zhao Yang, Jiaqi Wang, Yansong Tang, Kai Chen, Heng-shuang Zhao, and Philip HS Torr. Lavt: Language-aware vision transformer for referring image segmentation. In Pro-ceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 18155–18165, 2022. 2, 6, 7 [57] Zuyao You and Zuxuan Wu. Seg-r1: Segmentation can be surprisingly simple with reinforcement learning. arXiv preprint arXiv:2506.22624 , 2025. 3, 6, 7 [58] Licheng Yu, Zhe Lin, Xiaohui Shen, Jimei Yang, Xin Lu, Mohit Bansal, and Tamara L Berg. Mattnet: Modular at-tention network for referring expression comprehension. In 
+
+Proceedings of the IEEE conference on computer vision and pattern recognition , pages 1307–1315, 2018. 7 [59] Tao Zhang, Xiangtai Li, Hao Fei, Haobo Yuan, Shengqiong Wu, Shunping Ji, Chen Change Loy, and Shuicheng Yan. Omg-llava: Bridging image-level, object-level, pixel-level reasoning and understanding. Advances in neural informa-tion processing systems , 37:71737–71767, 2024. 3, 6, 7 [60] Yichi Zhang, Ziqiao Ma, Xiaofeng Gao, Suhaila Shakiah, Qiaozi Gao, and Joyce Chai. Groundhog: Grounding large language models to holistic segmentation. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 14227–14238, 2024. 3, 6, 7 [61] Yanli Zhao, Andrew Gu, Rohan Varma, Liang Luo, Chien-Chin Huang, Min Xu, Less Wright, Hamid Shojanazeri, Myle Ott, Sam Shleifer, et al. Pytorch fsdp: experi-ences on scaling fully sharded data parallel. arXiv preprint arXiv:2304.11277 , 2023. 1 [62] Xueyan Zou, Zi-Yi Dou, Jianwei Yang, Zhe Gan, Linjie Li, Chunyuan Li, Xiyang Dai, Harkirat Behl, Jianfeng Wang, Lu Yuan, et al. Generalized decoding for pixel, image, and lan-guage. In Proceedings of the IEEE/CVF conference on com-puter vision and pattern recognition , pages 15116–15127, 2023. 3, 6, 7 [63] Xueyan Zou, Jianwei Yang, Hao Zhang, Feng Li, Linjie Li, Jianfeng Wang, Lijuan Wang, Jianfeng Gao, and Yong Jae Lee. Segment everything everywhere all at once. Advances in neural information processing systems , 36:19769–19782, 2023. 3, 6, 7 SegCompass : Exploring Interpretable Alignment with Sparse Autoencoders for Enhanced Reasoning Segmentation 
+
+## Supplementary Material 
+
+A. Implementation Details 
+
+A.1. Pipeline Implementation 
+
+Parallelism and Optimization. Our implementation leverages the VERL [43] framework, adapted for multi-modal GRPO [42] training. To manage memory efficiency, we utilize Fully Sharded Data Parallel (FSDP) [61] to par-tition the MLLM policy parameters across devices. The lightweight segmentation modules, comprising the query head, Q–V attention [47], and mask decoder, are kept un-sharded to avoid unnecessary communication overhead. For inference acceleration, the vLLM [20] backend employs tensor parallelism across attention heads. Additionally, im-age features are precomputed offline, removing the frozen vision backbone from the active training graph. 
+
+Distributed Worker Architecture. To reduce compu-tational overhead, we precompute image features offline, thereby excluding the frozen vision backbone from the training loop. Our framework orchestrates three distinct types of FSDP workers: (i) The actor contains all train-able modules (including the MLLM and segmentation com-ponents) and is responsible for gradient computation and parameter updates. (ii) The rollout worker executes the MLLM in inference mode, processing image and text inputs to generate responses trajectories via next-token prediction. (iii) The frozen reference worker maintains a copy of the reference policy model to compute the KL divergence term for LGRPO . Additionally, it utilizes the segmentation mod-ules to decode masks required for calculating mask-based reward scores and group advantages. 
+
+Training Workflow. For each annotated sample, the roll-out worker first generates a group of G responses using the current policy model via next-token predict, caching both the output tokens and their log probabilities. Subsequently, the frozen reference worker performs a forward pass (with-out gradients) on the same inputs. This step computes the reference log probabilities for the sampled responses and decode masks for the mask-based reward. For each re-sponse and its mask signal, we compute a scalar reward and convert rewards to group advantages. Finally, the ac-tor worker performs a forward pass to obtain the current policy log probabilities for the sampled responses and the predicted segmentation mask. The total loss is composed of the GRPO objective (derived from actor log probabil-ities, cached rollout log probabilities, reference log prob-abilities, and advantages) and the segmentation objective (derived from the predicted and ground truth mask. The two objectives are summed and jointly optimized in a sin-gle backward pass to update all trainable parameters. 
+
+Sparse Autoencoder (SAE). We adopt the architecture of SAE from the methodology proposed in SAE-V [34], which comprises an encoder and a decoder, as shown in Fig-ure 7. The input feature of SAE is the hidden layer state of MLLM. We maintain consistent experimental config-urations across LLaVA-1.5-7B [27], LLaVA-1.5-13B and Qwen2.5-VL-7B [2], with the exception of the specific Transformer decoder layer selected for feature extraction. Specifically, we extract features from the 16-th layer for both LLaVA-1.5-7B (32 layers total) and LLaVA-1.5-13B (40 layers total), and the 13-th layer for Qwen2.5-VL-7B (28 layers total). Following the standard practice in SAE, we target these intermediate layers to strike a balance be-tween modality fusion and semantic abstraction. Middle layers are empirically found to encode rich mixed vision-language information, whereas deeper layers tend to be dominated by text-generation patterns (i.e., next-token pre-diction dynamics). SAE training is conducted before the reasoning segmentation task, during which its parameters are frozen. Transformer Block      
+
+> Transformer Block
+> ···
+> ···
+> Activation Function 𝐀 ℎ𝐀 𝐀
+> Sparse Autoencoder
+> Encoder
+> Decoder
+> Visual Token
+> Multi-Modal LLM
+> Text Token Latent Feature
+> Predicted Token Reconstructed Feature
+> ···
+> ···
+> ···
+> ···
+> ···
+> Sparse Activations
+> ···
+
+Figure 7. The architecture of Sparse Autoencoder (SAE). 
+
+A.2. Training Configuration 
+
+Data Preprocessing. We train on the RefCOCO [17, 35] series and gRefCOCO [25] datasets. The maximum prompt length and response length are set to 1,400 tokens and 2,000 tokens, respectively. For Qwen2.5-VL-7B, the input image pixel count range from 3,136 to 705,600. Image exceeding this range are resized accordingly. We initialize the vision branch using SAM ViT-H. 
+
+Model Optimization. We optimize the policy model pa-rameter using AdamW with a weight decay of  0.01  and 
+
+(β1, β 2) = (0 .9, 0.999) . We employ differential learning rates across model components: the base learning rate for the MLLM backbone is set to  2 × 10 −6, with multipliers of 25 × for the query codebook, 80 × for the slot mapper, and 10 × for the mask decoder. Gradient clipping is applied with a maximum norm of 1.0. The schedule is one cycle with a final division factor of 6.7 and no warmup. Train-ing spans 24,252 steps with gradient checkpointing enabled. The global batch size is 128, comprising 16 image-text pairs with a group size of 8 for GRPO. We utilize bfloat16 pre-cision for model parameters and fp32 for reductions and buffers. For SAE training, we set the learning rate, batch size, and total training epochs to  5 × 10 −5, 64, 10, respec-tively. Additionally, We employ a warmup phrase during the initial stage of training. 
+
+GRPO Settings. We configure GRPO with a group size of 8, a clip ratio of 0.2, and a fixed KL penalty coefficient 0.2. For the policy model, the per-device micro-batch is set to 2 for updates and 8 for experience collection. The policy model is trained using Fully Shared Data Parallel (FSDP) with optimizer state offloading. For the rollout service, we employ a vLLM backend with a tensor parallelism size of 4 for sampling. Inference is executed in bfloat16, supporting a maximum of 64 concurrent sequences and a batch size of 17,408 batch tokens. Chunked prefill is enabled and each sample consists of a single image. 
+
+B. Group Relative Policy Optimization 
+
+Recently, Reinforcement Learning (RL) has been applied to enhance the reasoning capability of LLMs. By formulating reasoning token generation as a Markov Decision Process, models are trained to maximize the expected return of rea-soning paths, guiding optimization toward more structured and coherent reasoning trajectories. Proximal Policy Opti-mization (PPO) [41] and its variants, Group Relative Policy Optimization (GRPO) [12, 42], are among the most widely adopted algorithms for this purpose. 
+
+B.1. PPO Preliminaries 
+
+PPO is an actor-critic RL algorithm that optimizes LLMs by maximizing the following surrogate objective:                           
+
+> LPPO =E[q∼P(Q), o ∼πθold (O|q)] 1
+> |o|
+> |o|
+> X
+> t=1
+> min
+> πθ(ot|q, o<t )
+> πθold (ot|q, o<t )At,clip
+> πθ(ot|q, o<t )
+> πθold (ot|q, o<t ),1−ε, 1 + ε
+> 
+> At
+> 
+
+(8) where πθ and πθold denote the current and old policy mod-els, respectively. Here, q and o represents questions and outputs sampled from the dataset and the old policy πθold .The ε is a clipping-related hyper-parameter introduced in PPO for stabilizing training. The advantage At is computed using Generalized Advantage Estimation (GAE), based on the reward {r≥t} and a learned value function Vψ . The value function Vψ is typically approximated by a learn-able critic model of the same scale as the policy model. Furthermore, a per-token KL penalty from a reference model is added to the reward at each step to mitigate over-optimization of the reward model, which denoted as: 
+
+rt = rφ(q, o≤t) − β log πθ (ot|q, o<t )
+
+πref (ot|q, o<t ) (9) where rφ represents the reward model, πref denotes the ref-erence model (typically the initial policy model), and β is the coefficient of the KL penalty. In PPO, both the policy and critic models must be trained simultaneously, which im-poses significant computational demands when model pa-rameters or token counts are large. GRPO has been pro-posed to reduce the resource consumption associated with PPO while maintaining training stability. 
+
+B.2. GRPO Objective 
+
+GRPO eliminates the need for a separate value function ap-proximator as in PPO. Instead, it estimates the advantage using the average reward of multiple outputs sampled for the same question. Specifically, for each question q, GRPO samples a group of outputs {o1, o 2, · · · , o G} from the old policy πθold and optimizes the policy model by maximizing the following objective:                          
+
+> LGRPO =Eq∼P(Q),{oi}Gi=1 ∼πθold (O|q)
+> 1
+> G
+> GX
+> i=1
+> min
+> πθ(oi|q)
+> πθold (oi|q) ˆAi,clip
+> πθ(oi|q)
+> πθold (oi|q),1−ε, 1 + ε
+> 
+> ˆAi
+> 
+> −βDKL [πθ∥πref ]
+
+(10) where ε and β are hyper-parameters, and ˆAi represents the advantage computed using the relative rewards of out-puts within each group. For each question q, a group of outputs {o1, o 2, · · · , o G} is sampled from the old policy model πθold . A reward model assigns scores to these out-puts, yielding G corresponding rewards {r1, r 2, · · · , r G}.The advantages ˆAi of the tokens in the output is defined as the normalized reward: ˆAi = ˜ ri = ri−mean (r) 
+
+> std (r)
+
+. Addition-ally, GRPO incorporates the KL divergence between the trained policy and the reference policy directly to the loss function, avoiding complicating the calculation of ˆAi. The KL divergence is estimated by the following unbiased esti-mator: 
+
+DKL [, π θ ∥ πref ] = πref (oi|q)
+
+πθ (oi|q) − log πref (oi|q)
+
+πθ (oi|q) − 1 (11) 
+
+B.3. Reward Function Design 
+
+Format Score. We score outputs in {0.0, 0.9, 1.0}. A re-sponse is valid only if it contains exactly one <think> 
+
+... </think> block with non-empty content and exactly one special token for reference position; the special token must appear after </think> . Any violation yields 0.0. For valid outputs, the base is 1.0 and is downgraded to 0.9 if the <think> content is overly long (more than 2048 characters), or if there is any non-whitespace text before 
+
+<think> or after the special token. Thus the five canoni-cal cases are: invalid (0.0); valid and clean (1.0); valid but long <think> (0.9); valid but extra text before <think> 
+
+(0.9); valid but extra text after the special token (0.9). 
+
+Single-object. We use a scalar reward that combines a for-mat score with a mask score. For the single-object setting, no assignment is required: the mask score is computed di-rectly from the agreement between the predicted probability mask and the ground-truth mask using a soft IoU overlap in 
+
+[0 , 1] . This measures how well the prediction localizes the referent without introducing any auxiliary terms or match-ing. 
+
+Multi-object. For multiple instances, the model outputs K slot masks with confidences. We retain predictions above a fixed confidence threshold and compare them to the G ground truth masks via pairwise soft overlaps. A Hungarian assignment is then solved to maximize total overlap, and the mask score is the mean overlap over the matched pairs. If one side is empty and the other is not, the score is set to 0; if both are empty, it is set to 1.0. The final reward still combines the format score and this mask score, encourag-ing valid reasoning traces and precise one-to-one coverage in the multi-object case. 
+
+C. Additional Analyses 
+
+C.1. Correlation Analyses 
+
+To verify the effectiveness of the designed concept repre-sentation and concentration token in guiding the segmenta-tion process, we examine two key correlations: (1) the cor-relation between the SAE feature and segmentation during training, and (2) the correlation between the heatmap and segmentation results during inference. In Figure 8 (left), SAE Loss  
+
+> Segmentation Loss
+> Mask IoU
+> <latexit sha1_base64="al8kNZSW877SDCc2552nDWkf4hc=">AAADF3icjVLLSsNAFD2N7/iqunQTLIq4KEmR2o1QdONSxVrBiCTpWAfTSUgmQin9D/0Z3albl36B+hfeGVPwgY8JmZx77jl3cmfGj0OeStt+KhhDwyOjY+MT5uTU9MxscW7+MI2yJGCNIAqj5Mj3UhZywRqSy5AdxQnzOn7Imv7Ftso3L1mS8kgcyG7MTjpeW/AzHniSqNNixfVZm4ueF/K2WOub+9bKpmWXqzXLdU2hAmfdrpkuE62B5rRYssu2HtZ34OSghHzsRsVnuGghQoAMHTAISMIhPKT0HMOBjZi4E/SISwhxnWfowyRvRipGCo/YC5rbFB3nrKBY1Uy1O6BVQnoTclpYJk9EuoSwWs3S+UxXVuxPtXu6pvq3Ln39vFaHWIlzYv/yDZT/9/mk+r1XiTPUdI+ceo41o7oP8lUyvWuqM+tD15IqxMQp3KJ8QjjQzsE5WNqT6r1Re+/p/ItWKlbFQa7N8Kq6oAvgfD3u7+CwUnaq5epepVTfyq/COBaxhFU67w3UsYNdNKj2FW5wjwfj2rg17oyHd6lRyD0L+DSMxzdmkqcC</latexit>
+
+R = 0 .68 
+
+n = 1408 
+
+Heatmap IoU  
+
+> <latexit sha1_base64="JnDfyNItnLo45YmITpTYcNJIojA=">AAADF3icjVLLSsNAFD2N7/iqunQTLIq4KEmRqgtBdOOyiq2CEUnSsQ5NJyGZCFL8D/0Z3albl36B+hfeGVNQi48JmZx77jl3cmfGj0OeStt+LhgDg0PDI6Nj5vjE5NR0cWa2kUZZErB6EIVRcuR7KQu5YHXJZciO4oR5HT9kh357R+UPL1iS8kgcyMuYnXS8luBnPPAkUafFiuuzFhddL+QtsXJl7ltLm5Zdrm5YrmsKFTir9rrpMtHsaU6LJbts62H1AycHJeSjFhVf4KKJCAEydMAgIAmH8JDScwwHNmLiTtAlLiHEdZ7hCiZ5M1IxUnjEtmluUXScs4JiVTPV7oBWCelNyGlhkTwR6RLCajVL5zNdWbE/1e7qmurfLunr57U6xEqcE/uXr6f8v88n1e+9SpxhXffIqedYM6r7IF8l07umOrM+dS2pQkycwk3KJ4QD7eydg6U9qd4btfeezr9qpWJVHOTaDG+qC7oAzvfj7geNStmplqt7ldLWdn4VRjGPBSzTea9hC7uooU61r3GLBzwaN8adcW88fkiNQu6Zw5dhPL0DaSynAw==</latexit>
+
+R = 0 .69 
+
+n = 1408  
+
+> <latexit sha1_base64="B66amS/j1o2X41cu7MSsiBT1ErE=">AAADF3icjVLLSsNAFD2N7/iqunQTLIq4KGmRaheC6MZlFVsFI5KkYx2aTkIyEUrxP/RndKduXfoF6l94Z0xBLT4mZHLuuefcyZ0ZLwp4Im37OWcMDY+Mjo1PmJNT0zOz+bn5RhKmsc/qfhiE8bHnJizggtUllwE7jmLmdryAHXntXZU/umRxwkNxKLsRO+24LcHPue9Kos7yZcdjLS56bsBbYu3KPLBWtiy7uFG1HMcUKlivblZMh4lmX3OWL9hFWw9rEJQyUEA2amH+BQ6aCOEjRQcMApJwABcJPScowUZE3Cl6xMWEuM4zXMEkb0oqRgqX2DbNLYpOMlZQrGom2u3TKgG9MTktLJMnJF1MWK1m6XyqKyv2p9o9XVP9W5e+XlarQ6zEBbF/+frK//s8Uv3eq8Q5NnWPnHqONKO697NVUr1rqjPrU9eSKkTEKdykfEzY187+OVjak+i9UXvv6vyrVipWxX6mTfGmuqALUPp+3IOgUS6WKsXKfrmwvZNdhXEsYgmrdN4b2MYeaqhT7Wvc4gGPxo1xZ9wbjx9SI5d5FvBlGE/vj5inEg==</latexit>
+
+R = 0 .79 
+
+n = 4986 
+
+Figure 8. Correlation analysis. Left: SAE features vs. segmen-tation during training. Right: heatmap vs. segmentation during inference. Results for Qwen2.5-VL-7B on gRefCOCO. Ordinary least squares (OLS) regression lines and mean confidence bands are overlaid. 
+
+each data point denotes a training batch. The x-axis displays the SAE reconstruction error (MSE) while the y-axis repre-sents the training Dice loss of the predicted masks. Note that the SAE is pretrained and frozen within the segmen-tation pipeline. Consequently, MSE measures SAE recon-struction quality, whereas Dice loss reflects mask accuracy. The scatter plot reveals a distinct trend, indicating a strong association between SAE reconstruction quality and seg-mentation performance. In Figure 8 (right), each point cor-responds to a test instance. The x-axis represents the cIoU between the heatmap (Hk)Ks
+
+k=1 and the ground truth Mgt ,while the y-axis shows the cIoU between the predicted mask 
+
+ˆM and Mgt . We observe a significant positive relationship. These finds demonstrate that both SAE and heatmap quality are positively associated with final mask performance, pro-viding evidence that the interpretable alignment contributes predictive signal. 
+
+C.2. Additional Visualizations 
+
+As shown in Figure 9, we visualize cases from the Reason-Seg test split. Tokens in regions that match the instruction’s semantics show higher responses in the heatmap, and the map peaks on the referred instance, providing a gook prior that helps the decoder recover clean boundaries. In addition, SAE activations over image tokens are tightly linked to the question: high-activation tokens concentrate on foreground areas and correlate with the heatmap intensity. This be-havior is consistent with the quantitative trend in Figure 8, where SAE activations for question and instance tokens ex-ceed those for background and instruct the heatmap signal. The hardest part of the turtle. 
+
+What vehicle in the picture is 
+
+designed to be used in snowy 
+
+areas and has the ability to land 
+
+and take off vertically? 
+
+In cold weather, dogs may need 
+
+extra protection to keep them 
+
+warm. What object in the picture 
+
+can a dog wear to provide 
+
+warmth during snowy walks? 
+
+Image Input Heatmap Activated Tokens Predicted Mask 
+
+The motorcycles tied together. 
+
+When exploring the beach and 
+
+handling sea creatures, we must 
+
+be cautious to avoid injuries. 
+
+What in the picture can cause 
+
+injuries if touched without proper 
+
+care? Figure 9. Additional Visualizations. From left to right: instruction, image input, activated tokens, heatmap, and predicted mask.
