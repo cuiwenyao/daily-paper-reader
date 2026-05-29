@@ -6,82 +6,75 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-05-28
-- 运行时间：2026-05-28 21:51:39 UTC
+- 最新运行日期：2026-05-29
+- 运行时间：2026-05-29 22:05:40 UTC
 - 运行状态：成功
-- 本次总论文数：20
-- 精读区：9
+- 本次总论文数：17
+- 精读区：6
 - 速读区：11
 
 ### 今日简报（AI）
-1) 今日聚焦LLM输出的神经符号验证（满分10）与因果论证可解释性（9分），同时速读揭示微调导致推理痕迹消失、电路证据到机制理论等前沿洞察。  
-2) 最值得深挖：神经符号验证确保敏感领域LLM可靠性，以及因果论证方法提升模型可解释性；速读中“推理痕迹坍缩”警告微调对显式推理的隐性破坏。  
-3) 建议普通读者优先关注“推理痕迹”演化与因果可解释性，这两条线索直接关联LLM在金融、医疗等领域的可信部署。
-- 详情：[/202605/28/README](/202605/28/README)
+今日共17篇论文，精读6篇，其中2篇高分（9.0）聚焦多任务学习中解耦符号表示与多自由变量复杂逻辑查询的神经可扩展搜索。
+
+最值得关注：多任务学习利用赢家通吃瓶颈实现解耦符号表示，以及神经可扩展搜索框架高效处理含多个自由变量的复杂逻辑查询。
+
+建议深入精读这两篇9分论文，探索符号表示与可扩展推理的交叉点；速读中3篇8分论文涉及分布式协议归纳、知识图谱驱动推理及思维链忠实性检测，也值得浏览。
+- 详情：[/202605/29/README](/202605/29/README)
 
 ### 精读区论文标签
-1. [Neuro-Symbolic Verification of LLM Outputs for Data-Sensitive Domains (extended preprint)](/202605/28/2605.26942v1-neuro-symbolic-verification-of-llm-outputs-for-data-sensitive-domains-extended-preprint)  
-   标签：评分：10.0/10、query:ns-xai
-   evidence：神经符号验证LLM输出
-2. [A Causal Argumentation Method for Explainability of Machine Learning Models](/202605/28/2605.21758v1-a-causal-argumentation-method-for-explainability-of-machine-learning-models)  
+1. [Winner-Take-All bottlenecks enforce disentangled symbolic representations in multi-task learning](/202605/29/2605.22472v1-winner-take-all-bottlenecks-enforce-disentangled-symbolic-representations-in-multi-task-learning)  
    标签：评分：9.0/10、query:ns-xai
-   evidence：融合符号推理的因果论证可解释性方法
-3. [Ex-GraphRAG: Interpretable Evidence Routing for Graph-Augmented LLMs](/202605/28/2605.21994v1-ex-graphrag-interpretable-evidence-routing-for-graph-augmented-llms)  
+   evidence：赢者通吃瓶颈在神经网络中强制学习符号表征
+2. [Neural Scalable Symbolic Search Framework for Complex Logical Queries with Multiple Free Variables](/202605/29/2605.25985v1-neural-scalable-symbolic-search-framework-for-complex-logical-queries-with-multiple-free-variables)  
    标签：评分：9.0/10、query:ns-xai
-   evidence：可解释的证据路由用于图增强大模型
-4. [Towards Verifiable Transformers: Solver-Checkable Circuit Explanations](/202605/28/2605.24033v1-towards-verifiable-transformers-solver-checkable-circuit-explanations)  
+   evidence：知识图谱上复杂逻辑查询的神经符号搜索
+3. [SYNAPSE: Neuro-Symbolic Visual Thought-to-Text Decoding via Topological Semantic Denoising](/202605/29/2605.27790v1-synapse-neuro-symbolic-visual-thought-to-text-decoding-via-topological-semantic-denoising)  
    标签：评分：9.0/10、query:ns-xai
-   evidence：通过SMT求解器进行神经符号验证
-5. [Is Inference Mediated by Distinct Semantic Structures in LLMs? A Mechanistic Interpretation](/202605/28/2605.25520v1-is-inference-mediated-by-distinct-semantic-structures-in-llms-a-mechanistic-interpretation)  
+   evidence：神经符号框架用于稳定的脑电解码
+4. [Revealing Algorithmic Deductive Circuits for Logical Reasoning](/202605/29/2605.27824v1-revealing-algorithmic-deductive-circuits-for-logical-reasoning)  
    标签：评分：9.0/10、query:ns-xai
-   evidence：LLM推理中语义操作的机械论解释
-6. [ReasonOps: A Unified Operational Paradigm for Trustworthy Verified LLM Reasoning](/202605/28/2605.27014v1-reasonops-a-unified-operational-paradigm-for-trustworthy-verified-llm-reasoning)  
+   evidence：使用符号辅助的链式思维定位逻辑推理步骤的注意力头
+5. [Better Later Than Sooner: Neuro-Symbolic Knowledge Graph Construction via Ontology-grounded Post-extraction Correction](/202605/29/2605.29168v1-better-later-than-sooner-neuro-symbolic-knowledge-graph-construction-via-ontology-grounded-post-extraction-correction)  
    标签：评分：9.0/10、query:ns-xai
-   evidence：面向可信LLM验证的神经符号推理
-7. [Symbolic Regression via Latent Iterative Refinement](/202605/28/2605.27245v1-symbolic-regression-via-latent-iterative-refinement)  
+   evidence：用于可解释问答的神经符号知识图谱构建
+6. [Reliable Reasoning with Large Language Models via Preference-Based Maximum Satisfiability](/202605/29/2605.29687v1-reliable-reasoning-with-large-language-models-via-preference-based-maximum-satisfiability)  
    标签：评分：9.0/10、query:ns-xai
-   evidence：通过迭代潜在精炼的神经符号回归
-8. [Integrated and Cross-Architecture Interpretation of LLM Reasoning](/202605/28/2605.28006v1-integrated-and-cross-architecture-interpretation-of-llm-reasoning)  
-   标签：评分：9.0/10、query:ns-xai
-   evidence：跨架构的大模型推理统一解释框架
-9. [Explaining is Harder Than Predicting Alone: Evaluating Concept-based Explanations of MLLMs as ICL Visual Classifiers](/202605/28/2605.28215v1-explaining-is-harder-than-predicting-alone-evaluating-concept-based-explanations-of-mllms-as-icl-visual-classifiers)  
-   标签：评分：9.0/10、query:ns-xai
-   evidence：基于描述逻辑的概念级可解释性评估
+   evidence：LLM将约束编码为MaxSAT进行符号求解
 
 ### 速读区论文标签
-1. [Reasoning-Trace Collapse: Evaluating the Loss of Explicit Reasoning During Fine-Tuning](/202605/28/2605.21127v1-reasoning-trace-collapse-evaluating-the-loss-of-explicit-reasoning-during-fine-tuning)  
+1. [Synthesizing Inductive Invariants for Distributed Protocols via IC3 and Large Language Models](/202605/29/2605.24619v1-synthesizing-inductive-invariants-for-distributed-protocols-via-ic3-and-large-language-models)  
    标签：评分：8.0/10、query:ns-xai
-   evidence：评估微调中显式推理轨迹的丢失
-2. [From Circuit Evidence to Mechanistic Theory: An Inductive Logic Approach](/202605/28/2605.21303v1-from-circuit-evidence-to-mechanistic-theory-an-inductive-logic-approach)  
+   evidence：结合IC3与大语言模型的神经符号框架用于不变量合成
+2. [Knowledge Graph-Driven Expert-Level Reasoning for Neuroscience](/202605/29/2605.25183v1-knowledge-graph-driven-expert-level-reasoning-for-neuroscience)  
    标签：评分：8.0/10、query:ns-xai
-   evidence：归纳逻辑编程用于电路解释
-3. [Post-Hoc Understanding of Metaphor Processing in Decoder-Only Language Models via Conditional Scale Entropy](/202605/28/2605.21391v1-post-hoc-understanding-of-metaphor-processing-in-decoder-only-language-models-via-conditional-scale-entropy)  
+   evidence：结合知识图谱（符号）与语言模型实现专家级推理
+3. [Detecting Unfaithful Chain-of-Thought via Circuit-Guided Internal-External Discrepancy](/202605/29/2605.25603v1-detecting-unfaithful-chain-of-thought-via-circuit-guided-internal-external-discrepancy)  
    标签：评分：8.0/10、query:ns-xai
-   evidence：大语言模型隐喻处理的机制解释
-4. [Probabilistic Attribution For Large Language Models](/202605/28/2605.21726v1-probabilistic-attribution-for-large-language-models)  
+   evidence：通过内部-外部差异检测大模型推理中的链式思维不忠实
+4. [Why LLMs Hallucinate on Structured Knowledge: A Mechanistic Analysis of Reasoning over Linearized Representations](/202605/29/2605.26362v1-why-llms-hallucinate-on-structured-knowledge-a-mechanistic-analysis-of-reasoning-over-linearized-representations)  
    标签：评分：8.0/10、query:ns-xai
-   evidence：用于LLM可解释性的概率词元归因
-5. [SegCompass: Exploring Interpretable Alignment with Sparse Autoencoders for Enhanced Reasoning Segmentation](/202605/28/2605.22658v1-segcompass-exploring-interpretable-alignment-with-sparse-autoencoders-for-enhanced-reasoning-segmentation)  
+   evidence：大语言模型在结构化知识上推理的机理性分析，揭示幻觉源于内在动态
+5. [Measuring Cross-Modal Synergy: A Benchmark for VLM Explainability](/202605/29/2605.22168v1-measuring-cross-modal-synergy-a-benchmark-for-vlm-explainability)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：推理分割中的可解释对齐与SAE
-6. [NeuroNL2LTL: A Neurosymbolic Framework for Natural Language Translation of Linear Temporal Logic](/202605/28/2605.22874v1-neuronl2ltl-a-neurosymbolic-framework-for-natural-language-translation-of-linear-temporal-logic)  
+   evidence：针对VLM可解释性基准，解决评估坍塌问题
+6. [Learning to Reason Efficiently with A* Post-Training](/202605/29/2605.24597v1-learning-to-reason-efficiently-with-a-post-training)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：神经符号框架用于逻辑翻译
-7. [Convex Compositional Reasoning Models](/202605/28/2605.23395v1-convex-compositional-reasoning-models)  
+   evidence：通过A*搜索引导的后训练提升大模型推理能力
+7. [READER: Reasoning-Enhanced AI-Generated Text Detection](/202605/29/2605.25281v1-reader-reasoning-enhanced-ai-generated-text-detection)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：使用凸能量神经网络的符号组合推理
-8. [Breaking the Chains of Probability: Neutrosophic Logic as a New Framework for Epistemic Uncertainty in Large Language Models](/202605/28/2605.24053v1-breaking-the-chains-of-probability-neutrosophic-logic-as-a-new-framework-for-epistemic-uncertainty-in-large-language-models)  
+   evidence：推理增强的检测方法输出结构化理由
+8. [Beyond Input Understanding: Diagnosing Multilingual Mathematical Reasoning with Directed Acyclic Trace Graphs](/202605/29/2605.27715v1-beyond-input-understanding-diagnosing-multilingual-mathematical-reasoning-with-directed-acyclic-trace-graphs)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：中智逻辑用于LLM不确定性建模
-9. [Equilibrium Reasoners: Learning Attractors Enables Scalable Reasoning](/202605/28/2605.21488v1-equilibrium-reasoners-learning-attractors-enables-scalable-reasoning)  
+   evidence：使用轨迹图诊断推理以增强可解释性
+9. [Towards Explainability of SLMs by investigating Token Level Activation](/202605/29/2605.22377v1-towards-explainability-of-slms-by-investigating-token-level-activation)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：通过吸引子动力学实现可扩展推理
-10. [CLORE: Content-Level Optimization for Reasoning Efficiency](/202605/28/2605.22211v1-clore-content-level-optimization-for-reasoning-efficiency)  
+   evidence：通过激活强度实现小语言模型的词元级可解释性
+10. [PathCal: State-Aware Reflection-Marker Calibration for Efficient Reasoning](/202605/29/2605.23074v1-pathcal-state-aware-reflection-marker-calibration-for-efficient-reasoning)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：大模型推理效率与语义透明性
-11. [Verified SHAP: Provable Bounds for Exact Shapley Values of Neural Networks](/202605/28/2605.24084v1-verified-shap-provable-bounds-for-exact-shapley-values-of-neural-networks)  
+   evidence：分析大推理模型轨迹中的反思标记，提升推理效率
+11. [Convex Compositional Reasoning Models](/202605/29/2605.23395v2-convex-compositional-reasoning-models)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：用于神经网络可解释性的精确SHAP计算
+   evidence：基于凸组合能量最小化的神经推理方法
 
 
 <div class="dpr-home-promo-card">

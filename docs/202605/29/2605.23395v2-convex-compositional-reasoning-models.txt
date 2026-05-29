@@ -1,0 +1,997 @@
+Title: Convex Compositional Reasoning Models
+
+URL Source: https://arxiv.org/pdf/2605.23395v2
+
+Published Time: Tue, 26 May 2026 01:56:36 GMT
+
+Number of Pages: 19
+
+Markdown Content:
+# Convex Compositional Reasoning Models 
+
+Meir Roketlishvili 1
+
+Meir.Roketlishvili@mbzuai.ac.ae 
+
+Semyon Semenov 1 Maksim Bobrin 2,3
+
+Viktor Kovalchuk 1 Albert Baichorov 1 Abduragim Shtanchaev 1 Fakhri Karray 1
+
+Dmitry V. Dylov 2,3 Martin Takáˇ c1
+
+Arip Asadulaev 11 Mohamed bin Zayed University of Artificial Intelligence, Abu Dhabi, UAE  
+
+> 2
+
+Applied AI Institute, Computational Imaging Lab  
+
+> 3
+
+AXXX 
+
+## Abstract 
+
+Compositional energy-based models can generalize to larger combinatorial rea-soning problems by reusing a learned factor energy across many local constraints. In our paper, we show that a key bottleneck in compositional reasoning is not composition itself, but the non-convex geometry of the learned energy landscape. To solve this problem, we introduce Convex Compositional Energy Minimization (CCEM), a framework that parameterizes each factor with an input-convex neural network and optimizes the composed energy over a tight convex relaxation of the feasible set. Because convexity is preserved under summation, the global relaxed objective remains convex, enabling deterministic projected first-order optimization. CCEM is trained in two stages: factor-level contrastive learning to shape local energy basins, followed by end-to-end refinement through an unrolled projected solver. Our experiments show that our models trained on small subproblems or a single problem size transfer to larger instances without retraining. 
+
+Figure 1: Our method composes convex factors into a smooth globally convex landscape, enabling efficient deterministic reasoning. 
+
+> Preprint.
+> arXiv:2605.23395v2 [cs.LG] 25 May 2026
+
+## 1 Introduction 
+
+Many reasoning problems are naturally compositional. A candidate solution is valid only when it satisfies many local constraints: every row, column, and diagonal in N -Queens; every edge in graph coloring; or every clause in a satisfiability formula. This structure suggests a simple route to generalization: learn an energy model for a small local constraint, reuse it across all constraints in a larger instance, and solve the full problem by minimizing the sum of the local energies. Compositional energy-based models follow exactly this principle. Given an instance x and a candidate relaxed solution y, they define Eθ (x, y ) = PKk=1 wkfθ (ySk ; ck), where each factor fθ scores a local scope 
+
+Sk under context ck. The same factor network can therefore be trained on small subproblems and applied to larger instances simply by adding more terms to the sum. This is the main appeal of compositional energy minimization: it separates learning a local rule from applying that rule many times. However, composition also creates the main optimization difficulty. If the factor energy is an unconstrained neural network, then the composed objective is generally non-convex. Even when each local factor appears well behaved in isolation, their sum can introduce spurious local minima (see proposition 3.1). As the number of constraints grows, the optimizer must search a larger and more rugged energy landscape. Prior work addresses this issue with powerful sampling procedures, such as long diffusion chains or Parallel Energy Minimization (PEM), which use many particles and noise injection to escape poor local basins [ 17 ]. These methods can be effective, but they treat the symptoms of a non-convex composed landscape rather than the cause. In this paper, we take a different approach. We argue that the difficulty is not inherent to compositional reasoning, but to the parameterization of the local energy factors. If each factor is convex in the decision variable, and the factors are composed using nonnegative weights, then the full relaxed energy remains convex. Adding more constraints may make the optimization problem larger or more ill-conditioned, but it cannot create new nonglobal local minima. This changes the role of inference: instead of relying on particle-based exploration to escape a rugged landscape, we can minimize a globally well-behaved relaxed objective with projected first-order methods (see Lemma A.4). We introduce Convex Compositional Energy Minimization (CCEM), a framework for compositional reasoning with convex factor energies . Each local factor is parameterized by an input-convex or partially input-convex neural network [ 1 ], so that it remains convex in the candidate solution variables while still conditioning flexibly on the problem context. At test time, the global energy is obtained by summing all local factors and is optimized over a tight convex relaxation of the feasible set, such as the Birkhoff polytope for N -Queens or simplex-based relaxations for coloring. The resulting inference procedure is deterministic, differentiable, and compatible with standard projected solvers. Our training pipeline has two stages. First, we train the factor energy using local contrastive supervision, assigning low energy to locally valid patterns and higher energy to invalid alternatives. Second, we refine the composed energy end-to-end by backpropagating through an unrolled projected solver. This refinement aligns the energy with the behavior of the actual inference procedure while preserving the convex structure of the model. Unlike diffusion-based compositional EBMs, CCEM does not need to learn a denoising trajectory in ambient Euclidean space; the optimization is performed directly on the convex relaxation where feasibility is enforced by projection. The central benefit of convexity is theoretical as well as practical. We show that unconstrained non-convex factor composition can admit stable spurious minima, causing local optimization to converge to invalid solutions. In contrast, convex compositional energies cannot introduce such nonglobal local minima over a convex relaxation. Moreover, if the task admits an exact convex certificate, then a sufficiently accurate learned convex factorization has only valid global minimizers. Finally, for convex energies, a first-order optimality condition at the target solution is enough to certify global optimality, explaining why auxiliary landscape-shaping losses are not required to rule out spurious relaxed minima. We make the following contributions :• We identify non-convex energy composition as a source of spurious stable minima in compositional EBMs, separating this issue from the choice of sampler. 2• We propose a novel compositional reasoning framework that uses ICNN/PICNN factor energies so that nonnegative factor summation preserves convexity of the relaxed global objective. • We develop a projected optimization pipeline for training and inference directly on tight convex relaxations, replacing diffusion sampling with deterministic first-order minimization. • We provide theoretical guarantees showing that convex composition rules out spurious relaxed local minima and that first-order supervision is sufficient to certify global optimality in the convex setting. • We evaluate the method on structured reasoning benchmarks, showing that convex compo-sitional energies can match or improve particle-based compositional EBMs while using a simpler inference procedure. 
+
+## 2 Preliminaries 
+
+2.1 Reasoning as compositional energy minimization 
+
+A useful way to view reasoning is as search over possible answers. Given a problem instance x, the model defines an energy function Eθ (x, y ) over candidate solutions y, where valid solutions should have low energy and invalid ones higher energy. Solving the problem then means finding 
+
+ˆy = arg min  
+
+> y
+
+Eθ (x, y ).
+
+This differs from the usual end-to-end reasoning setup, where a model directly maps inputs to outputs and often learns heuristics tied to the training distribution. In the energy-based view, inference is an optimization process, so harder problems can be given more computation at test time. Compositional reasoning adds the idea that many reasoning problems are made of smaller constraints. For example, N-Queens combines row, column, and diagonal constraints; graph coloring combines edge constraints; and SAT combines clauses. Instead of learning a separate model for each full problem size, we learn a local energy for one constraint and reuse it across the larger instance. Thus, regular reasoning treats the problem more as one object, while compositional reasoning builds the solution by combining reusable pieces. Following Oarga and Du [17], if feasibility factorizes into K local constraints, 
+
+y ∈ S (x) ⇐⇒ 
+
+> K
+
+^
+
+> k=1
+
+Ck(ysc( k), c k),
+
+we define the global energy as 
+
+Eθ (x, y ) = 
+
+> K
+
+X
+
+> k=1
+
+wk fθ
+
+ ysc( k); ck
+
+ . (1) Here, sc( k) are the variables involved in the k-th constraint, ck is its context, and the same factor network fθ is reused for all factors. In this sense, the model learns the local rule once and applies it many times. Larger problems are handled by adding more energy terms, rather than retraining a new model. The benefit is that learning is separated from problem size. The difficulty is that summing many learned factors can make the energy landscape harder to optimize, especially when the factors are unconstrained neural networks. This is why prior work relies on sampling methods such as Parallel Energy Minimization, while our approach focuses on making the composed landscape better behaved by choosing factor energies whose structure is preserved under summation. 
+
+2.2 Input Convex Neural Networks. 
+
+ICNNs [ 1] parameterize a scalar function that is convex in (a subset of) its inputs by combining non-negative weights with non-decreasing convex activations. They have been used for control [ 5], optimal transport [ 11 , 16 ], and domain adaptation [ 2, 3 ]. To our knowledge, ICNNs have not previously been used as the per-factor energy of a compositional reasoning model: prior compositional EBMs deliberately use unrestricted MLP scores so that the composed landscape can be shaped by additional losses, whereas we exploit the closure of convexity under non-negative sums to keep the composed objective tractable by construction. 33 Convex Compositional Energy Minimization 
+
+Our main claim is that the main obstruction in unconstrained compositional EBMs is not merely the choice of sampler. Even when each factor is smooth and individually easy to minimize, summing non-convex factors can create stable nonglobal attractors. A local optimizer initialized in the basin of such an attractor will converge to an invalid solution. Thus, particle-based methods such as PEM compensate for a pathological composed landscape rather than removing its cause. 
+
+Proposition 3.1 (Spurious minima under non-convex composition) . There exist a convex relaxation 
+
+Y ⊂ Rd, smooth non-convex factors fk, and a composed energy (1) such that E has a global minimizer y⋆ ∈ Y and a distinct strict local minimizer ¯y ∈ Y with 
+
+E(y⋆) = min  
+
+> y∈Y
+
+E(y), ∇E(¯ y) = 0 , ∇2E(¯ y) ≻ 0, E(¯ y) > E (y⋆).
+
+Moreover, for some stepsize η > 0, gradient descent yt+1 = yt − η∇E(yt) converges to ¯y from all initializations in an open neighborhood of ¯y.
+
+Proposition 3.1 shows that unconstrained compositional energies can fail because their summed landscape may contain stable but invalid local minima. This motivates imposing convexity at the factor level. Since nonnegative sums of convex functions remain convex, composition cannot introduce spurious local minima over a convex relaxation. We next state the complementary positive result. If the task admits an exact convex certificate over the chosen relaxation, then a learned convex compositional energy that approximates this certificate with sufficient accuracy has only valid global minimizers. Thus, the ICNN/PICNN parameterization is not only an inference convenience: it preserves the global geometry of the certificate under composition. 
+
+Lemma 3.2 (Convex certificate sufficiency) . Let Yx ⊂ Rd be compact and convex, and let Vx ⊆ Y x
+
+be the valid relaxed solutions. Consider Eq. (1) where each fθ (·; ck) is convex in ySk . Suppose there exist convex certificate factors gk such that 
+
+Gx(y) = 
+
+> K
+
+X
+
+> k=1
+
+wkgk(ySk ; ck), arg min 
+
+> y∈Y x
+
+Gx(y) ⊆ V x,
+
+and every invalid y ∈ Y x \ V x satisfies 
+
+Gx(y) ≥ min 
+
+> z∈Y x
+
+Gx(z) + γ
+
+for some γ > 0. If 
+
+sup  
+
+> u∈proj Sk(Yx)
+
+|fθ (u; ck) − gk(u; ck)| ≤ ε for all k, 2ε
+
+> K
+
+X
+
+> k=1
+
+wk < γ, 
+
+then 
+
+arg min 
+
+> y∈Y x
+
+Eθ (x, y ) ⊆ V x.
+
+A central difficulty in compositional energy-based reasoning is that local energy models do not auto-matically induce a well-behaved global landscape after composition . In non-convex compositional EBMs, even if each factor captures a useful local constraint, the sum of many such factors may introduce spurious local minima. Prior work therefore augments training with additional contrastive losses that explicitly push correct solutions toward lower energy and invalid solutions toward higher energy. Such shaping is needed because local score or denoising supervision alone does not certify that the correct solution is a global minimizer of the composed energy. Our convex formulation changes this situation. By parameterizing each factor as an input-convex energy in the decision variable and composing factors by nonnegative summation, the full relaxed energy remains convex. Therefore, global optimality can be certified by a first-order condition at the target solution . The correct solution does not need to be pushed into a global basin by an auxiliary contrastive loss: once the learned convex energy satisfies the first-order optimality condition at the target, convexity implies global optimality. 4Theorem 3.3 (First-order supervision is sufficient) . Let Y ⊂ Rd be convex, and let Eθ (x, ·) be convex and differentiable. If y⋆ ∈ Y satisfies 
+
+⟨∇ y Eθ (x, y ⋆), y − y⋆⟩ ≥ 0 ∀y ∈ Y ,
+
+then 
+
+y⋆ ∈ arg min  
+
+> y∈Y
+
+Eθ (x, y ).
+
+Theorem 3.3 follows from the standard first-order convexity inequality: 
+
+Eθ (x, y ) ≥ Eθ (x, y ⋆) + ⟨∇ y Eθ (x, y ⋆), y − y⋆⟩ .
+
+The assumed first-order condition therefore implies Eθ (x, y ) ≥ Eθ (x, y ⋆) for every feasible y. In contrast, for a non-convex energy, the same local condition would certify only stationarity or local optimality, not global optimality. This gives the main theoretical reason why convex compositional EBMs retain the benefits of energy-based inference while avoiding auxiliary landscape-shaping losses. The model still learns an energy over candidate solutions and performs inference by minimizing that energy, but convexity makes the relaxed inference problem globally well behaved. 
+
+Corollary 3.4 (Convergence of convex inference) . Assume Eθ (x, ·) is convex and L-smooth on Y,and let y⋆ ∈ arg min y∈Y Eθ (x, y ). Projected gradient descent with step size 1/L ,
+
+yt+1 = Π Y
+
+
+
+yt − 1
+
+L ∇y Eθ (x, y t)
+
+
+
+,
+
+satisfies 
+
+Eθ (x, y T ) − Eθ (x, y ⋆) ≤ L∥y0 − y⋆∥22
+
+2T .
+
+If Eθ (x, ·) is additionally μ-strongly convex, then 
+
+∥yT − y⋆∥22 ≤
+
+
+
+1 − μL
+
+T
+
+∥y0 − y⋆∥22.
+
+Together, Theorem 3.3 and Corollary 3.4 show that convex compositional energies change the role of training. Please see the full proofs in Appendix A. Instead of learning an unconstrained landscape and then correcting it with auxiliary energy-shaping losses, the model learns inside a function class whose geometry makes local optimality certificates global. Additional regularization may still be useful empirically, but it is not required to rule out spurious minima in the relaxed composed energy. 
+
+## 4 Algorithm 
+
+In our algorithm, we use Partially Input Convex Neural Network , so that fθ (y; c) is convex in the scope variable y for every context c. Instead of training ∇y Eθ to match Gaussian noise through a denoising-diffusion objective and sampling with PEM in Rn, we define Eθ directly on the convex hull of the feasible set—the simplex/Birkhoff projection for N -Queens and the corresponding simplex relaxation for graph coloring—and minimize it with a projected first-order solver. The convex factor energy together with a tight relaxation removes most local minima in Y, so explicit particle resampling becomes optional rather than essential. We instantiate fθ as a PICNN, which interleaves a non-convex context pathway with a convex scope pathway: 
+
+uℓ+1 = σ fW uℓ uℓ + ebuℓ
+
+,zℓ+1 = σ
+
+
+
+W zℓ
+
+ zℓ ⊙ softplus( W zu ℓ uℓ) + W yℓ
+
+ y ⊙ W yu ℓ uℓ
+
+ + W uℓ uℓ + bℓ
+
+
+
+. (2) Here σ is a non-decreasing convex activation, W zℓ has non-negative entries, implemented as W zℓ =softplus( fW zℓ ), and the gates softplus( W zu ℓ uℓ) keep the z-pathway non-negative. Therefore fθ (·; u)
+
+is convex in y by composition. The context encodes all factor-specific information. 
+
+Factor-level contrastive pretraining. Oarga and Du [ 17 ] shape the energy with a diffusion-MSE loss and a noise-corrupted contrastive loss. Because our factor scope is small and the convex hull 5is known, we can drop the diffusion regression and use a purely contrastive InfoNCE objective on clean samples: 
+
+LNCE (θ) = − log exp  −fθ (y+; c)
+
+exp  −fθ (y+; c) + PJj=1 exp  −fθ (y− 
+
+> j
+
+; c) + λefθ (y+; c). (3) Positives are vertices of the convex hull, such as one-hot row, column, or box vectors and zero or one-hot diagonal vectors. Negatives are sampled outside the hull using factor-specific proposals: under-satisfied, overloaded, two-peak, and renormalized mixtures for N -Queens. This plays the role of the contrastive shaping loss in prior work, but acts at factor granularity before global composition. 
+
+Composed-energy refinement through an unrolled solver. Oarga and Du [ 17 ] refine the composed score by regressing ∇y
+
+P 
+
+> k
+
+Ekθ . We instead refine Eθ by backpropagating through a differentiable projected solver on the relaxation. Given ground-truth solutions {x⋆i }, we run T projected updates: 
+
+yt+1 = Π Y
+
+ yt − ηtAt∇y Eθ (x, y t), t = 0 , . . . , T − 1, (4) where At is either the identity, giving PGD, or the Adam preconditioner, giving projected Adam. The step size ηt follows a cosine schedule from η0 to ηT . We add a small uniform tie-breaking field ξ ∼ U ([ −1, 1]) n scaled by λtb to break permutation symmetry between equal-energy minima. With S random feasible warm-starts, we score each candidate under no_grad , pick the lowest-energy candidate, and backpropagate only through the solver trajectory from that initialization. The refinement loss combines regression, an energy-margin term, and hard-negative mining over the solver trajectory: 
+
+Lboard = α∥ˆx−x⋆∥22+β softplus  Eθ (x⋆)−Eθ (ˆ x)+ ρ+γ 1
+
+|H| 
+
+X
+
+> ˜x∈H
+
+softplus  Eθ (x⋆)−Eθ (˜ x)+ ρh
+
+.
+
+(5) Here H contains the last H solver iterates, the warm-start candidates, and a random convex mixture between the warm-start and the target. The hard-negative term plays the role of a board-level contrastive loss and prevents Eθ from collapsing onto trivial solutions of the regression term. 
+
+Inference . At test time, we run (4) from S random simplex warm-starts per instance, score each final point by Eθ , and select the lowest-energy solution. The relaxed heatmap is decoded by greedy row argmax. Because Eθ is convex per factor and optimized on the tight relaxation Y, single-trajectory projected Adam already recovers most solutions. For harder regimes, Parallel Energy Minimization 
+
+(PEM) [17, Alg. 1] can be used by replacing (4) with a P -particle ensemble that resamples using 
+
+w(t) 
+
+> i
+
+∝ exp  −Eθ (y(t) 
+
+> i
+
+)
+
+and re-injects scheduled Gaussian noise. PEM is the only inference mode in which our solver becomes equivalent to the sampler of [ 17 ]; it is useful when the relaxed landscape remains multi-modal at large problem sizes. 
+
+## 5 Related Work 
+
+Reasoning as energy minimization. Casting reasoning as the search for a low-energy configuration of a learned scalar field has a long history in structured prediction [ 12 ] and has recently been revived as a paradigm for combinatorial problem solving. Most directly related to us, [ 17 ] compose subproblem energies at inference time and introduce Parallel Energy Minimization (PEM), a sequential-Monte-Carlo-style sampler that maintains a population of particles to escape local minima of the composed landscape. Our work shares the compositional construction but removes the source of those local minima at the parameterization level: by enforcing convexity in the decision variable per factor, the composed energy stays convex regardless of how many factors are stacked, and a projected first-order solver suffices in place of a particle ensemble. 
+
+Neural combinatorial optimization. Graph Neural Networks are the dominant tool for learning-based combinatorial optimization, including direct supervised solvers for TSP and MIS [ 8], reinforcement-learning approaches [ 4], GFlowNets [ 22 ], discrete diffusion solvers [ 14 , 20 ], and dedicated neural SAT solvers [ 15 , 19 ]. Compositional EBMs side-step this by re-using a small per-factor model across arbitrarily many constraints; we keep this advantage while making inference deterministic and convex. 6Iterative computation for reasoning. Recurrent and program-style architectures iteratively refine partial solutions [ 7 , 9 , 18 ], and neural SAT solvers refine truth assignments via belief propagation [ 15 ] or message passing [ 19 ]. Our projected solver in (4) is itself an iterative refinement procedure, but the iteration is performed on a continuous relaxation under a learned convex objective rather than on the discrete state space, and the number of iterations can be increased at test time to handle larger instances without retraining. 
+
+## 6 Experiments 
+
+We replicate a small compositional benchmark using convex relaxations to validate the optimization stability. We train a per-constraint input-convex energy on subproblem data only, compose the full energy at test time, and run convex inference. We specifically benchmark against the original framework’s N -Queens formulation, which decomposes the board into row, column, and diagonal energy functions trained on a single eight-queens instance, Graph Coloring formulation, which decomposes graph node -wise and edge - wise and the 3-SAT formulation, which composes models trained to generate valid assignments for single clauses generated in the hard phase transition region. We study the tradeoff between convexity strength and expressivity by moving from fully convex net-works to partially convex hybrids. We hypothesize our convex formulation will match the baseline’s near-perfect correct instance rates on the logical reasoning tasks while fundamentally addressing its limitations in achieving fully optimal solutions without conflicting edges in the highly constrained graph coloring environments by eliminating the local minima that plague particle-based samplers. Correct solution Low energy  
+
+> Incorrect solution Higher energy
+> 50
+> 100
+> 150
+> 200
+> factor energy
+
+Figure 2: Energy map for 8-Queens. A correct solution is assigned low energy, while adding an extra queen produces higher local energy. We address four questions: (Q1) does enforcing convexity in the scope variable improve over the unconstrained MLP score network? (Q2) 
+
+does projecting onto the exact convex hull of the feasible set replace the need for a long diffu-sion chain? (Q3) how do projected (multi-start) Adam and PEM compare as inference samplers on the same learned energy? (Q4) does compo-sitional generalisation to larger instances carry over to the convex factor energy? 
+
+6.1 Tasks and protocols 
+
+N -Queens. We train on a single 8 × 8 in-stance, decompose it row-wise, column-wise and diagonal-wise, and re-use fθ across rows, columns and (anti-)diagonals at test time. We evaluate by sampling 100 boards, decoding greedily, and reporting: number of correct in-stances (out of 100), average number of queens placed, and average row/column/diagonal con-flicts. For generalisation we additionally report results on N ∈ { 4, 5, 6, 7, 9, 10 }.
+
+Color graph. We train on a single edge-level subtask: generating a valid coloring for a pair of nodes (an edge) given a set of available colors. We decompose the full graph instance edge -wise. The model is trained on randomly generated pairs of different colors. For evaluation, we sample graphs from the well - known COLOR benchmark, as well as from random distributions (Erdos–Renyi, Holme–Kim, random regular expanders, Paley graphs, and complete graphs). We consider both smaller (20–40 nodes) and larger (80–100 nodes) graphs. 
+
+6.2 Baselines 
+
+For N -Queens we reproduce the comparison table of [ 17 ] and add our PICNN factor energy. The non-EBM baselines (GFlowNets [ 22 ], DIFUSCO [ 20 ], Fast T2T [ 14 ]) take the N -Queens problem encoded as a Maximum Independent Set. The EBM baseline of [ 17 ] ( EBM-Diff , P =1024 , PEM) 7S=1, invalid      
+
+> t=0 t=20 t=60 t=120 t=200 decoded
+> S=8, invalid S=64, invalid
+
+Figure 3: Optimized samples across projected Adam timesteps for 8-Queens. Intermediate columns show relaxed boards before decoding, and the final column shows the greedy-decoded board. Increas-ing the number of starts improves the chance of reaching a valid solution. Table 1: 8-Queens evaluation (100 sampled boards). Baselines reproduced from [ 17 , Tab. 1]; ICNN+ECM lines are ours. 
+
+Model Type Correct ↑ Queens placed ↑
+
+LWD RL+S 22 7.10 ±0.57 
+
+GFlowNets UL+S 14 6.93 ±0.59 
+
+DIFUSCO ( T =50 ) SL+S 17 6.94 ±0.65 
+
+Fast T2T ( TS =1 , T G=1 ) SL+S 21 6.82 ±0.88 
+
+Fast T2T ( TS =5 , T G=5 , GS) SL+GS 41 7.38 ±0.54 
+
+EBM-Diff ( P =1024 , PEM) SL+PEM 97 7.97 ±0.17 
+
+CCEM (ours) SL+Adam 100 8.00 ±0.00 
+
+shares the compositional construction with us, but uses an unconstrained score network trained with combination of diffusion and contrastive losses. For Graph Coloring we compare against GNN-GCP [ 13 ], canonical Graph Neural Networks (GCN [ 10 ] and GAT [ 21 ]), RL guided by Neural Algorithmic Reasoners (XLVIN [ 6]) and EBM baseline [17] (P=128). 
+
+6.3 Implementation details 
+
+Whereas [ 17 ] runs Eθ on Rn and relies on the diffusion process to deliver near-binary samples, we optimise on the smallest tight convex set that contains every feasible configuration, projected by alternating row/column simplex sweeps Y = BN = {X ∈ [0 , 1] N ×N | P 
+
+> i
+
+Xij = P 
+
+> j
+
+Xij = 1 }.Diagonal factors live on the relaxed simplex {y ∈ [0 , 1] d | P 
+
+> i
+
+yi ≤ 1}. We denote the projector 
+
+ΠY . Crucially, ΠY is differentiable almost everywhere, which lets gradients flow through the solver during training. The factor PICNN has 3 hidden layers of width 256 with softplus ( N -Queens, Graph Coloring) or ReLU (3-SAT). Phase 1 is trained for 1000 epochs of AdamW at lr 10 −3, weight decay 10 −4, J
+
+(4 for N -Queens, 7 for 3-SAT, 5 for Graph Coloring) negatives per positive. Phase 2 is trained for 300 epochs, unrolls the projected solver for T =140 steps at training time and at inference, with cosine step decay 0.1 → 0.02 (train) and 0.05 → 0.005 (eval), S=4 warm-starts in training, S=64 in 8Table 2: Graph Coloring evaluation (100 sampled tasks).                                                                                                                                                     
+
+> Distribution GCN GAT XLVIN GNN-GCP EBM (P=128) CCEM (Ours) Erdos Renyi 46.80 ±20.47 34.00 ±11.55 25.00 ±7.81 15.20 ±4.32 8.60 ±4.82 2.20 ±2.14
+> Erdos Renyi 2 151.60 ±12.09 130.20 ±11.47 93.80 ±31.12 53.80 ±8.34 29.20 ±8.05 4.60 ±2.94
+> Holme Kim 74.00 ±14.74 51.20 ±10.03 29.00 ±7.75 13.20 ±7.46 10.60 ±2.70 5.00 ±3.41
+> Holme Kim 2 408.00 ±26.40 253.20 ±50.71 182.60 ±24.73 55.20 ±12.63 59.00 ±3.74 14.00 ±1.26
+> Regular Expander 87.60 ±22.58 58.60 ±12.44 29.00 ±7.75 15.40 ±6.65 11.00 ±4.89 4.20 ±3.43
+> Regular Expander 2 144.80 ±6.90 118.80 ±12.59 112.60 ±10.97 141.60 ±69.47 37.20 ±4.71 –Paley 285.00 ±117.70 239.20 ±159.43 151.80 ±92.13 91.20 ±63.14 34.80 ±20.27 1.80 ±3.60
+> Complete 46.00 ±15.04 46.00 ±15.04 34.80 ±16.42 30.00 ±2.54 3.40 ±1.14 0.00 ±0.00
+
+evaluation, hard-negative count H=12 , loss weights (α, β, γ )=(1 , 0.25 , 0.25) , margins ρ=ρh=0 .1,tie-breaking λtb =10 −4. We use simplex projection. All experiments run on a single GPU. 
+
+6.4 Results Convexity vs. MLP score. Table 1, Table 2 and Table 6 present the empirical results comparing our CCEM approach against the compositional baseline across three tasks. In detail, we achieved signifi-cant improvement in N -Queens and Graph Coloring problems, while 3-SAT results are moderate. 
+
+Tight relaxation replaces the diffusion chain. [17 ] need T =100 diffusion steps and a P =1024 
+
+particle ensemble to lift Gaussian noise to the binary solution manifold. With the Birkhoff projector 
+
+ΠBN applied at every solver step, the relaxation is already tight, and we match their accuracy with 
+
+T =50 projected-Adam steps and S=8 warm-starts (Table 1). Importantly for EBM-Diff we report the score presented in the paper. Our implementation using a source code given by authors achieved only 75/100. 
+
+Compositional generalisation to larger N . We train once on N =8 , evaluate on N ∈ { 7, 8, 9, 10 }
+
+by re-summing fθ over the rows, columns and diagonals of the larger board, and sweep the inference budget. Because fθ conditions on the scope mask and active length, the same network generalises to all four sizes without retraining. Increasing S (multi-start) for projected Adam and P (particles) for PEM both monotonically improve correct-instance counts; PEM with P =128 matches projected Adam with S=32 on N =10 .Table 3: Phase-2 loss ablation on 8-Queens (100 sampled boards, projected Adam, S=64 ). MSE ( α) Rank ( β) Hard ( γ) Correct 
+
+✓ 100 
+
+✓ ✓ 100 
+
+✓ ✓ 100 
+
+✓ ✓ 100 
+
+✓ ✓ ✓ 100 
+
+Loss ablation. We ablate the Phase 2 loss compo-nents and observe that all variants remain surprisingly strong. This suggests that the main gain comes not from a single loss term, but from the compositional energy structure itself: row, column, and diagonal factors already impose a strong inductive bias. With 
+
+S=64 starts, all variants solve all sampled instances, indicating that the inference procedure can reliably recover good solutions once enough starts are used. 
+
+Sharpness diagnostics. For every relaxed heatmap we report row entropy, the top-2 row gap, the fraction of rows with max j Xij > 0.9, and row/col sum-to-one errors after projection. The PICNN energy concentrates on a single column per row (gap ≈ 1,entropy ≈ 0, sum errors < 10 −3), confirming that the convex factor energy yields a decisive basin on the Birkhoff polytope rather than a smeared heatmap that requires temperature-style decoding. 
+
+## 7 Limitations and Broader Impacts 
+
+Compositional energy minimization adds constraints by summing energies, and input-convex archi-tectures keep the resulting decision landscape free of new nonconvex traps. Prior work shows strong generalization, including SAT instances with hundreds of clauses after training only on single clauses, and unseen Paley or random regular expander graphs. In our view, composition turns generalization into a convex program: harder tasks mainly require more solver precision, not escape from pathological geometry. The tradeoff is that convexity can 9be too restrictive, producing flat regions, fractional relaxations, or poor fits to multimodal discrete solution spaces. 
+
+## 8 Conclusion 
+
+We introduced Convex Compositional Energy Minimization (CCEM), a framework for compositional reasoning that replaces unconstrained factor energies with input-convex factor models and performs inference over tight convex relaxations. By preserving convexity under nonnegative factor composi-tion, CCEM removes a central source of spurious local minima and enables deterministic projected first-order optimization in place of long diffusion or particle-based sampling procedures. Our theoretical results show that convex composition provides global optimality guarantees in the relaxed problem, while our experiments on structured reasoning tasks demonstrate strong general-ization from small training instances to larger combinatorial problems. These results suggest that enforcing favorable energy geometry at the factor level is a promising direction for scalable and reliable neural reasoning. 10 References 
+
+[1] Brandon Amos, Lei Xu, and J Zico Kolter. Input convex neural networks. In International conference on machine learning , pages 146–155. PMLR, 2017. [2] Arip Asadulaev. Connecting convex energy-based inference and optimal transport for domain adaptation. In Energy Based Models Workshop-ICLR 2021 .[3] Arip Asadulaev, Vitaly Shutov, Alexander Korotin, Alexander Panfilov, Vladislava Kontsevaya, and Andrey Filchenkov. A minimalist approach for domain adaptation with optimal transport. In Sarath Chandar, Razvan Pascanu, Hanie Sedghi, and Doina Precup, editors, Proceedings of The 2nd Conference on Lifelong Learning Agents , volume 232 of Proceedings of Machine Learning Research , pages 1009–1024. PMLR, 22–25 Aug 2023. URL https://proceedings.mlr. press/v232/asadulaev23a.html .[4] Irwan Bello, Hieu Pham, Quoc V Le, Mohammad Norouzi, and Samy Bengio. Neural combina-torial optimization with reinforcement learning. arXiv preprint arXiv:1611.09940 , 2016. [5] Yize Chen, Yuanyuan Shi, and Baosen Zhang. Optimal control via neural networks: A convex approach. arXiv preprint arXiv:1805.11835 , 2018. [6] Andreea Deac, Petar Veliˇ ckovi´ c, Ognjen Milinkovi´ c, Pierre-Luc Bacon, Jian Tang, and Mladen Nikoli´ c. Xlvin: executed latent value iteration nets. arXiv preprint arXiv:2010.13146 , 2020. [7] Alex Graves, Greg Wayne, and Ivo Danihelka. Neural turing machines. arXiv preprint arXiv:1410.5401 , 2014. [8] Chaitanya K Joshi, Thomas Laurent, and Xavier Bresson. An efficient graph convolutional network technique for the travelling salesman problem. arXiv preprint arXiv:1906.01227 , 2019. [9] Łukasz Kaiser and Ilya Sutskever. Neural gpus learn algorithms. arXiv preprint arXiv:1511.08228 , 2015. [10] Thomas N Kipf and Max Welling. Semi-supervised classification with graph convolutional networks. arXiv preprint arXiv:1609.02907 , 2016. [11] Alexander Korotin, Lingxiao Li, Aude Genevay, Justin M Solomon, Alexander Filippov, and Evgeny Burnaev. Do neural optimal transport solvers work? a continuous wasserstein-2 benchmark. Advances in neural information processing systems , 34:14593–14605, 2021. [12] Yann LeCun, Sumit Chopra, Raia Hadsell, M Ranzato, Fujie Huang, et al. A tutorial on energy-based learning. Predicting structured data , 1(0), 2006. [13] Henrique Lemos, Marcelo Prates, Pedro Avelar, and Luis Lamb. Graph colouring meets deep learning: Effective graph neural network models for combinatorial problems. In 2019 IEEE 31st International Conference on Tools with Artificial Intelligence (ICTAI) , pages 879–885. IEEE, 2019. [14] Yang Li, Jinpei Guo, Runzhong Wang, Hongyuan Zha, and Junchi Yan. Fast t2t: Optimization consistency speeds up diffusion-based training-to-testing solving for combinatorial optimization. 
+
+Advances in Neural Information Processing Systems , 37:30179–30206, 2024. [15] Zhaoyu Li and Xujie Si. Nsnet: A general neural probabilistic framework for satisfiability problems. Advances in Neural Information Processing Systems , 35:25573–25585, 2022. [16] Ashok Makkuva, Amirhossein Taghvaei, Sewoong Oh, and Jason Lee. Optimal transport mapping via input convex neural networks. In International Conference on Machine Learning ,pages 6672–6681. PMLR, 2020. [17] Alexandru Oarga and Yilun Du. Generalizable reasoning through compositional energy mini-mization. arXiv preprint arXiv:2510.20607 , 2025. [18] Avi Schwarzschild, Eitan Borgnia, Arjun Gupta, Furong Huang, Uzi Vishkin, Micah Goldblum, and Tom Goldstein. Can you learn an algorithm? generalizing from easy to hard problems with recurrent networks. Advances in Neural Information Processing Systems , 34:6695–6706, 2021. 11 [19] Daniel Selsam, Matthew Lamm, Benedikt Bünz, Percy Liang, Leonardo de Moura, and David L Dill. Learning a sat solver from single-bit supervision. arXiv preprint arXiv:1802.03685 , 2018. [20] Zhiqing Sun and Yiming Yang. Difusco: Graph-based diffusion solvers for combinatorial optimization. Advances in neural information processing systems , 36:3706–3731, 2023. [21] Petar Veliˇ ckovi´ c, Guillem Cucurull, Arantxa Casanova, Adriana Romero, Pietro Lio, and Yoshua Bengio. Graph attention networks. arXiv preprint arXiv:1710.10903 , 2017. [22] Dinghuai Zhang, Nikolay Malkin, Zhen Liu, Alexandra Volokhova, Aaron Courville, and Yoshua Bengio. Generative flow networks for discrete probabilistic modeling. In International Conference on Machine Learning , pages 26412–26428. PMLR, 2022. 12 A Proofs 
+
+Proposition A.1 (Non-convex factor composition admits spurious stable minima) . Let Y ⊂ Rd be a convex relaxation of a discrete reasoning problem, and let a compositional energy be 
+
+E(y) = 
+
+> K
+
+X
+
+> k=1
+
+fk(ySk ),
+
+where each factor fk : R|Sk | → R is twice continuously differentiable and Sk ⊆ { 1, . . . , d } denotes the scope of factor k. Assume the factors are not constrained to be convex in their scope variables. Then there exist smooth factor energies {fk}Kk=1 and a feasible global solution y⋆ ∈ Y such that: 1. y⋆ is a global minimizer of the composed energy: 
+
+E(y⋆) = min  
+
+> y∈Y
+
+E(y).
+
+2. The composed energy also contains a point ¯y ∈ Y , with ¯y̸ = y⋆, satisfying 
+
+∇E(¯ y) = 0 , ∇2E(¯ y) ≻ 0.
+
+3. Therefore, ¯y is a strict local minimum of E, but not a global minimizer: 
+
+E(¯ y) > E (y⋆).
+
+Moreover, for gradient descent 
+
+yt+1 = yt − η∇E(yt),
+
+there exists a stepsize η > 0 and an open neighborhood U ⊂ Y of ¯y such that every initialization 
+
+y0 ∈ U converges to ¯y. Hence failure from such initializations is caused by the geometry of the composed energy landscape, rather than by the absence of a sufficiently expressive local inference procedure. Proof. It suffices to give a one-dimensional construction. Let 
+
+Y = [ −2, 2] ,
+
+and define two factor energies 
+
+f1(y) = ( y2 − 1) 2, f2(y) = α(y − 1) 2,
+
+where α > 0 is a small constant. The composed energy is 
+
+Eα(y) = f1(y) + f2(y) = ( y2 − 1) 2 + α(y − 1) 2.
+
+The point 
+
+y⋆ = 1 
+
+is a global minimizer because 
+
+Eα(1) = 0 ,
+
+and both terms in Eα are nonnegative. Now consider the behavior near y = −1. When α = 0 , we have 
+
+E0(y) = ( y2 − 1) 2,
+
+and y = −1 is a strict local minimum because 
+
+E′
+
+> 0
+
+(−1) = 0 , E′′  
+
+> 0
+
+(−1) = 8 > 0.
+
+Since Eα is a smooth perturbation of E0, the implicit function theorem implies that for all sufficiently small α > 0, there exists a critical point ¯yα near −1 such that 
+
+E′
+
+> α
+
+(¯ yα) = 0 .
+
+13 Furthermore, by continuity of the second derivative, 
+
+E′′ 
+
+> α
+
+(¯ yα) > 0
+
+for all sufficiently small α > 0. Therefore, ¯yα is a strict local minimum of Eα.However, 
+
+¯yα̸ = 1 .
+
+Since Eα(1) = 0 is the global minimum and Eα(y) > 0 for all y̸ = 1 , we have 
+
+Eα(¯ yα) > E α(1) .
+
+Thus ¯yα is a strict spurious local minimum of the composed energy. Finally, because 
+
+E′′ 
+
+> α
+
+(¯ yα) > 0,
+
+there exists an open neighborhood U of ¯yα on which Eα is strongly convex and has Lipschitz-continuous gradient. For a sufficiently small stepsize η > 0, gradient descent initialized in U remains in U and converges to the unique local minimizer ¯yα. This proves the claim. 
+
+Lemma A.2 (Convex Certificate Sufficiency for Compositional Reasoning) . Let Yx ⊂ Rd be a compact convex relaxation of the solution space for an instance x, and let Vx ⊆ Y x denote the set of valid relaxed solutions. Consider a compositional energy of the form 
+
+Eθ (x, y ) = 
+
+> K
+
+X
+
+> k=1
+
+wkfθ (ySk ; ck), wk ≥ 0,
+
+where Sk ⊆ { 1, . . . , d } is the scope of factor k, ck is its context, and each factor fθ (·; ck) is convex in its scope variable ySk .Assume that the task admits an exact convex compositional certificate. That is, there exist convex local functions gk(·; ck) such that 
+
+Gx(y) = 
+
+> K
+
+X
+
+> k=1
+
+wkgk(ySk ; ck)
+
+satisfies 
+
+arg min 
+
+> y∈Y x
+
+Gx(y) ⊆ V x,
+
+and there exists a margin γ > 0 such that, for every invalid point y ∈ Y x \ V x,
+
+Gx(y) ≥ min 
+
+> z∈Y x
+
+Gx(z) + γ. 
+
+Suppose further that the learned factor class uniformly approximates each certificate factor with error at most ε, meaning 
+
+sup  
+
+> u∈proj Sk(Yx)
+
+|fθ (u; ck) − gk(u; ck)| ≤ ε for all k = 1 , . . . , K. 
+
+If 
+
+2ε
+
+> K
+
+X
+
+> k=1
+
+wk < γ, 
+
+then every global minimizer of Eθ (x, ·) over Yx is valid: 
+
+arg min 
+
+> y∈Y x
+
+Eθ (x, y ) ⊆ V x.
+
+Consequently, since Eθ (x, ·) is convex on Yx, any optimization method that converges to a global minimizer of a convex objective over Yx recovers a valid relaxed solution. 
+
+14 Proof. Because each factor fθ (·; ck) is convex in its scope variable and each weight satisfies wk ≥ 0,the composed energy 
+
+Eθ (x, y ) = 
+
+> K
+
+X
+
+> k=1
+
+wkfθ (ySk ; ck)
+
+is convex in y. Similarly, Gx is convex because it is a nonnegative weighted sum of convex functions. Let 
+
+∆ = ε
+
+> K
+
+X
+
+> k=1
+
+wk.
+
+By the uniform approximation assumption, for every y ∈ Y x,
+
+|Eθ (x, y ) − Gx(y)| =
+
+> K
+
+X
+
+> k=1
+
+wk (fθ (ySk ; ck) − gk(ySk ; ck)) ≤
+
+> K
+
+X
+
+> k=1
+
+wkε = ∆ .
+
+Let 
+
+y⋆ ∈ arg min 
+
+> y∈Y x
+
+Gx(y).
+
+By the exactness assumption, y⋆ ∈ V x. For this point, 
+
+Eθ (x, y ⋆) ≤ Gx(y⋆) + ∆ .
+
+Now take any invalid point y ∈ Y x \ V x. By the margin assumption, 
+
+Gx(y) ≥ Gx(y⋆) + γ. 
+
+Using the approximation bound again, 
+
+Eθ (x, y ) ≥ Gx(y) − ∆ ≥ Gx(y⋆) + γ − ∆.
+
+Since 2∆ < γ , we have 
+
+Gx(y⋆) + γ − ∆ > G x(y⋆) + ∆ .
+
+Therefore, 
+
+Eθ (x, y ) > G x(y⋆) + ∆ ≥ Eθ (x, y ⋆).
+
+Thus no invalid point can be a global minimizer of Eθ (x, ·) over Yx. Hence 
+
+arg min 
+
+> y∈Y x
+
+Eθ (x, y ) ⊆ V x.
+
+Finally, since Eθ (x, ·) is convex and Yx is convex, the optimization problem 
+
+min 
+
+> y∈Y x
+
+Eθ (x, y )
+
+has no spurious local minima. Therefore, any optimization method that converges to a global minimizer of this convex problem recovers a valid relaxed solution. 
+
+Theorem A.3 (First-order supervision suffices for convex energy minima) . Let Y ⊂ Rd be a nonempty compact convex relaxation of the solution space, and let 
+
+Eθ (x, y )
+
+be an energy function that is convex and differentiable in y for every fixed instance x. Let y⋆ ∈ Y be a correct solution for instance x.Suppose that training enforces the first-order optimality condition 
+
+⟨∇ y Eθ (x, y ⋆), y − y⋆⟩ ≥ 0 for all y ∈ Y .
+
+Then y⋆ is a global minimizer of the energy: 
+
+y⋆ ∈ arg min  
+
+> y∈Y
+
+Eθ (x, y ).
+
+15 Moreover, if Vx ⊆ Y denotes the set of valid relaxed solutions and there exists a margin γ > 0 such that every invalid point y ∈ Y \ V x satisfies 
+
+Eθ (x, y ) ≥ Eθ (x, y ⋆) + γ, 
+
+then every global minimizer of Eθ (x, ·) over Y is valid: 
+
+arg min  
+
+> y∈Y
+
+Eθ (x, y ) ⊆ V x.
+
+Thus, for convex energy models, an additional contrastive landscape-shaping loss is not needed to make the correct solution a global minimizer. It is sufficient to enforce the convex first-order optimality condition at the correct solution. Proof. Fix an instance x. Since Eθ (x, ·) is convex and differentiable on Y, the first-order convexity inequality gives, for every y ∈ Y ,
+
+Eθ (x, y ) ≥ Eθ (x, y ⋆) + ⟨∇ y Eθ (x, y ⋆), y − y⋆⟩ .
+
+By the assumed first-order optimality condition, 
+
+⟨∇ y Eθ (x, y ⋆), y − y⋆⟩ ≥ 0 for all y ∈ Y .
+
+Therefore, 
+
+Eθ (x, y ) ≥ Eθ (x, y ⋆) for all y ∈ Y .
+
+Hence y⋆ is a global minimizer: 
+
+y⋆ ∈ arg min  
+
+> y∈Y
+
+Eθ (x, y ).
+
+Now assume the margin condition holds. Let 
+
+¯y ∈ arg min  
+
+> y∈Y
+
+Eθ (x, y ).
+
+If ¯y were invalid, i.e. ¯y ∈ Y \ V x, then the margin condition would imply 
+
+Eθ (x, ¯y) ≥ Eθ (x, y ⋆) + γ > E θ (x, y ⋆).
+
+But this contradicts the fact that ¯y is a global minimizer and y⋆ ∈ Y . Therefore ¯y must be valid. Since ¯y was arbitrary, we conclude that 
+
+arg min  
+
+> y∈Y
+
+Eθ (x, y ) ⊆ V x.
+
+Corollary A.4 (Approximate first-order supervision gives approximate optimality) . Under the assumptions of Theorem, suppose the first-order condition is satisfied up to error ε ≥ 0, meaning 
+
+⟨∇ y Eθ (x, y ⋆), y − y⋆⟩ ≥ − ε for all y ∈ Y .
+
+Then y⋆ is ε-globally optimal: 
+
+Eθ (x, y ⋆) ≤ min  
+
+> y∈Y
+
+Eθ (x, y ) + ε. 
+
+Proof. By convexity, for every y ∈ Y ,
+
+Eθ (x, y ) ≥ Eθ (x, y ⋆) + ⟨∇ y Eθ (x, y ⋆), y − y⋆⟩ .
+
+Using the approximate first-order condition, 
+
+Eθ (x, y ) ≥ Eθ (x, y ⋆) − ε for all y ∈ Y .
+
+Equivalently, 
+
+Eθ (x, y ⋆) ≤ Eθ (x, y ) + ε for all y ∈ Y .
+
+Taking the minimum over y ∈ Y gives 
+
+Eθ (x, y ⋆) ≤ min  
+
+> y∈Y
+
+Eθ (x, y ) + ε. 
+
+16 Corollary A.5 (Convergence of projected convex inference) . Let Eθ (x, ·) be convex and L-smooth on a closed convex set Y. Let y⋆ ∈ arg min y∈Y Eθ (x, y ), and run projected gradient descent with stepsize η = 1 /L :
+
+yt+1 = Π Y
+
+
+
+yt − 1
+
+L ∇y Eθ (x, y t)
+
+
+
+.
+
+Then after T iterations, 
+
+Eθ (x, y T ) − Eθ (x, y ⋆) ≤ L∥y0 − y⋆∥22
+
+2T .
+
+If, in addition, Eθ (x, ·) is μ-strongly convex on Y, then projected gradient descent converges linearly: 
+
+∥yT − y⋆∥22 ≤
+
+
+
+1 − μL
+
+T
+
+∥y0 − y⋆∥22.
+
+## B Ablations 1 2 4 8 16 32 64 
+
+Number of inference starts 
+
+> 0
+> 20
+> 40
+> 60
+> 80
+> 100
+> Valid solutions (%)
+> N=4
+> N=5
+> N=6
+> N=7
+> N=8
+> N=9
+> N=10
+
+(a) Valid solutions. 1 2 4 8 16 32 64 
+
+Number of inference starts  
+
+> 0
+> 20
+> 40
+> 60
+> 80
+> 100
+> Solutions in known solution set (%)
+> N=4
+> N=5
+> N=6
+> N=7
+> N=8
+> N=9
+> N=10
+
+(b) Known solution rate. 1 2 4 8 16 32 64 
+
+Number of inference starts 
+
+> 0
+> 1
+> 2
+> 3
+> 4
+> Average total conflicts
+> N=4
+> N=5
+> N=6
+> N=7
+> N=8
+> N=9
+> N=10
+
+(c) Average conflicts. 1 2 4 8 16 32 64 
+
+Number of inference starts  
+
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+> 70
+> 80
+> Unique valid solutions
+> N=4
+> N=5
+> N=6
+> N=7
+> N=8
+> N=9
+> N=10
+
+(d) Unique valid solutions. 
+
+Figure 4: Inference-start ablation for N-Queens. Increasing the number of independent starts improves the probability of finding a valid decoded board, reduces the average number of conflicts, and increases the diversity of valid solutions. 1 2 4 8 16 32 64 
+
+Number of inference starts                                           
+
+> 4
+> 5
+> 6
+> 7
+> 8
+> 9
+> 10
+> Board size N
+> 28 56 79 98 100 100 100
+> 47 79 99 100 100 100 100
+> 4912 30 48 79 96
+> 14 31 49 80 98 100 100
+> 13 19 31 51 81 98 100
+> 611 23 48 73 95 100
+> 4712 20 40 58 82
+
+Valid solution rate by starts and N 
+
+> 20
+> 40
+> 60
+> 80
+> 100
+> %
+
+(a) Valid solution rate. 1 2 4 8 16 32 64 
+
+Number of inference starts                                           
+
+> 4
+> 5
+> 6
+> 7
+> 8
+> 9
+> 10
+> Board size N
+> 1.8 0.87 0.29 0.02 000
+> 1.6 0.5 0.02 0000
+> 2.9 21.4 0.92 0.59 0.21 0.04
+> 321.1 0.31 0.03 00
+> 3.2 2.2 1.4 0.72 0.21 0.02 0
+> 42.9 1.9 1.1 0.38 0.06 0
+> 4.1 3.1 2.2 1.6 0.99 0.55 0.19
+
+Average total conflicts by starts and N  
+
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> 2.5
+> 3.0
+> 3.5
+> 4.0
+> total_conflicts
+
+(b) Average conflicts. 
+
+Figure 5: Heatmap view of the inference-start ablation across board sizes. Larger boards require more starts to obtain comparable validity, while increasing the number of starts consistently reduces the average number of conflicts. 17 Table 4: Runtime comparison across loss components for the N-Queens Phase 2 refinement experi-ment. Times are wall-clock durations on a single NVIDIA RTX A4000 GPU. MSE ( α) Rank ( β) Hard ( γ) Time Avg. sec/iter 
+
+✓ 1:53:35 6.82 
+
+✓ ✓ 2:00:07 7.21 
+
+✓ ✓ 1:54:26 6.87 
+
+✓ ✓ ✓ 1:55:47 6.95 Table 5: Graph Coloring problem distribution parameters. Distribution V E d χ
+
+Erdos Renyi [20, 39] [29, 76] 0.12 [3, 4] Erdos Renyi 2 [81, 99] [193, 225] 0.05 [3, 4] Holme Kim [22, 34] [56, 92] 0.26 [4, 4] Holme Kim 2 [86, 100] [398, 469] 0.10 [5, 6] Regular Expander [21, 40] [63, 120] 0.22 [4, 4] Regular Expander 2 [86, 100] [184, 200] 0.23 [3, 3] Paley [19, 37] [171, 465] 0.80 [6, 10] Complete [8, 12] [36, 66] 1.00 [8, 12] 
+
+## C Computational Details 
+
+All experiments were conducted on a single NVIDIA RTX A4000 GPU. We used a single-GPU setup for both training and evaluation; no multi-GPU or distributed training was used. The main model uses a three-layer PICNN factor network with hidden width 256, followed by composed-energy refinement through an unrolled projected solver. In the N-Queens experiments, Phase 1 factor pretraining was run for 1000 epochs with AdamW, and Phase 2 board-level refinement was run for 300 epochs with 
+
+T = 140 projected solver steps per unroll. During refinement, we used S = 4 warm starts for training and S = 64 starts for evaluation. Table 4 reports wall-clock runtimes for the N-Queens Phase 2 loss ablation on the same hardware. The timings show that adding the ranking and hard-negative terms introduces only a small overhead relative to the regression-only objective. The MSE-only configuration required 1:53:35, corresponding to 6.82 seconds per iteration, while the full objective with MSE, ranking, and hard-negative terms required 1:55:47, corresponding to 6.95 seconds per iteration. Thus, the full board-level objective increases per-iteration time by approximately 1.9% compared with the MSE-only setting. The most expensive ablated configuration was the Rank+Hard objective without the MSE term, which took 2:00:07, or 7.21 seconds per iteration. The total wall-clock time for the four N-Queens ablation runs in Table 4 was approximately 7 hours and 44 minutes. These measurements are intended to characterize the cost of the proposed loss components under a fixed implementation and hardware setup, rather than to provide a fully hardware-independent benchmark. In practice, the dominant computational cost comes from backpropagating through the unrolled projected solver; the additional energy-margin and hard-negative terms require extra energy evaluations but do not change the asymptotic structure of the training loop. At inference time, compute scales linearly with the number of projected solver steps and the number of warm starts or particles used by the sampler. 
+
+## D Additional experiments 
+
+For Graph Coloring evaluation we used parameters from Table 5. Additionally, we have conducted study on 3-SAT problem. Each clause in the decomposition of the 3-SAT problem has 7 valid solutions and 1 invalid one. Using the convexity of the energy function, we want to train the network to find the single incorrect solution for each clause. If the formula is consistent, during inference we can find a solution that violates all clauses and take its negation. For training, we generated random 3-SAT instances with number of variables within [10, 20]. The 18 Table 6: 3-SAT evaluation (100 sampled formulas). 
+
+Model Type Satisfied Clauses 
+
+GCN SL 0.9617 ± 0.0264 
+
+DGL SL + TS 0.9520 ± 0.0330 
+
+DIFUSCO ( T = 50 ) SL + S 0.9734 ± 0.0156 
+
+Fast T2T ( TS = 1 , T G = 1 ) SL + S 0.9749 ± 0.0210 
+
+Fast T2T ( TS = 5 , T G = 5 ) SL + S 0.9760 ± 0.0273 
+
+NeuroSAT ( T = 50 ) SL + IR 0.9661 ± 0.0185 
+
+NeuroSAT ( T = 500 ) SL + IR 0.9742 ± 0.0154 
+
+NSNet ( T = 50 ) SL + BP 0.9845 ± 0.0272 
+
+NSNet ( T = 500 ) SL + BP 0.9856 ± 0.0266 
+
+EBM ( P = 1024 ) SL + PEM 0.9985 ± 0.0048 
+
+CCEM (Ours) SL + ProjAdam 0.9665 ± 0.0075 
+
+number of clauses was set to be in phase transition, that is, it was set to be 4.258 × n, where n is the number of variables. We evaluate by sampling 100 instances with 20 variables and 91 clauses. We our CECM approach versus GCN [ 10 ], DIFUSCO [ 20 ], FastT2T [ 14 ], the seminal neural SAT solver NeuroSAT [19], the state-of-the-art neural solver based on belief-propagation NSNet and EBM. 19

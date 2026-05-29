@@ -1,0 +1,691 @@
+Title: PathCal: State-Aware Reflection-Marker Calibration for Efficient Reasoning
+
+URL Source: https://arxiv.org/pdf/2605.23074v1
+
+Published Time: Mon, 25 May 2026 00:14:12 GMT
+
+Number of Pages: 21
+
+Markdown Content:
+# PathCal: State-Aware Reflection-Marker Calibration for Efficient Reasoning 
+
+Lingyu Jiang 1, Zirui Li 1, Shuo Xing 2, Peiran Li 2, Tsubasa Takahashi 1,Dengzhe Hou 1, Zhengzhong Tu 2, Kazunori Yamada 1⋆, Fangzhou Lin 1,2,3†⋆
+
+> 1
+
+Tohoku University 2Texas A&M University 3Worcester Polytechnic Institute 
+
+> †
+
+Project Lead. ⋆Corresponding Authors: yamada@tohoku.ac.jp , ark.lin_1-1@tamu.edu .
+
+## Abstract 
+
+The emergence of Large Reasoning Language Models (LRMs) has paved the way for tackling complex reasoning tasks through test-time scaling by generating long-form Chain-of-Thought (CoT) trajectories during inference. Meanwhile, these trajectories often contain explicit reflection markers such as “wait” , “but” , and 
+
+“alternatively” , signaling hesitation, revision, and the consideration of alternative ex-plorations, respectively. Recent studies on test-time control leverage such markers as lightweight handles for steering reasoning, typically treating them as a single coarse-grained category rather than distinguishing their distinct functional roles. In this paper, we conduct type-wise suppression and fixed-prefix intervention, revealing that reflection markers differ not only in their functional roles but also in when they exert the greatest influence. Specifically, different marker classes affect accuracy and generation length in distinct ways, and marker choices are most consequential before the model settles into a stable reasoning trajectory. Motivated by these findings, we introduce P ATH CAL , a novel training-free decoding controller that calibrates reasoning paths by distinguishing marker types and intervening only at locally uncertain states. At each decoding step, P ATH CAL utilizes the distribution over reflection-markers to estimate local competition between maintaining the cur-rent reasoning trajectory and initiating a competing branch, and softly rebalances marker logits when competing-branch evidence becomes excessive. Experiments across six reasoning benchmarks demonstrate that P ATH CAL achieves a better effi-ciency–performance trade-off, improving or preserving accuracy while reducing generation length, without relying on external verifiers or additional sampling. 
+
+## 1 Introduction 
+
+Large reasoning models (LRMs), such as OpenAI o3 [ 43 ], DeepSeek-R1 [ 21 ], QwQ [ 49 ], and Kimi-K2 [ 53 ], improve complex reasoning by generating extended chain-of-thought (CoT) trajectories before producing final answers [ 62 , 28 ]. This explicit reasoning process enables test-time scaling, where inference-time computation is allocated through longer generations, repeated sampling, it-erative revision, or verifier-guided search [ 50 , 58 , 7, 41 , 70 , 38 , 36 ]. These suggest that reasoning performance depends not only on model scale, but also on how generation is controlled at inference time. A natural handle for controlling CoT trajectories is the set of reflection markers, such as “wait” , “but” ,
+
+“alternatively” , and “hmm” . These markers often appear at reasoning transition points, signaling hesitation, self-correction, alternative exploration, or strategy switching [ 19 , 21 , 46 , 13 , 39 , 68 ]. Recent test-time control methods exploit these markers by inserting, suppressing, or scheduling them during decoding [ 42 , 60 , 14 ]. However, these methods typically manipulate reflection markers as a single coarse-grained class, implicitly assuming different markers play similar functional roles. 
+
+> Preprint.
+> arXiv:2605.23074v1 [cs.AI] 21 May 2026 Original decoding
+
+Input  Promising           
+
+> prefix So/Therefore (continuation) so x=3.
+> But/However (revision) 3x+2=10,so…
+> Alternatively (alt. opening) Let y=3x,then…
+> Model selects competing branch →local control failure
+> Reasoning
+> path
+> 3x+2=11,
+> But 3x+2=10,
+> So 3x=8,
+> Thus x=8/3.
+> …
+> (revision path)
+> Incorrect
+> answer
+
+x=8/3   
+
+> PathCal Correct
+> answer
+> Reasoning
+> path
+> 3x+2=11,
+> so 3x=9,
+> so x=3.
+> …
+> (continuation path) 𝑪 𝒕
+> 𝑩 𝒕
+> Continuation
+> mass
+> Competing
+> mass
+> Rebalance
+> only when
+> competing
+> mass is
+> excessive
+
+x=3     
+
+> Adjusted branch priors
+> So/Therefore
+> (continuation)
+> But/However
+> (revision)
+> Alternatively
+> (alt. opening)
+> boosted ↑
+> dropped ↓
+> dropped ↓
+> So/Therefore
+> (continuation)
+> But/However
+> (revision)
+> Alternatively
+> (alt. opening) 𝑪 𝒕 :local probability mass of continuation |𝑩 𝒕 :combined mass of competing branches (revision + alternative)
+> If 3x+2=11,
+> What is x?
+> 3x+2=11,
+> So 3x=9 ...
+
+# ✓
+
+# ×Figure 1: Illustration of our proposed method, P ATH CAL . P ATH CAL calibrates local reasoning-path choices by softly reweighting continuation and competing-branch markers when the current trajectory is at risk of unnecessary switching. This assumption is questionable: markers such as “so” , “but” , and “wait” appear to express distinct reasoning transitions [ 3]. This raises a basic question: Are reflection markers actually functionally equivalent? 
+
+To verify this assumption, we conduct two diagnostic studies on reflection-marker behavior. First ,a type-wise suppression study shows that different marker classes affect accuracy and generation length in different ways. In particular, blanket suppression reliably shortens reasoning traces, but does not consistently improve correctness, suggesting that reflection-marker control cannot be reduced to indiscriminate suppression [ 22 , 40 ]. Second , a fixed-prefix intervention study shows that replacing the same reasoning prefix with different markers, such as “So” and “But” , can change downstream success probabilities, especially in intermediate-value states where the model has not yet converged to a stable trajectory [ 56 , 30 , 54 , 45 , 9, 8, 24 , 34 ]. Together, these findings suggest that reflection-marker effects are both category-dependent and state-dependent, motivating marker-level control beyond treating reflection markers as an interchangeable class [27, 75, 8]. Motivated by these findings, we propose P ATH CAL , a training-free decoding controller for category-aware and state-aware path calibration. P ATH CAL groups reflection markers by their local reasoning modes, estimates the next-token evidence for continuing the current reasoning line versus opening a competing branch, and applies a gated logit adjustment when branch-opening evidence becomes excessive. As illustrated in Figure 1, a reasoning model may reach a plausible but unstable reasoning line, where branch-opening markers such as “But” or “Alternatively” can trigger costly switching and destabilize the subsequent trajectory. Unlike global suppression, P ATH CAL uses a gated, category-aware logit adjustment to reduce excessive branch switching while leaving ordinary reflection behavior largely intact. Empirically, P ATH CAL improves or preserves single-sample accuracy while usually shortening generations across six reasoning benchmarks. Its gains are largest on AIME-style hard reasoning tasks, where blanket reflection suppression often reduces length without reliably improving correctness. PATH CAL also transfers to T HEOREM QA, suggesting that effective reflection-marker control should be both category-aware and state-aware rather than treating reflection as a single global behavior. Our contributions are summarized as follows: • We show that reflection markers are not functionally equivalent. Through type-wise suppression and fixed-prefix intervention, we find that marker effects vary across both marker categories and reasoning states. • We introduce P ATH CAL , a training-free decoding controller for category-aware and state-aware path calibration. P ATH CAL uses marker probabilities to detect local reasoning-mode competition and softly rebalances marker logits when competing-branch evidence becomes excessive. • We validate P ATH CAL under single-sample decoding across six reasoning benchmarks. It improves or preserves accuracy while usually shortening generations, with the largest gains on AIME-style hard reasoning tasks, without additional training, verifiers, or sampling budget. 22 Related Work 
+
+Efficient Reasoning and CoT Compression. Modern LRMs often rely on long reasoning traces, motivating a growing line of work on CoT compression [ 4, 65 , 59 , 12 , 32 , 33 ] and efficient in-ference. TokenSkip [ 64 ] drops low-importance tokens to produce controllable chain-of-thought compression. ConCISE [ 47 ] reduces redundant reflection through confidence injection and early stopping. A*-Thought [ 66 ] uses search to extract concise, high-density reasoning paths. Our method is complementary to this line of work: rather than explicitly compressing the generated chain of thought, it intervenes during decoding to steer the reasoning trajectory itself. 
+
+Test-Time Scaling and Adaptive Inference. Test-time scaling improves reasoning by allocating additional computation at inference time. Best-of-N [ 36 ] and self-consistency [ 58 ] draw multiple samples and select or aggregate their answers. Beam search, Tree-of-Thought [ 70 ], and Monte Carlo tree search [ 15 ] expand the search space by exploring multiple reasoning paths. Budget-forcing methods [ 1 , 72 ] such as s1 [ 42 , 63 ] lengthen individual traces by appending reflection cues. Recent works [ 50 , 69 , 74 , 25 , 26 , 37 , 57 ] further show that the effectiveness of these strategies varies with problem difficulty and inference budget, motivating instance-adaptive policies [ 17 ]. Rather than allocating more computation across samples or search paths, our method controls the current reasoning trajectory through a lightweight logit-level intervention [35, 71, 31, 73]. 
+
+Reflection Markers and Reasoning Control in LRMs. LRM chain-of-thought traces [ 62 ] often contain reflection-related markers such as “ wait ”, “ but ”, and “ alternatively ”, which signal hesitation, reconsideration, self-correction, or alternative exploration [ 21 , 67 , 44 ]. Recent inference-time methods use these markers as lightweight control handles: TIP [ 60 ] penalizes reflection-marker logits to reduce thought switching. However, existing methods largely treat reflection markers as a single coarse-grained class. In contrast, we argue that reflection markers are functionally heterogeneous [ 18 , 26 , 61 , 52 ], with different markers corresponding to different local reasoning operations [6]. This motivates our category-aware test-time control method. 
+
+## 3 Reflection Markers Are Not Functionally Equivalent 
+
+This section tests whether reflection markers can be treated as an interchangeable control class. If they were functionally homogeneous, suppressing different marker types should have similar effects, and forcing different markers after the same prefix should not substantially alter downstream success. We show that neither holds: reflection-marker effects are both category-dependent and state-dependent. Full diagnostic experiment details are provided in Appendix E. 
+
+Type-wise suppression reveals marker-specific effects. We first examine marker interchangeab-4500 5000 5500 6000 6500 
+
+> Length
+> 20
+> 25
+> 30
+> 35
+> Accuracy (%)
+> Original
+> SuppressALL
+> Suppress-wait
+> Suppress-but
+> Suppress-however
+
+Figure 2: Type-wise suppression on AIME2025 using DeepSeek-R1-Distill-Qwen-7B. ility at the decoding level by selectively suppressing different marker classes. If reflection markers formed a homogeneous con-trol class, then suppressing different marker types should produce similar directional effects on generation behavior, such as compa-rable changes in accuracy and length. In addition, suppressing all markers should provide a reliable aggregate intervention. We compare O RIGINAL , S UPPRESS ALL , and several S UPPRES -
+
+> S
+
+ONLY variants targeting individual marker classes such as “ wait ”, “but ”, and “ however ”. Here, suppression means lowering the logits of a target marker set during decoding, making those markers less likely to be generated without removing them from the vocabulary. For reasoning models that explicitly separate reasoning from the final answer, we treat tokens inside <think> ... </think> as the reasoning trace. Each suppression acts only inside this reasoning region and applies a fixed logit penalty λ = 5 .0 to the target token set. Formally, for suppression group g with vocabulary subset Gg ,
+
+˜z(g) 
+
+> t,v
+
+= zt,v − λ 1[v ∈ G g ] 1[t ∈ <think> ], (1) where zt,v and ˜z(g) 
+
+> t,v
+
+denote the original and modified logits at decoding step t, and 1[·] is the indicator. As shown in Figure 2, suppressing different reflection markers leads to distinct effects on accuracy and generation length. S UPPRESS ALL moves sharply toward shorter generations, but this reduction 3comes with a large accuracy drop. In contrast, selective suppression produces qualitatively different behaviors: suppressing “ but ” yields a higher-accuracy region without the severe shortening caused by blanket suppression, while suppressing “ wait ” remains closer to the original accuracy with a moderate length reduction. Suppressing “ however ” follows yet another pattern, improving accuracy while preserving a longer reasoning trace. Overall, blanket suppression shortens reasoning but does not reliably improve correctness, while selective suppression exposes marker-specific effects. This provides initial evidence that reflection markers should be controlled at the category level rather than treated as a single uniform class. 
+
+Fixed-prefix intervention reveals state-dependent marker effects. The suppression study provides evidence that different marker types affect decoding differently. However, it does not isolate the effect of a single marker at a specific reasoning state. We therefore test whether changing only the next marker can alter the continuation when the preceding reasoning prefix is fixed. Let st denote a reasoning prefix at decoding step t, and let τ be a full continuation sampled after that prefix. For a candidate marker m, we define the counterfactual prefix value as 
+
+V (st, m ) = Eτ ∼pθ (·| st,m ) [1[Correct( τ )]] , (2) where V (st, m ) measures the probability that the model reaches a correct final answer after continuing from the fixed prefix st with marker m forced next. The ordinary prefix value V (st) is obtained by sampling continuations without forcing a marker. If reflection markers were locally interchangeable, different markers should yield similar values under the same prefix, i.e., V (st, m i) ≈ V (st, m j ).Table 1: State-stratified branch intervention results using DeepSeek-R1-Distill-Qwen-7B. 
+
+∆ = VSo − VBut is reported in percentage points. 
+
+Dataset State VSo VBut ∆
+
+MATH500 low 7.1 10.0 -3.0 mid 57.5 50.3 +7.1 
+
+high 97.6 97.7 -0.1 AIME2024 low 4.8 10.5 -5.6 mid 58.8 52.5 +6.2 
+
+high 89.7 89.1 +0.6 AIME2025 low 8.2 7.1 +1.1 mid 36.8 47.1 -10.3 
+
+high 95.4 96.3 -0.9 
+
+We instantiate this test with two representative markers, “ So ”and “ But ”. For each candidate prefix, we estimate its ordinary prefix value ˆV (st) from normal continuations, and estimate the forced-marker values ˆVSo (st) and ˆVBut (st) from counterfactual continuations. We summarize the directional marker effect as 
+
+∆So-But (st) = ˆVSo (st) − ˆVBut (st). To study state dependence, we stratify prefixes by ˆV (st) rather than by problem-level difficulty. We define low-, mid-, and high-value states using fixed thresholds: 
+
+ˆV (st) ≤ 0.25 , 0.25 < ˆV (st) < 0.75 , and ˆV (st) ≥ 0.75 , respec-tively. Thus, mid-value states represent prefixes where the model is not yet committed to a stable trajectory: some continuations succeed, while others fail. Table 1 reports the state-stratified results on MATH500, AIME2024, and AIME2025. The main pattern is that marker-dependent differences are most pronounced in mid-value states. Low-value states also show marker-dependent changes, but the effects are weaker or less directionally consistent. High-value states are much less sensitive, suggesting that once the trajectory is already reliable, forcing a single marker has limited impact. In contrast, mid-value states represent unstable prefixes where some continuations succeed and others fail, making the next marker choice more consequential. This suggests that marker effects are not universal properties of individual words, but depend on the reasoning state in which they are generated. Detailed settings for both diagnostic experiments are provided in Appendix E. Input  Shared 
+
+Prefix          
+
+> Q: The expression
+> 1 + 2 + 3 -4 + 5 +
+> 6 equals 13.
+> A: <think> The
+> default evaluation is
+> 1+2+3 -4+5+6=13.
+> By adding parentheses,
+> without rearranging
+> terms, what is the
+> minimum possible value?
+> Now I need to place
+> parentheses to minimize
+> this value. I can only add
+> parentheses, not change
+> the order of the numbers
+> or the operations. </think>
+> Force -So
+> Branch
+> Force -But
+> Branch
+> negative number, so I should group around the
+> minus sign: 1 + 2 + 3 -(4 + 5 + 6) = 6 -15 = -9. Other
+> legal groupings give higher values.
+> A: <think> So , I can group numbers together.
+> I need to create the largest possible
+> A: <think> But , I can group some numbers
+> together, especially around the minus sign...
+
+# ✓
+
+# ×            
+
+> </think> -9
+> The model then silently flips plus signs inside the
+> group: 2-3-4-5-6 = -16, then 1 + ( -16) = -15.
+> </think> -15
+
+Figure 3: Fixed-prefix branch intervention. With the same input and shared reasoning prefix, forcing the next marker to be “ So ” or “ But ”leads to different downstream continuations. Figure 3 provides a qualita-tive example of this fixed-prefix intervention. The input question and shared reasoning prefix are iden-tical, but the next marker is forced to be either “ So ”or “ But ”. The two forced branches lead to different downstream continuations, illustrating how marker choice can locally steer the reasoning trajectory. 4Key Takeaways 
+
+> These diagnostic results challenge the view of reflection markers as a homogeneous control class. Type-wise suppression shows category-dependent effects, while fixed-prefix intervention shows state-dependent effects. Together, they motivate P ATH CAL , a category-aware and state-aware test-time control strategy.
+
+## 4 PathCal: Category-Aware and State-Aware Path Calibration 
+
+Section 3 shows that reflection-marker effects vary across marker categories and reasoning states. Motivated by this observation, P ATH CAL implements a lightweight, training-free decoding-time cali-bration rule for marker-level reasoning control. Rather than suppressing reflection markers globally, PATH CAL treats their next-token probabilities as local signals of reasoning-mode competition. At each decoding step, it compares evidence for continuing the current reasoning line against evidence for entering a competing branch, and softly rebalances a small set of marker logits only when this competition becomes excessive. 
+
+4.1 Local Control Principle 
+
+Let ht = ( x, P, z <t ) denote the decoding history at step t, where x is the input problem, P is the prompt, and z<t is the generated reasoning prefix. Let pt(v) = pθ (v | ht) be the model’s next-token distribution over vocabulary item v. We use marker probabilities as observable signals of local reasoning-mode competition. 
+
+Operational principle. Continuation markers indicate evidence for preserving the current line of reasoning, whereas revision and alternative-opening markers indicate evidence for switching to a competing branch. When both types of evidence are non-negligible, the current state is potentially sensitive to marker-level control. This principle does not imply that continuation is always correct or that revision is always harmful. Revision can be necessary when the current path is flawed, and continuation can preserve an incorrect trajectory. P ATH CAL only uses marker probabilities to identify controllable local competition between path preservation and path switching. 
+
+4.2 Marker Classes and Branch Scores 
+
+PATH CAL is defined over three configurable marker classes that correspond to local reasoning modes: continuation, revision, and alternative opening. The framework does not require a universal marker vocabulary; different models or languages may use different surface realizations of the same reasoning modes. In our experiments, we use a fixed default instantiation: continuation markers include markers such as “So” , “Therefore” , and “Thus” ; revision markers include “But” , “However” , and “no” ;and alternative-opening markers include “Alternatively” . Before decoding, each surface marker is resolved into tokenizer-specific token IDs, including case variants, bare forms, and leading-space variants. At decoding step t, we aggregate the next-token probabilities assigned to these marker classes: 
+
+Ct = X
+
+> v∈M C
+
+pt(v), Rt = X
+
+> v∈M R
+
+wv pt(v), At = X
+
+> v∈M A
+
+pt(v). (3) Here, Ct measures continuation evidence, Rt measures revision evidence, and At measures alternative-opening evidence. The coefficients wv ≥ 1 allow stronger revision markers to receive larger influence. We use token-level weights only for revision markers because this class contains markers with more heterogeneous strengths, whereas continuation and alternative-opening markers are treated uniformly in our default configuration. We combine revision and alternative opening as competing-branch evidence: 
+
+Bt = Rt + λAAt. (4) Since Rt and Bt may include weighting coefficients, we interpret them as local branch scores rather than literal probability masses. 5Algorithm 1 PATH CAL decoding with state-aware marker calibration 
+
+Require: model pθ , input x, prompt P, marker sets MC , MR, MA with revision weights {wv }
+
+Require: hyperparameters αbase , γ, τ, λ A, β C , β R, β A, ρ, ϵ, minp  
+
+> 1:
+
+z ← ()  
+
+> 2:
+
+for t = 1 , 2, . . . , T max do  
+
+> 3:
+
+ht ← (x, P, z <t ); ℓt ← Logits θ (ht); pt ← softmax( ℓt); ˜ℓt ← ℓt 
+
+> 4:
+
+if z<t does not contain </think> and |z<t | ≥ minp then  
+
+> 5:
+
+Compute Ct, R t, A t, B t using Eqs. (3)–(4)  
+
+> 6:
+
+Compute gt and αt using Eqs. (5)–(6)  
+
+> 7:
+
+Update ˜ℓt using Eq. (7)  
+
+> 8:
+
+end if  
+
+> 9:
+
+Sample zt from the base sampler applied to ˜ℓt; append zt to z 
+
+> 10:
+
+if zt is an end-of-sequence token then  
+
+> 11:
+
+break  
+
+> 12:
+
+end if  
+
+> 13:
+
+end for  
+
+> 14:
+
+return z
+
+4.3 State-Aware Calibration Rule Design rationale. PATH CAL does not assume that continuation is always better than revision. Instead, it follows the diagnostic finding in Section 3: marker choices are most consequential when the current reasoning state is locally unstable. In such states, revision or alternative exploration may be useful, but excessive branch switching can also derail a plausible reasoning trajectory. Therefore, P ATH CAL 
+
+applies a soft inertia bias only at local branch points where competing-branch evidence becomes excessive. Using the branch scores defined above, P ATH CAL first checks whether the current step contains sufficient marker evidence. If Ct + Bt < ρ , the logits are left unchanged. Otherwise, it computes a competition gate 
+
+gt = 4CtBt
+
+(Ct + Bt)2 + ϵ , (5) which becomes large only when continuation evidence and competing-branch evidence are both non-negligible and relatively balanced. The normalized product makes the gate bounded and approxi-mately scale-invariant, while ϵ is used only for numerical stability. The step-wise intervention strength is 
+
+αt =
+
+
+
+0, Ct + Bt < ρ, αbase gt min 
+
+ [Bt − Ct + γ]+
+
+τ , 1
+
+
+
+, Ct + Bt ≥ ρ, (6) where [a]+ = max( a, 0) . The gate identifies local mode competition, while the gap term strengthens the intervention when competing-branch evidence approaches or exceeds continuation evidence. Thus, P ATH CAL raises the local threshold for branch switching, rather than suppressing all revision behavior. Given αt, P ATH CAL applies a category-aware additive logit shift: 
+
+˜ℓt(v) = ℓt(v) + αt (βC 1[v ∈ M C ] − βRwv 1[v ∈ M R] − βA1[v ∈ M A]) . (7) Continuation markers are softly promoted, revision and alternative-opening markers are softly downweighted, and all non-marker logits remain unchanged. Since the intervention only changes relative logits, competing-branch markers remain possible when the model assigns strong evidence to them. Algorithm 1 summarizes the full decoding procedure. The rule is applied only inside the explicit reasoning region and after a short warmup prefix, so that P ATH CAL intervenes only after a meaningful reasoning state has formed. 
+
+Effect on generation length. PATH CAL does not impose an explicit length budget or early stopping rule. Its length reduction comes from stabilizing local branch choices: by discouraging excessive 6switching among competing reasoning modes, it reduces detours, re-checks, and unnecessary strategy changes. Thus, P ATH CAL improves reasoning efficiency through path stabilization rather than post-hoc compression. 
+
+4.4 Local Calibration Property 
+
+The logit shift in Eq. 7 has a simple local effect: it increases the relative odds of continuation markers against competing-branch markers whenever the intervention is active. 
+
+Proposition. Let qt denote the next-token distribution after applying P ATH CAL at state ht. For any continuation marker c ∈ M C and revision marker r ∈ M R,
+
+log qt(c)
+
+qt(r) − log pt(c)
+
+pt(r) = ( βC + βRwr )αt. (8) Similarly, for any alternative-opening marker a ∈ M A,
+
+log qt(c)
+
+qt(a) − log pt(c)
+
+pt(a) = ( βC + βA)αt. (9) Thus, when αt > 0, P ATH CAL strictly increases continuation odds relative to revision and alternative-opening markers. The proof is provided in Appendix F. This property is local: it does not guarantee final-answer correctness. It only states that P ATH CAL 
+
+raises the relative threshold for branch switching at detected local competition points, while revision and alternative opening remain possible. Overall, P ATH CAL performs soft, state-aware marker calibration rather than blanket suppression. Im-plementation details, marker-resolution rules, and hyperparameter values are provided in Appendix F and D. 
+
+## 5 Experiments 
+
+In this section, we evaluate whether P ATH CAL improves single-sample reasoning beyond indiscrimi-nate length reduction. We first compare P ATH CAL with training-free test-time baselines across four LRMs and six reasoning benchmarks. We then test transfer beyond competition-style mathematics, and analyze the roles of state-aware activation, marker competition, and category-specific calibration through ablations and sensitivity studies. 
+
+5.1 Experimental Setup Models. We evaluate P ATH CAL on four open-source reasoning models spanning scale, backbone architecture, and training pipeline. DeepSeek-R1-Distill-Qwen-7B [21 ] and DeepSeek-R1-Distill-Qwen-14B [21 ] provide two scales within the Qwen-based [ 48 ] DeepSeek-R1 distilled family. 
+
+DeepSeek-R1-Distill-Llama-8B [21 ] tests transfer to a different Llama-based backbone [ 20 ]. QwQ-32B [ 49 ] provides a strong non-DeepSeek-distilled reasoning model. Together, this suite tests whether marker-level calibration generalizes across scales, backbones, and distillation pipelines. Full setup details are provided in Appendix A. 
+
+Datasets. We evaluate P ATH CAL on six reasoning benchmarks spanning arithmetic word problems, competition-style mathematics, and theorem-based reasoning [ 51 ]. GSM8K [11 , 55 ] covers grade-school arithmetic reasoning. MATH500 [23 , 36 ], AMC2023 [ 2 ], AIME2024 , and AIME2025 [5]cover mathematical reasoning at increasing contest difficulty. TheoremQA [10 ] evaluates theorem-based reasoning across science and mathematics, testing transfer beyond competition-style math. Full dataset details are provided in Appendix B. 
+
+Baselines. We compare P ATH CAL with four training-free test-time baselines. Original uses standard decoding without intervention. TIP [ 60 ] applies a uniform penalty to a predefined subset of reflection-marker logits. CyclicReflex [ 14 ] cyclically modulates reflection-marker logits. s1 [42 ] extends reasoning through reflection-cue-based budget forcing. Together, they cover standard decoding, coarse reflection-marker control, and budget forcing, while P ATH CAL performs category-aware marker calibration. Full baseline implementation details are provided in Appendix G 7Table 2: Main results on five mathematical reasoning benchmarks. Acc. denotes accuracy in percentage points, and Len. denotes average generated tokens. Best and second-best values within each model block are shown in bold and underlined, respectively. P ATH CAL is highlighted in gray. 
+
+Method MATH500 AIME24 AIME25 AMC23 GSM8K Acc. ↑ Len. ↓ Acc. ↑ Len. ↓ Acc. ↑ Len. ↓ Acc. ↑ Len. ↓ Acc. ↑ Len. ↓
+
+DeepSeek-R1-Distill-Qwen-7B Original 85.5 1423 33.3 5678 26.7 5606 77.5 2750 86.8 339 TIP 86.2 1406 36.7 4772 26.7 5609 82.5 2893 86.2 323 S1 86.5 1790 40.0 6154 26.7 6035 82.5 3335 86.4 404 CyclicReflex 85.8 1459 36.7 5308 30.0 5567 80.0 2806 86.9 380 PathCal(Ours) 87.4 1281 43.3 4990 36.7 5051 82.5 2244 87.0 319 
+
+DeepSeek-R1-Distill-Qwen-14B Original 87.8 1978 46.7 6009 33.3 6683 82.5 3733 93.3 480 TIP 88.2 2008 40.0 6268 36.7 6696 82.5 3733 93.0 482 S1 88.6 2391 43.3 6665 40.0 7020 77.5 3980 93.9 607 CyclicReflex 86.7 2059 46.6 6059 30.0 6677 85.0 3695 93.5 537 PathCal(Ours) 91.0 1851 56.7 5566 40.0 6014 90.0 3166 93.6 479 
+
+DeepSeek-R1-Distill-Llama-8B Original 82.5 1988 30.0 6620 23.3 6960 75.0 3937 83.2 480 TIP 81.4 1932 30.0 6440 26.7 6562 77.5 3310 84.9 459 S1 80.4 2205 33.3 7019 23.3 6818 72.5 4291 79.3 495 CyclicReflex 81.4 2038 40.0 6518 26.7 6424 75.0 3937 82.9 482 PathCal(Ours) 83.2 1867 46.7 5715 30.0 6202 75.0 3064 84.6 438 
+
+QwQ-32B Original 92.8 4209 73.3 12886 66.7 15792 95.0 7524 96.1 1593 TIP 93.8 4155 76.7 12854 63.3 16344 100.0 6454 96.4 1494 S1 94.6 4549 73.3 14575 76.7 16048 97.5 7295 96.4 1830 CyclicReflex 93.2 4261 73.3 12848 76.7 14733 100.0 7076 96.7 1581 PathCal(Ours) 93.8 3867 83.3 13426 70.0 15989 100.0 6608 96.7 1430 
+
+Evaluation protocol. We report final-answer accuracy and generated tokens under single-sample decoding. All experiments use vLLM [ 29 ]; full inference settings, extraction rules, and hyperparame-ters are provided in Appendix C, and a per-step computational-cost analysis together with the full reproducibility recipe is provided in Appendix H. 
+
+5.2 Main Results 1500 2000 2500   
+
+> Length
+> 40
+> 45
+> 50
+> 55
+> 60
+> Accuracy (%)
+> Original
+> CyclicReflex
+> R1-Qwen-14B
+> TIP
+> PathCal(Ours)
+> R1-Llama-8B
+> S1
+> R1-Qwen-7B
+> QwQ-32B
+> 6000 6600 7200
+
+Figure 4: Accuracy vs. generation length on T HQA. Colors indicate methods and markers indicate model families. Table 2 reports the main results across four reasoning mod-els and five mathematical reasoning benchmarks. Com-pared with original decoding, P ATH CAL improves or matches accuracy in all model–benchmark pairs while usually shortening generations. DeepSeek-R1-Distill-Qwen-7B improves by +10 .0 points on both AIME2024 and AIME2025, and QwQ-32B shows the same mar-gin on AIME2024, rising from 73 .3 to 83 .3. Overall, PATH CAL achieves the best or tied-best accuracy in most settings and often yields the shortest generations, indi-cating a stronger efficiency–performance trade-off than coarse reflection-marker control or reflection-cue-based budget forcing [19]. 
+
+Effectiveness beyond competition-style math. We further test whether P ATH CAL transfers to theorem-based reasoning on TheoremQA. As shown in Fig-ure 4, P ATH CAL consistently yields the shortest gen-erations across all four models, reducing length by 
+
+11 .1–15 .2% relative to original decoding. It also preserves or improves accuracy on three of the four models, suggesting that state-aware marker calibration improves reasoning efficiency beyond mathematical competition benchmarks. 8Table 3: Component ab-lation on MATH500. 
+
+Method Acc. Tokens Original 85 .6 1410 
+
+Full 87 .4 1281 
+
+NoSA 85 .6 1150 
+
+NoMC 86 .7 1281 
+
+NoBoost 85 .7 1326 
+
+NoRevSup 86 .3 1330 
+
+Ablation study on MATH500. 
+
+Table 3 ablates the main design choices of P ATH CAL . Removing state-aware activation (N OSA) produces the shortest generations but reduces accuracy to the original baseline, suggesting that always-on calibration mainly acts as length control. Removing marker competition (N OMC) or either of the category-specific adjustment (N OBOOST , N OREV SUP )also degrades performance. Thus, P ATH CAL is not a blanket suppression heuristic; its gains rely on selective, category-specific calibration when continuation and competing-branch modes are locally in competition [ 27 ,16]. 2 4 6 8 10           
+
+> Intervention strength
+> 86.4
+> 86.6
+> 86.8
+> 87.0
+> 87.2
+> 87.4
+> Accuracy (%)
+> (a) Sensitivity to
+> 0.0 0.5 1.0 1.5 2.0
+> Alternative-marker weight A
+> 86.6
+> 86.8
+> 87.0
+> 87.2
+> 87.4
+> Accuracy (%)
+> (b) Sensitivity to A
+> 1240
+> 1260
+> 1280
+> 1300
+> 1320
+> Tokens
+> 1280
+> 1290
+> 1300
+> 1310
+> 1320
+> Tokens
+> Accuracy Tokens Default ( =6, A=1.5 )
+
+Figure 5: Hyperparameter sensitivity of P ATH CAL on MATH500. Left: sensitivity to intervention strength α. Right: sensitivity to alternative-marker weight λA. The red star marks the default configuration. 
+
+Hyperparameter sensitivity. 
+
+Figure 5 evaluates the sensitivity of PATH CAL 
+
+to α and λA. Across all tested α values, P ATH CAL 
+
+remains above original decoding, though overly strong intervention can shorten generations at the cost of accuracy. Perfor-mance is also stable across 
+
+λA ∈ { 1.0, 1.5, 2.0}, and remains improved even when λA = 0. These results suggest that P ATH -CAL is driven primarily by state-aware continuation–revision calibration, with alternative-marker control acting as a useful secondary signal rather than a fragile hyperparameter dependency. 
+
+## 6 Discussion and Conclusion 
+
+Discussion. Our results suggest that efficient reasoning control should target the structure of reasoning trajectories rather than generation length alone. From this perspective, reflection markers are not merely redundant tokens to suppress, but local signals that indicate possible transitions between reasoning modes. P ATH CAL exploits this structure by intervening only when continuation and competing-branch evidence are locally in tension, thereby preserving useful reasoning while discouraging unnecessary branch switches. This interpretation is further supported by the component ablations, where shorter generations alone do not account for the observed gains. Together, these findings distinguish marker-aware path calibration from generic CoT compression, blanket reflection suppression, and implicit early stopping. 
+
+Limitations and future work. PATH CAL is a lightweight single-sample controller, and its combina-tion with broader test-time scaling methods such as best-of-N , self-consistency, verifier-guided search, or adaptive sampling remains underexplored. Future work can study budget-matched combinations with these methods, automatically discover marker categories beyond manually specified surface forms, and extend marker-aware control to code generation, planning, and multilingual reasoning. 
+
+Conclusion. We show that reflection markers in LRMs are not functionally interchangeable, and that their effects depend on both marker category and reasoning state. Motivated by this finding, we propose P ATH CAL , a training-free decoding controller that calibrates local competition between continuation and competing-branch markers. Across six reasoning benchmarks and four LRMs, PATH CAL improves the efficiency–performance trade-off without additional training, external veri-fiers, or extra sampled candidates, highlighting reflection markers as structured local control signals for test-time reasoning. 9References 
+
+[1] Pranjal Aggarwal and Sean Welleck. L1: Controlling how long a reasoning model thinks with reinforcement learning, 2025. [2] AI-MO. Aimo validation amc. https://huggingface.co/datasets/AI-MO/ aimo-validation-amc , 2024. [3] Fatemeh Torabi Asr and Vera Demberg. Interpretation of discourse connectives is probabilistic: Evidence from the study of but and although. Discourse Processes , 57(4):376–399, 2020. [4] Simon A. Aytes, Jinheon Baek, and Sung Ju Hwang. Sketch-of-thought: Efficient llm reasoning with adaptive cognitive-inspired sketching, 2025. [5] Mislav Balunovi´ c, Jasper Dekoninck, Ivo Petrov, Nikola Jovanovi´ c, and Martin Vechev. Math-arena: Evaluating llms on uncontaminated math competitions, 2026. [6] Paul C. Bogdan, Uzay Macar, Neel Nanda, and Arthur Conmy. Thought anchors: Which llm reasoning steps matter?, 2025. [7] Bradley Brown, Jordan Juravsky, Ryan Ehrlich, Ronald Clark, Quoc V. Le, Christopher Ré, and Azalia Mirhoseini. Large language monkeys: Scaling inference compute with repeated sampling, 2024. [8] Fu-Chieh Chang, Yu-Ting Lee, and Pei-Yuan Wu. Unveiling the latent directions of reflection in large language models, 2025. [9] Waldemar Chang. Directional reasoning trajectory change (drtc): Identifying critical trace segments in reasoning models, 2026. [10] Wenhu Chen, Ming Yin, Max Ku, Pan Lu, Yixin Wan, Xueguang Ma, Jianyu Xu, Xinyi Wang, and Tony Xia. TheoremQA: A theorem-driven question answering dataset. In Houda Bouamor, Juan Pino, and Kalika Bali, editors, Proceedings of the 2023 Conference on Empirical Methods in Natural Language Processing , pages 7889–7901, Singapore, December 2023. Association for Computational Linguistics. [11] Karl Cobbe, Vineet Kosaraju, Mohammad Bavarian, Mark Chen, Heewoo Jun, Lukasz Kaiser, Matthias Plappert, Jerry Tworek, Jacob Hilton, Reiichiro Nakano, et al. Training verifiers to solve math word problems. arXiv preprint arXiv:2110.14168 , 2021. [12] Zilin Dai, Lehong Wang, Fangzhou Lin, Yidong Wang, Zhigang Li, Kazunori D Yamada, Ziming Zhang, and Wang Lu. A language anchor-guided method for robust noisy domain generalization. arXiv preprint arXiv:2503.17211 , 2025. [13] Bowen Ding, Yuhan Chen, Futing Wang, Lingfeng Ming, and Tao Lin. Do thinking tokens help or trap? towards more efficient large reasoning model, 2025. [14] Chongyu Fan, Yihua Zhang, Jinghan Jia, Alfred O. Hero, and Sijia Liu. Cyclicreflex: Improving reasoning models via cyclical reflection token scheduling. In The Fourteenth International Conference on Learning Representations , 2026. [15] Xidong Feng, Ziyu Wan, Muning Wen, Stephen Marcus McAleer, Ying Wen, Weinan Zhang, and Jun Wang. Alphazero-like tree-search can guide large language model decoding and training, 2024. [16] Yunzhen Feng, Julia Kempe, Cheng Zhang, Parag Jain, and Anthony Hartshorn. What charac-terizes effective reasoning? revisiting length, review, and structure of cot, 2025. [17] Yichao Fu, Junda Chen, Siqi Zhu, Zheyu Fu, Zhongdongming Dai, Yonghao Zhuang, Yian Ma, Aurick Qiao, Tajana Rosing, Ion Stoica, and Hao Zhang. Efficiently scaling llm reasoning with certaindex, 2025. [18] Andrey Galichin, Alexey Dontsov, Polina Druzhinina, Anton Razzhigaev, Oleg Y. Rogov, Elena Tutubalina, and Ivan Oseledets. I have covered all the bases here: Interpreting reasoning features in large language models via sparse autoencoders, 2025. 10 [19] Kanishk Gandhi, Ayush Chakravarthy, Anikait Singh, Nathan Lile, and Noah D. Goodman. Cognitive behaviors that enable self-improving reasoners, or, four habits of highly effective stars, 2025. [20] Aaron Grattafiori et al. The llama 3 herd of models, 2024. [21] Daya Guo et al. Deepseek-r1: Incentivizing reasoning capability in llms via reinforcement learning. arXiv preprint arXiv:2501.12948 , 2025. [22] Tingxu Han, Zhenting Wang, Chunrong Fang, Shiyu Zhao, Shiqing Ma, and Zhenyu Chen. Token-budget-aware llm reasoning, 2025. [23] Dan Hendrycks, Collin Burns, Saurav Kadavath, Akul Arora, Steven Basart, Eric Tang, Dawn Song, and Jacob Steinhardt. Measuring mathematical problem solving with the math dataset. 
+
+NeurIPS , 2021. [24] Dengzhe Hou, Lingyu Jiang, Deng Li, Zirui Li, Fangzhou Lin, and Kazunori D Yamada. Wmf-am: Probing llm working memory via depth-parameterized cumulative state tracking. arXiv preprint arXiv:2603.27343 , 2026. [25] Shijue Huang, Hongru Wang, Wanjun Zhong, Zhaochen Su, Jiazhan Feng, Bowen Cao, and Yi R. Fung. Adactrl: Towards adaptive and controllable reasoning via difficulty-aware budgeting, 2025. [26] Lingyu Jiang, Lingyu Xu, Peiran Li, Qianwen Ge, Dingyi Zhuang, Shuo Xing, Wenjing Chen, Xiangbo Gao, Ting-Hsuan Chen, Xueying Zhan, et al. Timepre: Bridging accuracy, efficiency, and stability in probabilistic time-series forecasting. arXiv preprint arXiv:2511.18539 , 2025. [27] Liwei Kang, Yue Deng, Yao Xiao, Zhanfeng Mo, Wee Sun Lee, and Lidong Bing. First try matters: Revisiting the role of reflection in reasoning models, 2025. [28] Takeshi Kojima, Shixiang Shane Gu, Machel Reid, Yutaka Matsuo, and Yusuke Iwasawa. Large language models are zero-shot reasoners, 2023. [29] Woosuk Kwon, Zhuohan Li, Siyuan Zhuang, Ying Sheng, Lianmin Zheng, Cody Hao Yu, Joseph E. Gonzalez, Hao Zhang, and Ion Stoica. Efficient memory management for large language model serving with pagedattention, 2023. [30] Tamera Lanham, Anna Chen, Ansh Radhakrishnan, Benoit Steiner, Carson Denison, Danny Hernandez, Dustin Li, Esin Durmus, Evan Hubinger, Jackson Kernion, Kamil ˙e Lukoši ¯ut ˙e, Karina Nguyen, Newton Cheng, Nicholas Joseph, Nicholas Schiefer, Oliver Rausch, Robin Lar-son, Sam McCandlish, Sandipan Kundu, Saurav Kadavath, Shannon Yang, Thomas Henighan, Timothy Maxwell, Timothy Telleen-Lawton, Tristan Hume, Zac Hatfield-Dodds, Jared Kaplan, Jan Brauner, Samuel R. Bowman, and Ethan Perez. Measuring faithfulness in chain-of-thought reasoning, 2023. [31] Kenneth Li, Oam Patel, Fernanda Viégas, Hanspeter Pfister, and Martin Wattenberg. Inference-time intervention: Eliciting truthful answers from a language model. In Thirty-seventh Confer-ence on Neural Information Processing Systems , 2023. [32] Peiran Li, Fangzhou Lin, Shuo Xing, Jiashuo Sun, Dylan Zhang, Siyuan Yang, Chaoqun Ni, and Zhengzhong Tu. Let the abyss stare back adaptive falsification for autonomous scientific discovery. arXiv preprint arXiv:2603.29045 , 2026. [33] Peiran Li, Fangzhou Lin, Shuo Xing, Xiang Zheng, Xi Hong, Siyuan Yang, Jiashuo Sun, Zhengzhong Tu, and Chaoqun Ni. Bibagent: An agentic framework for traceable miscitation detection in scientific literature. arXiv preprint arXiv:2601.16993 , 2026. [34] Peiran Li, Jiashuo Sun, Fangzhou Lin, Shuo Xing, Tianfu Fu, Suofei Feng, Chaoqun Ni, and Zhengzhong Tu. Traversal-as-policy: Log-distilled gated behavior trees as externalized, verifiable policies for safe, robust, and efficient agents. arXiv preprint arXiv:2603.05517 , 2026. 11 [35] Xiang Lisa Li, Ari Holtzman, Daniel Fried, Percy Liang, Jason Eisner, Tatsunori Hashimoto, Luke Zettlemoyer, and Mike Lewis. Contrastive decoding: Open-ended text generation as optimization. In Anna Rogers, Jordan Boyd-Graber, and Naoaki Okazaki, editors, Proceedings of the 61st Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 12286–12312, Toronto, Canada, July 2023. Association for Computational Linguistics. [36] Hunter Lightman, Vineet Kosaraju, Yuri Burda, Harrison Edwards, Bowen Baker, Teddy Lee, Jan Leike, John Schulman, Ilya Sutskever, and Karl Cobbe. Let’s verify step by step. In The Twelfth International Conference on Learning Representations , 2024. [37] Fangzhou Lin, Qianwen Ge, Lingyu Xu, Peiran Li, Xiangbo Gao, Shuo Xing, Kazunori Yamada, Ziming Zhang, Haichong Zhang, and Zhengzhong Tu. Position: Human-centric ai requires a minimum viable level of human understanding. arXiv preprint arXiv:2602.00854 , 2026. [38] Fangzhou Lin, Peiran Li, Shuo Xing, Siyuan Yang, Qianwen Ge, Kazunori Yamada, Ziming Zhang, Haichong Zhang, and Zhengzhong Tu. Adaptfuse: Training-free sequential preference learning via externalized bayesian inference. arXiv preprint arXiv:2604.03925 , 2026. [39] Fangzhou Lin, Shuo Xing, Peiran Li, Siyuan Yang, Qianwen Ge, Kazunori Yamada, Ziming Zhang, Haichong Zhang, and Zhengzhong Tu. Caps: Cascaded adaptive pairwise selection for efficient parallel reasoning. arXiv preprint arXiv:2605.15513 , 2026. [40] Xinyin Ma, Guangnian Wan, Runpeng Yu, Gongfan Fang, and Xinchao Wang. Cot-valve: Length-compressible chain-of-thought tuning, 2025. [41] Aman Madaan, Niket Tandon, Prakhar Gupta, Skyler Hallinan, Luyu Gao, Sarah Wiegreffe, Uri Alon, Nouha Dziri, Shrimai Prabhumoye, Yiming Yang, Shashank Gupta, Bodhisattwa Prasad Majumder, Katherine Hermann, Sean Welleck, Amir Yazdanbakhsh, and Peter Clark. Self-refine: Iterative refinement with self-feedback. In Thirty-seventh Conference on Neural Information Processing Systems , 2023. [42] Niklas Muennighoff, Zitong Yang, Weijia Shi, et al. s1: Simple test-time scaling. arXiv preprint arXiv:2501.19393 , 2025. [43] OpenAI. introducing-o3-and-o4-mini. OpenAI Blog , 2025. [44] Rui Pan, Shuo Xing, Shizhe Diao, Wenhe Sun, Xiang Liu, KaShun Shum, Jipeng Zhang, Renjie Pi, and Tong Zhang. Plum: Prompt learning using metaheuristics. In Lun-Wei Ku, Andre Martins, and Vivek Srikumar, editors, Findings of the Association for Computational Linguistics: ACL 2024 , pages 2177–2197, Bangkok, Thailand, August 2024. Association for Computational Linguistics. [45] Debjit Paul, Robert West, Antoine Bosselut, and Boi Faltings. Making reasoning matter: Measuring and improving faithfulness of chain-of-thought reasoning, 2024. [46] Chen Qian, Dongrui Liu, Haochen Wen, Zhen Bai, Yong Liu, and Jing Shao. Demystifying reasoning dynamics with mutual information: Thinking tokens are information peaks in llm reasoning, 2025. [47] Ziqing Qiao, Yongheng Deng, Jiali Zeng, Dong Wang, et al. Concise: Confidence-guided compression in step-by-step efficient reasoning. Proceedings of EMNLP , 2025. [48] Qwen, :, An Yang, Baosong Yang, Beichen Zhang, Binyuan Hui, Bo Zheng, Bowen Yu, Chengyuan Li, Dayiheng Liu, Fei Huang, Haoran Wei, Huan Lin, Jian Yang, Jianhong Tu, Jianwei Zhang, Jianxin Yang, Jiaxi Yang, Jingren Zhou, Junyang Lin, Kai Dang, Keming Lu, Keqin Bao, Kexin Yang, Le Yu, Mei Li, Mingfeng Xue, Pei Zhang, Qin Zhu, Rui Men, Runji Lin, Tianhao Li, Tianyi Tang, Tingyu Xia, Xingzhang Ren, Xuancheng Ren, Yang Fan, Yang Su, Yichang Zhang, Yu Wan, Yuqiong Liu, Zeyu Cui, Zhenru Zhang, and Zihan Qiu. Qwen2.5 technical report, 2025. [49] Qwen Team. Qwq: Reflect deeply on the boundaries of the unknown, 2025. 12 [50] Charlie Victor Snell, Jaehoon Lee, Kelvin Xu, and Aviral Kumar. Scaling LLM test-time com-pute optimally can be more effective than scaling parameters for reasoning. In The Thirteenth International Conference on Learning Representations , 2025. [51] Jinyan Su, Jennifer Healey, Preslav Nakov, and Claire Cardie. Between underthinking and overthinking: An empirical study of reasoning length and correctness in llms, 2025. [52] Lexiang Tang, Weihao Gao, Bingchen Zhao, Lu Ma, Qiao jin, Bang Yang, and Yuexian Zou. Thinking by subtraction: Confidence-driven contrastive decoding for llm reasoning, 2026. [53] Kimi Team. Kimi k2: Open agentic intelligence, 2026. [54] Miles Turpin, Julian Michael, Ethan Perez, and Samuel R. Bowman. Language models don’t always say what they think: Unfaithful explanations in chain-of-thought prompting, 2023. [55] Joshua Vendrow, Edward Vendrow, Sara Beery, and Aleksander Madry. Do large language model benchmarks test reliability?, 2025. [56] Jesse Vig, Sebastian Gehrmann, Yonatan Belinkov, Sharon Qian, Daniel Nevo, Yaron Singer, and Stuart Shieber. Investigating gender bias in language models using causal mediation analysis. In H. Larochelle, M. Ranzato, R. Hadsell, M.F. Balcan, and H. Lin, editors, Advances in Neural Information Processing Systems , volume 33, pages 12388–12401. Curran Associates, Inc., 2020. [57] Xu Wan, Wei Wang, Wenyue Xu, Wotao Yin, Jie Song, and Mingyang Sun. Adapthink: Adaptive thinking preferences for reasoning language model, 2025. [58] Xuezhi Wang, Jason Wei, Dale Schuurmans, Quoc Le, Ed Chi, Sharan Narang, Aakanksha Chowdhery, and Denny Zhou. Self-consistency improves chain of thought reasoning in language models. International Conference on Learning Representations (ICLR) , 2023. [59] Yibo Wang, Haotian Luo, Li Shen, et al. R1-compress: Long chain-of-thought compression via chunk compression and search. arXiv preprint , 2025. [60] Yue Wang et al. Thoughts are all over the place: On the underthinking of o1-like llms. arXiv preprint arXiv:2501.18585 , 2025. [61] Jake Ward, Chuqiao Lin, Constantin Venhoff, and Neel Nanda. Reasoning-finetuning repurposes latent representations in base models, 2025. [62] Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten Bosma, brian ichter, Fei Xia, Ed H. Chi, Quoc V Le, and Denny Zhou. Chain of thought prompting elicits reasoning in large language models. In Alice H. Oh, Alekh Agarwal, Danielle Belgrave, and Kyunghyun Cho, editors, 
+
+Advances in Neural Information Processing Systems , 2022. [63] Guojun Wu. It’s not that simple. an analysis of simple test-time scaling, 2025. [64] Heming Xia, Chak Tou Leong, Wenjie Wang, Yongqi Li, and Wenjie Li. Tokenskip: Controllable chain-of-thought compression in llms. Proceedings of EMNLP , 2025. [65] Silei Xu, Wenhao Xie, Lingxiao Zhao, and Pengcheng He. Chain of draft: Thinking faster by writing less, 2025. [66] Xiaoang Xu, Shuo Wang, Xu Han, et al. A*-thought: Efficient reasoning via bidirectional compression for low-resource settings. arXiv preprint , 2025. [67] Chenxu Yang, Qingyi Si, Yongjie Duan, Zheliang Zhu, Chenyu Zhu, Qiaowei Li, Minghui Chen, Zheng Lin, and Weiping Wang. Dynamic early exit in reasoning models, 2025. [68] Shu Yang, Junchao Wu, Xin Chen, Yunze Xiao, Xinyi Yang, Derek F. Wong, and Di Wang. Understanding aha moments: from external observations to internal mechanisms, 2025. [69] Wenkai Yang, Shuming Ma, Yankai Lin, and Furu Wei. Towards thinking-optimal scaling of test-time compute for llm reasoning, 2025. 13 [70] Shunyu Yao, Dian Yu, Jeffrey Zhao, Izhak Shafran, Thomas L. Griffiths, Yuan Cao, and Karthik Narasimhan. Tree of thoughts: Deliberate problem solving with large language models, 2023. [71] Yun Yue, Fangzhou Lin, Guanyi Mou, and Ziming Zhang. Understanding hyperbolic metric learning through hard negative sampling. In Proceedings of the IEEE/CVF Winter Conference on Applications of Computer Vision , pages 1891–1903, 2024. [72] Zhiyuan Zeng, Qinyuan Cheng, Zhangyue Yin, Yunhua Zhou, and Xipeng Qiu. Revisiting the test-time scaling of o1-like models: Do they truly possess test-time scaling capabilities?, 2025. [73] Ziming Zhang, Fangzhou Lin, Haotian Liu, Jose Morales, Haichong Zhang, Kazunori Yamada, Vijaya B Kolachalama, and Venkatesh Saligrama. Gps: A probabilistic distributional similarity with gumbel priors for set-to-set matching. In The Thirteenth International Conference on Learning Representations , 2025. [74] Ziming Zhang, Yuping Shao, Yiqing Zhang, Fangzhou Lin, Haichong Zhang, and Elke Runden-steiner. Deep loss convexification for learning iterative models. IEEE Transactions on Pattern Analysis and Machine Intelligence , 47(3):1501–1513, 2024. [75] Jiachen Zhao, Yiyou Sun, Weiyan Shi, and Dawn Song. Can aha moments be fake? identifying true and decorative thinking steps in chain-of-thought, 2026. 14 A Complete Experimental Setup 
+
+Models. We evaluate four open-source reasoning language models that span scales, backbones, and distillation pipelines: DeepSeek-R1-Distill-Qwen-7B , DeepSeek-R1-Distill-Qwen-14B , DeepSeek-R1-Distill-Llama-8B , and QwQ-32B . All checkpoints are loaded from the official HuggingFace releases and used without any parameter updates. 
+
+Inference framework. All decoding is performed with vLLM 0.7.2 [ 29 ] in float16 precision, with enforce_eager=True and tensor-parallel size 4. We use model-specific maximum context lengths: max_model_len is set to 16384 for QwQ-32B and 8192 for DeepSeek-R1-Distill-Qwen-7B, DeepSeek-R1-Distill-Qwen-14B, and DeepSeek-R1-Distill-Llama-8B. The same maximum context length is used for original decoding, P ATH CAL , and all baselines; P ATH CAL does not increase the decoding budget or use a longer context window. P ATH CAL and the baselines are implemented as vLLM logits_processors , allowing token-level interventions to be applied during a single autoregressive rollout without modifying the underlying model. 
+
+Decoding parameters. Single-sample decoding uses temperature 0.6, top-p 0.95 , and top_k = −1
+
+(disabled). The maximum number of newly generated tokens is set to 8192 for DeepSeek-R1-Distill models and to 16384 for QwQ-32B in long-budget AIME runs. For diagnostic fixed-prefix intervention runs, we use the same decoding parameters and increase the generation budget only when the model context length permits it. 
+
+Hardware. Each model is served on a single node equipped with four NVIDIA A100 80GB GPUs, using vLLM tensor parallelism with tp=4 . We set gpu_memory_utilization to approximately 
+
+0.85 for all inference runs. 
+
+Single-sample evaluation. Unless explicitly stated otherwise, the main evaluation uses single-sample decoding ( n=1 ). P ATH CAL is training-free and operates entirely at decoding time: it does not invoke external verifiers, learned value models, reward models, auxiliary samplers, search trees, or any additional sampled solutions. 
+
+Random seed. All stochastic decoding runs use random seed 42 . The same seed is used across methods for each model–dataset setting, so that comparisons are made under matched sampling randomness whenever applicable. We do not average the main results over multiple seeds. Table 4: Inference configuration for the main results.                          
+
+> Model Backend Temperature Top-pMax model length Notes
+> DS-R1-Distill-Qwen-7B vLLM 0.7.2 0.6 0.95 8192 fp16, tp=4 DS-R1-Distill-Qwen-14B vLLM 0.7.2 0.6 0.95 8192 fp16, tp=4 DS-R1-Distill-Llama-8B vLLM 0.7.2 0.6 0.95 8192 fp16, tp=4 QwQ-32B vLLM 0.7.2 0.6 0.95 16384 fp16, tp=4
+
+## B Dataset Details 
+
+We evaluate on six reasoning benchmarks covering arithmetic word problems, competition-style math-ematics, and theorem-based reasoning. All datasets are loaded through the HuggingFace datasets 
+
+interface using the splits and identifiers listed in Table 5. For AIME2025 we follow common practice and concatenate the AIME2025-I and AIME2025-II subsets of opencompass/AIME2025 .
+
+Brief descriptions. GSM8K [ 11 ] contains grade-school arithmetic word problems solvable with elementary operations. MATH500 [23 , 36 ] is the 500 -problem subset of the MATH benchmark widely used to evaluate competition-style mathematical reasoning. AMC2023 [2] consists of contest math problems of medium-to-hard difficulty. AIME2024 and AIME2025 [ 5] contain problems from the American Invitational Mathematics Examination, each with a short integer answer in [0 , 999] .
+
+TheoremQA [ 10 ] contains theorem-based problems spanning mathematics, physics, finance, and 15 Table 5: Datasets used in this paper. Sizes refer to the splits actually evaluated.                      
+
+> Dataset Task type Split / size Answer format Purpose
+> GSM8K Grade-school math word problems test (1,319) numeric (boxed) Easy arithmetic regime. MATH500 Competition-style mathematics test (500) numeric / expression (boxed) Standard hard-math benchmark. AMC2023 Contest math (AMC) test (40) numeric (boxed) Intermediate contest difficulty. AIME2024 Hard contest math (AIME) train (30) integer (boxed) High-difficulty competition math. AIME2025 Hard contest math (AIME I+II) test (60) integer (boxed) High-difficulty competition math. TheoremQA Theorem-based reasoning test (800) numeric / short string (boxed) Theorem-based reasoning across science and mathematics, used to test transfer beyond competition-style math.
+
+computer science, and is used in this paper to test whether P ATH CAL transfers beyond competition-style math. 
+
+## C Evaluation Protocol and Answer Extraction 
+
+Final-answer extraction. For every generated trace, the final answer is extracted by the same 
+
+check_answer_overall pipeline used by the baseline implementations in our codebase. The extractor first searches for an explicit \boxed{...} expression near the end of the trace and parses its content via brace matching. If no boxed expression is found, the extractor falls back to the last numeric or fractional expression appearing in the tail region of the generation (the last few hundred characters). We additionally trigger answer extraction on cue phrases such as “the answer is”, “final answer”, “ </think> ”, and “therefore” to handle traces that conclude their answer before any boxed marker. 
+
+Numeric and string normalization. Extracted answers are normalized before comparison. For numeric questions, we strip trailing units, normalize fractions to a canonical form, and compare values up to standard floating-point tolerance; for short string answers (e.g., TheoremQA), we apply lower-casing and whitespace normalization before string equality. We do not use multiple-choice option matching for any dataset reported in this paper. When extraction fails, the answer is treated as 
+
+incorrect and the trace contributes a 0 to the per-dataset accuracy; we additionally log diagnostics (boxed_rate , closed_think_rate , length_hit_rate ) for monitoring purposes. 
+
+Length measurement. Generated length is measured in generated tokens , computed as the length of the vLLM output token sequence ( len(output.token_ids) ) after the prompt. This counts only model-generated tokens and excludes the prompt itself. We do not measure length in words or characters. 
+
+Evaluation reporting. For each (model, dataset, method) cell, we report final-answer accuracy and average generated length over the evaluated examples. Accuracy is computed after rule-based answer extraction and matching against the ground-truth answer, while generated length is measured as the number of generated tokens in the model output. The same reporting protocol is used for the main result tables and diagnostic tables. 
+
+Shared pipeline. All methods are evaluated using the same answer-extraction code and the same generated-token length measurement. This ensures that differences between methods reflect differ-ences in the generated content rather than differences in scoring. 16 D Reflection Marker Vocabulary and Tokenizer Resolution 
+
+Marker categories. PATH CAL operates on three marker categories that correspond to the local reasoning modes introduced in Section 4.2: continuation, revision, and alternative opening. These marker vocabularies are deliberately sparse and serve as operational decoding groups, rather than a universal linguistic taxonomy of discourse markers. The exact surface forms used in our experiments are listed in Table 6. Table 6: Reflection marker vocabulary used by P ATH CAL . “Surface forms” are the case-sensitive strings whose tokenizer realizations populate the corresponding token-id set.              
+
+> Category Surface forms Role in P ATH CAL
+> Continuation ( MC)So ,so ,
+> Therefore ,therefore ,
+> Thus
+> Boost continuation logits when the gate acti-vates. Revision ( MR)But ,but ,
+> However ,however ,
+> no
+> Suppress revision logits when the gate activates; lower-case but /no additionally receive weight
+> wv= 1 .5.Alternative opening (MA)
+> Alternatively ,
+> alternatively
+> Suppress alternative-opening logits when the gate activates.
+
+Tokenizer resolution. Decoding operates over token IDs rather than surface strings, so each surface form is resolved separately for every model tokenizer. For every surface form s, we in-spect the tokenizer realizations of both the bare form s and the leading-space variant obtained by prepending a single space to s. Both variants are passed through tokenizer.encode(..., add_special_tokens=False) . Realizations whose total length is exactly one token and whose token ID is not the unknown token are added to the corresponding marker set. All other realizations are discarded. The final marker sets MC , MR, and MA are the deduplicated unions of these single-token IDs across the surface forms in each category. This resolution procedure is run once at the start of each experiment for every model tokenizer. 
+
+Why both bare and leading-space variants. Reasoning-model tokenizers, including those used by DeepSeek-R1-Distill and QwQ-32B, often tokenize the leading-space form, such as ␣But , and the bare form, such as But , as different single tokens. The leading-space form dominates inside connected text, for example after a period followed by a space, while the bare form mainly appears at the start of a line. Including both forms allows P ATH CAL and the suppression baselines to act consistently across these contexts. 
+
+Multi-token markers. PATH CAL ’s logit shifts apply only to single-token IDs. If a surface form is tokenized into two or more tokens for a given tokenizer, that realization is skipped during marker resolution. The controller therefore intervenes only on the single-token realizations of each marker. This design keeps the logit intervention local and avoids changing multi-token phrases whose first token may be shared with unrelated words. 
+
+Configuration source. The marker lists are defined as surface-form strings and resolved automati-cally at experiment start. We do not list the resolved integer token IDs in the paper because they are tokenizer-specific and differ across evaluated models. 
+
+## E Diagnostic Experiment Details 
+
+This section provides reproducibility-oriented details for the two diagnostic experiments in Section 3. 
+
+E.1 Type-wise Suppression Purpose. The type-wise suppression study tests whether reflection markers behave as a homoge-neous control class. If they did, suppressing different marker types should yield similar directional effects on accuracy and generation length. 17 Setup. We evaluate on D EEP SEEK -R1-D ISTILL -Q WEN -7B across MATH500, AIME2024, and AIME2025. Decoding parameters are the same as in Appendix A: temperature 0.6, top-p 0.95 ,
+
+max_new_tokens = 8192 .
+
+Suppression rule. For a target token group g with vocabulary subset Gg , the modified logit at decoding step t is 
+
+˜z(g) 
+
+> t,v
+
+= zt,v − λ 1[v ∈ G g ] 1[t ∈ <think> ], (10) where λ = 5 .0 is a fixed logit penalty applied only inside the <think>...</think> reasoning region. The suppression set is determined by the surface forms listed in the S UPPRESS ONLY -g
+
+variant; tokenizer resolution follows the procedure in Appendix D. 
+
+Variants. SUPPRESS ALL applies the penalty to the union of all reflection groups (wait , but , however , hmm , alternatively ). SUPPRESS ONLY -g for g ∈{wait , but , however , hmm , alternatively } applies the penalty to that single group. O RIGINAL 
+
+uses standard decoding. For each suppression group, we include both lower-case and capitalized surface forms when applicable, and resolve both bare and leading-space tokenizer variants using the same procedure as Appendix D. 
+
+Results. The aggregate behavior of these variants is summarized in Figure 2 of the main paper; we do not report new numbers in this appendix. 
+
+E.2 Fixed-prefix Intervention Purpose. The fixed-prefix intervention isolates the local effect of forcing a particular marker after a shared reasoning prefix, holding the prefix and all decoding randomness sources comparable across conditions. 
+
+State and value definitions. Let st denote a reasoning prefix at decoding step t, formed by sampling under the original model and truncating at a candidate marker position. For a candidate marker m,the counterfactual value V (st, m ) is the probability that continuing from st with m forced as the next token yields a correct final answer: 
+
+V (st, m ) = Eτ ∼pθ (·| st,m ) [1[Correct( τ )]] .
+
+The unconditional prefix value V (st) is estimated from continuations sampled without forcing any marker. 
+
+Estimation. For each candidate prefix, ˆV (st) is estimated from N0 = 8 normal continuations, and each ˆV (st, m ) from M = 4 counterfactual continuations under the corresponding forced marker. We sample up to K = 3 candidate prefixes per problem, each at least 100 tokens deep into the reasoning region, and require a minimum gap of 100 tokens between prefixes within the same problem. Sampling parameters match Appendix A (temperature 0.6, top-p 0.95 ); the maximum new-token budget is 16384 to avoid truncation bias on AIME problems. 
+
+Markers. The intervention compares two markers: “ So ” (continuation) and “ But ” (revision). The directional effect is summarized as ∆So-But (st) = ˆVSo (st) − ˆVBut (st).
+
+State stratification. Prefixes are stratified by their estimated unconditional value ˆV (st) into three states using fixed thresholds: low states with ˆV (st) ≤ 0.25 , mid states with 0.25 < ˆV (st) < 0.75 ,and high states with ˆV (st) ≥ 0.75 . This stratification follows the analysis in Section 3 and is computed per problem using random seed 42 .
+
+Datasets. Results in Table 1 cover MATH500, AIME2024, and AIME2025 using D EEP SEEK -R1-D ISTILL -Q WEN -7B. 
+
+Diagnostic conclusion. We report the diagnostic finding conservatively: marker effects are both 
+
+category-dependent and state-dependent , with the largest differences in ∆So-But generally appearing in intermediate-value (mid) states. Low-value states show weaker or less directionally consistent effects, and high-value states are largely insensitive to the forced marker. 18 F PathCal Algorithm, Hyperparameters, and Local Calibration Proof 
+
+This section consolidates the algorithmic and analytical details of P ATH CAL . The notation follows Section 4 and Appendix D. 
+
+F.1 Hyperparameters 
+
+The default P ATH CAL @αbase =6 configuration used in all main-table experiments is summarized in Table 7. The same configuration is used across all four evaluated models; only the marker token-id sets M• are re-resolved per tokenizer. Table 7: P ATH CAL default hyperparameters used in the main results. 
+
+Parameter Meaning Default 
+
+αbase Maximum global intervention strength 6.0
+
+γ Margin in Bt − Ct + γ 0.05 
+
+τ Strength saturation point 0.2
+
+λA Weight of At inside Bt = Rt + λAAt 1.5
+
+βC Continuation boost coefficient 0.5
+
+βR Revision suppression coefficient 1.0
+
+βA Alternative-opening suppression coefficient 1.0
+
+ρ (mass floor) Skip intervention when Ct + Bt < ρ 0.05 
+
+ϵ Stability constant in gate denominator 10 −3
+
+wv (rev. weights) Per-token revision weight 1.5 for lower-case but , no ; 1.0 otherwise 
+
+minp Warmup tokens before first intervention 100 
+
+F.2 Local Calibration Property: Proof 
+
+We prove the local calibration property stated in Section 4.4. Let ∆t(v) denote the additive logit shift applied to token v by Eq. (7), so that 
+
+˜ℓt(v) = ℓt(v) + ∆ t(v).
+
+Let pt and qt denote the next-token distributions before and after applying P ATH CAL , respectively. For any two tokens u and v, the softmax normalization constants cancel in the log-odds ratio: 
+
+log qt(u)
+
+qt(v) − log pt(u)
+
+pt(v) = ∆ t(u) − ∆t(v).
+
+For any continuation marker c ∈ M C , Eq. (7) gives ∆t(c) = βC αt. For any revision marker 
+
+r ∈ M R, it gives ∆t(r) = −βRwr αt. Therefore, 
+
+log qt(c)
+
+qt(r) − log pt(c)
+
+pt(r) = ( βC + βRwr ) αt.
+
+Similarly, for any alternative-opening marker a ∈ M A, ∆t(a) = −βAαt, so 
+
+log qt(c)
+
+qt(a) − log pt(c)
+
+pt(a) = ( βC + βA) αt.
+
+When αt > 0, both identities imply that P ATH CAL strictly increases the log-odds of any continuation marker against any revision or alternative-opening marker. This proves the proposition. 
+
+Interpretation. The identity is a local log-odds property induced by the additive logit shift; it does not guarantee final-answer correctness. What it makes precise is that, whenever P ATH CAL 
+
+activates, the local branch prior assigned to continuation markers is multiplicatively boosted relative to that of competing-branch markers, while non-marker tokens are left untouched. PATH CAL 
+
+therefore rebalances local branch priors at detected competition points rather than globally suppressing reflection. 19 G Baseline Implementation Details 
+
+We compare P ATH CAL with four training-free decoding-time baselines. All baselines use the same base model checkpoint, the same dataset split, the same prompts, the same vLLM configuration, and the same answer-extraction and length-measurement pipeline as P ATH CAL , ensuring that any performance difference reflects the decoding rule rather than the evaluation setup. Baselines are implemented as vLLM logits_processors so that they can be plugged into the same single-rollout decoder used for P ATH CAL .
+
+G.1 Original Decoding Original performs standard sampling from the base model with no intervention. The decoding configuration matches Appendix A: temperature 0.6, top-p 0.95 , single-sample decoding. This baseline isolates the effect of any test-time intervention against the unmodified model distribution. 
+
+G.2 TIP TIP [ 60 ] applies a uniform negative logit shift to a small set of reflection-marker tokens during decoding. We use a community implementation of TIP that mirrors the convention used in the public CyclicReflex repository: the penalty δ = −3.0 is applied at every decoding step (no thought window) to the marker set {wait , Wait , but , But , Alternatively }, with both bare and leading-space variants resolved per tokenizer using the same procedure as in Appendix D. 
+
+G.3 CyclicReflex CyclicReflex [14 ] cyclically modulates the logits of a fixed marker set as a function of the current generation position. Following the public implementation, we use marker set 
+
+{wait , Wait , but , But , Alternatively } with amplitude 5.0 and period 1200 tokens. The added shift follows a triangular cycle: positive in the first quarter of each period, negative in the middle half, and back to positive in the last quarter. The intervention is suppressed after the model emits 
+
+</think> .
+
+G.4 s1 s1 [42 ] extends reasoning length through a budget-forcing rule. We implement s1 by suppressing the </think> end-of-thought token (adding a logit shift of −10 ) until the model has generated at least min _tokens = 1500 tokens. On models that already emit naturally long traces (e.g., QwQ-32B on AIME), this budget is effectively non-binding, which we view as expected behavior for s1 in long-trace regimes. 
+
+Fairness summary. For every baseline above: (i) the base model is identical to that used by P ATH -CAL ; (ii) the dataset split, prompt template, and seeds are identical; (iii) the decoding sampler (tem-perature, top-p, max tokens) is identical; (iv) the answer-extraction pipeline and the generated-token length measurement are identical; (v) marker token IDs are resolved using the same bare + leading-space procedure described in Appendix D. 
+
+## H Computational Cost and Reproducibility 
+
+Cost properties. PATH CAL is training-free. It does not invoke an external verifier, a learned reward model, an auxiliary sampler, a search tree, or any additional sampled solutions. At every decoding step the only model call is the ordinary forward pass that the base sampler would have issued, so PATH CAL introduces no additional model forward pass per token. 
+
+Per-step overhead. Let 
+
+K = |M C | + |M R| + |M A|
+
+denote the total number of marker token IDs after tokenizer resolution. With K on the order of a few tens for each evaluated tokenizer, the per-step cost of P ATH CAL consists of: (i) computing the marker mass scores Ct, R t, A t, which is O(K) indexed probability reads; (ii) computing the scalar gate gt,20 gap, and strength αt; and (iii) writing additive shifts to the logits at the O(K) marker positions. Total per-step overhead is O(K), and is independent of the vocabulary size |V| except for the optional softmax normalization needed to obtain pt when the sampler does not already expose it. 
+
+Memory overhead. PATH CAL stores only the three marker ID sets and a handful of scalar masses per decoding step. Memory overhead is therefore negligible compared with the model’s KV cache and activation footprint. 
+
+Relative cost. Compared with the underlying transformer forward pass, the per-step P ATH CAL 
+
+overhead is negligible. On reasoning models with multi-thousand-token traces, this overhead is dominated by the model computation by several orders of magnitude. 
+
+Reproducibility recipe. To reproduce the main P ATH CAL results: (1) load the model checkpoint listed in Appendix A; (2) run inference with the vLLM configuration in Table 4; (3) resolve marker token IDs using the procedure in Appendix D; (4) attach the P ATH CAL logits processor with the default hyperparameters in Table 7; (5) generate one completion per example using temperature 
+
+0.6 and top-p = 0 .95 ; and (6) evaluate the generated traces with the shared answer-extraction and length-measurement pipeline described in Appendix C. All baselines follow the same prompt, split, decoding, extraction, and length-measurement settings. 21
