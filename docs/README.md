@@ -6,75 +6,70 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-05-29
-- 运行时间：2026-05-29 22:05:40 UTC
+- 最新运行日期：2026-05-30
+- 运行时间：2026-05-30 20:32:02 UTC
 - 运行状态：成功
-- 本次总论文数：17
-- 精读区：6
+- 本次总论文数：16
+- 精读区：5
 - 速读区：11
 
 ### 今日简报（AI）
-今日共17篇论文，精读6篇，其中2篇高分（9.0）聚焦多任务学习中解耦符号表示与多自由变量复杂逻辑查询的神经可扩展搜索。
-
-最值得关注：多任务学习利用赢家通吃瓶颈实现解耦符号表示，以及神经可扩展搜索框架高效处理含多个自由变量的复杂逻辑查询。
-
-建议深入精读这两篇9分论文，探索符号表示与可扩展推理的交叉点；速读中3篇8分论文涉及分布式协议归纳、知识图谱驱动推理及思维链忠实性检测，也值得浏览。
-- 详情：[/202605/29/README](/202605/29/README)
+今天共推荐16篇论文，精读5篇速读11篇，重点聚焦提示词优化与大模型可解释性。
+精读两篇分别从强化学习结构化提示优化和少样本发现大模型关键神经元角度，为可解释性提供新方法。
+普通读者可优先阅读《Structured Prompt Optimization》理解提示工程前沿，再结合《Tiny Brains》了解模型内部机制。
+- 详情：[/202605/30/README](/202605/30/README)
 
 ### 精读区论文标签
-1. [Winner-Take-All bottlenecks enforce disentangled symbolic representations in multi-task learning](/202605/29/2605.22472v1-winner-take-all-bottlenecks-enforce-disentangled-symbolic-representations-in-multi-task-learning)  
+1. [Structured Prompt Optimization Meets Reinforcement Learning for Global and Local Interpretability over Complex Text](/202605/30/2605.29076v1-structured-prompt-optimization-meets-reinforcement-learning-for-global-and-local-interpretability-over-complex-text)  
    标签：评分：9.0/10、query:ns-xai
-   evidence：赢者通吃瓶颈在神经网络中强制学习符号表征
-2. [Neural Scalable Symbolic Search Framework for Complex Logical Queries with Multiple Free Variables](/202605/29/2605.25985v1-neural-scalable-symbolic-search-framework-for-complex-logical-queries-with-multiple-free-variables)  
-   标签：评分：9.0/10、query:ns-xai
-   evidence：知识图谱上复杂逻辑查询的神经符号搜索
-3. [SYNAPSE: Neuro-Symbolic Visual Thought-to-Text Decoding via Topological Semantic Denoising](/202605/29/2605.27790v1-synapse-neuro-symbolic-visual-thought-to-text-decoding-via-topological-semantic-denoising)  
-   标签：评分：9.0/10、query:ns-xai
-   evidence：神经符号框架用于稳定的脑电解码
-4. [Revealing Algorithmic Deductive Circuits for Logical Reasoning](/202605/29/2605.27824v1-revealing-algorithmic-deductive-circuits-for-logical-reasoning)  
-   标签：评分：9.0/10、query:ns-xai
-   evidence：使用符号辅助的链式思维定位逻辑推理步骤的注意力头
-5. [Better Later Than Sooner: Neuro-Symbolic Knowledge Graph Construction via Ontology-grounded Post-extraction Correction](/202605/29/2605.29168v1-better-later-than-sooner-neuro-symbolic-knowledge-graph-construction-via-ontology-grounded-post-extraction-correction)  
-   标签：评分：9.0/10、query:ns-xai
-   evidence：用于可解释问答的神经符号知识图谱构建
-6. [Reliable Reasoning with Large Language Models via Preference-Based Maximum Satisfiability](/202605/29/2605.29687v1-reliable-reasoning-with-large-language-models-via-preference-based-maximum-satisfiability)  
-   标签：评分：9.0/10、query:ns-xai
-   evidence：LLM将约束编码为MaxSAT进行符号求解
+   evidence：通过结构化提示优化实现LLM推理的全局和局部可解释性
+2. [Tiny Brains, Giant Impact: Uncovering the Keystone Neurons of LLM with Just a Few Prompts](/202605/30/2605.24846v1-tiny-brains-giant-impact-uncovering-the-keystone-neurons-of-llm-with-just-a-few-prompts)  
+   标签：评分：8.0/10、query:ns-xai
+   evidence：揭示对LLM行为至关重要的关键神经元，助力模型可解释性
+3. [Tiny Brains, Giant Impact: Uncovering the Keystone Neurons of LLM with Just a Few Prompts](/202605/30/2605.24846v2-tiny-brains-giant-impact-uncovering-the-keystone-neurons-of-llm-with-just-a-few-prompts)  
+   标签：评分：8.0/10、query:ns-xai
+   evidence：揭示对LLM行为至关重要的关键神经元，助力模型可解释性
+4. [READER: Reasoning-Enhanced AI-Generated Text Detection](/202605/30/2605.25281v2-reader-reasoning-enhanced-ai-generated-text-detection)  
+   标签：评分：8.0/10、query:ns-xai
+   evidence：推理增强的AI文本检测，输出结构化理由以增强可解释性
+5. [ReasonOps: Operator Segmentation for LLM Reasoning Traces](/202605/30/2605.29192v1-reasonops-operator-segmentation-for-llm-reasoning-traces)  
+   标签：评分：8.0/10、query:ns-xai
+   evidence：提供通用操作符分析LLM推理轨迹以增强可解释性
 
 ### 速读区论文标签
-1. [Synthesizing Inductive Invariants for Distributed Protocols via IC3 and Large Language Models](/202605/29/2605.24619v1-synthesizing-inductive-invariants-for-distributed-protocols-via-ic3-and-large-language-models)  
-   标签：评分：8.0/10、query:ns-xai
-   evidence：结合IC3与大语言模型的神经符号框架用于不变量合成
-2. [Knowledge Graph-Driven Expert-Level Reasoning for Neuroscience](/202605/29/2605.25183v1-knowledge-graph-driven-expert-level-reasoning-for-neuroscience)  
-   标签：评分：8.0/10、query:ns-xai
-   evidence：结合知识图谱（符号）与语言模型实现专家级推理
-3. [Detecting Unfaithful Chain-of-Thought via Circuit-Guided Internal-External Discrepancy](/202605/29/2605.25603v1-detecting-unfaithful-chain-of-thought-via-circuit-guided-internal-external-discrepancy)  
-   标签：评分：8.0/10、query:ns-xai
-   evidence：通过内部-外部差异检测大模型推理中的链式思维不忠实
-4. [Why LLMs Hallucinate on Structured Knowledge: A Mechanistic Analysis of Reasoning over Linearized Representations](/202605/29/2605.26362v1-why-llms-hallucinate-on-structured-knowledge-a-mechanistic-analysis-of-reasoning-over-linearized-representations)  
-   标签：评分：8.0/10、query:ns-xai
-   evidence：大语言模型在结构化知识上推理的机理性分析，揭示幻觉源于内在动态
-5. [Measuring Cross-Modal Synergy: A Benchmark for VLM Explainability](/202605/29/2605.22168v1-measuring-cross-modal-synergy-a-benchmark-for-vlm-explainability)  
+1. [Knowledge Graph-Driven Expert-Level Reasoning for Neuroscience](/202605/30/2605.25183v2-knowledge-graph-driven-expert-level-reasoning-for-neuroscience)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：针对VLM可解释性基准，解决评估坍塌问题
-6. [Learning to Reason Efficiently with A* Post-Training](/202605/29/2605.24597v1-learning-to-reason-efficiently-with-a-post-training)  
+   evidence：知识图谱驱动的语言模型推理，通过结构化知识提升可解释性
+2. [Retrieval as Reasoning: Self-Evolving Agent-Native Retrieval via LLM-Wiki](/202605/30/2605.25480v1-retrieval-as-reasoning-self-evolving-agent-native-retrieval-via-llm-wiki)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：通过A*搜索引导的后训练提升大模型推理能力
-7. [READER: Reasoning-Enhanced AI-Generated Text Detection](/202605/29/2605.25281v1-reader-reasoning-enhanced-ai-generated-text-detection)  
+   evidence：将检索视为推理以增强大模型智能体
+3. [Towards Faithful Agentic XAI: A Verification Method and an Open-World Benchmark for Better Model Faithfulness](/202605/30/2605.27879v1-towards-faithful-agentic-xai-a-verification-method-and-an-open-world-benchmark-for-better-model-faithfulness)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：推理增强的检测方法输出结构化理由
-8. [Beyond Input Understanding: Diagnosing Multilingual Mathematical Reasoning with Directed Acyclic Trace Graphs](/202605/29/2605.27715v1-beyond-input-understanding-diagnosing-multilingual-mathematical-reasoning-with-directed-acyclic-trace-graphs)  
+   evidence：面向大模型解释的忠实智能体XAI
+4. [Reasoning Matters: Mitigate Hallucination in Multimodal Large Reasoning Models via Reasoning-Conditioned Preference Optimization](/202605/30/2605.27906v1-reasoning-matters-mitigate-hallucination-in-multimodal-large-reasoning-models-via-reasoning-conditioned-preference-optimization)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：使用轨迹图诊断推理以增强可解释性
-9. [Towards Explainability of SLMs by investigating Token Level Activation](/202605/29/2605.22377v1-towards-explainability-of-slms-by-investigating-token-level-activation)  
+   evidence：基于推理条件的偏好优化减轻幻觉
+5. [CIRF: Tokenizing Chain-of-Thoughts into Reusable Functional Units for Efficient Latent Reasoning in Large Language Models](/202605/30/2605.28292v1-cirf-tokenizing-chain-of-thoughts-into-reusable-functional-units-for-efficient-latent-reasoning-in-large-language-models)  
+   标签：评分：7.0/10、query:ns-xai
+   evidence：将思维链分割为功能Token，实现可解释的隐式推理
+6. [HyperGuide: Hyperbolic Guidance for Efficient Multi-Step Reasoning in Large Language Models](/202605/30/2605.24140v1-hyperguide-hyperbolic-guidance-for-efficient-multi-step-reasoning-in-large-language-models)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：通过激活强度实现小语言模型的词元级可解释性
-10. [PathCal: State-Aware Reflection-Marker Calibration for Efficient Reasoning](/202605/29/2605.23074v1-pathcal-state-aware-reflection-marker-calibration-for-efficient-reasoning)  
+   evidence：双曲几何引导的高效多步推理方法
+7. [HyperGuide: Hyperbolic Guidance for Efficient Multi-Step Reasoning in Large Language Models](/202605/30/2605.24140v2-hyperguide-hyperbolic-guidance-for-efficient-multi-step-reasoning-in-large-language-models)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：分析大推理模型轨迹中的反思标记，提升推理效率
-11. [Convex Compositional Reasoning Models](/202605/29/2605.23395v2-convex-compositional-reasoning-models)  
+   evidence：双曲引导用于LLM多步推理，提升推理效率
+8. [Clustering as Reasoning: A $k$-Means Interpretation of Chain-of-Thought Graph Learning](/202605/30/2605.24867v1-clustering-as-reasoning-a-k-means-interpretation-of-chain-of-thought-graph-learning)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：基于凸组合能量最小化的神经推理方法
+   evidence：图上链式推理的可解释聚类解释
+9. [Boosting Inference with Guided Reasoning: Stochastic Exploration for Recursive Models](/202605/30/2605.25230v1-boosting-inference-with-guided-reasoning-stochastic-exploration-for-recursive-models)  
+   标签：评分：6.0/10、query:ns-xai
+   evidence：递归模型的引导随机探索，提供可解释的推理诊断指标
+10. [Boosting Inference with Guided Reasoning: Stochastic Exploration for Recursive Models](/202605/30/2605.25230v2-boosting-inference-with-guided-reasoning-stochastic-exploration-for-recursive-models)  
+   标签：评分：6.0/10、query:ns-xai
+   evidence：递归模型推理的引导式随机探索方法
+11. [HRBench: Benchmarking and Understanding Thinking-Mode Switch Strategies in Hybrid-Reasoning LLMs](/202605/30/2605.28398v1-hrbench-benchmarking-and-understanding-thinking-mode-switch-strategies-in-hybrid-reasoning-llms)  
+   标签：评分：6.0/10、query:ns-xai
+   evidence：混合推理LLM的思考模式切换基准
 
 
 <div class="dpr-home-promo-card">

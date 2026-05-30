@@ -1,0 +1,676 @@
+Title: HyperGuide: Hyperbolic Guidance for Efficient Multi-Step Reasoning in Large Language Models
+
+URL Source: https://arxiv.org/pdf/2605.24140v1
+
+Published Time: Tue, 26 May 2026 00:11:26 GMT
+
+Number of Pages: 22
+
+Markdown Content:
+# HYPER GUIDE : H YPERBOLIC GUIDANCE FOR EFFICIENT 
+
+# MULTI -S TEP REASONING IN LARGE LANGUAGE MODELS 
+
+Yuyu Liu 
+
+Department of Computer Science Stony Brook University 
+
+Haotian Xu 
+
+Department of Applied Mathematics and Statistics Stony Brook University 
+
+Yanan He 
+
+Department of Computer Science Yale University 
+
+Sarang Rajendra Patil 
+
+Department of Data Science New Jersey Institute of Technology 
+
+Mengjia Xu 
+
+Department of Data Science New Jersey Institute of Technology 
+
+Tengfei Ma 
+
+Department of Biomedical Informatics Stony Brook University May 26, 2026 
+
+# ABSTRACT 
+
+Multi-step reasoning remains a central challenge for large language models: single-pass generation is efficient but lacks accuracy; tree-search methods explore multiple paths but are computation-heavy. We address this gap by distilling reasoning progress into a hyperbolic geometric signal that guides step-by-step generation. Our approach is motivated by a structural observation: in combinatorial reasoning trees, solution-bearing states are few while dead ends are exponentially numerous. The hyperbolic space matches this asymmetry, with compact volume near the origin and exponentially expanding capacity toward the boundary, so that distance-to-origin naturally encodes solution proximity while angular separation distinguishes branches requiring different next operations. We train a lightweight head to project LLM hidden states into this space, then fine-tune a low-rank adapter interactively on its own reasoning attempts to act on the injected signal. Across multiple benchmarks, the geometric signal yields consistent gains, with larger improvements on deeper reasoning chains. Our code is publicly available at https://github.com/yuyuliu11037/HyperGuide .
+
+Keywords Hyperbolic Embeddings · LLM Reasoning · Imitation Learning 
+
+# 1 Introduction 
+
+Large language models (LLMs) have emerged as general-purpose problem solvers, demonstrating broad competence on tasks ranging from mathematical reasoning to code synthesis and long-horizon planning Brown et al. [2020], Lightman et al. [2023], Jiang et al. [2026], Valmeekam et al. [2023]. A common thread underlying many of these advances is 
+
+multi-step reasoning : composing sequences of intermediate inferences to reach conclusions that no single forward pass could produce. Reliably and efficiently producing such chains remains a central challenge. Single-pass methods such as chain-of-thought prompting Wei et al. [2023] are cheap but yield low accuracy; tree search methods such as Tree of Thoughts Yao et al. [2023] and Reasoning via Planning Hao et al. [2023] improve performance by exploring multiple reasoning paths, but require many LLM forward passes. This tradeoff, however, is not intrinsic. The accuracy advantage of tree search can be largely attributed to one kind of information that single-pass generation typically lacks: estimation of distance from reasoning state to the correct solution. Here, a state denotes a node in the reasoning tree, i.e., a partial reasoning trajectory. The key question is whether this proximity signal can be injected directly into single-pass generation, sparing the cost of explicit search. We argue that it can, because the state distribution possesses an asymmetric structure that makes proximity information 
+
+> arXiv:2605.24140v1 [cs.AI] 22 May 2026
+
+A PREPRINT - M AY 26, 2026 geometrically easy to encode: a small number of productive states lie on paths leading to correct solutions, and each typically branches into multiple solution paths. The vast majority of states are dead ends from which no sequence of operations reaches the goal. For example, 99 .4% of terminal leaves in Game-of-24 search trees are dead ends, and 
+
+70 .9% of ProntoQA rule applications fail to advance toward the target conclusion. 1
+
+Hyperbolic space is a natural fit for this asymmetry. In this geometry, volume grows exponentially toward the boundary Nickel and Kiela [2017, 2018]: the region near the origin is compact while the periphery provides exponentially expanding capacity. This matches the cardinality structure of the reachable states: the few solution-bearing states need only the small central region, while the exponentially many dead ends require the boundary volume for adequate separation. Distance-to-origin then serves directly as a continuous proxy for solution proximity. At the same time, the exponential surface area at each radius provides angular capacity to separate structurally distinct branches, so states with similar proximity but different next-step requirements remain distinguishable. Building on this observation, we propose a pipeline that separates learning the geometric signal from learning to act on it. In the first stage, we train a lightweight projection head that maps the frozen LLM’s hidden states into hyperbolic space, so that the geometric signal is meaningful. In the second stage, we fine-tune a low-rank adapter to select next-step operations conditioned on the injected signal, training interactively on the adapter’s own reasoning attempts, so that it learns to use the signal at the states it will actually encounter during generation. At inference time, each step boundary incurs only the cost of one forward pass through the small projection head. We evaluate on a suite of reasoning benchmarks spanning arithmetic, classical planning, constraint satisfaction, and multi-hop deductive logic. Because the LoRA adapter is task-agnostic, a single adapter transfers across related tasks when paired with a cheaply retrained task-specific head. The main contributions of our paper are threefold: 1. We identify a structural correspondence between the solution-proximity and hyperbolic geometry, and show that both can be encoded as a single geometric primitive injected directly into the language model’s generation stream at each reasoning step. 2. We propose a two-stage pipeline that teaches the model to act on the injected geometric signal during single-pass generation without invoking search at inference time. 3. Across multiple benchmarks and three open-weight backbones, our method delivers consistent accuracy gains at substantially lower inference cost than search-based baselines, with larger improvements on deeper reasoning chains. 
+
+# 2 Related Work 
+
+2.1 LLM Reasoning 
+
+Single-pass prompting methods such as Chain-of-Thought Wei et al. [2023], Self-Consistency Wang et al. [2023], and Least-to-Most Zhou et al. [2023] cannot revise early mistakes, while search-based methods such as Tree of Thoughts Yao et al. [2023] and Graph of Thoughts Besta et al. [2024] recover lookahead at substantial inference cost. A parallel line scores intermediate steps with learned verifiers Lightman et al. [2023], Wang et al. [2024a], Uesato et al. [2022] to guide beam or best-of-n decoding, still requiring a separate scoring head and multiple candidate expansions, while reasoning-tuned models such as DeepSeek-R1 DeepSeek-AI et al. [2025] instead internalise long reasoning traces via reinforcement learning. A separate line bypasses discrete decoding and reasons in a continuous latent space: Coconut Hao et al. [2025] feeds the last hidden state back as the next input embedding, CODI Shen et al. [2025] compresses explicit CoT into continuous thoughts via self-distillation, and SoftCoT Xu et al. [2025] injects soft thought tokens from a fixed assistant model into the LLM’s representation space. We target the same bottleneck but distil the search tree’s state distribution as a geometric signal the model consults in-line, with no separate reward model or multi-candidate expansion at inference. 
+
+2.2 Search Distillation 
+
+Distilling planning into a reactive policy has a long history in reinforcement learning: the AlphaGo family Silver et al. [2016, 2017a,b], Schrittwieser et al. [2020] trains policy and value networks to mimic Monte Carlo tree search, with Expert Iteration Anthony et al. [2017] and policy distillation Rusu et al. [2016] formalising the iterative recipe; we adopt DAgger Ross et al. [2011] in Stage 2 for its statistical guarantees under the distilled policy’s own state distribution. In the LLM setting, value-guided MCTS variants Liu et al. [2024], Tian et al. [2024], Zhang et al. [2024] distil rollouts via SFT or RL using a separate value head or preference model. Our distilled signal is not a learned scalar but a geometric quantity read off a hyperbolic embedding of the backbone’s own hidden state, providing a principled geometric prior for the asymmetric reward structure of reasoning trees. 
+
+> 1Per-task statistics for all benchmarks are reported in Appendix Table 7.
+
+2A PREPRINT - M AY 26, 2026 
+
+Figure 1: Architecture overview. Stage 1 (Top): the projection head hϕ embeds reasoning-tree states into the Poincaré ball Dnc so that distance-to-origin tracks distance-to-solution and pairwise geodesic distance tracks tree distance. Stage 2 (Bottom): with fθ and hϕ frozen, each state st is encoded to zt and lifted by gψ into a virtual token spliced into the residual stream before step t+1 . A LoRA adapter is trained on the model’s own rollouts, with a tree oracle providing the target operation at each state. 
+
+2.3 Hyperbolic Representations 
+
+Hyperbolic space embeds hierarchical or tree-like data with low distortion because ball volume grows exponentially with radius, matching tree branching, as demonstrated by Poincaré Nickel and Kiela [2017] and Lorentz Nickel and Kiela [2018] embeddings with theoretical guarantees in Sa et al. [2018]. A line of work generalises standard neural-network layers to the Poincaré ball and other Riemannian manifolds Octavian-Eugen Ganea et al. [2018], Shimizu et al. [2021], Chami et al. [2019], Chen et al. [2022], with applications spanning vision Khrulkov et al. [2020], language Ganea et al. [2018], and recent transformer/LLM injections Yang et al. [2026]. Raj [2026] probe frozen LLM hidden states and show hyperbolic classifiers recover reasoning-relevant hierarchy more robustly than Euclidean ones, but use the geometry only diagnostically. To our knowledge, hyperbolic space has not previously been used to represent the state distribution of a reasoning search tree , nor has distance-to-origin been treated as an intrinsic proxy for solution-proximity in a reasoning system. 
+
+# 3 Methodology 
+
+3.1 Preliminaries Task setup. We define multi-step reasoning as a deterministic, finite-horizon decision process over text states Yao et al. [2023], Hao et al. [2023]: from an initial state s0 and goal g, admissible single-step operations A(s) generate a search tree Ts0,g via a deterministic transition δ. We write d(s) for the distance-to-solution of state s, defined as the minimum BFS edge distance from s to a successful leaf in Ts0,g , and ∞ when no successful trace passes through s.Finite distances mark the relatively few solution-bearing states while ∞ marks the exponentially many dead ends, an asymmetry that motivates the hyperbolic formulation below. 
+
+Poincaré ball. We work in the Poincaré ball of curvature −c (c> 0), Dnc = {x ∈ Rn : c∥x∥2 < 1}, with geodesic distance 
+
+dD(x, y) = 1√c cosh −1
+
+1 + 2c ∥x−y∥2
+
+> (1 −c∥x∥2)(1 −c∥y∥2)
+
+
+
+. (1) Ball volume in Dnc grows exponentially with radius, the geometric reason hyperbolic space embeds trees with low distortion Nickel and Kiela [2017], Sa et al. [2018]. The distance to the origin simplifies to dD(0, x) = (2 /√c) tanh −1 √c ∥x∥, a monotone function of ∥x∥ that diverges as x approaches the boundary. To lift Eu-clidean hidden states onto the manifold we use the exponential map at the origin Octavian-Eugen Ganea et al. [2018], 
+
+exp c
+
+> 0
+
+(v) = tanh  √c ∥v∥ v/ √c ∥v∥.3A PREPRINT - M AY 26, 2026 
+
+3.2 Training Pipeline 
+
+Figure 1 summarises the end-to-end pipeline. Our method factors the problem into two questions: what information to surface at each reasoning boundary, and how the model should consume it. Stage 1 answers the what question by training the projection head hϕ to map each state into a meaningful location in Poincaré ball; with this geometry in place, Stage 2 answers the how problem by training a LoRA adapter which acts on zt.
+
+Stage 1: Hyperbolic Space Construction (Figure 1 top). Since the reasoning process resonates hyperbolic space through a unique structure that solution-bearing states are few yet connected while dead ends are many but isolated, we intend to model such a property by utilizing a Poincaré ball. To give the base model a meaningful geometric signal to act on, we first train the projection head hϕ : Rd → Dnc alone using supervision from the enumerated reasoning tree. The vector produced by hϕ should carry two complementary kinds of information: the scalar distance-to-solution, and the structural relationships between states. We achieve this by minimising a weighted sum of two losses: 
+
+LStage 1 (ϕ) = Lrank (ϕ) + λ Lmetric (ϕ), (2) 
+
+Radial ranking loss. This loss ensures that the distance from the origin in the Poincaré ball tracks the distance-to-solution of each state. We sample state pairs (si, s j ) from the same tree with d(si) < d (sj ) and minimise the margin hinge 
+
+Lrank (ϕ) = Ed(si)<d (sj )
+
+h
+
+max  0, d D(0, zi) − dD(0, zj ) + γi
+
+, (3) where fθ is the frozen pretrained LLM backbone mapping a state to its Rd hidden representation, zi = hϕ(fθ (si)) is the resulting Poincaré embedding (and analogously zj ), and γ > 0 is a fixed margin. This term ensures that the scalar summary dD(0, h ϕ(fθ (s))) serves as a monotone proxy for the solution proximity of state s: promising states (small 
+
+d(s)) are pulled toward the origin while dead ends (large d(s)) are pushed toward the boundary. 
+
+Metric preservation loss. This loss ensures that the full n-dimensional embedding preserves the structural relationships of the reasoning tree. Let dT (si, s j ) denote the shortest-path distance between states si and sj in Ts0,g . We sample state triplets (si, s j , s k) from the same tree such that dT (si, s j ) < d T (si, s k) and minimise 
+
+Lmetric (ϕ) = EdT (si,s j )<d T (si,s k )
+
+h
+
+max  0, d D(zi, zj ) − dD(zi, zk) + γ′i
+
+, (4) where dD(zi, zj ) is the geodesic distance in the Poincaré ball (Equation 1), γ′ > 0 is a margin, and the tree distances are precomputed by BFS over the enumerated tree. Because the geodesic depends on both norms and the relative angle between zi and zj (via the cross-ratio in Equation 1), Lmetric sends gradients through the angular coordinates that 
+
+Lrank leaves unsupervised. 
+
+Monte-Carlo variant for non-enumerable trees. When the full state tree is unavailable (e.g. competition mathemat-ics, used in our MATH experiments), both loss terms are approximated from sampled rollouts: d(s) is replaced by a Monte-Carlo success-rate estimate ˆd(s) and pairwise tree distances are read off shared rollout prefixes, with full details in Appendix C.2. 
+
+Stage 2: Hyperbolic Space Adaption (Figure 1 bottom). Stage 1 yields a hyperbolic embedding zt = hϕ(fθ (st)) ∈
+
+Dnc for every state st. Stage 2 teaches the base model to consume this embedding. At each step boundary t, a small up-projector gψ : Rn → Rd lifts zt into the backbone’s hidden space, and gψ (zt) is spliced into the residual stream as the input embedding of one extra position immediately before the tokens of step t+1 ; the transformer attends to it through all layers exactly as it would a normal token. A low-rank adapter ∆θ on the attention projections of fθ is trained to make use of this vector. To avoid limited supervision signal from teacher-forcing training paradigm, we adopt DAgger Ross et al. [2011] as our training algorithm. The expert is the closed-form tree oracle 
+
+O(s) =  a ∈ A (s) : d(δ(s, a )) < ∞ , (5) i.e. the set of single-step operations whose resulting state still admits a path to the target. Each epoch alternates a 
+
+rollout phase which samples a trajectory under the current policy, encoding st 7 → zt at every step boundary, then an 
+
+update phase that for each reached st with O(st)̸ = ∅, selects one winning operation a⋆t ∈ O (st) by deterministic lexicographic tiebreak and minimises 
+
+LDAgger (∆ θ, ψ ) = − X
+
+> t
+
+log pθ+∆ θ, ψ 
+
+
+
+a⋆t prompt t, g ψ (zt)
+
+
+
+, (6) with gradients flowing only into ∆θ and gψ . Rollout details are deferred to Appendix C. 4A PREPRINT - M AY 26, 2026 Table 1: Task categorisation with the domain and the sampled test-set size used in our evaluation.                              
+
+> Task Type Domain Dataset Name Description Test Data Size
+> Group A Arithmetic Game of 24 Reach 24 with four operands 100 Constraint satisfaction N-Queens ( N=8 )Place 8 non-attacking queens 81 Symbolic planning Blocksworld Block-stacking planning 350 Constraint satisfaction Graph Coloring k-colour adjacent vertices differ 500 Group B Forward chaining Rule-chaining Horn-clause forward chaining 600 First-order reasoning ProntoQA FO reasoning over ontologies 800 First-order logic ProofWriter Premise-conclusion validity 500 Competition math MATH Competition-level math problems 500
+
+3.3 Extension to Task-Agnostic Training 
+
+The pipeline of Section 3.2 is made task-agnostic by replacing each training problem’s single fixed objective with a set of (context, goal) pairs sampled from every internal node of its enumerated reasoning tree, where the goal at a node is any terminal value reachable from it. A single group-level LoRA adapter trained on this augmented data can then be paired with a cheaply retrained task-specific projection head and transferred to structurally related tasks that share the same reasoning-tree motif; for non-enumerable tasks (e.g. MATH), the head is retrained with the Monte-Carlo variants of Lrank and Lmetric from Section 3.2. The full augmentation procedure is detailed in Appendix B.2. 
+
+3.4 Inference 
+
+At deployment, generation follows the same loop described in the rollout phase of Stage 2: before each step, the current state is encoded by the frozen backbone, mapped to a hyperbolic point then lifted by the up-projector, and spliced into the residual stream as a single virtual token. The total cost is one greedy decode plus O(1) extra work per step boundary. 
+
+# 4 Experiments 
+
+4.1 Experimental Settings Tasks and Datasets. We organise our evaluation into two groups of tasks. Group A tasks (Game of 24 Yao et al. [2023], N-Queens, Blocksworld Valmeekam et al. [2023], Graph Coloring Heyman and Zylberberg [2025]) share a state-reduction motif: each step consumes elements from a finite pool via a locally compositional binary operation, yielding trees of fixed depth with monotonically decreasing branching factor. Group B tasks (Rule-chaining, ProntoQA Saparov and He [2023], ProofWriter Tafjord et al. [2021], MATH Lightman et al. [2023]) share a state-expansion motif: each step derives a new fact by applying an inference rule to existing premises, yielding chain-like trees with monotonically growing state. We summarize the test benchmarks in Table 1. More details on the datasets are in Appendix B. 
+
+Base Models. We instantiate our pipeline on three open-weight backbones drawn from different families and scales: 
+
+Qwen2.5-14B-Instruct Qwen et al. [2025], GPT-OSS-20B OpenAI et al. [2025] run in its no-thinking mode so that inference is a standard single forward pass, and Mistral-Small-3.2-24B Mistral AI [2025]. 
+
+Baselines. We compare against six baselines spanning the accuracy–compute frontier: two single-pass prompting methods, Few-shot Brown et al. [2020] and Self-Consistency (SC) Wang et al. [2023]; a tree-search method Tree of Thoughts (ToT) Yao et al. [2023]; a value-guided search method with a learned value model, OVM Yu et al. [2024]; and two fine-tuning baselines that augment reasoning with auxiliary tokens, PT-SFT Wang et al. [2024b] and SoftCoT Xu et al. [2025]. Training details are documented in Appendix C and hyperparameter settings in Appendix B.4. 
+
+4.2 Main Results 
+
+Table 2 reports in-domain accuracy and Table 3 reports out-of-domain transfer. MATH has no enumerable derivation tree, so exact distance-to-solution is unavailable for per-dataset in-domain training; we therefore omit it from Table 2 and report it only in Table 3 under the Monte-Carlo head variant of Section 3.3. We highlight two summary observations. 
+
+In-domain Accuracy. Across all seven in-domain datasets under per-dataset training, HyperGuide outperforms most of the baselines while decoding in a single pass. Tree of Thoughts underperforms few-shot prompting on several tasks (Graph Coloring, ProntoQA under Qwen2.5). The common failure mode is the self-evaluation value scorer: when the base model cannot reliably rank partial solutions, the search budget is spent on unpromising branches, and the branching overhead actively hurts. This is consistent with known limitations of prompt-based ToT scoring; a learned verifier would likely close part of the gap, but would also add a training cost comparable to OVM, shifting the comparison to 5A PREPRINT - M AY 26, 2026 Table 2: In-domain test results (%). Bold marks the best result and underline marks the second best in each column within each backbone block (starred entries are excluded from the ranking). *PT-SFT is memorization on PlanBench gold (same distribution as test); not evidence of compositional planning. †N-Queens uses N =7 boards at training time and N =8 at test time. 
+
+Group A Group B 
+
+Base model Method Game of 24 N-Queens †
+
+(N =8 ) Blocksworld Graph Coloring Rule-chaining ProntoQA ProofWriter Qwen2.5 Few-shot 11 9.9 41 63 53 60 70.4 Self-Consistency 21 11.1 60 60 78 58 74 Tree of Thoughts 10 3.7 58 34 52 41 69 OVM 15 4.9 81.4 59.4 84 67 38 PT-SFT 7 9.9 96* 64 77 52.5 49 SoftCoT 27 22.2 82 79 73.5 72 75 
+
+HyperGuide 57 27.2 87 88 80 75 77.4 
+
+GPT-OSS Few-shot 8 6.1 9 51 16.1 48 29.6 Self-Consistency 16 4.9 2 57.4 52 39 47 Tree of Thoughts 9 13.6 37 49 50 44 46 OVM 13 4.9 77.4 53 70 62 33 PT-SFT 7 9.9 93* 58 72 56.5 42.4 SoftCoT 21 18.5 79 68 67.5 64 61.4 
+
+HyperGuide 42 24.7 83 81 77 68 67 
+
+Mistral Few-shot 8 11.1 57 49 54 81 57 Self-Consistency 15 11.1 53 49.6 74.5 73 67.6 Tree of Thoughts 6 13.6 55 14 50 69 66 OVM 9 3.7 62 55.4 71.5 79 72 PT-SFT 7 16.1 97* 52 72 81.5 42.6 SoftCoT 17 9.9 71 57 63.5 61 57 
+
+HyperGuide 44 18.5 76 63 79 89 87 
+
+a different point on the accuracy–compute frontier. Full implementation details, including per-task prompt pairs and scoring weights, are in Appendix C.3. 
+
+Out-of-domain Transfer. Because the LoRA adapter is trained task-agnostically on augmented data, a single group-level adapter transfers to the out-of-domain datasets when paired with a dataset-specific head. Table 3 reports this regime: the group-level adapter trained on each group’s augmented lead in-domain distribution (Game of 24 for Group A, Rule-chaining for Group B) is paired with a small per-dataset projection head and evaluated on every dataset in its group, so for each group’s lead in-domain dataset the cell measures whether task-agnostic training preserves in-domain accuracy, and for the remaining datasets the cell measures genuine out-of-domain transfer. MATH stresses the Monte-Carlo head variant: even without an enumerable tree, the geometric signal transfers and HyperGuide leads on two of three backbones. 
+
+4.3 Ablation Study 
+
+Table 4 isolates the contribution of each component of our pipeline on Qwen2.5-14B-Instruct, with one column per dataset so that per-dataset patterns (in particular, the dependence of each component on task depth) are visible rather than averaged out. The ablations follow the same per-dataset in-domain regime as Table 2: a separate adapter is trained on each dataset’s own training set and evaluated on its test set. We consider the following ablations: • w/o hyperbolic (Euclidean head) : the Poincaré ball Dnc is replaced by Rn with identical head capacity and the same ranking loss. • w/o Lmetric : Stage 1 is trained with the radial ranking loss Lrank alone, removing the angular supervision and isolating the contribution of tree-metric preservation. • w/o value signal (DAgger only) : the up-projector is removed and no geometric token is injected, so the adapter is trained by pure DAgger on oracle-labelled states. • w/o DAgger (offline SFT) : rollouts are replaced by on-tree states sampled from the oracle, so the adapter is trained on a fixed distribution rather than its own rollout distribution. 6A PREPRINT - M AY 26, 2026 Table 3: Out-of-domain transfer results (%). Bold marks the best result and underline marks the second best in each column within each backbone block (starred entries are excluded from the ranking). For each backbone, a single group-level HyperGuide adapter is trained on the lead in-domain distribution (Game of 24 / Rule-chaining) and combined with a data-specific projection head.                                                                                                                                                                                                        
+
+> Group A Group B
+> Base model Method Game of 24 N-Queens (N=8 )Blocksworld Graph Coloring Rule-chaining ProntoQA ProofWriter MATH Transfer cost Qwen2.5 Few-shot 11 9.9 41 63 53 60 70.4 71.2 N/A Self-Consistency 21 11.1 60 60 78 58 74 72 N/A Tree of Thoughts 10 3.7 58 34 52 41 69 74 N/A OVM 15 4.9 81.4 59.4 84 67 38 80.6 full retrain PT-SFT 79.9 96* 64 77 52.5 49 76 full retrain SoftCoT 27 22.2 82 79 73.5 72 75 59.8 full retrain
+> HyperGuide 55 22.2 79 64 77 74 75 84.4 small MLP GPT-OSS Few-shot 86.1 951 16.1 48 29.6 62.8 N/A Self-Consistency 16 4.9 257.4 52 39 47 64 N/A Tree of Thoughts 913.6 37 49 50 44 46 67 N/A OVM 13 4.9 77.4 53 70 62 33 77.4 full retrain PT-SFT 79.9 93* 58 72 56.5 42.4 76.6 full retrain SoftCoT 21 18.5 82 68 67.5 64 61.4 75.4 full retrain
+> HyperGuide 39 19.8 80 63 74 59 59 79.8 small MLP Mistral Few-shot 811.1 57 49 54 81 57 43.4 N/A Self-Consistency 15 11.1 53 49.6 74.5 73 67.6 46 N/A Tree of Thoughts 613.6 55 14 50 69 66 47 N/A OVM 93.7 62 55.4 71.5 79 72 53 full retrain PT-SFT 716.1 97* 52 72 81.5 42.6 49.8 full retrain SoftCoT 17 9.9 71 57 63.5 61 57 45.8 full retrain
+> HyperGuide 38 16.1 63 57 70 84 69 51 small MLP
+
+Table 4: Ablation study results on Qwen2.5 (%). Bold marks the best result. 
+
+Group A Group B 
+
+Variant Game of 24 N-Queens (N =8 ) Blocksworld Graph Coloring Rule-chaining ProntoQA ProofWriter 
+
+HyperGuide (full) 57 27.2 87 88 80 75 77.4 
+
+w/o hyperbolic (Euclidean) 43 16.1 75 72 69 65.5 70 w/o Lmetric 52 24.7 84 86 77.5 71 75.5 w/o value signal (DAgger only) 47 21 80 80 71 68 69.5 w/o DAgger (offline SFT) 16 4.9 50 35.5 39 35 58 
+
+n = 32 49 21 80 81 77 72 71 
+
+n = 64 53 24.7 84 86 79.5 76 75.5 
+
+n = 256 55 25.9 85.2 86.2 79.8 75.5 76.6 
+
+• Head dimension n: ablations at n ∈ { 32 , 64 , 256 }, characterising how embedding capacity interacts with the geometric prior. The most pronounced drop occurs when DAgger is replaced by offline SFT (row 5), with accuracy falling by more than half on most tasks. This collapse is specific to the injected-signal architecture: the adapter must learn to interpret the hyperbolic token at the reasoning states it will actually encounter during generation, but offline SFT exposes it only to states along gold traces. At inference, the model’s own errors lead it into dead-end states that were absent from training. Removing the geometric channel while retaining DAgger-style training (row 4) yields a smaller but consistent drop, isolating the contribution of the hyperbolic signal from that of the training regime. The remaining rows decompose signal quality: replacing hyperbolic with Euclidean geometry (row 2) removes the exponential volume structure that matches the asymmetry between scarce solution-bearing states and abundant dead ends, while dropping Lmetric (row 3) preserves radial ordering but collapses angular separation, reducing distinguishability among states at similar depth. Sensitivity to the continuous loss hyperparameters is reported in Appendix B.5; accuracy is stable across a wide range of values for each, confirming that the gains are not an artefact of precise tuning. 
+
+4.4 Inference Efficiency 
+
+7A PREPRINT - M AY 26, 2026 
+
+Figure 2: Accuracy versus inference cost. Figure 2 plots Graph Coloring accuracy against the av-erage number of generated tokens per problem. Hyper-Guide sits at the upper-left frontier: at each step boundary the projection head and up-projector add only two O(1) 
+
+MLP evaluations over the cached backbone hidden state, whose combined FLOPs are negligible relative to a single LLM forward pass. Neither head emits tokens so Hyper-Guide adds no per-step token overhead; in practice the geometric signal further steers the model toward shorter, more direct reasoning paths, so HyperGuide’s total per-problem token count is the lowest among all methods. By contrast, Tree of Thoughts decodes a separate thought or value verdict at each of b(1 + v)D = 60 search nodes (beam width b=5 , depth D=3 , v=3 value votes per can-didate), inflating the per-problem token count by an order of magnitude through branching and backtracking. 
+
+4.5 Depth Scaling Analysis 
+
+A central prediction of HyperGuide is that the hyperbolic value signal yields larger gains as reasoning chains grow longer. The intuition is geometric: the Poincar’e ball’s exponential volume expansion matches the exponential branching of deep search trees, so distant states stay geometrically separated where a Euclidean embedding would lose them to crowding. We test this by stratifying accuracy by a per-instance depth measure on two datasets. 
+
+Rule-chaining. We stratify the Rule-chaining test set by gold chain length nsteps ∈ { 2, 3, 4}, the number of Horn-clause rule applications required to derive the target fact. Figure 3a plots accuracy at each nsteps bin. The picture reverses as depth grows. Such trend is consistent with the hypothesis that the hyperbolic value signal becomes increasingly useful as the search tree deepens. 
+
+ProofWriter. We stratify ProofWriter accuracy by question depth QDep , the number of inference-rule applications required to derive the target conclusion. Figure 3b shows their accuracy. The same crossover pattern emerges. Starting from QDep=2 , HyperGuide takes the lead over all baselines. Since QDep measures inferential depth differently from 
+
+nsteps , the recurrence of the same crossover under both metrics points to depth itself, rather than any dataset-specific artifact. Across both datasets, the results support a consistent conclusion: the hyperbolic value signal is most valuable precisely where baselines struggle most: deeper chains that demand sustained lookahead. 
+
+4.6 Signal Mechanism Analysis 
+
+In this section we look inside the embedding itself and ask whether its two intended axes, i.e. radial (distance-to-origin) and structural (pairwise geodesic distance), actually carry the quantities the training objectives target. 
+
+Distributional shift tracks hyperbolic distance. Using the 100 step-boundary states Game of 24 test set, we record the full next-token logit distribution under + SIGNAL (the spliced virtual token gψ (zt) is included in the residual stream) and – SIGNAL (the splice position is retained but filled with gψ (¯ z), where ¯z is the mean embedding over the training-state population, giving an in-distribution but state-uninformative input), and compute the KL divergence DKL (p+∥p−)
+
+between the two. Figure 4a plots this divergence against the hyperbolic distance-to-origin dD(0, z) of each state’s embedding. Across step-boundary states, KL grows with dD, indicating that the adapter modulates its predictions most strongly at states the radial signal identifies as distant from a solution, consistent with the radial axis carrying its strongest distinguishing information precisely where the backbone’s default continuation is most likely to be wrong and must be overridden. 
+
+Geodesic distance tracks tree distance. While Lrank shapes the radial axis, the structural axis is installed by Lmetric ,which enforces, for each anchor si, that the ordering of dD(zi, ·) matches the ordering of dT (si, ·). To test this directly, we sample anchor states from Game-of-24 reasoning trees and compute the per-anchor Spearman ρi between tree distances dT (si, ·) and Poincaré geodesic distances dD(zi, ·). Figure 4b reports the distribution of ρi for the full model and the w/o Lmetric ablation. The full HyperGuide head reaches a median ρ of +0 .84 , compared to +0 .41 without the metric loss, confirming that Lmetric installs the per-anchor structural ordering it is designed to enforce. Combined with Figure 4a, this confirms the embedding encodes both how far a state is from a solution (radial) and where in the tree it lies (structural), giving the adapter a geometrically faithful summary of the local search landscape. 8A PREPRINT - M AY 26, 2026          
+
+> (a) Rule-chaining accuracy at chain length {2,3,4}.(b) ProofWriter accuracy at QDep ∈ { 0,1,2,3}.
+
+Figure 3: Depth-scaling results on Group B. Left: Rule-chaining stratified by gold chain length. Right: ProofWriter stratified by question depth.             
+
+> (a) KL divergence between + SIGNAL and – SIGNAL next-token distributions as a function of hyperbolic distance-to-origin. Each point is one step-boundary state from the Game-of-24 test set.
+> (b) Distribution of per-anchor Spearman ρibetween tree dis-tances dT(si,·)and Poincaré geodesic distances dD(zi,·), com-paring the full model against the w/o Lmetric ablation. Each point is one anchor state; horizontal bars mark the median.
+
+Figure 4: Signal mechanism analysis. Left: KL divergence vs. hyperbolic distance-to-origin (radial axis). Right: per-anchor Spearman ρ between tree distance and geodesic distance, validating the metric loss (structural axis). 
+
+# 5 Conclusion 
+
+We presented HyperGuide, a method that injects a hyperbolic geometric signal into LLM reasoning to provide step-level guidance without runtime search. The approach is grounded in a structural correspondence between combinatorial reasoning trees, in which solution-bearing states are scarce and dead ends abundant, and the Poincaré ball, whose compact center and exponentially expanding boundary accommodate this asymmetry. Across arithmetic, planning, and deductive-logic benchmarks, HyperGuide delivers consistent accuracy gains that grow with reasoning depth, while inference cost remains comparable to standard single-pass decoding. More broadly, our results indicate that solution-space geometry is an underexploited inductive bias for LLM reasoning. 
+
+# References 
+
+Tom B. Brown, Benjamin Mann, Nick Ryder, Melanie Subbiah, Jared Kaplan, Prafulla Dhariwal, Arvind Neelakantan, Pranav Shyam, Girish Sastry, Amanda Askell, Sandhini Agarwal, Ariel Herbert-Voss, Gretchen Krueger, Tom Henighan, Rewon Child, Aditya Ramesh, Daniel M. Ziegler, Jeffrey Wu, Clemens Winter, Christopher Hesse, Mark Chen, Eric Sigler, Mateusz Litwin, Scott Gray, Benjamin Chess, Jack Clark, Christopher Berner, Sam McCandlish, Alec Radford, Ilya Sutskever, and Dario Amodei. Language Models are Few-Shot Learners, July 2020. URL 
+
+http://arxiv.org/abs/2005.14165 . arXiv:2005.14165 [cs]. Hunter Lightman, Vineet Kosaraju, Yura Burda, Harri Edwards, Bowen Baker, Teddy Lee, Jan Leike, John Schulman, Ilya Sutskever, and Karl Cobbe. Let’s Verify Step by Step, May 2023. URL http://arxiv.org/abs/2305.20050 .arXiv:2305.20050 [cs]. 9A PREPRINT - M AY 26, 2026 Juyong Jiang, Fan Wang, Jiasi Shen, Sungju Kim, and Sunghun Kim. A Survey on Large Language Models for Code Generation. ACM Transactions on Software Engineering and Methodology , 35(2):1–72, February 2026. ISSN 1049-331X, 1557-7392. doi: 10.1145/3747588. URL https://dl.acm.org/doi/10.1145/3747588 .Karthik Valmeekam, Matthew Marquez, Alberto Olmo, Sarath Sreedharan, and Subbarao Kambhampati. PlanBench: An Extensible Benchmark for Evaluating Large Language Models on Planning and Reasoning about Change, November 2023. URL http://arxiv.org/abs/2206.10498 . arXiv:2206.10498 [cs]. Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten Bosma, Brian Ichter, Fei Xia, Ed Chi, Quoc Le, and Denny Zhou. Chain-of-Thought Prompting Elicits Reasoning in Large Language Models, January 2023. URL http: //arxiv.org/abs/2201.11903 . arXiv:2201.11903 [cs]. Shunyu Yao, Dian Yu, Jeffrey Zhao, Izhak Shafran, Thomas L Griffiths, Yuan Cao, and Karthik Narasimhan. Tree of Thoughts: Deliberate Problem Solving with Large Language Models. April 2023. Shibo Hao, Yi Gu, Haodi Ma, Joshua Hong, Zhen Wang, Daisy Wang, and Zhiting Hu. Reasoning with Language Model is Planning with World Model. In Houda Bouamor, Juan Pino, and Kalika Bali, editors, Proceedings of the 2023 Conference on Empirical Methods in Natural Language Processing , pages 8154–8173, Singapore, December 2023. Association for Computational Linguistics. doi: 10.18653/v1/2023.emnlp-main.507. URL https: //aclanthology.org/2023.emnlp-main.507/ .Maximilian Nickel and Douwe Kiela. Poincaré Embeddings for Learning Hierarchical Representations, May 2017. URL http://arxiv.org/abs/1705.08039 . arXiv:1705.08039 [cs]. Maximilian Nickel and Douwe Kiela. Learning Continuous Hierarchies in the Lorentz Model of Hyperbolic Geometry, July 2018. URL http://arxiv.org/abs/1806.03417 . arXiv:1806.03417 [cs]. Xuezhi Wang, Jason Wei, Dale Schuurmans, Quoc Le, Ed Chi, Sharan Narang, Aakanksha Chowdhery, and Denny Zhou. Self-Consistency Improves Chain of Thought Reasoning in Language Models, March 2023. URL http: //arxiv.org/abs/2203.11171 . arXiv:2203.11171 [cs]. Denny Zhou, Nathanael Schärli, Le Hou, Jason Wei, Nathan Scales, Xuezhi Wang, Dale Schuurmans, Claire Cui, Olivier Bousquet, Quoc Le, and Ed Chi. Least-to-Most Prompting Enables Complex Reasoning in Large Language Models, April 2023. URL http://arxiv.org/abs/2205.10625 . arXiv:2205.10625 [cs]. Maciej Besta, Nils Blach, Ales Kubicek, Robert Gerstenberger, Michal Podstawski, Lukas Gianinazzi, Joanna Gajda, Tomasz Lehmann, Hubert Niewiadomski, Piotr Nyczyk, and Torsten Hoefler. Graph of Thoughts: Solving Elaborate Problems with Large Language Models. Proceedings of the AAAI Conference on Artificial Intelligence , 38(16): 17682–17690, March 2024. ISSN 2374-3468, 2159-5399. doi: 10.1609/aaai.v38i16.29720. URL http://arxiv. org/abs/2308.09687 . arXiv:2308.09687 [cs]. Peiyi Wang, Lei Li, Zhihong Shao, R. X. Xu, Damai Dai, Yifei Li, Deli Chen, Y. Wu, and Zhifang Sui. Math-Shepherd: Verify and Reinforce LLMs Step-by-step without Human Annotations, February 2024a. URL http: //arxiv.org/abs/2312.08935 . arXiv:2312.08935 [cs]. Jonathan Uesato, Nate Kushman, Ramana Kumar, Francis Song, Noah Siegel, Lisa Wang, Antonia Creswell, Geoffrey Irving, and Irina Higgins. Solving math word problems with process- and outcome-based feedback, November 2022. URL http://arxiv.org/abs/2211.14275 . arXiv:2211.14275 [cs]. DeepSeek-AI, Daya Guo, Dejian Yang, Haowei Zhang, Junxiao Song, Peiyi Wang, Qihao Zhu, Runxin Xu, Ruoyu Zhang, Shirong Ma, Xiao Bi, Xiaokang Zhang, Xingkai Yu, Yu Wu, Z. F. Wu, Zhibin Gou, Zhihong Shao, Zhuoshu Li, Ziyi Gao, Aixin Liu, Bing Xue, Bingxuan Wang, Bochao Wu, Bei Feng, Chengda Lu, Chenggang Zhao, Chengqi Deng, Chenyu Zhang, Chong Ruan, Damai Dai, Deli Chen, Dongjie Ji, Erhang Li, Fangyun Lin, Fucong Dai, Fuli Luo, Guangbo Hao, Guanting Chen, Guowei Li, H. Zhang, Han Bao, Hanwei Xu, Haocheng Wang, Honghui Ding, Huajian Xin, Huazuo Gao, Hui Qu, Hui Li, Jianzhong Guo, Jiashi Li, Jiawei Wang, Jingchang Chen, Jingyang Yuan, Junjie Qiu, Junlong Li, J. L. Cai, Jiaqi Ni, Jian Liang, Jin Chen, Kai Dong, Kai Hu, Kaige Gao, Kang Guan, Kexin Huang, Kuai Yu, Lean Wang, Lecong Zhang, Liang Zhao, Litong Wang, Liyue Zhang, Lei Xu, Leyi Xia, Mingchuan Zhang, Minghua Zhang, Minghui Tang, Meng Li, Miaojun Wang, Mingming Li, Ning Tian, Panpan Huang, Peng Zhang, Qiancheng Wang, Qinyu Chen, Qiushi Du, Ruiqi Ge, Ruisong Zhang, Ruizhe Pan, Runji Wang, R. J. Chen, R. L. Jin, Ruyi Chen, Shanghao Lu, Shangyan Zhou, Shanhuang Chen, Shengfeng Ye, Shiyu Wang, Shuiping Yu, Shunfeng Zhou, Shuting Pan, S. S. Li, Shuang Zhou, Shaoqing Wu, Shengfeng Ye, Tao Yun, Tian Pei, Tianyu Sun, T. Wang, Wangding Zeng, Wanjia Zhao, Wen Liu, Wenfeng Liang, Wenjun Gao, Wenqin Yu, Wentao Zhang, W. L. Xiao, Wei An, Xiaodong Liu, Xiaohan Wang, Xiaokang Chen, Xiaotao Nie, Xin Cheng, Xin Liu, Xin Xie, Xingchao Liu, Xinyu Yang, Xinyuan Li, Xuecheng Su, Xuheng Lin, X. Q. Li, Xiangyue Jin, Xiaojin Shen, Xiaosha Chen, Xiaowen Sun, Xiaoxiang Wang, Xinnan Song, Xinyi Zhou, Xianzu Wang, Xinxia Shan, Y. K. Li, Y. Q. Wang, Y. X. Wei, Yang Zhang, Yanhong Xu, Yao Li, Yao Zhao, Yaofeng Sun, Yaohui Wang, Yi Yu, Yichao Zhang, Yifan Shi, Yiliang Xiong, Ying He, Yishi Piao, Yisong Wang, Yixuan Tan, Yiyang Ma, Yiyuan Liu, Yongqiang Guo, Yuan Ou, 10 A PREPRINT - M AY 26, 2026 Yuduan Wang, Yue Gong, Yuheng Zou, Yujia He, Yunfan Xiong, Yuxiang Luo, Yuxiang You, Yuxuan Liu, Yuyang Zhou, Y. X. Zhu, Yanhong Xu, Yanping Huang, Yaohui Li, Yi Zheng, Yuchen Zhu, Yunxian Ma, Ying Tang, Yukun Zha, Yuting Yan, Z. Z. Ren, Zehui Ren, Zhangli Sha, Zhe Fu, Zhean Xu, Zhenda Xie, Zhengyan Zhang, Zhewen Hao, Zhicheng Ma, Zhigang Yan, Zhiyu Wu, Zihui Gu, Zijia Zhu, Zijun Liu, Zilin Li, Ziwei Xie, Ziyang Song, Zizheng Pan, Zhen Huang, Zhipeng Xu, Zhongyu Zhang, and Zhen Zhang. DeepSeek-R1: Incentivizing Reasoning Capability in LLMs via Reinforcement Learning. Nature , 645(8081):633–638, September 2025. ISSN 0028-0836, 1476-4687. doi: 10.1038/s41586-025-09422-z. URL http://arxiv.org/abs/2501.12948 . arXiv:2501.12948 [cs]. Shibo Hao, Sainbayar Sukhbaatar, DiJia Su, Xian Li, Zhiting Hu, Jason E. Weston, and Yuandong Tian. Training Large Language Models to Reason in a Continuous Latent Space. August 2025. URL https://openreview.net/ forum?id=Itxz7S4Ip3#discussion .Zhenyi Shen, Hanqi Yan, Linhai Zhang, Zhanghao Hu, Yali Du, and Yulan He. CODI: Compressing Chain-of-Thought into Continuous Space via Self-Distillation. In Christos Christodoulopoulos, Tanmoy Chakraborty, Carolyn Rose, and Violet Peng, editors, Proceedings of the 2025 Conference on Empirical Methods in Natural Language Processing ,pages 677–693, Suzhou, China, November 2025. Association for Computational Linguistics. ISBN 979-8-89176-332-6. doi: 10.18653/v1/2025.emnlp-main.36. URL https://aclanthology.org/2025.emnlp-main.36/ .Yige Xu, Xu Guo, Zhiwei Zeng, and Chunyan Miao. SoftCoT: Soft Chain-of-Thought for Efficient Reasoning with LLMs. In Wanxiang Che, Joyce Nabende, Ekaterina Shutova, and Mohammad Taher Pilehvar, editors, Proceedings of the 63rd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 23336–23351, Vienna, Austria, July 2025. Association for Computational Linguistics. ISBN 979-8-89176-251-0. doi: 10.18653/v1/2025.acl-long.1137. URL https://aclanthology.org/2025.acl-long.1137/ .David Silver, Aja Huang, Chris J. Maddison, Arthur Guez, Laurent Sifre, George van den Driessche, Julian Schrittwieser, Ioannis Antonoglou, Veda Panneershelvam, Marc Lanctot, Sander Dieleman, Dominik Grewe, John Nham, Nal Kalchbrenner, Ilya Sutskever, Timothy Lillicrap, Madeleine Leach, Koray Kavukcuoglu, Thore Graepel, and Demis Hassabis. Mastering the game of Go with deep neural networks and tree search. Nature , 529(7587):484–489, January 2016. ISSN 1476-4687. doi: 10.1038/nature16961. URL https://www.nature.com/articles/nature16961 .David Silver, Thomas Hubert, Julian Schrittwieser, Ioannis Antonoglou, Matthew Lai, Arthur Guez, Marc Lanctot, Laurent Sifre, Dharshan Kumaran, Thore Graepel, Timothy Lillicrap, Karen Simonyan, and Demis Hassabis. Mastering Chess and Shogi by Self-Play with a General Reinforcement Learning Algorithm, December 2017a. URL 
+
+http://arxiv.org/abs/1712.01815 . arXiv:1712.01815 [cs]. David Silver, Julian Schrittwieser, Karen Simonyan, Ioannis Antonoglou, Aja Huang, Arthur Guez, Thomas Hubert, Lucas Baker, Matthew Lai, Adrian Bolton, Yutian Chen, Timothy Lillicrap, Fan Hui, Laurent Sifre, George van den Driessche, Thore Graepel, and Demis Hassabis. Mastering the game of Go without human knowledge. Nature , 550 (7676):354–359, October 2017b. ISSN 1476-4687. doi: 10.1038/nature24270. URL https://www.nature.com/ articles/nature24270 .Julian Schrittwieser, Ioannis Antonoglou, Thomas Hubert, Karen Simonyan, Laurent Sifre, Simon Schmitt, Arthur Guez, Edward Lockhart, Demis Hassabis, Thore Graepel, Timothy Lillicrap, and David Silver. Mastering Atari, Go, Chess and Shogi by Planning with a Learned Model. Nature , 588(7839):604–609, December 2020. ISSN 0028-0836, 1476-4687. doi: 10.1038/s41586-020-03051-4. URL http://arxiv.org/abs/1911.08265 . arXiv:1911.08265 [cs]. Thomas Anthony, Zheng Tian, and David Barber. Thinking Fast and Slow with Deep Learning and Tree Search, December 2017. URL http://arxiv.org/abs/1705.08439 . arXiv:1705.08439 [cs]. Andrei A. Rusu, Sergio Gomez Colmenarejo, Caglar Gulcehre, Guillaume Desjardins, James Kirkpatrick, Razvan Pascanu, Volodymyr Mnih, Koray Kavukcuoglu, and Raia Hadsell. Policy Distillation, January 2016. URL 
+
+http://arxiv.org/abs/1511.06295 . arXiv:1511.06295 [cs]. Stephane Ross, Geoffrey J. Gordon, and J. Andrew Bagnell. A Reduction of Imitation Learning and Structured Prediction to No-Regret Online Learning, March 2011. URL http://arxiv.org/abs/1011.0686 . arXiv:1011.0686 [cs]. Jiacheng Liu, Andrew Cohen, Ramakanth Pasunuru, Yejin Choi, Hannaneh Hajishirzi, and Asli Celikyilmaz. Don’t throw away your value model! Generating more preferable text with Value-Guided Monte-Carlo Tree Search decoding, April 2024. URL http://arxiv.org/abs/2309.15028 . arXiv:2309.15028 [cs]. Ye Tian, Baolin Peng, Linfeng Song, Lifeng Jin, Dian Yu, Haitao Mi, and Dong Yu. Toward Self-Improvement of LLMs via Imagination, Searching, and Criticizing, December 2024. URL http://arxiv.org/abs/2404.12253 .arXiv:2404.12253 [cs]. Dan Zhang, Sining Zhoubian, Ziniu Hu, Yisong Yue, Yuxiao Dong, and Jie Tang. ReST-MCTS*: LLM Self-Training via Process Reward Guided Tree Search, November 2024. URL http://arxiv.org/abs/2406.03816 .arXiv:2406.03816 [cs]. 11 A PREPRINT - M AY 26, 2026 Christopher De Sa, Albert Gu, Christopher Ré, and Frederic Sala. Representation Tradeoffs for Hyperbolic Embeddings, April 2018. URL http://arxiv.org/abs/1804.03329 . arXiv:1804.03329 [cs]. Octavian-Eugen Ganea, Gary Bécigneul, and Thomas Hofmann. Hyperbolic Neural Networks, June 2018. URL 
+
+http://arxiv.org/abs/1805.09112 . arXiv:1805.09112 [cs]. Ryohei Shimizu, Yusuke Mukuta, and Tatsuya Harada. Hyperbolic Neural Networks++, March 2021. URL http: //arxiv.org/abs/2006.08210 . arXiv:2006.08210 [cs]. Ines Chami, Rex Ying, Christopher Ré, and Jure Leskovec. Hyperbolic Graph Convolutional Neural Networks, October 2019. URL http://arxiv.org/abs/1910.12933 . arXiv:1910.12933 [cs]. Weize Chen, Xu Han, Yankai Lin, Hexu Zhao, Zhiyuan Liu, Peng Li, Maosong Sun, and Jie Zhou. Fully Hyperbolic Neural Networks, March 2022. URL http://arxiv.org/abs/2105.14686 . arXiv:2105.14686 [cs]. Valentin Khrulkov, Leyla Mirvakhabova, Evgeniya Ustinova, Ivan Oseledets, and Victor Lempitsky. Hyperbolic Image Embeddings. In 2020 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pages 6417–6427, Seattle, WA, USA, June 2020. IEEE. ISBN 978-1-7281-7168-5. doi: 10.1109/CVPR42600.2020.00645. URL https://ieeexplore.ieee.org/document/9156432/ .Octavian-Eugen Ganea, Gary Bécigneul, and Thomas Hofmann. Hyperbolic Entailment Cones for Learning Hierarchical Embeddings, June 2018. URL http://arxiv.org/abs/1804.01882 . arXiv:1804.01882 [cs]. Menglin Yang, Ram Samarth B. B, Aosong Feng, Bo Xiong, Jihong Liu, Irwin King, and Rex Ying. Hyper-bolic Fine-Tuning for Large Language Models, February 2026. URL http://arxiv.org/abs/2410.04010 .arXiv:2410.04010 [cs]. Arnav Raj. HYPERBOLIC GEOMETRY OF REASONING: PROBING LLM HIDDEN STATES. March 2026. Alex Heyman and Joel Zylberberg. Evaluating the Systematic Reasoning Abilities of Large Language Models through Graph Coloring, February 2025. URL http://arxiv.org/abs/2502.07087 . arXiv:2502.07087 [cs]. Abulhair Saparov and He He. Language Models Are Greedy Reasoners: A Systematic Formal Analysis of Chain-of-Thought, March 2023. URL http://arxiv.org/abs/2210.01240 . arXiv:2210.01240 [cs]. Oyvind Tafjord, Bhavana Dalvi, and Peter Clark. ProofWriter: Generating Implications, Proofs, and Abductive Statements over Natural Language. In Chengqing Zong, Fei Xia, Wenjie Li, and Roberto Navigli, editors, Findings of the Association for Computational Linguistics: ACL-IJCNLP 2021 , pages 3621–3634, Online, August 2021. Association for Computational Linguistics. doi: 10.18653/v1/2021.findings-acl.317. URL https://aclanthology. org/2021.findings-acl.317/ .Qwen, An Yang, Baosong Yang, Beichen Zhang, Binyuan Hui, Bo Zheng, Bowen Yu, Chengyuan Li, Dayiheng Liu, Fei Huang, Haoran Wei, Huan Lin, Jian Yang, Jianhong Tu, Jianwei Zhang, Jianxin Yang, Jiaxi Yang, Jingren Zhou, Junyang Lin, Kai Dang, Keming Lu, Keqin Bao, Kexin Yang, Le Yu, Mei Li, Mingfeng Xue, Pei Zhang, Qin Zhu, Rui Men, Runji Lin, Tianhao Li, Tianyi Tang, Tingyu Xia, Xingzhang Ren, Xuancheng Ren, Yang Fan, Yang Su, Yichang Zhang, Yu Wan, Yuqiong Liu, Zeyu Cui, Zhenru Zhang, and Zihan Qiu. Qwen2.5 Technical Report, January 2025. URL http://arxiv.org/abs/2412.15115 . arXiv:2412.15115 [cs]. OpenAI, Sandhini Agarwal, Lama Ahmad, Jason Ai, Sam Altman, Andy Applebaum, Edwin Arbus, Rahul K. Arora, Yu Bai, Bowen Baker, Haiming Bao, Boaz Barak, Ally Bennett, Tyler Bertao, Nivedita Brett, Eugene Brevdo, Greg Brockman, Sebastien Bubeck, Che Chang, Kai Chen, Mark Chen, Enoch Cheung, Aidan Clark, Dan Cook, Marat Dukhan, Casey Dvorak, Kevin Fives, Vlad Fomenko, Timur Garipov, Kristian Georgiev, Mia Glaese, Tarun Gogineni, Adam Goucher, Lukas Gross, Katia Gil Guzman, John Hallman, Jackie Hehir, Johannes Heidecke, Alec Helyar, Haitang Hu, Romain Huet, Jacob Huh, Saachi Jain, Zach Johnson, Chris Koch, Irina Kofman, Dominik Kundel, Jason Kwon, Volodymyr Kyrylov, Elaine Ya Le, Guillaume Leclerc, James Park Lennon, Scott Lessans, Mario Lezcano-Casado, Yuanzhi Li, Zhuohan Li, Ji Lin, Jordan Liss, Lily, Liu, Jiancheng Liu, Kevin Lu, Chris Lu, Zoran Martinovic, Lindsay McCallum, Josh McGrath, Scott McKinney, Aidan McLaughlin, Song Mei, Steve Mostovoy, Tong Mu, Gideon Myles, Alexander Neitz, Alex Nichol, Jakub Pachocki, Alex Paino, Dana Palmie, Ashley Pantuliano, Giambattista Parascandolo, Jongsoo Park, Leher Pathak, Carolina Paz, Ludovic Peran, Dmitry Pimenov, Michelle Pokrass, Elizabeth Proehl, Huida Qiu, Gaby Raila, Filippo Raso, Hongyu Ren, Kimmy Richardson, David Robinson, Bob Rotsted, Hadi Salman, Suvansh Sanjeev, Max Schwarzer, D. Sculley, Harshit Sikchi, Kendal Simon, Karan Singhal, Yang Song, Dane Stuckey, Zhiqing Sun, Philippe Tillet, Sam Toizer, Foivos Tsimpourlas, Nikhil Vyas, Eric Wallace, Xin Wang, Miles Wang, Olivia Watkins, Kevin Weil, Amy Wendling, Kevin Whinnery, Cedric Whitney, Hannah Wong, Lin Yang, Yu Yang, Michihiro Yasunaga, Kristen Ying, Wojciech Zaremba, Wenting Zhan, Cyril Zhang, Brian Zhang, Eddie Zhang, and Shengjia Zhao. gpt-oss-120b & gpt-oss-20b Model Card, August 2025. URL http://arxiv.org/abs/2508.10925 . arXiv:2508.10925 [cs]. Mistral AI. mistralai/Mistral-Small-3.2-24B-Instruct-2506 · Hugging Face, June 2025. URL https://huggingface. co/mistralai/Mistral-Small-3.2-24B-Instruct-2506 .12 A PREPRINT - M AY 26, 2026 Table 5: Split sizes for the eight reasoning datasets used in this work. Splits are constructed by random partitioning of independently sampled instances; for ProntoQA, ProofWriter and MATH we additionally enforce a disjoint surface-form (entity / predicate / theory) partition between train and test. A dash (–) indicates that no validation split is released for that dataset: BW and GC are small benchmarks for which we reuse the hyperparameters selected on the larger datasets (RC, PQ, PW, MT) instead of holding out a separate validation set.                                     
+
+> Dataset Train Val Test Reasoning skill
+> Game-of-24 (G24) 7 634 300 100 arithmetic search Blocksworld (BW) 600 –350 STRIPS planning Graph Coloring (GC) 1 000 –500 CSP / backtracking N-Queens (NQ) 294 15 81 combinatorial search ProntoQA (PQ) 3 000 500 800 taxonomic entailment ProofWriter (PW) 2 000 200 500 open-world inference RuleChain (RC) 6 000 600 600 forward chaining MATH (MT) 7 500 –500 competition math
+
+Fei Yu, Anningzhe Gao, and Benyou Wang. OVM, Outcome-supervised Value Models for Planning in Mathematical Rea-soning. In Kevin Duh, Helena Gomez, and Steven Bethard, editors, Findings of the Association for Computational Lin-guistics: NAACL 2024 , pages 858–875, Mexico City, Mexico, June 2024. Association for Computational Linguistics. doi: 10.18653/v1/2024.findings-naacl.55. URL https://aclanthology.org/2024.findings-naacl.55/ .Xinyi Wang, Lucas Caccia, Oleksiy Ostapenko, Xingdi Yuan, William Yang Wang, and Alessandro Sordoni. Guiding Language Model Reasoning with Planning Tokens, August 2024b. URL http://arxiv.org/abs/2310.05707 .arXiv:2310.05707 [cs]. 
+
+# A Task Formalism 
+
+This appendix gives the full formal specification of the multi-step reasoning task referenced in Section 3.1. A problem instance is a tuple (s0, g, A, δ ), where s0 is the initial state (e.g., the number pool and target in Game of 24, or the premise set and goal fact in rule-chaining), g is the goal condition, A(s) is the set of admissible single-step operations in state s, and δ(s, a ) is a deterministic transition that applies action a to state s. A reasoning trace of length 
+
+T is a sequence τ = ( s0, a 1, s 1, . . . , a T , s T ) with st = δ(st−1, a t) and at ∈ A (st−1), and is successful if sT satisfies 
+
+g.
+
+Search tree and distance-to-solution. The set of all states reachable from s0 under (A, δ ) forms the search tree Ts0,g ;a state s ∈ T s0,g lies on a solution path iff some successful trace passes through it. We define the distance-to-solution 
+
+of s as 
+
+d(s) = min  T − ts : τ is successful and s = sts in τ , (7) with d(s) = ∞ when no successful trace passes through s; equivalently, d(s) is the minimum BFS edge distance from 
+
+s to a successful leaf in Ts0,g .
+
+Policy and evaluation. A policy is a distribution π(a | s) over A(s); at inference, π is unrolled from s0 until either g
+
+is satisfied or a fixed step budget is exhausted. We report two quantities throughout: accuracy , the probability that a rollout of π is successful, and inference cost , the number of LLM forward passes consumed per problem. 
+
+# B Additional Experimental Settings 
+
+B.1 Dataset Construction 
+
+We evaluate on a suite of eight reasoning benchmarks that span arithmetic, classical planning, constraint satisfaction, multi-hop logical inference, and relational reasoning. Each benchmark is provided as three disjoint JSONL splits (train / validation / test) with sizes summarized in Table 5. To prevent leakage between the policy ( π), the SFT prefix tuner, the optional outcome value model (OVM), and the hyperbolic distortion head, all four components are trained on the 
+
+train split only; the validation split is used for hyper-parameter selection and early stopping; the test split is held out and used exclusively for the numbers reported in Section 4. 13 A PREPRINT - M AY 26, 2026 
+
+B.1.1 Common construction recipe 
+
+Every instance x ∈ D is generated together with a ground-truth solution trace y⋆ = ( s0, a 1, s 1, . . . , a T , s T ) produced by a problem-specific oracle solver. Each instance is stored as a JSON record with at least the fields: prompt 
+
+(natural-language statement), init_state_text (the initial state used by the planner), answer_label (the canonical step-by-step solution), plus the structured fields needed by the oracle (graph, rules, permutation, etc.). Splits are produced by: (i) sampling instances from a parametric problem distribution (controlled by difficulty knobs listed below), (ii) discarding unsatisfiable or trivially solvable instances via the oracle, and (iii) partitioning the surviving instances uniformly at random into train / val / test, with a final de-duplication pass on the prompt field to enforce zero string-level overlap across splits. 
+
+B.1.2 Per-dataset details and examples Game-of-24 (G24). Each instance is a multiset of four integers in [1 , 13] ; the goal is to combine them with +, −, ×, ÷
+
+(and arbitrary parenthesization) to reach 24 . We retain only solvable multisets and label each with a single canonical 3-step trace produced by an exhaustive oracle. Difficulty is controlled by the number of distinct admissible solutions (≤ 6 in our pool, to keep the search non-trivial).                               
+
+> G24 · Game-of-24, arithmetic search
+> Input. 14412
+> Goal. Combine the four numbers with +,−,×,÷and parentheses to reach 24 .
+> Trace.
+> Step 1. 1−4 = −3.Remaining: -3 412
+> Step 2. −3×4 = −12 .Remaining: -12 12
+> Step 3. 12 −(−12) = 24 .
+> Answer. 24 .
+
+Blocksworld (BW). Standard STRIPS planning over 4–5 blocks with the actions PICK -UP , PUT -DOWN , STACK ,
+
+> UNSTACK
+
+. Initial and goal configurations are sampled uniformly over reachable states; instances whose optimal plan length is ≤ 2 are filtered out to keep planning depth ≥ 3.          
+
+> BW · Blocksworld, STRIPS planning
+> Initial state. red, orange, yellow are clear; the hand is empty; yellow is on top of blue; red, blue, orange are on the table.
+> Goal. red on yellow, blue on orange, yellow on blue.
+> Plan.
+> 1. unstack yellow from blue
+> 2. stack yellow on red
+> 3. pick up blue
+> 4. stack blue on orange
+> 5. unstack yellow from red
+> 6. stack yellow on blue
+> 7. pick up red
+> 8. stack red on yellow
+
+Graph Coloring (GC). We sample Erd˝ os–Rényi graphs G(n, p ) with n ∈ { 7, 8} and edge density p ∈ { 0.4, 0.5, 0.6}.Each instance is verified satisfiable by a DPLL oracle, which also produces the labelled coloring used as the gold trace. Colors are drawn from {R, G, B }.                       
+
+> GC · Graph Coloring, CSP / backtracking
+> Vertices. V0, . . . , V 5.
+> Edges. (V0, V 1),(V0, V 4),(V0, V 5),(V1, V 2),(V1, V 4),
+> (V2, V 3),(V2, V 5),(V3, V 4),(V3, V 5),(V4, V 5).
+> Coloring. V0=R, V 1=G, V 2=B, V 3=R, V 4=B, V 5=G.
+
+14 A PREPRINT - M AY 26, 2026 
+
+N-Queens (NQ). Train and validation instances place N = 7 queens on a 7 × 7 board, with a randomly chosen partial prefix of length k ∈ { 0, . . . , 4} that is consistent with at least one full solution. Test instances are out-of-distribution :they place N = 8 queens with k = 0 and require a full solution from scratch. The oracle returns a single canonical extension via standard backtracking. 
+
+NQ · N-Queens, combinatorial search 
+
+Setting. N = 7 , prefix [1 , 4, 7, 3] (columns of queens in rows 1–4). 
+
+Gold extension. [1 , 4, 7, 3, 6, 2, 5] .
+
+ProntoQA (PQ). Each instance is a fictional taxonomy of made-up entity types (dumpus , rom-pus , . . . ) with a chain of universal-quantifier rules of length L ∈ {3, 4, 5}, plus a binary True/False query. We generate data with the official ProntoQA generator Saparov and He [2023] (asaparov/prontoqa ) using the fictional ontology under the random ordering, with 5,000 trials, zero few-shot examples, and chain length swept via –min-hops 3 –max-hops 5 –hops-skip 1 ; concretely, we invoke run_experiment.py –model-name json –model-size dummy –ordering random –num-trials 5000 –few-shot-examples 0 –ontology fictional –min-hops 3 –max-hops 5 –hops-skip 1 . The re-sulting instances are partitioned uniformly at random into 3,000 train / 500 validation / 800 test, with disjoint pools of fictional type-names between splits. 
+
+PQ · ProntoQA, taxonomic entailment 
+
+Context. Dumpuses are transparent. Dumpuses are impuses. Impuses are not brown. Every impus is a rompus. Rompuses are floral. Rompuses are yumpuses. Yumpuses are happy. Yumpuses are jompuses. Every jompus is not temperate. Jompuses are numpuses. . . . Stella is a dumpus. 
+
+Query. Is the following statement true or false? “Stella is not temperate.” 
+
+Answer. True (via the chain dumpus → impus → rompus → yumpus → jompus ⇒ not temperate). 
+
+ProofWriter (PW). Open-world rule-based reasoning over a small theory of entities, attributes and binary relations. Each instance contains ∼ 7 initial facts and ∼ 8 rules (some negated). The oracle is a forward-chaining engine; we annotate every instance with its question depth QDep ∈ { 0, 1, 2, 3}, and report stratified accuracy by depth. 
+
+PW · ProofWriter, open-world inference 
+
+Theory. The cat is nice. The cat is young. The cat likes the mouse. The mouse is nice. The mouse is young. The mouse likes the cat. The mouse visits the cat. 
+
+Rules. (R1) If someone visits the cat and the cat is nice then the cat sees the mouse. (R3) If someone sees the mouse and the mouse is young then they are big. (R7) If someone is big and they see the mouse then the mouse sees the cat.. . . 
+
+Query. Erin is round? 
+
+Answer. True ( QDep = 1 ). 
+
+RuleChain (RC). A purely synthetic propositional benchmark that we introduce to control chain length precisely. Each instance has npred = 16 propositional symbols {p0, . . . , p 15 }, nrules = 18 Horn rules, a small set of initial facts, and a target predicate reachable in exactly nsteps ∈ { 2, 3, 4} forward-chaining steps. Distractor rules are added so that greedy or single-hop strategies fail. 
+
+RC · RuleChain, forward chaining 
+
+Rules (excerpt). if p2 then p9; if p9 then p14 ; if p7 then p5; if p5 then p9; if p13 and p8 then p3; . . . 
+
+Initial facts. {p10 , p 2, p 3, p 6}.
+
+Goal. derive p14 .
+
+Gold proof. 
+
+Step 1. apply “if p2 then p9”. 
+
+Step 2. apply “if p9 then p14 ”. 
+
+Answer. p14 is derived. 
+
+MATH (MT). The 500 representative competition-level problems sampled by Lightman et al. Lightman et al. [2023] from the MATH test set, spanning algebra, number theory, geometry, counting and probability, precalculus, and intermediate algebra. Each instance is a natural-language problem whose solution requires several lines of algebraic or combinatorial manipulation to derive a single closed-form answer. Unlike the other Group B datasets, MATH has no 15 A PREPRINT - M AY 26, 2026 enumerable derivation tree: states are open-ended natural-language strings, so exact distance-to-solution is unavailable, and we instead train the head with the Monte-Carlo ˆd(s) estimator described in Section 3.3.                                       
+
+> MT · MATH, competition-level math
+> Problem. “Solve for x:√x+ 5 = x−1.”
+> Gold chain. Square both sides: x+ 5 = ( x−1) 2=x2−2x+ 1 , giving x2−3x−4 = 0 , so (x−4)( x+ 1) = 0 and
+> x∈ { 4,−1}. Reject x=−1because √4 = 2 ̸=−2.
+> Answer. x= 4 .
+
+The MATH-500 evaluation uses the public HuggingFaceH4/MATH-500 split in full (all 500 problems spanning seven subjects and difficulty levels 1–5; no subset selection or filtering on our part). Decoding is greedy with a 1024 -token budget per problem; the prompt is a fixed four-shot Minerva-style chain-of-thought template wrapped in each model’s chat template, with no per-task tuning. Scoring extracts the final boxed expression from the generation, normalizes it (whitespace, fractions, units) and compares to the reference; on a string-match miss we fall back to a SymPy equivalence check, so accuracies are neither inflated by lenient matching nor deflated by purely syntactic differences. Our 71.2% on Qwen2.5-14B-Instruct is roughly five points below the third-party MATH-500 numbers commonly reported for this model and roughly nine points below Qwen’s own MATH-full figure of 80 .0, gaps consistent with the difference between the Minerva prompt and Qwen’s official prompt format and with our 1024 -token truncation on the longest level-5 solutions. SoftCoT training details for MATH-500 are documented in Appendix C.3. 
+
+B.1.3 Quality control 
+
+For every dataset we run two automated audits before training: (a) the oracle is re-executed on every instance to verify that the stored answer_label is reproducible bit-for-bit; (b) the SHA-1 of the prompt field is computed across all three splits to confirm that train, val and test are pairwise disjoint. Instances that fail either check are removed and not counted in Table 5. 
+
+B.2 Task-agnostic Dataset Construction 
+
+To train a single group-level LoRA adapter that transfers across structurally related tasks (Section 3.3), we augment each group’s lead in-domain dataset, Game of 24 for Group A and Rule-chaining for Group B, with synthetic (context, goal) pairs harvested from the enumerated reasoning trees of its training instances. The augmentation exploits the fact that, within a group, the reasoning-tree motif (state-reduction or state-expansion) is shared across tasks, so any internal node of a training tree can itself be reframed as a fresh problem whose goal is any terminal value reachable from that node. 
+
+Group A (state-reduction). For each Game-of-24 training instance, we enumerate the full state tree and emit one 
+
+(context, goal) pair per reachable internal node, with the context being the current set of operands and operations applied so far and the goal being any terminal value reachable from that node, not necessarily 24. This generalises the supervision from a single fixed objective to an arbitrary target value, exposing the adapter to a broader distribution of state-reduction subproblems while keeping the underlying tree topology fixed. 
+
+Group B (state-expansion). For each Rule-chaining training instance, we similarly enumerate the forward-chaining derivation tree and sample (context, goal) pairs at every reachable derived fact: the context is the set of premises plus partial derivations up to that node, and the goal is any fact downstream of that node along a valid Horn-clause chain. This exposes the adapter to chains of varying length and varying target facts, isolating the state-expansion motif from any specific target. For both groups, the augmented training set is filtered for surface-form overlap against the validation and test splits of every dataset in the group, so that no augmented (context, goal) pair shares a problem with a held-out evaluation instance. Table 6 summarises the resulting augmented training set sizes alongside their lead-dataset source. Table 6: Task-agnostic augmented training sets used to train one group-level LoRA adapter per group. Each augmented 
+
+(context, goal) pair is harvested from an internal node of the enumerated reasoning tree of a lead-dataset training instance.             
+
+> Group Lead dataset # Source instances # Augmented pairs Avg. pairs / instance
+> A (state-reduction) Game of 24 1,090 16,464 15.1 B (state-expansion) Rule-chaining 6,000 70,246 11.7
+
+16 A PREPRINT - M AY 26, 2026 
+
+B.3 Tree Statistics 
+
+Table 7 reports per-task structural statistics of the enumerated reasoning trees. For Group A the state-reduction motif makes exhaustive enumeration tractable, so we measure branching factor, depth and dead-end ratio directly on the enumerated trees. For Group B the state-expansion motif precludes exhaustive enumeration, so the analogous statistics are estimated from the test-set problem distributions instead. Table 7: Tree statistics for all seven enumerable-tree benchmarks. For Group A: branching factor is averaged over internal nodes, depth is the maximum solution-path length, and dead-end ratio is the fraction of terminal leaves that are not successful. For Group B: branching factor is the average number of applicable rules at internal nodes, depth is the maximum gold chain length, and dead-end ratio is the fraction of rule applications that do not lead to the target conclusion. † Blocksworld actions are reversible (no absorbing dead-end states), so we instead report the fraction of actions that do not lie on a shortest plan to the goal.                          
+
+> Dataset Branching factor (avg) Depth (max) Dead-end ratio
+> Group A
+> Game of 24 6.59 399.4% N-Queens ( N=8 )1.49 877.7% Blocksworld 2.27 16 90.9% †
+> Graph Coloring 1.56 832.4%
+> Group B
+> Rule-chaining 1.65 447.7% ProntoQA 2.65 570.9% ProofWriter 3.96 374.3%
+
+B.4 Hyperparameters 
+
+Table 8 summarises the hyperparameters used across the two training stages and at inference. Settings are shared across the eight benchmarks in Table 5 unless explicitly noted; per-dataset early stopping is performed on the validation split. Values were selected by a small grid search on Game-of-24 and ProofWriter and held fixed for the remaining six datasets. 
+
+B.5 Sensitivity Analysis 
+
+We report how the three most influential continuous hyperparameters affect accuracy on Game of 24 (Group A) and Rule-chaining (Group B), varying one at a time while keeping all others at the defaults in Table 8. The embedding dimension n is already analysed as part of the ablation study (Section 4); we therefore focus here on the loss-level hyperparameters. 
+
+Ranking-loss margin γ. Accuracy follows a flat inverted-U around the default: too small a margin leaves many state pairs trivially satisfied and the radial axis under-shaped, while too large a margin is unsatisfiable for many pairs and injects gradient noise. Game of 24 is the more sensitive of the two tasks, consistent with its heavier reliance on a clean radial signal (high dead-end ratio in Table 7). 
+
+Metric-loss weight λ. The two endpoints fail asymmetrically: at λ=0 .1 the structural axis is under-trained and Rule-chaining (which leans on tree structure) drops more than Game of 24, whereas at λ=2 .0 the radial term is starved and Game of 24 drops more than Rule-chaining. This contrast shows that Lrank and Lmetric contribute distinct, non-redundant supervision and motivates keeping both terms. 
+
+Metric-loss margin γ′. The metric margin shows the same flat inverted-U as γ, with comparable swing magnitudes; the parallel between the two confirms that both hinge losses behave well-conditioned across roughly an order of magnitude around their defaults. 17 A PREPRINT - M AY 26, 2026 Table 8: Hyperparameters used for HyperGuide training and inference. 
+
+Architecture 
+
+Backbone Qwen2.5 (frozen except LoRA) LoRA rank r 16 
+
+LoRA α 32 
+
+LoRA dropout 0.05 
+
+LoRA target modules {q, k, v, o }_proj of every attention layer Projection head hϕ 2-layer MLP, hidden 1024 , GELU activation Hyperbolic embedding dim n 128 
+
+Up-projector gψ 2-layer MLP, hidden 2048 , GELU activation Up-projector output dim per-backbone, matches the backbone’s residual hidden size ( 5120 for Qwen2.5-14B-Instruct) Curvature c init 1.0 (learnable scalar) 
+
+Stage 1: ranking-supervised head training 
+
+Optimiser AdamW, β1=0 .9, β 2=0 .999 , ϵ =10 −8
+
+Learning rate 1e −3
+
+Weight decay 0.01 
+
+LR schedule cosine with linear warmup Warmup steps 500 
+
+Epochs 20 
+
+Effective batch size 64 (8 GPUs × 8 per-GPU) Ranking-loss margin 0.1
+
+Gradient clipping 1.0
+
+Mixed precision bf16 
+
+Stage 1 Monte-Carlo variant (MATH only) 
+
+Number of rollouts K 32 
+
+Rollout temperature τmc 0.8
+
+Rollout nucleus p 0.95 
+
+Max tokens per rollout 1024 
+
+Importance-weight decay η 0.95 
+
+Stage 2: DAgger adapter fine-tuning 
+
+Optimiser AdamW Learning rate 5e −5 (LoRA parameters only) Weight decay 0.0
+
+LR schedule cosine, warmup ratio 0.03 
+
+DAgger epochs 5
+
+Rollouts per training problem 8
+
+Rollout temperature τ 0.7
+
+Nucleus p 0.9
+
+Max rollout tokens 512 
+
+Oracle–policy mixing β annealed 1.0 → 0.0 across epochs Effective batch size 64 (16 per-GPU × grad-accum 4)Mixed precision bf16 
+
+Inference (HyperGuide and single-pass baselines) 
+
+Decoding greedy Max new tokens 512 
+
+Re-encode interval every step boundary 
+
+Inference (Tree of Thoughts baseline) 
+
+Search procedure BFS Beam width b 5
+
+Search depth D 3
+
+Value-prompt votes per candidate 3
+
+18 A PREPRINT - M AY 26, 2026 Table 9: Accuracy (%) as a function of the ranking-loss margin γ (Equation 3). Default value in bold .          
+
+> γGame of 24 Rule-chaining
+> 0.05 54 78
+> 0.157 80
+> 0.256 79
+> 0.552 77
+
+Table 10: Accuracy (%) as a function of the metric-loss weight λ (Equation 2). Default value in bold .          
+
+> λGame of 24 Rule-chaining
+> 0.155 77.5
+> 0.557 78
+> 1.057 80
+> 2.053 77
+
+# C Training and Inference Details 
+
+C.1 HyperGuide Implementation 
+
+All architecture and optimisation hyperparameters are listed in Table 8. Training runs on 8× NVIDIA RTX A6000 GPUs; efficiency experiments use a single A6000 to measure single-GPU inference cost. 
+
+C.2 Monte-Carlo Head Training Details 
+
+This section provides the full specification of the Monte-Carlo variant of Stage 1 used when the reasoning tree cannot be exhaustively enumerated (Section 3.2). In our experiments this variant is used exclusively for the MATH benchmark. 
+
+Rollout procedure. For each training-set problem x with ground-truth answer y⋆, we sample K=32 independent rollouts from the SFT-merged base model (i.e. the same backbone used throughout the pipeline, after task-specific supervised fine-tuning but before any LoRA or projection-head training) at temperature τmc =0 .8 and nucleus p=0 .95 ,with a maximum budget of 1024 generated tokens per rollout. A rollout is labelled successful if its final boxed expression matches y⋆ under the same normalisation and SymPy equivalence check used at evaluation (Appendix B.1). 
+
+Value estimate. The Monte-Carlo value estimate at state s is 
+
+ˆd(s) = 1 − 1
+
+K
+
+> K
+
+X
+
+> i=1
+
+⊮ρi reaches the goal from s, (8) so that ˆd(s) = 0 for states from which every rollout succeeds (closest to a solution) and ˆd(s) = 1 for states from which none does (dead end). Although ˆd(s) ∈ [0 , 1] lives on a different scale than the integer-valued exact d(s), Lrank 
+
+(Equation 3) only uses the order between distances, so ˆd(s) is substituted in place of d(s) as a ranking signal. 
+
+Trajectory-local tree distances. Because the full tree is unavailable, pairwise tree distances for Lmetric (Equation 4) are extracted from rollout trajectories. Two types of pairs are used: 1. Intra-rollout pairs. Consecutive states along a single rollout ρ satisfy dT (st, s t+k) = k.2. Inter-rollout pairs. Two rollouts ρ(1) , ρ (2) that share a common prefix up to step t and then diverge yield 
+
+dT
+
+ s(1)  
+
+> t+j
+
+, s (2) 
+
+> t+k
+
+ = j + k.
+
+Importance weighting. Trajectory-local distances become less reliable as the offset from the shared prefix grows, because the inferred tree structure is based on a finite sample of rollouts rather than an exhaustive enumeration. To down-weight distant pairs, each triplet (si, s j , s k) in Lmetric receives a multiplicative weight 
+
+w(si, s j , s k) = η dT (si, s j ) + dT (si, s k ), (9) where η=0 .95 is a fixed exponential decay factor. This ensures that the loss is dominated by nearby, high-confidence distance estimates while still receiving gradient from longer-range pairs. 19 A PREPRINT - M AY 26, 2026 Table 11: Accuracy (%) as a function of the metric-loss margin γ′ (Equation 4). Default value in bold .          
+
+> γ′Game of 24 Rule-chaining
+> 0.05 54 78
+> 0.157 80
+> 0.256 79
+> 0.553 77
+
+Variance of ˆd. Since each rollout outcome is an independent Bernoulli trial with success probability p(s), the variance of ˆd(s) is Var[ ˆd(s)] = p(s)(1 − p(s)) /K . At K=32 the worst-case standard deviation (at p=0 .5) is ≈ 0.088 , which is well below the ranking-loss margin γ=0 .1 used in Lrank . For states that are clearly promising ( p ≳ 0.8) or clearly dead ( p ≲ 0.1), the standard deviation drops below 0.05 , so the ranking loss receives a clean ordinal signal for the vast majority of training pairs. We verified empirically that increasing K from 32 to 64 on a held-out subset of 500 MATH training problems changed fewer than 4% of pairwise ranking decisions in Lrank , indicating that K=32 is sufficient for stable head training. 
+
+Hyperparameters. All Monte-Carlo-specific settings are listed in the dedicated sub-section of Table 8; the ranking-loss margin is shared with the exact variant. 
+
+C.3 Baseline Implementations 
+
+This section documents the implementation details for every baseline reported in Section 4, in support of the fairness claims made there. All baselines and HyperGuide share: (i) the same base model, Qwen2.5-14B-Instruct; (ii) the same per-task test split and per-record identifier set; (iii) the same task-specific scoring function; and (iv) the same hardware and numerical precision (NVIDIA RTX A6000 GPUs, bfloat16 inference, 4-bit NF4 quantization of the base when training adapters). Only the inference algorithm and any baseline-specific adapter weights differ across rows. 
+
+Few-shot Greedy. A single deterministic decode of the chat-template-wrapped task prompt, with a short task-specific prefix that fixes the answer schema. The decoding budget is 384 generated tokens per problem. 
+
+Self-Consistency, K=5 . Following Wang et al. [2023], we draw five independent samples from the same prompt at temperature 0.7 and nucleus p=0 .95 , parse the final answer of each sample with the task scorer, and report the majority answer. Each sample uses the same 384 -token budget as Greedy. 
+
+Tree-of-Thoughts (BFS). We follow Yao et al. [2023] faithfully. The base model serves both as the proposer and as the value model; a single set of weights is used for both roles. At each search depth, every active trajectory is expanded with three sampled candidate next steps at temperature 0.7; each candidate is scored three times by the value prompt, which asks the model to label the candidate as “sure”, “likely”, or “impossible” (with token weights 20 , 1, and 0.001 
+
+respectively, exactly as in the original work). The five highest-scoring trajectories are retained and the search continues to a maximum depth of twelve. Each task uses a dedicated propose/value prompt pair so that the candidate format respects the task’s grammar (Blocksworld actions, ProntoQA derivation steps, graph colorings, etc.). The Game-of-24 evaluation uses the verbatim four-shot propose and value prompts from the original paper. The total per-problem generation budget is on the order of several hundred sampled completions, substantially exceeding the inference cost of HyperGuide; weak cells are therefore not attributable to budget. 
+
+PT-SFT (Planning-Token Supervised Fine-Tuning). A re-implementation of the planning-token method of Wang et al. [2024b]. Each gold reasoning trajectory is annotated with a discrete operator tag immediately before each reasoning step, and a low-rank adapter is fine-tuned on the annotated trajectories with a completion-only cross-entropy objective (loss is masked on prompt tokens). Hyperparameters are held fixed across all eight tasks: rank 16 adapters with scaling factor 32 and dropout 0.05 , applied to every attention projection matrix; AdamW with learning rate 1×10 −4,cosine schedule with five percent warmup, gradient clipping at 1.0, five training epochs, and gradient accumulation chosen so that the effective batch size is approximately 16 . The maximum sequence length is set per task to fit the longest gold trajectory ( 384 –512 tokens for Game-of-24, ProntoQA, GraphColor, and N-Queens; 768 –1024 for ProofWriter, and Rule-chain; 1536 for Blocksworld). Inference uses greedy decoding with the same prompt format used at training time, with 400 generated tokens per problem. We use the public training partition of each benchmark in full, without subsampling: 7,634 examples for Game-of-24, 2,000 for ProofWriter, 6,000 for Rule-chain, 600 for Blocksworld, 3,000 for ProntoQA, 1,000 for GraphColor, and 294 for N-Queens. 20 A PREPRINT - M AY 26, 2026 
+
+Note on PT-SFT Blocksworld ( ⋆, 96% ). Our Blocksworld train and test splits are drawn from the same narrow distribution of 4–5-block configurations, all written under the same vocabulary and the same two-shot prompt template. Because the test split is generated from the same template with the same vocabulary, the fine-tuned adapter can closely approximate the gold-plan distribution at inference, and a non-trivial fraction of greedy generations are minor variants of training trajectories. This setup is therefore exceptionally memorization-friendly and does not characterize how PT-SFT generalizes on more compositional tasks. We mark the cell with ⋆ so the reader can discount it when judging the broader pattern. 
+
+Outcome Value Model (OVM). A re-implementation of Yu et al. [2024] on top of the PT-SFT generator. We freeze both the base model and the PT-SFT adapter, and train only a scalar value head (a small two-layer MLP applied to the final hidden state) with a per-token mean-squared-error loss against the trajectory’s binary outcome label. Training rollouts are sampled from the frozen generator at temperature 1.0 and nucleus p=0 .95 , 256 tokens per rollout, with forty rollouts per training problem, yielding between five and ten thousand labeled trajectories per task. The value head is trained for two epochs with the same optimizer settings as PT-SFT. For Game-of-24, where only about six percent of rollouts are correct, we reweight the positive class by a factor of fifteen to balance the loss; other tasks use uniform weighting. At inference, OVM performs step-level value-guided beam search. At each step, twenty single-line continuations are sampled at temperature 1.0 from each beam, every candidate is scored by the value head (computed at the candidate’s last token, with left-padding to align positions across the batch), and the five highest-valued candidates are retained. The search runs for at most ten steps, with sixty-four tokens per step. The total per-problem generation budget is on the order of one thousand candidate steps, which again exceeds HyperGuide’s inference cost. OVM is reported on every dataset and backbone in Tables 2 and 3. 
+
+SoftCoT. A re-implementation of Xu et al. [2025]. A small Qwen2.5-1.5B-Instruct assistant emits a sequence of hidden states; a trainable linear projection maps these states into the embedding space of the base model, where they are spliced into the prompt immediately before generation. Both language models are frozen and only the projection is trained. We train the projection on a 4,000 -record subset of GSM8K for two epochs (learning rate 2×10 −4, batch size 1,gradient accumulation 16 , 32 thoughts during training, 4 at evaluation). Because the original paper trains and evaluates on the same dataset, our cross-domain (GSM8K-trained, MATH-500-evaluated) and cross-family (Qwen-trained projection applied to gpt-oss and Mistral bases) settings should be read as a stress test of transfer, not as a faithful reproduction. 
+
+Hyperparameter tuning. We did not perform per-task hyperparameter sweeps for any baseline beyond the choices documented above. We believe the most likely cause of the remaining weak cells is method–task fit (for example, the value model in ToT failing to discriminate well on ProofWriter true/false derivations) rather than under-tuning, but we leave a more exhaustive sweep to future work. 
+
+Per-call token budget. Inference-time generation caps differ slightly across methods (Few-shot and Self-Consistency: 
+
+384 ; PT-SFT: 400 ; HyperGuide: 512 ), each set to comfortably exceed the longest answer the method needs to emit: the 
+
+128 -token margin granted to HyperGuide functions as projection-head headroom for the per-step boundary read rather than as extra answer length, and across the seven tabular benchmarks the gold answer fits well within the 384 -token Few-shot cap. SoftCoT vs. Few-shot on MATH is the one comparison for which we explicitly match budgets, since soft-token injection systematically extends generation length and matched-budget evaluation isolates the algorithmic effect from the length effect. 
+
+# D Qualitative Decision Examples 
+
+Table 12 traces a single Game-of-24 problem through four representative step-boundary states, contrasting the next-operation distribution with and without the injected geometric signal. 
+
+# E Limitations 
+
+Bounded scale range. Our experiments span three open-weight backbones from different families (Qwen2.5-14B-Instruct, GPT-OSS-20B, Mistral-Small-3.2-24B) on NVIDIA RTX A6000 GPUs, so the gains are demonstrated to be robust across base models and hardware within the 14 B– 24 B dense-decoder regime rather than tied to a single backbone. We do not, however, characterise scaling behaviour outside this band: smaller open-weight models, much 21 A PREPRINT - M AY 26, 2026 Table 12: Single-step decision snapshots from one Game-of-24 problem [4 , 4, 6, 8] → 24 . All four rows come from the same problem tree: v=2 follows the gold step 4+8=12 , v=1 follows the gold step 6−4=2 , and the dead-end row is the state [4 , 8, 24] reached by the off-tree choice 4×6=24 at the initial state (which leaves 4, 8, 24 unreachable). Within this single tree, smaller d(0 , z ) corresponds to states closer to a solution; the dead-end branch carries the largest d(0 , z )
+
+as the head signals an unreachable state. ⋆ marks the oracle-correct op in each top-3.                                                                                      
+
+> Bucket State d(0 , z )Top-3 without zTop-3 with zOracle-correct
+> v=3 Remaining: 4,4,6,8
+> (target 24 )11 .50 8 + 6=14 p=0 .31 4 + 4=8 p=0 .24
+> ⋆4 + 8=12 p=0 .19
+> ⋆4 + 8=12 p=0 .62 8 + 6=14 p=0 .12 4 + 4=8 p=0 .08 4+8=12
+> v=2 Remaining: 4,6,12
+> (target 24 )9.50 6 + 12=18 p=0 .30 12 −4=8 p=0 .24
+> ⋆6−4=2 p=0 .18
+> ⋆6−4=2 p=0 .59 6 + 12=18 p=0 .13 12 −4=8 p=0 .10 6−4=2
+> v=1 Remaining: 2,12
+> (target 24 )7.50 12 + 2=14 p=0 .30 12 −2=10 p=0 .24
+> ⋆2×12=24 p=0 .21
+> ⋆2×12=24 p=0 .65 12 + 2=14 p=0 .10 12 −2=10 p=0 .08 2×12=24
+> dead-end Remaining: 4,8,24
+> (target 24 )12 .30 24 −8=16 p=0 .34 24 −4=20 p=0 .27 24 + 4=28 p=0 .20 24 −8=16 p=0 .20 24 −4=20 p=0 .18 24 + 4=28 p=0 .16
+> (unreachable)
+
+larger ( ≥ 70 B) backbones, and mixture-of-experts architectures are unexplored, and we therefore make no claim about a scaling law beyond the regime we cover. 
+
+Minimal architectural search. We use a single learnable scalar curvature, a two-layer projection head, and LoRA rank 16 uniformly across attention modules. Per-layer curvature, larger ranks, and alternatives to the Poincaré ball (e.g., the Lorentz model or product-of-curvatures geometries) are unexplored, so the reported numbers likely lower-bound rather than upper-bound what the geometric inductive bias can deliver. 
+
+Reasoning regime. Our out-of-domain evaluation covers two motif families with three transfer tasks each. Tasks whose solution structure is not naturally tree-shaped, such as long-horizon dialogue or retrieval-heavy QA, lie outside the regime our analysis covers; we make no claim about transfer there. 22
