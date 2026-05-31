@@ -6,70 +6,41 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-05-30
-- 运行时间：2026-05-30 20:32:02 UTC
+- 最新运行日期：2026-05-31
+- 运行时间：2026-05-31 20:07:00 UTC
 - 运行状态：成功
-- 本次总论文数：16
-- 精读区：5
-- 速读区：11
+- 本次总论文数：7
+- 精读区：3
+- 速读区：4
 
 ### 今日简报（AI）
-今天共推荐16篇论文，精读5篇速读11篇，重点聚焦提示词优化与大模型可解释性。
-精读两篇分别从强化学习结构化提示优化和少样本发现大模型关键神经元角度，为可解释性提供新方法。
-普通读者可优先阅读《Structured Prompt Optimization》理解提示工程前沿，再结合《Tiny Brains》了解模型内部机制。
-- 详情：[/202605/30/README](/202605/30/README)
+今日聚焦可解释性AI与LLM信念管理，精读两篇8.0分论文：BIRDNet用布尔知识图谱构建可解释神经网络，以及探索大模型何时应主动更新自身信念。建议优先关注BIRDNet的可解释机制，它对工程落地有直接价值；下一步可试玩其开源实现，并对比传统黑箱模型的可视化效果。
+- 详情：[/202605/31/README](/202605/31/README)
 
 ### 精读区论文标签
-1. [Structured Prompt Optimization Meets Reinforcement Learning for Global and Local Interpretability over Complex Text](/202605/30/2605.29076v1-structured-prompt-optimization-meets-reinforcement-learning-for-global-and-local-interpretability-over-complex-text)  
-   标签：评分：9.0/10、query:ns-xai
-   evidence：通过结构化提示优化实现LLM推理的全局和局部可解释性
-2. [Tiny Brains, Giant Impact: Uncovering the Keystone Neurons of LLM with Just a Few Prompts](/202605/30/2605.24846v1-tiny-brains-giant-impact-uncovering-the-keystone-neurons-of-llm-with-just-a-few-prompts)  
+1. [BIRDNet: Mining and Encoding Boolean Implication Knowledge Graphs as Interpretable Deep Neural Networks](/202605/31/2605.28739v1-birdnet-mining-and-encoding-boolean-implication-knowledge-graphs-as-interpretable-deep-neural-networks)  
    标签：评分：8.0/10、query:ns-xai
-   evidence：揭示对LLM行为至关重要的关键神经元，助力模型可解释性
-3. [Tiny Brains, Giant Impact: Uncovering the Keystone Neurons of LLM with Just a Few Prompts](/202605/30/2605.24846v2-tiny-brains-giant-impact-uncovering-the-keystone-neurons-of-llm-with-just-a-few-prompts)  
+   evidence：将布尔蕴含关系编码为可解释深度神经网络
+2. [When Should Models Change Their Minds? Contextual Belief Management in Large Language Models](/202605/31/2605.30219v1-when-should-models-change-their-minds-contextual-belief-management-in-large-language-models)  
    标签：评分：8.0/10、query:ns-xai
-   evidence：揭示对LLM行为至关重要的关键神经元，助力模型可解释性
-4. [READER: Reasoning-Enhanced AI-Generated Text Detection](/202605/30/2605.25281v2-reader-reasoning-enhanced-ai-generated-text-detection)  
+   evidence：使用符号验证器跟踪大模型信念状态
+3. [Unlocking the Working Memory of Large Language Models for Latent Reasoning](/202605/31/2605.30343v1-unlocking-the-working-memory-of-large-language-models-for-latent-reasoning)  
    标签：评分：8.0/10、query:ns-xai
-   evidence：推理增强的AI文本检测，输出结构化理由以增强可解释性
-5. [ReasonOps: Operator Segmentation for LLM Reasoning Traces](/202605/30/2605.29192v1-reasonops-operator-segmentation-for-llm-reasoning-traces)  
-   标签：评分：8.0/10、query:ns-xai
-   evidence：提供通用操作符分析LLM推理轨迹以增强可解释性
+   evidence：利用工作记忆块实现LLM潜在推理
 
 ### 速读区论文标签
-1. [Knowledge Graph-Driven Expert-Level Reasoning for Neuroscience](/202605/30/2605.25183v2-knowledge-graph-driven-expert-level-reasoning-for-neuroscience)  
+1. [Provably Secure Agent Guardrail](/202605/31/2605.29251v1-provably-secure-agent-guardrail)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：知识图谱驱动的语言模型推理，通过结构化知识提升可解释性
-2. [Retrieval as Reasoning: Self-Evolving Agent-Native Retrieval via LLM-Wiki](/202605/30/2605.25480v1-retrieval-as-reasoning-self-evolving-agent-native-retrieval-via-llm-wiki)  
-   标签：评分：7.0/10、query:ns-xai
-   evidence：将检索视为推理以增强大模型智能体
-3. [Towards Faithful Agentic XAI: A Verification Method and an Open-World Benchmark for Better Model Faithfulness](/202605/30/2605.27879v1-towards-faithful-agentic-xai-a-verification-method-and-an-open-world-benchmark-for-better-model-faithfulness)  
-   标签：评分：7.0/10、query:ns-xai
-   evidence：面向大模型解释的忠实智能体XAI
-4. [Reasoning Matters: Mitigate Hallucination in Multimodal Large Reasoning Models via Reasoning-Conditioned Preference Optimization](/202605/30/2605.27906v1-reasoning-matters-mitigate-hallucination-in-multimodal-large-reasoning-models-via-reasoning-conditioned-preference-optimization)  
-   标签：评分：7.0/10、query:ns-xai
-   evidence：基于推理条件的偏好优化减轻幻觉
-5. [CIRF: Tokenizing Chain-of-Thoughts into Reusable Functional Units for Efficient Latent Reasoning in Large Language Models](/202605/30/2605.28292v1-cirf-tokenizing-chain-of-thoughts-into-reusable-functional-units-for-efficient-latent-reasoning-in-large-language-models)  
-   标签：评分：7.0/10、query:ns-xai
-   evidence：将思维链分割为功能Token，实现可解释的隐式推理
-6. [HyperGuide: Hyperbolic Guidance for Efficient Multi-Step Reasoning in Large Language Models](/202605/30/2605.24140v1-hyperguide-hyperbolic-guidance-for-efficient-multi-step-reasoning-in-large-language-models)  
+   evidence：神经符号隔离架构用于安全
+2. [PALoRA: Projection-Adaptive LoRA for Preserving Reasoning in Large Language Models](/202605/31/2605.24549v1-palora-projection-adaptive-lora-for-preserving-reasoning-in-large-language-models)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：双曲几何引导的高效多步推理方法
-7. [HyperGuide: Hyperbolic Guidance for Efficient Multi-Step Reasoning in Large Language Models](/202605/30/2605.24140v2-hyperguide-hyperbolic-guidance-for-efficient-multi-step-reasoning-in-large-language-models)  
+   evidence：知识更新中保持推理能力
+3. [Chain-based Adaptive Reconfiguration Over Lattices for Hallucination Reduction](/202605/31/2605.27706v1-chain-based-adaptive-reconfiguration-over-lattices-for-hallucination-reduction)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：双曲引导用于LLM多步推理，提升推理效率
-8. [Clustering as Reasoning: A $k$-Means Interpretation of Chain-of-Thought Graph Learning](/202605/30/2605.24867v1-clustering-as-reasoning-a-k-means-interpretation-of-chain-of-thought-graph-learning)  
+   evidence：通过语义不确定性减少LLM幻觉
+4. [IRDS: Interpretable RLVR Data Selection via Verifier-Coupled Sparse Autoencoder Coverage](/202605/31/2605.28247v1-irds-interpretable-rlvr-data-selection-via-verifier-coupled-sparse-autoencoder-coverage)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：图上链式推理的可解释聚类解释
-9. [Boosting Inference with Guided Reasoning: Stochastic Exploration for Recursive Models](/202605/30/2605.25230v1-boosting-inference-with-guided-reasoning-stochastic-exploration-for-recursive-models)  
-   标签：评分：6.0/10、query:ns-xai
-   evidence：递归模型的引导随机探索，提供可解释的推理诊断指标
-10. [Boosting Inference with Guided Reasoning: Stochastic Exploration for Recursive Models](/202605/30/2605.25230v2-boosting-inference-with-guided-reasoning-stochastic-exploration-for-recursive-models)  
-   标签：评分：6.0/10、query:ns-xai
-   evidence：递归模型推理的引导式随机探索方法
-11. [HRBench: Benchmarking and Understanding Thinking-Mode Switch Strategies in Hybrid-Reasoning LLMs](/202605/30/2605.28398v1-hrbench-benchmarking-and-understanding-thinking-mode-switch-strategies-in-hybrid-reasoning-llms)  
-   标签：评分：6.0/10、query:ns-xai
-   evidence：混合推理LLM的思考模式切换基准
+   evidence：使用稀疏自编码器的可解释数据选择，增强推理可解释性
 
 
 <div class="dpr-home-promo-card">

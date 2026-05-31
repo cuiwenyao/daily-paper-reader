@@ -1,0 +1,1250 @@
+Title: PALoRA: Projection-Adaptive LoRA for Preserving Reasoning in Large Language Models
+
+URL Source: https://arxiv.org/pdf/2605.24549v1
+
+Published Time: Tue, 26 May 2026 00:51:40 GMT
+
+Number of Pages: 24
+
+Markdown Content:
+# PALoRA: Projection-Adaptive LoRA for Preserving Reasoning in Large Language Models 
+
+Mustafa Hayri Bilgin 1,2 Mariam Barry 1 Albert Bifet 2,3 
+
+Azzedine Idir Ait Said 2 Soumya Banerjee 41IT Group, Research, BNP Paribas 
+
+> 2
+
+LTCI, Télécom Paris, Institut Polytechnique de Paris 
+
+> 3
+
+AI Institute, University of Waikato 
+
+> 4
+
+Independent Researcher 
+
+{mustafahayri.bilgin, mariam.barry}@bnpparibas.com {albert.bifet, azzedine.aitsaid}@telecom-paris.fr dr.soumya@ieee.org 
+
+# Abstract 
+
+Efficiently updating Large Language Models (LLMs) with new or evolving factual knowledge remains a central challenge, as even parameter-efficient adaptation can erode previously acquired reasoning abilities. This tension reflects a plastic-ity–stability dilemma: models must incorporate new knowledge while preserving skill-critical representations. In this work, we study this trade-off through the spectral structure of multilayer perceptron weight matrices. We show, both theo-retically and empirically, that information essential for reasoning is not localized only in dominant singular directions, but is instead distributed across the singular spectrum. Motivated by this observation, we introduce PALoRA, a two-stage framework for knowledge injection with reduced interference. PALoRA first trains a Singular Value Fine-Tuning (SVF) expert on a reasoning dataset and uses its learned singular scaling vector as a frozen geometric probe to identify components that are critical for the target skill. It then performs factual knowledge injection with Low-Rank Adaptation (LoRA) under a structural orthogonality constraint, ensuring that updates avoid the identified skill-relevant subspace. Across Llama 3.1 8B and Mistral 7B, and across mathematical, coding, and scientific reasoning benchmarks, PALoRA preserves on average 95% of the SVF expert’s reasoning performance while maintaining competitive factual recall. It consistently improves skill retention over prior spectral Parameter-Efficient Fine-Tuning (PEFT) methods while adding less than 0.006% parameter overhead. 
+
+# 1 Introduction 
+
+Large language models (LLMs) are trained on static corpora, but deployed systems must continually acquire corrected and newly emerging facts. Parameter-efficient fine-tuning (PEFT), especially LoRA [ 1], makes such updates computationally feasible. Yet growing evidence shows that factual knowledge injection can come at the cost of core reasoning abilities, degrading performance on mathematical, coding, and scientific tasks [ 2]. This tension is particularly acute in Transformer MLP layers, which are known to support both factual recall and procedural reasoning [3–7]. Recent spectral PEFT methods seek to address this trade-off by preserving or excluding the top singular components of pre-trained weights [ 8– 12 ]. These approaches implicitly assume that the capabilities worth preserving are concentrated in the principal singular directions. We argue that this view is incomplete. Skill-critical information, while functionally central, may be broadly distributed 
+
+> Preprint.
+> arXiv:2605.24549v1 [cs.AI] 23 May 2026
+
+across the singular spectrum rather than confined to its leading singular directions. Consequently, restricting protection to the top singular vectors can fail to preserve the subspace most responsible for reasoning. We introduce PALoRA (Projection-Adaptive Low-Rank Adaptation), a two-stage framework that explicitly decouples stability and plasticity within shared MLP weights. In the first stage, we train a Singular Value Finetuning (SVF) expert [ 13 ] on a target reasoning skill and subsequently freeze it. The learned SVF scaling vector serves as a geometric probe, identifying the singular directions most engaged by the skill. In the second stage, we perform factual knowledge injection via a LoRA adapter, while penalizing its projections onto these SVF-identified directions. This yields an update constrained to acquire new knowledge in a complementary subspace, thereby avoiding interference with the pathways supporting reasoning. 
+
+Contributions. This work makes three contributions. First, we introduce PALoRA, a two-stage adaptation framework that uses a frozen SVF expert to identify a skill-critical subspace and constrains LoRA updates through structural orthogonality (Section 3). Second, we provide a theoretical analysis showing that, under a formal misalignment condition, skill-relevant information may be distributed across the singular spectrum rather than confined to the top singular components, exposing a key lim-itation of existing spectral PEFT methods (Section 3.3). Third, we demonstrate across mathematical reasoning, code generation, and scientific reasoning benchmarks that PALoRA consistently improves skill preservation over prior spectral PEFT baselines while maintaining competitive factual recall (Section 4.2). 
+
+# 2 Related Work 
+
+Knowledge storage in Transformers. Transformer models [ 14 ] combine self-attention mecha-nisms with position-wise feed-forward, or MLP, blocks. Prior work has shown that these MLP layers play a central role in storing and retrieving parametric knowledge. Geva et al. [ 3 ] characterize feed-forward layers as key–value memories: the first linear projection acts as a pattern detector, while the second maps activated patterns to corresponding output representations. Dai et al. [ 4] provide complementary evidence by identifying individual “knowledge neurons” in MLP layers that mediate factual associations. This motivates our focus on MLP layers as the site where knowledge injection and skill preservation must be jointly controlled, since updates that improve factual recall may also interfere with representations needed for reasoning. 
+
+PEFT and the plasticity–stability trade-off. PEFT methods differ in how they balance adaptation capacity with preservation of pre-trained capabilities. Additive methods such as LoRA [ 1] achieve strong plasticity by learning low-rank updates on top of frozen model weights, enabling efficient acquisition of new knowledge and task-specific behaviors. In contrast, Singular Value Fine-Tuning (SVF) [ 13 ] modifies only the singular values of pre-trained weights while preserving their original singular directions, yielding a more stability-oriented adaptation mechanism. Recent evidence shows that factual adaptation with LoRA can substantially degrade mathematical, coding, and scientific reasoning skills [2], making this trade-off central to LLM updating. 
+
+Continual learning and interference mitigation. Catastrophic forgetting is a core challenge in continual learning [ 15 , 16 ]. Regularization-based methods such as EWC [ 17 ] penalize updates to parameters important for previous tasks, while orthogonality-based approaches reduce interference geometrically. OGD [ 18 ] projects gradients away from previous-task directions, and GPM [ 19 ] pro-tects task-relevant feature subspaces. In PEFT, O-LoRA [ 20 ] enforces orthogonal adapter subspaces across tasks. PALoRA follows the same principle, but applies it at the level of singular directions of the pre-trained MLP weights identified as skill-critical by SVF. 
+
+Spectral PEFT. A recent line of spectral PEFT methods uses the singular value decomposition of pre-trained weights to control adaptation subspaces. PiSSA [ 8] and MiLoRA [ 9] adapt principal and minor singular components, respectively, while SVFT [ 10 ] learns sparse combinations of singular vectors. OPLoRA [ 11 ] constrains LoRA updates to the orthogonal complement of the top-k singular vectors, and CorDA [ 12 ] preserves context-oriented principal directions using covariance statistics. Despite their differences, these methods assume that the information worth preserving is concentrated in top or context-selected singular components. Our work challenges that premise by arguing that 2reasoning skills are distributed across the singular spectrum and therefore cannot be reliably protected by top-k-only strategies. 
+
+# 3 PALoRA: Method and Theoretical Motivation 
+
+PALoRA addresses the plasticity–stability trade-off through a two-stage adaptation framework. In the first stage, a frozen SVF expert is used to identify the singular directions that are most critical for a target reasoning skill. In the second stage, new factual knowledge is injected through a LoRA adapter constrained to remain orthogonal to this skill-relevant subspace, thereby reducing interference with previously acquired capabilities. For clarity, a consolidated notation reference is provided in Appendix B. We first describe the architectural co-location of SVF and LoRA within Transformer MLP weights, then present the two-stage training procedure, and finally provide the theoretical motivation underlying the proposed geometric constraint. 
+
+3.1 Architectural Co-location 
+
+Both the plasticity module (LoRA) and the stability module (SVF) operate directly on the MLP weight matrices of the Transformer [ 14 ]. For a given MLP layer l with pre -trained weight matrix 
+
+W(l) 
+
+> mlp
+
+∈ Rdout ×din , the adapted weight is defined as 
+
+W′(l) 
+
+> mlp
+
+= SVF  W(l)
+
+> mlp
+
+ + LoRA  W(l)
+
+> mlp
+
+, (1) where • SVF( W) applies a learned scaling vector z ∈ Rn to the singular values of W: let W =
+
+U diag( σ)V⊤ be the singular value decomposition; then SVF( W) = U diag( z ⊙ σ)V⊤.SVF preserves the original singular directions and only modulates their magnitudes [13]. • LoRA( W) adds a low -rank update ∆W = BA , where B ∈ Rdout ×r and A ∈ Rr×din 
+
+with rank r ≪ min( dout , d in ). LoRA introduces new, trainable directions that enable rapid memorisation of novel facts [1]. This co - location is deliberate: the MLP layers are the primary site of both factual knowledge storage [ 3 , 4] and procedural reasoning skills [ 5– 7]. By placing both modules on the same weight matrices, we directly address the resource conflict that leads to catastrophic forgetting. The functional decoupling is achieved not by separating the modules architecturally, but by governing their interaction through the two-phase training strategy and orthogonality constraint described next. 
+
+3.2 Two-Phase Training Framework 
+
+PALoRA decouples skill preservation from knowledge injection through a sequential two - phase procedure, illustrated in Figure 1. Phase 1 produces a frozen SVF expert that identifies the critical singular directions supporting a target skill. Phase 2 trains a LoRA adapter for new facts under a structural orthogonality constraint that prevents the update from interfering with those directions. 
+
+Phase 1: Skill Expert Creation 
+
+We train an SVF module following the standard Singular Value Finetuning (SVF) procedure in-troduced in Transformer-Squared [ 13 ], optimizing it with the REINFORCE policy-gradient algo-rithm [ 21 ] on a high-quality skill dataset (e.g., GSM8K for mathematical reasoning). For each MLP layer l, SVF learns a scaling vector zl ∈ Rrl that modulates the singular values of the pre-trained weight matrix W(l)
+
+> mlp
+
+. After convergence, the scaling vector z∗ 
+
+> l
+
+is frozen. The critical index set for layer l is defined as the indices of the top-k entries of |z∗ 
+
+> l
+
+− 1|, i.e., the singular components whose scaling deviates most strongly from the identity: 
+
+Icrit ,l = i |z∗ 
+
+> l,i
+
+− 1| is among the k largest . (2) 3Figure 1: PALoRA. Phase 1 trains and freezes an SVF expert, whose learned scaling vector identifies skill-critical singular components. Phase 2 trains a LoRA adapter for new facts while penalizing projections of the update onto those directions. 
+
+Algorithm 1 PALoRA training  
+
+> 1:
+
+Input: M(θbase ), Dskill , Dknow , λ ortho , k  
+
+> 2:
+
+Train SVF on Dskill to obtain frozen {z∗ 
+
+> l
+
+} 
+
+> 3:
+
+for all MLP layers l do  
+
+> 4:
+
+Icrit ,l ← top-k indices of |z∗ 
+
+> l,i
+
+− 1|; store corresponding singular vectors  
+
+> 5:
+
+end for  
+
+> 6:
+
+Initialize LoRA parameters θLoRA = {Bl, Al}Ll=1  
+
+> 7:
+
+for training steps 1, . . . , T do  
+
+> 8:
+
+Sample minibatch from Dknow  
+
+> 9:
+
+Compute Ltotal = LSFT + λortho 
+
+P
+
+> l
+
+P 
+
+> i∈I crit ,l
+
+∥(BlAl)⊤ul,i ∥22 
+
+> 10:
+
+Update θLoRA using ∇L total  
+
+> 11:
+
+end for  
+
+> 12:
+
+Return: adapted model 
+
+Let 
+
+W(l) 
+
+> mlp
+
+= Ul diag( σl)V⊤ 
+
+> l
+
+=
+
+> rl
+
+X
+
+> i=1
+
+σl,i ul,i v⊤
+
+> l,i
+
+be the singular value decomposition of the pre-trained weight matrix. The SVF expert is used here as a frozen geometric diagnostic probe, not as a performance enhancer; it reveals which singular components are functionally activated by the skill, independent of their raw singular-value rank. The corresponding left singular vectors {ul,i }i∈I crit ,l are stored for the protection phase that follows. 
+
+Phase 2: Constrained Knowledge Injection 
+
+With the base model and SVF expert frozen, we train a LoRA adapter [ 1] on a dataset of unknown facts using 
+
+Ltotal = LSFT + λortho 
+
+> L
+
+X
+
+> l=1
+
+Lortho ,l , (3) where LSFT is the standard cross-entropy loss for knowledge injection, and Lortho ,l is the structural orthogonality loss: 
+
+Lortho ,l = X
+
+> i∈I crit ,l
+
+(BlAl)⊤ul,i  
+
+> 22
+
+, (4) with ∆Wl = BlAl.This loss explicitly penalizes the projection of the LoRA update onto the SVF-identified left-singular directions, forcing the adapter to inject new knowledge in a subspace that is orthogonal to the skill-relevant output pathways. The complete procedure is summarized in Algorithm 1. 43.3 Theoretical Motivation: Why SVF Detects Distributed Skills 
+
+We characterize a geometric property: skill -relevant information in the weight matrices of large language models is distributed across the entire singular spectrum, rather than being concentrated in the top singular vectors. Leveraging formal assumptions about pre -training data diversity, skill compositionality, and gradient-based fine-tuning, we prove that task-specific gradient directions are generically misaligned with the principal components of the weight matrices. We further characterise how the SVF scaling vector z∗ (with entries z∗ 
+
+> i
+
+−1) faithfully identifies these skill -critical components through a perturbation analysis. Consider a pre-trained weight matrix W ∈ Rm×n with singular value decomposition 
+
+W = UΣV ⊤ =
+
+> r
+
+X
+
+> i=1
+
+σiuiv⊤ 
+
+> i
+
+, σ1 ≥ · · · ≥ σr > 0,
+
+where r = rank( W). A reasoning skill T corresponds to a low-dimensional subspace UT ⊂ Rn, and the model is fine-tuned on T via gradient descent. 
+
+Assumptions. We formalize three properties that are widely observed in large-scale pre-training and task-specific fine-tuning (full statements in Appendix A): 1. Pre-training data diversity. The input covariance Cprior = Ex∼D prior [xx ⊤] induced by the pre - training distribution has full rank and its eigenvalues decay polynomially. Consequently, the top singular vectors of W align with directions of maximum input variance—task-agnostic principal components of the corpus. 2. Skill compositionality and misalignment. The skill function satisfies fT (x) = fT (PT x)
+
+almost surely, where PT projects onto a low-dimensional subspace UT . Crucially, this subspace is misaligned with the top-k right singular directions: 
+
+∥PT vi∥22 ≤ δ, i ≤ k, 0 < δ ≪ 1.
+
+3. Gradient structure. The task gradient decomposes as ∇WLT = GT + N, where 
+
+GT =
+
+> s
+
+X
+
+> j=1
+
+gj h⊤ 
+
+> j
+
+, hj ∈ U T ∀j, 
+
+has rank at most s, and N is a zero-mean noise matrix with ∥N∥F ≤ ϵnoise (ϵnoise small). These assumptions imply that the top singular vectors are not the directions most relevant for the skill; instead, the skill activates a specific, misaligned subspace. 
+
+Theorem 1 (Distributed encoding of skill-relevant components) . Under the three assumptions above, for any k satisfying the misalignment condition, the set of skill-critical indices 
+
+ST = {i | | z∗ 
+
+> i
+
+− 1| > ε }
+
+identified by SVF is not contained in {1, . . . , k }.
+
+Proof sketch. We follow four steps that mirror the structure of the full proof (Appendix A). 
+
+Step 1: Gradient spectrum decomposition. Project GT onto the singular basis of W:
+
+γi = u⊤ 
+
+> i
+
+GT vi.
+
+Assumption 2 yields |γi| = O(√δ) for i ≤ k, while a dimension-counting argument guarantees an index i∗ > k with 
+
+|γi∗ | ≥ cT
+
+√n − k , cT = ∥GT ∥F
+
+√s > 0.
+
+Step 2: Singular-value perturbation under a full gradient update. If we update W by one gradient step, 
+
+W1 = W0 − η∇WLT (W0),
+
+5first-order perturbation theory implies that the relative change of the i-th singular value scales with 
+
+η|γi| up to higher-order and noise terms. Consequently the top-k singular values change only by 
+
+O(√δ), while the off-principal component i∗ changes at non-negligible scale. 
+
+Step 3: SVF scaling vector encodes skill relevance. In Phase 1, SVF learns a scaling vector z by gradient descent on LT . The gradient with respect to zi satisfies 
+
+∂L T
+
+∂z i
+
+≈ σiγi.
+
+Starting from zi = 1 , one step yields 
+
+|z∗ 
+
+> i
+
+− 1| ≈ ηz σi|γi|.
+
+Hence |z∗ 
+
+> i
+
+− 1| is small for i ≤ k, while for i = i∗ we obtain 
+
+|z∗ 
+
+> i∗
+
+− 1| ≳ ηz σi∗
+
+cT
+
+√n − k > ε, 
+
+so i∗ ∈ S T but i∗ > k .
+
+Step 4: Conclusion. Thus ST is not confined to the top-k components: skill-critical information is distributed across the singular spectrum. 
+
+Corollary 1 (Sub-optimality of top-k preservation) . Under the same local approximation, any fine-tuning strategy that restricts updates or protection to the top-k singular components alone incurs an expected skill-loss increase of at least Ω( c2 
+
+> T
+
+/(n − k)) . Methods such as OPLoRA [ 11 ], CorDA [ 12 ], and PiSSA [ 8 ] that preserve only principal components may therefore face limitations in preserving distributed skill-relevant information. 
+
+Corollary 2 (SVF as a diagnostic probe) . The deviation |z∗ 
+
+> i
+
+− 1| is proportional to σi|γi|, coupling the singular-value magnitude with the functional gradient importance of component i. Consequently, a component with a small raw singular value but a large task-gradient projection can still exhibit a significant deviation, enabling SVF to identify skill-relevant directions regardless of their singular-value rank. 
+
+Corollary 3 (Multi-skill distribution) . If the model is fine-tuned on M skills with mutually incoherent subspaces, the union M[
+
+> m=1
+
+STm
+
+spreads across the full spectrum {1, . . . , r }. No fixed top-k subset can capture all skill-relevant components simultaneously. 
+
+3.3.1 Reconciling Theory with Practice 
+
+The theoretical analysis is formulated in the input geometry, using the right singular vectors vi to describe the misalignment of the skill subspace UT . In the SVD, each right singular vector vi is paired with a left singular vector ui through the shared index i and the singular value σi. Therefore, the set of critical indices Icrit simultaneously identifies a critical input subspace (spanned by the corresponding 
+
+vl,i ) and a critical output subspace (spanned by the ul,i ). In our implementation, we protect the output directions by constraining ∥(BlAl)⊤ul,i ∥22 in Eq. 4, forcing the LoRA update to avoid the skill-relevant output pathways. An analogous protection could be built from the right singular vectors, but the left-vector formulation is already highly effective, as shown in our experiments. 
+
+# 4 Experiments 
+
+We evaluate PALoRA through five experimental questions: (Q1) Are skill-relevant singular directions concentrated in top singular components? (Q2) Can PALoRA preserve reasoning ability during factual adaptation? (Q3) Does the method generalize across distinct reasoning domains? (Q4) How does PALoRA compare with prior spectral PEFT approaches? and (Q5) Are the observed trends consistent across model architectures? 
+
+All experiments were conducted in the same hardware environment with NVIDIA A100 SXM GPUs (80GB VRAM each), 16 vCPUs, and 117GB system memory. PALoRA Phase 1 used 2 GPUs, while all other experiments were run on a single GPU. Table 1 summarizes the experimental configuration. 6Table 1: Experimental setup.                            
+
+> Models Llama-3.1-8B-Instruct (main experiments and ablations) and Mistral-7B-Instruct-v0.3 (cross-architecture validation). Skills GSM8K (math, final-answer accuracy), MBPP (code generation, pass@1), AI2-ARC Challenge (scientific reasoning, accuracy). Knowledge injection “Unknown” TriviaQA facts of size 100, 250, 500, and 1000; recall is the fraction of previously unknown facts answered correctly after fine-tuning. Baselines LoRA-only, OPLoRA (AAAI 2026), and CorDA (Neurips 2024) Defaults We use adapter rank r= 16 , scaling α= 32 , orthogonality weight λortho = 10 ,protected subspace size k= 64 , batch size 8, LoRA dropout 0.05, and the AdamW optimizer. For Llama-3.1-8B-Instruct, we use a learning rate of 2×10 −4and 10 epochs. For Mistral-7B-Instruct-v0.3, we use a learning rate of 2×10 −5and 5 epochs. SVF experts are trained for 20 RL iterations with the default hyperparameters of the original implementation.
+> (a) SVF scaling magnitudes |z∗
+> i−1|over singular-value index.
+> (b) Top-64 SVF scaling magnitudes |z∗
+> i−1|, sorted from largest to smallest.
+
+Figure 2: Visual evidence for distributed skill information. The SVF scaling factors show a sharp elbow and long tail, while the top SVF-selected components are scattered across singular-value rank rather than aligned with the largest singular values. 
+
+4.1 Q1: Are Skill-Relevant Singular Directions Concentrated in Top Singular Components? 
+
+We first test the geometric premise of PALoRA. If skill-relevant information were concentrated in the largest singular directions, then raw top-k protection should be sufficient. PALoRA instead predicts that the critical directions are identified by SVF and need not align with the largest singular values. Figure 2 visualizes the SVF scaling pattern for the GSM8K expert on Llama-3.1-8B-Instruct, and Table 2 compares SVF-guided selection with raw top-k and random-k. The results support the distributed-skill view. The SVF-selected components are spread across the spectrum and have minimal overlap with the raw top-k subspace. This difference is behaviorally significant: SVF-guided protection yields the best GSM8K accuracy while keeping recall competitive. 
+
+4.2 Q2–Q5: Skill Preservation, Task Generalization, Baseline Comparison, and Cross-Architecture Transfer 
+
+We next evaluate whether PALoRA preserves reasoning abilities during factual adaptation, whether this behavior extends across tasks, how it compares with existing baselines, and whether these trends remain consistent across model architectures. We first evaluate PALoRA on Llama-3.1-8B-Instruct. The base model achieves 78 .54% on GSM8K, 
+
+70 .7% on MBPP, and 90 .32% on AI2-ARC; after Phase 1, the corresponding SVF experts reach 
+
+83 .85% , 72 .7% , and 90 .11% , respectively. PALoRA consistently preserves reasoning performance better than unconstrained LoRA and prior spectral PEFT baselines, particularly on GSM8K and MBPP. On AI2-ARC, PALoRA remains 7Table 2: Validation of SVF-guided subspace selection on Llama-3.1-8B with the GSM8K expert and 1000 unknown facts. 
+
+Performance Overlap with SVF-Guided Method Recall (%) GSM8K (%) Micro Overlap Micro Jaccard 
+
+SVF-Guided (ours) 60.50 80.06 — —Top-k Raw 57.40 77.56 0.0229 0.0116 Random-k 61.30 72.63 0.0145 0.0073 
+
+Table 3: Llama-3.1-8B: knowledge recall and skill accuracy across three reasoning benchmarks.                                                                                                             
+
+> LoRA OPLoRA CorDA PALoRA (Ours) Skill Dataset # Facts Rec. Skill Rec. Skill Rec. Skill Rec. Skill GSM8K (Math)
+> 100 61.0 74.45 64.0 75.82 78.0 76.65 64.0 79.38
+> 250 63.2 70.13 64.0 75.06 68.0 74.98 64.0 78.09
+> 500 62.2 72.71 66.2 77.56 68.8 66.94 61.6 82.41
+> 1000 61.7 72.33 62.3 76.65 62.2 60.5 62.6 81.12 MBPP (Coding)
+> 100 61.0 66.70 64.0 66.67 68.0 50.5 59.0 67.70
+> 250 63.2 66.70 64.0 65.66 66.8 32.32 60.8 68.70
+> 500 62.2 65.70 66.2 66.67 38.2 27.27 58.2 67.70
+> 1000 62.6 64.60 62.3 67.68 56.3 12.12 61.7 68.70 AI2-ARC (Scientific)
+> 100 61.0 86.03 64.0 88.13 63.0 83.29 60.0 87.96 250 63.2 81.14 64.0 87.54 71.2 81.63 58.4 88.30
+> 500 62.2 87.37 66.2 88.05 51.8 60.31 60.2 89.10
+> 1000 61.7 87.67 62.3 88.80 68.2 50.96 59.3 88.43
+
+competitive while avoiding the larger performance degradation observed with LoRA and CorDA at higher factual loads. Overall, PALoRA achieves a strong balance between reasoning preservation and factual recall. We next evaluate the same pipeline on Mistral-7B-Instruct-v0.3. The base model achieves GSM8K 
+
+44 .20% , MBPP 49 .5% , and AI2-ARC 81 .65% ; Phase 1 SVF experts raise these to 48 .29% , 51 .5% ,and 85 .06% , respectively. The trade-off is more pronounced on Mistral than on Llama. LoRA preserves recall but strongly degrades reasoning, and OPLoRA provides only limited protection. PALoRA improves skill retention substantially on GSM8K and AI2-ARC while keeping recall competitive, showing that the same overall pattern transfers across architectures. 
+
+4.3 Ablation Studies 
+
+We next conduct ablation studies to analyze the sensitivity of PALoRA to its primary hyperparameters on Llama-3.1-8B-Instruct using the GSM8K expert and 1000 injected facts. The results reveal a consistent plasticity–stability trade-off. Increasing the LoRA rank improves factual recall by expanding adaptation capacity, but also increases interference with the protected reasoning subspace, leading to weaker GSM8K retention. In contrast, stronger orthogonality regularization improves reasoning preservation at the cost of moderately reduced factual acquisition. We further observe that PALoRA remains relatively robust across a broad range of protected subspace sizes k, with k = 64 
+
+providing the best overall balance between recall and skill preservation in our experiments. 
+
+4.4 Training Dynamics and Computational Overhead 
+
+We finally analyze the optimization dynamics and computational overhead of PALoRA. Figure 3 shows that PALoRA successfully acquires new factual knowledge while maintaining minimal in-terference with the protected reasoning subspace throughout training. Compared with standard LoRA, PALoRA introduces two additional components: an offline SVF specialization phase and a lightweight orthogonality regularizer during adaptation. Despite these additions, the computational overhead remains modest. In our experiments, PALoRA increases training runtime by only approxi-mately 5–10% relative to standard LoRA fine-tuning, while the memory overhead associated with storing the protected singular vectors remains below 1% of the total model footprint. 8Table 4: Mistral-7B: knowledge recall and skill accuracy across three reasoning benchmarks.                                                                                                             
+
+> LoRA OPLoRA CorDA PALoRA (Ours) Skill Dataset # Facts Rec. Skill Rec. Skill Rec. Skill Rec. Skill GSM8K (Math)
+> 100 63.0 39.12 60.0 42.99 78.0 41.24 63.0 46.40
+> 250 66.8 41.40 56.8 42.38 69.6 35.37 65.6 46.17
+> 500 63.0 41.70 52.0 42.00 66.4 25.02 65.6 46.93
+> 1000 63.9 39.27 52.7 40.11 65.2 23.96 64.5 44.58 MBPP (Coding)
+> 100 63.0 48.48 58.0 48.48 80.0 49.49 67.0 47.47 250 66.8 48.48 58.4 47.47 74.4 45.45 64.0 48.48
+> 500 63.0 44.44 52.0 44.44 72.6 42.42 63.6 46.46
+> 1000 63.9 51.52 52.7 47.47 77.9 42.42 62.2 49.49
+> AI2-ARC (Scientific)
+> 100 63.0 80.09 58.0 81.52 79.0 80.30 60.0 84.89
+> 250 66.8 79.08 58.4 79.46 71.2 80.00 56.8 85.19
+> 500 63.0 77.90 52.0 78.54 70.4 77.53 60.4 84.47
+> 1000 63.9 77.82 52.7 79.92 70.5 78.96 60.3 84.01
+
+Table 5: Ablations on Llama-3.1-8B with the GSM8K expert and 1000 unknown facts. 
+
+LoRA rank r Orthogonality λortho Protected subspace k
+
+Value Recall GSM8K Value Recall GSM8K Value Recall GSM8K 8 60.5 81.0 0.1 63.8 76.6 16 60.9 79.8 16 59.8 80.1 1 62.6 81.1 32 62.0 77.9 32 65.7 72.3 10 60.1 80.1 64 60.0 80.1 64 70.5 69.4 100 58.6 82.9 128 61.5 78.2 
+
+(a) Loss evolution during Phase 2. (b) Interference with and without the constraint. 
+
+Figure 3: Training dynamics for Llama-3.1-8B with the GSM8K expert and 1000 unknown facts. The SFT loss decreases steadily, while the constraint suppresses projection of the LoRA update onto the critical skill subspace by more than an order of magnitude. 
+
+# 5 Conclusion 
+
+We investigated the plasticity–stability trade-off that arises when adapting large language mod-els to new factual knowledge while preserving existing reasoning abilities. Our analysis shows that reasoning-relevant information in Transformer MLP weights is not concentrated solely in the dominant singular directions, but is instead distributed across the singular spectrum. This finding challenges the common assumption that protecting only the top spectral components is sufficient for preserving downstream skills during adaptation. Building on this insight, we introduced PALoRA, a two-stage framework for skill-preserving knowl-edge injection. PALoRA first trains a Singular Value Finetuning expert to identify a skill-critical subspace, then constrains LoRA-based factual updates to remain structurally orthogonal to that subspace. We further provided a theoretical motivation for why top-k-only spectral protection can fail, and empirically demonstrated the effectiveness of PALoRA across two model families and three reasoning domains. Our results show that PALoRA consistently preserves reasoning performance better than prior spectral PEFT baselines while maintaining competitive factual recall. 9A limitation of PALoRA is that its knowledge-injection capacity depends on the strength of the subspace protection: more aggressive preservation of skill-critical directions can reduce factual adaptation performance. This reflects an inherent trade-off between retaining prior capabilities and incorporating new knowledge. Future work should extend PALoRA to simultaneous preservation of multiple skills, broader model architectures, and continual adaptation settings in which models must integrate evolving knowledge over time without cumulative degradation. 
+
+# References 
+
+[1] Edward J Hu, Yelong Shen, Phillip Wallis, Zeyuan Allen-Zhu, Yuanzhi Li, Shean Wang, Liang Wang, Weizhu Chen, et al. Lora: Low-rank adaptation of large language models. Iclr , 1(2):3, 2022. [2] Sergey Pletenev, Maria Marina, Daniil Moskovskiy, Vasily Konovalov, Pavel Braslavski, Alexan-der Panchenko, and Mikhail Salnikov. How much knowledge can you pack into a lora adapter without harming llm? In Findings of the Association for Computational Linguistics: NAACL 2025 , pages 4309–4322, 2025. [3] Mor Geva, Roei Schuster, Jonathan Berant, and Omer Levy. Transformer feed-forward layers are key-value memories. In Proceedings of the 2021 Conference on Empirical Methods in Natural Language Processing , pages 5484–5495, 2021. [4] Damai Dai, Li Dong, Yaru Hao, Zhifang Sui, Baobao Chang, and Furu Wei. Knowledge neurons in pretrained transformers. In Proceedings of the 60th Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 8493–8502, 2022. [5] Karl Cobbe, Vineet Kosaraju, Mohammad Bavarian, Mark Chen, Heewoo Jun, Lukasz Kaiser, Matthias Plappert, Jerry Tworek, Jacob Hilton, Reiichiro Nakano, et al. Training verifiers to solve math word problems, 2021. URL https://arxiv. org/abs/2110.14168 , 9, 2021. [6] Jacob Austin, Augustus Odena, Maxwell Nye, Maarten Bosma, Henryk Michalewski, David Dohan, Ellen Jiang, Carrie Cai, Michael Terry, Quoc Le, et al. Program synthesis with large language models. arXiv preprint arXiv:2108.07732 , 2021. [7] Peter Clark, Isaac Cowhey, Oren Etzioni, Tushar Khot, Ashish Sabharwal, Carissa Schoenick, and Oyvind Tafjord. Think you have solved question answering? try arc, the ai2 reasoning challenge. arXiv preprint arXiv:1803.05457 , 2018. [8] Fanxu Meng, Zhaohui Wang, and Muhan Zhang. Pissa: Principal singular values and singular vectors adaptation of large language models. Advances in Neural Information Processing Systems , 37:121038–121072, 2024. [9] Hanqing Wang, Yixia Li, Shuo Wang, Guanhua Chen, and Yun Chen. Milora: Harnessing minor singular components for parameter-efficient llm finetuning. In Proceedings of the 2025 Conference of the Nations of the Americas Chapter of the Association for Computational Linguistics: Human Language Technologies (Volume 1: Long Papers) , pages 4823–4836, 2025. [10] Vijay Lingam, Atula Tejaswi, Aditya Vavre, Aneesh Shetty, Gautham K Gudur, Joydeep Ghosh, Alex Dimakis, Eunsol Choi, Aleksandar Bojchevski, and Sujay Sanghavi. Svft: Parameter-efficient fine-tuning with singular vectors. Advances in Neural Information Processing Systems ,37:41425–41446, 2024. [11] Yifeng Xiong and Xiaohui Xie. Oplora: Orthogonal projection lora prevents catastrophic forgetting during parameter-efficient fine-tuning. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 40, pages 34088–34096, 2026. [12] Yibo Yang, Xiaojie Li, Zhongzhu Zhou, Shuaiwen L Song, Jianlong Wu, Liqiang Nie, and Bernard Ghanem. Corda: Context-oriented decomposition adaptation of large language models for task-aware parameter-efficient fine-tuning. Advances in Neural Information Processing Systems , 37:71768–71791, 2024. 10 [13] Qi Sun, Edoardo Cetin, and Yujin Tang. Transformer-squared: Self-adaptive llms. In Y. Yue, A. Garg, N. Peng, F. Sha, and R. Yu, editors, International Conference on Learning Representa-tions , volume 2025, pages 13878–13895, 2025. [14] Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N Gomez, Łukasz Kaiser, and Illia Polosukhin. Attention is all you need. Advances in neural information processing systems , 30, 2017. [15] Michael McCloskey and Neal J Cohen. Catastrophic interference in connectionist networks: The sequential learning problem. In Psychology of learning and motivation , volume 24, pages 109–165. Elsevier, 1989. [16] Martial Mermillod, Aurélia Bugaiska, and Patrick Bonin. The stability-plasticity dilemma: Investigating the continuum from catastrophic forgetting to age-limited learning effects, 2013. [17] James Kirkpatrick, Razvan Pascanu, Neil Rabinowitz, Joel Veness, Guillaume Desjardins, Andrei A Rusu, Kieran Milan, John Quan, Tiago Ramalho, Agnieszka Grabska-Barwinska, et al. Overcoming catastrophic forgetting in neural networks. Proceedings of the national academy of sciences , 114(13):3521–3526, 2017. [18] Mehrdad Farajtabar, Navid Azizan, Alex Mott, and Ang Li. Orthogonal gradient descent for continual learning. In International conference on artificial intelligence and statistics , pages 3762–3773. PMLR, 2020. [19] Gobinda Saha, Isha Garg, and Kaushik Roy. Gradient projection memory for continual learning. In International Conference on Learning Representations , 2021. [20] Xiao Wang, Tianze Chen, Qiming Ge, Han Xia, Rong Bao, Rui Zheng, Qi Zhang, Tao Gui, and Xuan-Jing Huang. Orthogonal subspace learning for language model continual learning. In 
+
+Findings of the Association for Computational Linguistics: EMNLP 2023 , pages 10658–10671, 2023. [21] Ronald J Williams. Simple statistical gradient-following algorithms for connectionist reinforce-ment learning. Machine learning , 8(3):229–256, 1992. [22] Roger A Horn and Charles R Johnson. Matrix analysis . Cambridge university press, 2012. [23] Gilbert W Stewart and Ji-guang Sun. Matrix perturbation theory. (No Title) , 1990. [24] Gene H Golub and Charles F Van Loan. Matrix computations . JHU press, 2013. [25] Hermann Weyl. Das asymptotische verteilungsgesetz der eigenwerte linearer partieller differen-tialgleichungen (mit einer anwendung auf die theorie der hohlraumstrahlung). Mathematische Annalen , 71(4):441–479, 1912. 11 Appendix 
+
+This appendix provides supplementary material supporting the theoretical, methodological, and empirical results of the paper. We first present the full proofs of the main theorem and corollaries, then provide a consolidated notation reference covering the symbols used throughout the paper. We next report additional compute, parameter, and memory analyses, followed by detailed descriptions of the datasets, training configuration, and evaluation protocol. We then describe the baseline adaptation and fairness protocol used in our comparisons, and finally provide additional SVF adapter visualizations to further illustrate the distributed structure of skill-relevant singular components. 
+
+# A Full Proof of Theorem 1 and Corollaries 
+
+A.1 Notation 
+
+Let W ∈ Rm×n be an MLP weight matrix of a Transformer layer. Its singular value decomposition is 
+
+W = UΣV ⊤ =
+
+> r
+
+X
+
+> i=1
+
+σiuiv⊤ 
+
+> i
+
+,
+
+where r = rank( W), ui ∈ Rm and vi ∈ Rn are the left and right singular vectors, and σ1 ≥ σ2 ≥· · · ≥ σr > 0.Let z ∈ Rr denote the SVF scaling vector. The scaled weight matrix is 
+
+Wz = U diag( z ⊙ σ)V⊤ =
+
+> r
+
+X
+
+> i=1
+
+ziσiuiv⊤ 
+
+> i
+
+.
+
+Let z∗ denote the optimal SVF scaling vector obtained after skill fine-tuning on task T . Let LT (W)
+
+denote the task-specific loss over dataset DT .Let UT ⊂ Rn be the task-specific input subspace associated with skill T , with orthogonal projector 
+
+PT = VT V⊤ 
+
+> T
+
+, VT ∈ Rn×s, s ≪ n. 
+
+We define the set of skill-relevant singular components by 
+
+ST = {i ∈ { 1, . . . , r } | | z∗ 
+
+> i
+
+− 1| > ε } ,
+
+for a threshold ε > 0.We use the Frobenius inner product 
+
+⟨A, B⟩F = tr( A⊤B),
+
+and the Frobenius norm ∥A∥F .
+
+A.2 Formal Assumptions Assumption 1 (Pre-training data diversity) . The pre-training corpus is drawn from a distribution 
+
+Dprior with broad spectral support. The input covariance matrix 
+
+Cprior = Ex∼D prior [xx ⊤] ∈ Rn×n
+
+has full rank, and its eigenvalues satisfy 
+
+λ1 ≥ λ2 ≥ · · · ≥ λn > 0, λi ≍ i−α, α > 0.
+
+Consequently, the pre-trained weight matrix W0 concentrates its principal singular vectors along directions of maximum input variance under Dprior .
+
+Assumption 2 (Skill compositionality and misalignment) . A skill T corresponds to a compositional function fT : Rn → Rd that depends only on a low-dimensional, task-specific subspace UT ⊂ Rn.Formally, there exists a projector PT = VT V⊤ 
+
+> T
+
+, VT ∈ Rn×s, such that 
+
+fT (x) = fT (PT x) almost surely under the task distribution. Moreover, the task subspace is misaligned with the top-k right singular directions of W0: for every 
+
+i ≤ k,
+
+∥PT vi∥22 ≤ δ, 0 < δ ≪ 1. (5) 12 Assumption 3 (Gradient structure) . Skill adaptation is performed via first-order gradient descent on 
+
+LT (W), starting from the pre-trained weight matrix W0. The gradient at W0 decomposes as 
+
+∇WLT (W0) = GT + N, (6) 
+
+where GT is a low-rank structured term with rank( GT ) ≤ s, and its row space lies in UT . Accord-ingly, 
+
+GT =
+
+> s
+
+X
+
+> j=1
+
+gj h⊤ 
+
+> j
+
+, hj ∈ U T ∀j, 
+
+and gj ∈ Rm. The residual term N is a zero-mean noise matrix with small Frobenius norm 
+
+∥N∥F ≤ ϵnoise .
+
+A.3 Proof of Theorem 1 Detailed version of Theorem 1 (Distributed encoding of skill-relevant components). Under As-sumptions 1, 2, and 3, for any k < rank( W) satisfying the misalignment condition in Assumption 2, the set of skill-relevant components ST is not contained in the top-k index set {1, 2, . . . , k }.
+
+Proof. We follow the same four-step structure as the handwritten manuscript. 
+
+Step 1: Gradient spectrum decomposition. Decompose the task gradient GT in the singular basis of W. Define the spectral loading coefficients 
+
+γi = ⟨uiv⊤ 
+
+> i
+
+, GT ⟩F = u⊤ 
+
+> i
+
+GT vi, i = 1 , . . . , r. (7) Substituting GT = Psj=1 gj h⊤ 
+
+> j
+
+, we obtain 
+
+γi =
+
+> s
+
+X
+
+> j=1
+
+(u⊤ 
+
+> i
+
+gj )( h⊤ 
+
+> j
+
+vi). (8) The factor h⊤ 
+
+> j
+
+vi = ⟨hj , vi⟩ is the projection of hj ∈ U T onto vi. Since hj ∈ U T , we have 
+
+|h⊤ 
+
+> j
+
+vi| = |h⊤ 
+
+> j
+
+PT vi| ≤ ∥ hj ∥2 ∥PT vi∥2.
+
+By Assumption 2, for every i ≤ k,
+
+∥PT vi∥2 ≤ √δ, 
+
+hence 
+
+|h⊤ 
+
+> j
+
+vi| ≤ √δ ∥hj ∥2.
+
+Applying Cauchy–Schwarz in Eq. 8 yields 
+
+|γi| ≤ C1
+
+√δ, ∀i ≤ k, (9) for some constant C1 > 0 depending on GT .Conversely, since GT̸ = 0 and UT is generically misaligned with span {v1, . . . , vk}, a dimension-counting argument on the Grassmannian implies the existence of at least one index i∗ > k such that 
+
+|γi∗ | ≥ cT
+
+√n − k , cT = ∥GT ∥F
+
+√s > 0. (10) 
+
+Step 2: Singular-value perturbation under a full-parameter gradient update. Consider one gradient descent step on the full weight matrix: 
+
+W1 = W0 − η∇WLT (W0) = W0 − η(GT + N). (11) By first-order perturbation theory for singular values [ 22 –24 ], the change in the i-th singular value satisfies |∆σi|
+
+σi
+
+= η|γi| + O(η∥N∥F + η2), (12) 13 where ∆σi = σi(W1) − σi(W0). (This relation also follows from Weyl’s inequality [ 25 ] in the perturbation regime.) Combining Eq. 12 with Eqs. 9–10, we obtain 
+
+|∆σi|
+
+σi
+
+= O(η√δ), i ≤ k, 
+
+whereas for the index i∗ > k ,
+
+|∆σi∗ |
+
+σi∗
+
+≥ η cT
+
+√n − k − O(η∥N∥F + η2).
+
+Thus, under a direct gradient update, the top-k singular values change only weakly, whereas the off-principal component i∗ changes at non-negligible scale. 
+
+Step 3: SVF scaling vector and skill relevance. In the SVF parameterization, 
+
+Wz =
+
+> r
+
+X
+
+> i=1
+
+ziσiuiv⊤ 
+
+> i
+
+.
+
+The gradient of the task loss with respect to zi is 
+
+∂L T
+
+∂z i
+
+= ∇WLT , σ iuiv⊤  
+
+> iF
+
+= σiγi + O(σi∥N∥F ). (13) Starting from the identity initialization zi = 1 , one gradient step in the SVF parameterization gives 
+
+z(1)  
+
+> i
+
+− 1 = −ηz σiγi + O(ηz σi∥N∥F + η2 
+
+> z
+
+). (14) Therefore, to first order, 
+
+|z∗ 
+
+> i
+
+− 1| = ηz σi|γi| + O(ηz σi∥N∥F + η2 
+
+> z
+
+). (15) For i ≤ k, Eq. 9 yields 
+
+|z∗ 
+
+> i
+
+− 1| ≤ Cη z σi
+
+√δ + O(ηz σi∥N∥F + η2 
+
+> z
+
+),
+
+whereas for the index i∗ > k , Eq. 10 yields 
+
+|z∗ 
+
+> i∗
+
+− 1| ≥ ηz σi∗
+
+cT
+
+√n − k − O(ηz σi∗ ∥N∥F + η2 
+
+> z
+
+).
+
+Step 4: Connection and integration. Choose a threshold ε of the same order as the top-k deviation scale, for example 
+
+ε = Cη z σmax 
+
+√δ, 
+
+up to the higher-order residual terms. Then every index i ≤ k satisfies 
+
+|z∗ 
+
+> i
+
+− 1| ≤ ε, 
+
+whereas the index i∗ > k satisfies 
+
+|z∗ 
+
+> i∗
+
+− 1| > ε 
+
+whenever the lower bound above dominates the residual terms. Hence i∗ ∈ S T with i∗ > k , and therefore 
+
+ST ∩ { k + 1 , . . . , r }̸ = ∅.
+
+This proves that the set of skill-relevant singular components is not contained in the top-k index set. 
+
+□
+
+A.4 Corollaries Detailed version of Corollary 1 (Sub-optimality of top-k projection). Under Assumptions 1–3, any compression or fine-tuning method that preserves or updates only the top-k singular components fails to preserve all skill-relevant directions. Under the corresponding local approximation, the resulting degradation satisfies 
+
+E[LT (Wtop-k) − LT (W∗)] ≥ Ω
+
+ c2
+
+> T
+
+n − k
+
+
+
+,
+
+where Wtop-k denotes the matrix obtained by retaining only the top-k protected components, and 
+
+W∗ denotes the unconstrained skill-adapted optimum. 14 Detailed version of Corollary 2 (SVF as a diagnostic probe). The SVF scaling vector z∗ correctly identifies skill-relevant components despite their singular-value rank, because 
+
+|z∗ 
+
+> i
+
+− 1| ∝ σi|γi|
+
+to first order. Therefore, a component with a relatively small raw singular value can still exhibit a large deviation from 1 when its task-gradient projection is sufficiently strong. 
+
+Detailed version of Corollary 3 (Multi-skill distribution). Suppose the model is fine-tuned on M
+
+skills {T1, . . . , T M }, each with its own task subspace UTm satisfying Assumption 2. Let STm denote the corresponding skill-relevant index set, and define 
+
+S =
+
+> M
+
+[
+
+> m=1
+
+STm .
+
+If these task subspaces are generically incoherent, then S spreads across a broad portion of the singular spectrum. Consequently, no fixed top-k subset can capture all skill-relevant components for all skills simultaneously. 
+
+A.5 Connection to Prior Work 
+
+Our theoretical framework provides a unifying geometric perspective on several recent PEFT meth-ods. MiLoRA [ 9] fine - tunes only the minor singular components, hypothesising that principal components store task -agnostic knowledge – our analysis formalises why the minor components carry skill -specific adaptations. SVFT [10 ] learns sparse combinations of singular vectors, with the insight that fine -grained control over expressivity comes from choosing which singular components to update, a direct consequence of Theorem 1. PiSSA [8] and CorDA [ 12 ] optimise the principal or context -oriented components; while suitable for general fine -tuning, Corollary 1 proves that protecting only principal components is strictly sub - optimal for decoupled adaptation, as specialised skills are fundamentally distributed. 
+
+A.6 Geometric Interpretation and Limitation 
+
+The proof formalizes a simple geometric picture. Pre-training aligns the principal singular directions of the weight matrix with directions of high variance in the corpus, and these directions are largely task-agnostic. A reasoning skill, by contrast, activates a task-specific subspace that can be substantially misaligned with those principal directions. As a result, skill-relevant information may live in singular components that are not among the largest singular values. The main limitation is the misalignment assumption in Assumption 2. If a skill happens to align strongly with dominant corpus directions, then the top singular vectors may already capture a large portion of the skill, and the distributed-spectrum conclusion may weaken. The theorem should therefore be interpreted as a structured explanation for the regime observed in complex reasoning tasks, rather than as a universal statement for every task. 
+
+# B Global Notation Reference 
+
+This section consolidates the notation used throughout the paper. For readability, we group symbols by their role in the overall training pipeline 6, the PALoRA parameterization 7, and the theoretical analysis 8. 
+
+# C Compute, Parameter Count, and Memory Analysis 
+
+This section analyzes the practical overhead of PALoRA from first principles. We distinguish three quantities: trainable parameter count , additional stored state , and computational overhead . The discussion is analytical and follows directly from the PALoRA formulation in Sections 3 and 3.2. 15 Table 6: General notation, data, and optimization variables used throughout the paper. 
+
+Symbol Description 
+
+M(θbase ) Pre-trained base language model with frozen parameters θbase .
+
+θbase Parameters of the frozen base model. 
+
+θLoRA Trainable LoRA parameters, collected as {Bl, Al}Ll=1 .
+
+Dskill Skill dataset used in Phase 1 to train the SVF expert. 
+
+Dknow Knowledge dataset used in Phase 2 for factual knowledge injection. 
+
+DT Task-specific dataset associated with skill or task T in the theoretical analy-sis. 
+
+Dprior Pre-training data distribution used in the formal assumptions. 
+
+L Number of adapted MLP layers. 
+
+l Layer index. 
+
+T Number of Phase 2 training steps in Algorithm 1; in the theory section, T
+
+also denotes a task or skill, with the meaning determined by context. 
+
+Tm The m-th skill in the multi-skill analysis. 
+
+k Number of singular directions selected as the protected skill-critical sub-space in each layer. 
+
+r LoRA rank in the adaptation module; when used in the theory section as 
+
+r = rank( W), it denotes the rank of the weight matrix. 
+
+α LoRA scaling hyperparameter in the experiments; in Assumption 1, α > 0
+
+also denotes the spectral decay exponent of the covariance eigenvalues. 
+
+λortho Weight of the orthogonality regularization term in Phase 2. 
+
+LSFT Supervised fine-tuning loss used for factual knowledge injection. 
+
+Lortho ,l Orthogonality penalty applied at layer l.
+
+Ltotal Total Phase 2 objective, LSFT + λortho 
+
+PLl=1 Lortho ,l .
+
+Table 7: Notation for the PALoRA parameterization, SVD quantities, and protected subspaces. 
+
+Symbol Description 
+
+W(l) 
+
+> mlp
+
+Pre-trained MLP weight matrix at layer l, with shape Rdout ×din .
+
+W′(l) 
+
+> mlp
+
+Adapted MLP weight matrix after combining the SVF and LoRA compo-nents. 
+
+SVF( W) Singular Value Fine-Tuning transformation applied to a pre-trained weight matrix W.
+
+LoRA( W) Low-rank adaptation term applied to a pre-trained weight matrix W.
+
+∆Wl LoRA update at layer l, defined as BlAl.
+
+Bl Left LoRA factor for layer l, with shape Rdout ×r .
+
+Al Right LoRA factor for layer l, with shape Rr×din .
+
+dout , d in Output and input dimensions of an adapted MLP weight matrix. 
+
+W(l) 
+
+> mlp
+
+= Ul diag( σl)V⊤ 
+
+> l
+
+Singular value decomposition of the pre-trained MLP weight matrix at layer 
+
+l.
+
+Ul, Vl Left and right singular-vector matrices for layer l.
+
+σl Vector of singular values of W(l)
+
+> mlp
+
+.
+
+σl,i i-th singular value of the pre-trained MLP weight matrix at layer l.
+
+ul,i i-th left singular vector of layer l, used in the protected output subspace. 
+
+vl,i i-th right singular vector of layer l.
+
+zl Trainable SVF scaling vector for layer l.
+
+z∗ 
+
+> l
+
+Frozen SVF scaling vector obtained after Phase 1 training. 
+
+1 All-ones vector used as the identity reference for SVF scaling. 
+
+Icrit ,l Set of top-k singular-component indices in layer l selected by the magnitude of |z∗ 
+
+> l,i
+
+− 1|.
+
+16 Table 8: Notation used in the theoretical analysis and proofs. 
+
+Symbol Description 
+
+W ∈ Rm×n Generic pre-trained weight matrix used in the theoretical analysis. 
+
+W0 Initial pre-trained weight matrix before task adaptation. 
+
+W1 Weight matrix after one gradient-based update step. 
+
+Wz SVF-parameterized weight matrix obtained by scaling the singular values of W.
+
+W∗ Unconstrained skill-adapted optimum in the corollary analysis. 
+
+Wtop-k Matrix obtained by retaining or protecting only the top-k singular compo-nents. 
+
+m, n Output and input dimensions of the generic theoretical weight matrix W.
+
+U, Σ, V SVD factors of W, where Σ = diag( σ1, . . . , σ r ).
+
+σi i-th singular value of W.
+
+ui, vi i-th left and right singular vectors of W.
+
+UT Low-dimensional task-specific input subspace associated with skill T .
+
+PT Orthogonal projector onto UT , written as VT V⊤ 
+
+> T
+
+.
+
+VT Basis matrix whose columns span the task-specific subspace UT .
+
+fT Task-specific compositional function associated with skill T .
+
+Cprior Input covariance matrix induced by the pre-training distribution. 
+
+λi i-th eigenvalue of the covariance matrix Cprior .
+
+GT Low-rank structured component of the task gradient. 
+
+N Zero-mean noise component in the gradient decomposition. 
+
+gj , hj Factors in the decomposition GT = Psj=1 gj h⊤ 
+
+> j
+
+, with hj ∈ U T .
+
+s Rank bound on the structured task-gradient term GT , and dimension pa-rameter of the task subspace basis. 
+
+γi Spectral loading coefficient u⊤ 
+
+> i
+
+GT vi, measuring alignment of the task gradient with singular component i.
+
+∆σi Change in the i-th singular value after a gradient update. 
+
+η Learning rate for the full weight-space gradient step in the perturbation analysis. 
+
+ηz Learning rate for the SVF scaling-vector update. 
+
+δ Misalignment parameter controlling how weakly the task subspace aligns with the top-k right singular directions. 
+
+ε Threshold used to define the set of skill-relevant singular components. 
+
+ϵnoise Upper bound on the Frobenius norm of the noise term N.
+
+cT Task-dependent positive constant, defined from ∥GT ∥F /√s in the proof. 
+
+ST Set of skill-relevant singular indices identified by the SVF scaling deviation 
+
+|z∗ 
+
+> i
+
+− 1|.
+
+S Union of skill-relevant singular indices across multiple skills. 
+
+M Number of skills considered in the multi-skill corollary. 
+
+⟨A, B⟩F Frobenius inner product between matrices A and B.
+
+∥A∥F Frobenius norm of matrix A.
+
+Trainable parameters. Let LMLP denote the set of adapted MLP weight matrices, and let each matrix Wl ∈ Rdout ,l ×din ,l have singular-value dimension nl = min( dout ,l , d in ,l ). In Phase 1, the only trainable variables are the SVF scaling vectors {zl}l∈L MLP , so the number of trainable parameters is 
+
+PSVF = X
+
+> l∈L MLP
+
+nl.
+
+In Phase 2, PALoRA trains only the LoRA matrices {Bl, A l}l∈L MLP . For LoRA rank r, the corre-sponding trainable parameter count is 
+
+PLoRA = X
+
+> l∈L MLP
+
+r (dout ,l + din ,l ),
+
+which is the same parameterization as standard LoRA on the same target modules. Thus, PALoRA does not increase the number of trainable Phase 2 parameters relative to a matched LoRA baseline; its additional complexity comes from the frozen SVF expert and the orthogonality constraint. 
+
+Additional stored state. Relative to standard LoRA, PALoRA requires three additional objects. First, it stores the frozen SVF scaling vectors zl obtained in Phase 1. Second, for each adapted layer 17 l, it stores the critical index set 
+
+Icrit ,l = TopK i
+
+ |zl,i − 1|,
+
+as defined in the main text. Third, it stores the singular vectors associated with these selected indices, since the Phase 2 orthogonality loss is computed by projecting the LoRA update onto the corresponding protected directions. If the protected subspace size is k for every layer, then the dominant additional storage is linear in the total number of stored singular vectors, namely on the order of P 
+
+> l
+
+k d out ,l for the left-vector formulation used in this paper. By contrast, the storage of zl
+
+and Icrit ,l is comparatively small. 
+
+Computational overhead. PALoRA introduces overhead in two places. The first is an offline cost incurred before Phase 2, consisting of the singular value decomposition of the adapted MLP weights together with the training of the SVF expert in Phase 1. This cost is paid once per skill expert and is independent of the subsequent number of Phase 2 knowledge-injection runs that reuse the same frozen probe. The second source of overhead appears during Phase 2 training. In addition to the standard supervised fine-tuning objective, PALoRA evaluates the orthogonality regularizer 
+
+Lortho ,l = X
+
+> i∈I crit ,l
+
+(BlAl)⊤ul,i 
+
+> 22
+
+for each adapted layer. The resulting per-step overhead therefore depends primarily on the number of protected directions and on the dimensions of the adapted MLP layers, rather than on any increase in trainable parameter count. 
+
+Inference-time considerations. The orthogonality term is used only during optimization in Phase 2 and does not introduce an additional objective at inference time. After training, deployment uses the adapted model parameters in the same way as other LoRA-style methods. Consequently, the practical inference footprint is determined by the final adapted weights rather than by the training-time regularization procedure. 
+
+Interpretation. This decomposition clarifies the cost profile of PALoRA. Phase 1 adds a one-time preprocessing stage, while Phase 2 preserves the same LoRA parameterization as a matched baseline and adds only a structured regularization term tied to the protected skill subspace. The main trade-off is therefore not an increase in trainable capacity, but the extra storage and computation required to identify and preserve the SVF-guided singular directions. 
+
+# D Datasets, Training, and Evaluation Protocol 
+
+This section summarizes the datasets used in PALoRA and clarifies their roles in the two-phase training and evaluation pipeline. We distinguish between skill datasets, which define the capabilities to be preserved and are used to train the SVF experts in Phase 1, and knowledge data, which provide the factual supervision used for LoRA-based knowledge injection in Phase 2. This separation is central to PALoRA: the skill data identify the subspace to protect, while the knowledge data define the new information to be acquired. 
+
+D.1 Overview of dataset roles 
+
+In our experiments, GSM8K, MBPP, and AI2-ARC serve as skill datasets. Each of them is used to train a separate SVF expert in Phase 1, and each reappears after Phase 2 only as an evaluation benchmark for measuring skill preservation. They are therefore not used to optimize the knowledge-injection adapter. The knowledge-injection data consist of TriviaQA-style factual question–answer pairs labeled ac-cording to whether the frozen base model can already answer them reliably. During Phase 2, these examples are used to supervise factual adaptation, whereas final knowledge recall is measured on the subset of facts labeled Unknown . Items labeled HighlyKnown are not the primary target of factual acquisition, but serve as a control for general factual stability. 18 D.2 Skill datasets D.2.1 GSM8K 
+
+GSM8K [ 5] is a benchmark of grade-school mathematical word problems and serves as our mathe-matical reasoning task. In Phase 1, we train a dedicated SVF expert on the GSM8K training split, using a lightweight held-out partition for model selection during the reinforcement-learning loop. GSM8K is not used during Phase 2 optimization. After knowledge injection, skill preservation is evaluated with final-answer accuracy on the GSM8K benchmark. The model generates a free-form solution, and the prediction is scored by extracting the final numerical answer from the completion and comparing it against the ground-truth value. This metric isolates whether mathematical reasoning remains intact after factual updating. 
+
+D.2.2 MBPP 
+
+MBPP [ 6 ] is a benchmark for Python code generation from natural-language problem descriptions and serves as our coding-skill task. In Phase 1, we train an SVF expert on a shuffled subset of MBPP problems, with disjoint training and validation partitions used for learning and checkpoint selection. MBPP is not used in Phase 2 training. After adaptation, we evaluate skill preservation with pass@1 under execution-based evaluation. For each problem, the model generates a single program, which is then executed against the corresponding unit tests. A sample is marked correct only if the generated code passes the test suite, so the metric reflects functional program synthesis rather than surface-level similarity. 
+
+D.2.3 AI2-ARC 
+
+We use the AI2-ARC benchmark [ 7 ] as our science reasoning task. In Phase 1, the SVF expert is trained on ARC-Easy, again using a held-out partition for model selection. Phase 2 does not optimize on ARC data. For evaluation, we report multiple-choice exact-match accuracy. Questions are presented with lettered answer options, and a prediction is counted as correct if the model selects the correct option after generation. This metric measures whether the scientific reasoning ability associated with the protected SVF subspace is preserved after factual adaptation. 
+
+D.3 Knowledge-injection dataset D.3.1 Unknown facts 
+
+Knowledge injection is performed using TriviaQA-style factual question–answer pairs that are labeled according to whether the frozen base model can already answer them reliably [ 2 ]. The primary target of adaptation is the subset labeled Unknown , which contains facts that are not robustly recalled before fine-tuning. These examples define the factual content to be injected during Phase 2. For each experiment, we construct a knowledge-injection set by sampling a fixed number of Unknown 
+
+items. In the main paper, we consider subsets of size 100, 250, 500, and 1000. Each subset defines an independent Phase 2 run, so the factual load can be varied while keeping the underlying protocol unchanged. 
+
+D.3.2 HighlyKnown facts 
+
+In addition to the Unknown subset, we include examples labeled HighlyKnown , corresponding to facts that the base model already answers reliably before adaptation. During Phase 2, these examples are mixed with the Unknown facts at a ratio of 1:3 (one Unknown fact for three HighlyKnown facts). We adopt this mixture following the setting of Pletenev et al. [ 2], with the goal of coupling factual injection with continued exposure to previously stable knowledge. This design reflects the stability–plasticity trade-off studied in the main paper. Unknown facts define the new information to be injected, while the accompanying HighlyKnown examples act as a retention signal that helps preserve already acquired knowledge and reduces the risk of catastrophic forgetting 19 during adaptation. At evaluation time, the Unknown subset remains the primary target for measuring factual recall, since it captures whether the model successfully learns the injected facts. 
+
+D.4 Training protocol by phase D.4.1 Phase 1: skill expert training 
+
+Phase 1 trains one SVF expert per skill dataset. Concretely, GSM8K defines the mathematical reasoning expert, MBPP defines the coding expert, and AI2-ARC defines the science reasoning expert. In each case, the trainable parameters are the SVF scaling vectors applied to the singular values of the frozen MLP weight matrices, while the singular vectors themselves remain fixed to those of the pre-trained model. Following Transformer-Squared [ 13 ], skill specialization is learned with reinforcement learning rather than supervised imitation of reference completions. For each task, the model generates outputs on skill prompts, and a task-specific evaluator assigns a scalar reward based on correctness. The SVF parameters are then updated using this outcome-based signal, so that the learned scaling vector reflects the singular components most strongly engaged by the target skill. After training, the best-performing SVF expert is frozen and used as the geometric probe in PALoRA. Its scaling vector defines the protected index set Icrit , which determines the singular directions that should be preserved during factual adaptation. 
+
+D.4.2 Phase 2: knowledge injection 
+
+In Phase 2, the base model and the Phase 1 SVF expert are kept frozen, and only a LoRA adapter is trained on the factual corpus. For a given run, the protected subspace is defined by the SVF expert associated with a single target skill, so each Phase 2 experiment corresponds to a particular (skill , |U| )
+
+configuration. The training objective combines the standard supervised fine-tuning loss on factual question–answer pairs with the PALoRA orthogonality penalty. The supervised term encourages the adapter to produce the target factual answer, while the orthogonality term prevents the LoRA update from aligning with the singular directions identified as skill-critical by the frozen SVF expert. Baseline methods use the same factual supervision but differ in how, or whether, they constrain the adaptation update. 
+
+Answer-only supervision. Each factual example is presented as a question followed by its target answer. The language-model loss is computed only on the answer span, while the question tokens are masked. The model therefore conditions on the full question at training time, but the optimization target is restricted to producing the desired factual completion rather than reconstructing the prompt itself. 
+
+D.5 Evaluation protocol D.5.1 Skill evaluation 
+
+After Phase 2, we evaluate the adapted model on the skill benchmark corresponding to the SVF expert used in that run. GSM8K is scored with final-answer accuracy, MBPP with pass@1 , and AI2-ARC with multiple-choice exact-match accuracy. These metrics quantify skill preservation , that is, the extent to which the target reasoning capability survives factual adaptation. 
+
+D.5.2 Knowledge evaluation 
+
+We additionally evaluate the adapted model on the Unknown portion of the factual dataset. At test time, the model is prompted with the question only, and a prediction is counted as correct if the generated answer matches one of the accepted aliases for the target fact. The resulting recall measures the fraction of previously unknown facts that are answered correctly after adaptation. We also evaluate the HighlyKnown subset with the same scoring rule. This provides a control for factual drift by checking whether the model’s behavior on previously reliable answers remains stable after knowledge injection. 20 D.5.3 Protocol consistency across methods 
+
+All methods in our comparison use the same factual datasets, the same skill benchmarks, and the same evaluation rules for a given model and fact-set size. Differences between methods therefore arise from the adaptation mechanism itself rather than from changes in data, prompting, or scoring. This common protocol is essential for isolating the effect of SVF-guided orthogonal protection in PALoRA. 
+
+# E Baseline Adaptation and Fairness Protocol 
+
+To ensure that the baseline comparisons are directly meaningful, we adapt each baseline to the same data interface, optimization setting, and evaluation protocol used for PALoRA, so that performance differences can be attributed to the adaptation principle itself rather than to mismatched experimental conditions. 
+
+Common protocol. All methods use the same base checkpoints, the same knowledge-injection datasets, and the same train–validation–test protocol. For knowledge injection, we use the same answer-only supervised objective across methods, masking the prompt tokens and optimizing only the target answer tokens. Across both model families, we match the adapter configuration used in our main experiments, including adapter rank r = 16 , scaling α = 32 , dropout 0.05 , and batch size 
+
+8. The optimization schedule is model-specific: for Llama-3.1-8B-Instruct, we use a learning rate of 2 × 10 −4 and train for 10 epochs, whereas for Mistral-7B-Instruct-v0.3, we use a learning rate of 2 × 10 −5 and train for 5 epochs. Evaluation is likewise standardized: knowledge performance is measured with the same Unknown and HighlyKnown splits, and skill preservation is assessed with the same task-specific evaluation pipeline for GSM8K, MBPP, and AI2-ARC. 
+
+LoRA-only. The LoRA-only baseline uses the same knowledge-injection setting as PALoRA, but removes the structural orthogonality constraint. It is therefore trained as an unconstrained adapter on the same target MLP projections, with the same adapter capacity and the same optimization schedule as PALoRA. This baseline isolates the effect of the constraint itself, while keeping the underlying adaptation budget fixed. 
+
+OPLoRA. For OPLoRA, we compute the protected subspace from the same pre-trained model weights and apply the method on the same MLP layers used by PALoRA. Following the original OPLoRA setting, we use a protected subspace size of k = 128 . We otherwise keep the adapter rank, training objective, optimizer, and training schedule matched to our default setting. As a result, the comparison focuses on the protection mechanism: OPLoRA constrains updates with respect to top singular directions of the pre-trained weights, whereas PALoRA constrains LoRA using the SVF-identified skill-relevant subspace. 
+
+CorDA. We implement CorDA in Knowledge-Preserved Mode and evaluate it under the same downstream knowledge-injection protocol as the other baselines. Its calibration statistics are computed from skill-specific training data using 256 calibration samples. The subsequent fine-tuning stage follows the same optimizer family, training budget, and evaluation procedure as in the other LoRA-based comparisons, so the comparison remains aligned at the level of data and protocol. For evaluation, we convert the trained CorDA adapter into a standard LoRA-form adapter so that it can be assessed through the same inference and reporting pipeline as the other methods. This conversion changes the effective adapter rank from 16 in the original CorDA parameterization to 32 in the converted LoRA form. We report CorDA under this converted setting to preserve a common evaluation interface while retaining its knowledge-preserved initialization mechanism. 
+
+Fairness of comparison. Under this protocol, all competing methods are aligned in model family, data, optimization budget, target layers, and evaluation metrics. The reported differences therefore reflect the underlying adaptation strategy—unconstrained LoRA, top-component protection, context-preserving initialization, or SVF-guided orthogonal protection—rather than artifacts of inconsistent training or evaluation pipelines. 21 F Additional SVF Adapter Visualizations 
+
+We provide the same SVF visualizations as in Figure 2 for all skill experts across both model families. For each SVF expert, we show (i) the sorted scaling magnitudes |z∗ 
+
+> i
+
+− 1| across MLP layers and (ii) the top-64 SVF-selected components, sorted by |z∗ 
+
+> i
+
+− 1| from largest to smallest. 
+
+(a) SVF scaling magnitudes |z∗ 
+
+> i
+
+− 1| over singular-value index. 
+
+(b) Top-64 SVF scaling magnitudes |z∗ 
+
+> i
+
+− 1|, sorted from largest to smallest. 
+
+Figure 4: SVF visualization for the Llama-3.1-8B-Instruct GSM8K expert. 
+
+(a) SVF scaling magnitudes |z∗ 
+
+> i
+
+− 1| over singular-value index. 
+
+(b) Top-64 SVF scaling magnitudes |z∗ 
+
+> i
+
+− 1|, sorted from largest to smallest. 
+
+Figure 5: SVF visualization for the Llama-3.1-8B-Instruct MBPP expert. 22 (a) SVF scaling magnitudes |z∗ 
+
+> i
+
+− 1| over singular-value index. 
+
+(b) Top-64 SVF scaling magnitudes |z∗ 
+
+> i
+
+− 1|, sorted from largest to smallest. 
+
+Figure 6: SVF visualization for the Llama-3.1-8B-Instruct AI2-ARC expert. 
+
+(a) SVF scaling magnitudes |z∗ 
+
+> i
+
+− 1| over singular-value index. 
+
+(b) Top-64 SVF scaling magnitudes |z∗ 
+
+> i
+
+− 1|, sorted from largest to smallest. 
+
+Figure 7: SVF visualization for the Mistral-7B-Instruct-v0.3 GSM8K expert. 
+
+(a) SVF scaling magnitudes |z∗ 
+
+> i
+
+− 1| over singular-value index. 
+
+(b) Top-64 SVF scaling magnitudes |z∗ 
+
+> i
+
+− 1|, sorted from largest to smallest. 
+
+Figure 8: SVF visualization for the Mistral-7B-Instruct-v0.3 MBPP expert. 23 (a) SVF scaling magnitudes |z∗ 
+
+> i
+
+− 1| over singular-value index. 
+
+(b) Top-64 SVF scaling magnitudes |z∗ 
+
+> i
+
+− 1|, sorted from largest to smallest. 
+
+Figure 9: SVF visualization for the Mistral-7B-Instruct-v0.3 AI2-ARC expert. 24
