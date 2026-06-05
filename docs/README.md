@@ -6,75 +6,47 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-06-04
-- 运行时间：2026-06-04 21:56:14 UTC
+- 最新运行日期：2026-06-05
+- 运行时间：2026-06-05 21:24:56 UTC
 - 运行状态：成功
-- 本次总论文数：17
-- 精读区：6
-- 速读区：11
+- 本次总论文数：9
+- 精读区：3
+- 速读区：6
 
 ### 今日简报（AI）
-今日精读6篇，聚焦LLM在科学推理决策与神经符号VQA中的新进展。
-
-最值得关注：借助模拟推理与因果决策能力解决复杂问题；用LLM蒸馏ASP规则提升视觉问答的符号可解释性。
-
-下步可着重探索如何将符号逻辑与LLM结合，以增强推理鲁棒性与可信度。
-- 详情：[/202606/04/README](/202606/04/README)
+今日整理9篇论文，精读3篇聚焦可解释性与推理评估，速读6篇涉及潜在推理与对话结构。最值得关注《LLM Explainability with Counterfactual Chains and Causal Graphs》（9.0分）探索因果图反事实解释，以及《FALSIFYBENCH: Evaluating Inductive Reasoning in LLMs》（8.0分）提出规则发现游戏评估模型归纳推理。建议优先精读精读列表两篇，深入了解LLM可解释性与归纳推理的前沿方法。
+- 详情：[/202606/05/README](/202606/05/README)
 
 ### 精读区论文标签
-1. [Simulate, Reason, Decide: Scientific Reasoning with LLMs for Simulation-Driven Decision Making](/202606/04/2606.04505v1-simulate-reason-decide-scientific-reasoning-with-llms-for-simulation-driven-decision-making)  
-   标签：评分：10.0/10、query:ns-xai
-   evidence：面向科学模拟器的神经符号推理框架，具备可解释性
-2. [Distilling Answer-Set Programming Rules from LLMs for Neurosymbolic Visual Question Answering](/202606/04/2606.03269v1-distilling-answer-set-programming-rules-from-llms-for-neurosymbolic-visual-question-answering)  
+1. [LLM Explainability with Counterfactual Chains and Causal Graphs](/202606/05/2606.05972v1-llm-explainability-with-counterfactual-chains-and-causal-graphs)  
    标签：评分：9.0/10、query:ns-xai
-   evidence：从LLM蒸馏ASP规则实现神经符号VQA可解释性
-3. [BiNSGPS: Geometry Problem Solving via Bidirectional Neuro-Symbolic Interaction](/202606/04/2606.04648v1-binsgps-geometry-problem-solving-via-bidirectional-neuro-symbolic-interaction)  
-   标签：评分：9.0/10、query:ns-xai
-   evidence：双向神经符号交互用于几何问题求解
-4. [Structured Prompt Optimization Meets Reinforcement Learning for Global and Local Interpretability over Complex Text](/202606/04/2605.29076v2-structured-prompt-optimization-meets-reinforcement-learning-for-global-and-local-interpretability-over-complex-text)  
+   evidence：因果图建模LLM推理以实现可解释性
+2. [FALSIFYBENCH: Evaluating Inductive Reasoning in LLMs with Rule Discovery Games](/202606/05/2606.04751v1-falsifybench-evaluating-inductive-reasoning-in-llms-with-rule-discovery-games)  
    标签：评分：8.0/10、query:ns-xai
-   evidence：结构化提示优化实现全局与局部可解释性
-5. [On the Generalization Gap in Self-Evolving Language Model Reasoning](/202606/04/2606.01075v1-on-the-generalization-gap-in-self-evolving-language-model-reasoning)  
+   evidence：评估大语言模型归纳推理的基准框架
+3. [Formal Concept Lattices are Good Semantic Scaffolds for Concept-Based Learning](/202606/05/2606.05471v1-formal-concept-lattices-are-good-semantic-scaffolds-for-concept-based-learning)  
    标签：评分：8.0/10、query:ns-xai
-   evidence：自我进化大模型推理，泛化差距分析
-6. [Stepwise Reasoning Enhancement for LLMs via External Subgraph Generation](/202606/04/2606.04454v1-stepwise-reasoning-enhancement-for-llms-via-external-subgraph-generation)  
-   标签：评分：8.0/10、query:ns-xai
-   evidence：通过外部子图生成实现符号推理与大模型结合
+   evidence：利用形式概念格作为语义脚手架进行概念学习，将符号结构与神经网络集成
 
 ### 速读区论文标签
-1. [Caliper: Probing Lexical Anchors versus Causal Structure in LLMs](/202606/04/2606.04915v1-caliper-probing-lexical-anchors-versus-causal-structure-in-llms)  
-   标签：评分：8.0/10、query:ns-xai
-   evidence：探测LLM中词汇与因果推理的区别
-2. [Imbuing Large Language Models with Bidirectional Logic for Robust Chain Repair](/202606/04/2606.05030v1-imbuing-large-language-models-with-bidirectional-logic-for-robust-chain-repair)  
-   标签：评分：8.0/10、query:ns-xai
-   evidence：为LLM思维链修复引入双向逻辑
-3. [Visual Graph Scaffolds for Structural Reasoning in Large Language Models](/202606/04/2606.02673v1-visual-graph-scaffolds-for-structural-reasoning-in-large-language-models)  
+1. [Adaptive Latent Agentic Reasoning](/202606/05/2606.02871v1-adaptive-latent-agentic-reasoning)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：图脚手架用于大模型结构化推理
-4. [Right Makes Might: Aligning Verified Hidden States Empowers RL Reasoning](/202606/04/2606.03234v1-right-makes-might-aligning-verified-hidden-states-empowers-rl-reasoning)  
+   evidence：提出自适应潜在推理框架提升LLM智能体推理效率
+2. [ReasoningFlow: Discourse Structures for Understanding LLM Reasoning Traces](/202606/05/2606.05402v1-reasoningflow-discourse-structures-for-understanding-llm-reasoning-traces)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：对齐隐状态以增强大模型RL推理
-5. [Reasoning over Grammar: Can Synthetic Linguistic Reasoning Traces Enhance Low-Resource Machine Translation?](/202606/04/2606.03782v1-reasoning-over-grammar-can-synthetic-linguistic-reasoning-traces-enhance-low-resource-machine-translation)  
+   evidence：基于篇章结构的LLM推理轨迹可解释性分析
+3. [Latent Reasoning with Normalizing Flows](/202606/05/2606.06447v1-latent-reasoning-with-normalizing-flows)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：合成语言推理轨迹将符号语法规则与神经大模型结合用于可解释翻译
-6. [Invariant Gradient Alignment for Robust Reasoning Distillation](/202606/04/2606.05025v1-invariant-gradient-alignment-for-robust-reasoning-distillation)  
-   标签：评分：7.0/10、query:ns-xai
-   evidence：通过不变梯度对齐实现鲁棒推理蒸馏
-7. [Zipping the Thought: When and How Compressed Reasoning Data Works in LLM Post-Training](/202606/04/2605.28008v1-zipping-the-thought-when-and-how-compressed-reasoning-data-works-in-llm-post-training)  
+   evidence：使用归一化流改进LLM潜在推理
+4. [Beyond Additive Decompositions: Interpretability Through Separability](/202606/05/2605.31200v2-beyond-additive-decompositions-interpretability-through-separability)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：压缩推理数据在LLM后训练中的应用
-8. [Satisfiability Solving with LLMs: A Matched-Pair Evaluation of Reasoning Capability](/202606/04/2605.28602v1-satisfiability-solving-with-llms-a-matched-pair-evaluation-of-reasoning-capability)  
+   evidence：通过可分离性实现可解释性
+5. [Learning Coherent Representations: A Topological Approach to Interpretability](/202606/05/2606.02841v1-learning-coherent-representations-a-topological-approach-to-interpretability)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：评估LLM在SAT问题上的推理能力
-9. [AdaptR1: Reinforcement Learning Based Adaptive Interleaved Thinking in Multi-hop Question Answering](/202606/04/2605.31062v1-adaptr1-reinforcement-learning-based-adaptive-interleaved-thinking-in-multi-hop-question-answering)  
+   evidence：拓扑方法提升可解释性
+6. [The Tell-Tale Norm: $\ell_2$ Magnitude as a Signal for Reasoning Dynamics in Large Language Models](/202606/05/2606.06188v1-the-tell-tale-norm-ell2-magnitude-as-a-signal-for-reasoning-dynamics-in-large-language-models)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：基于强化学习的自适应LLM推理
-10. [Towards Understanding Modality Interaction in Multimodal Language Models via Partial Information Decomposition](/202606/04/2606.00959v1-towards-understanding-modality-interaction-in-multimodal-language-models-via-partial-information-decomposition)  
-   标签：评分：6.0/10、query:ns-xai
-   evidence：多模态大模型中的模态交互可解释性分析
-11. [On the Generalization Gap in Self-Evolving Language Model Reasoning](/202606/04/2606.01075v2-on-the-generalization-gap-in-self-evolving-language-model-reasoning)  
-   标签：评分：6.0/10、query:ns-xai
-   evidence：分析自进化LLM推理的泛化差距
+   evidence：隐藏状态的l2范数作为LLM推理动态的内在信号
 
 
 <div class="dpr-home-promo-card">
