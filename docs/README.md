@@ -6,47 +6,59 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-06-05
-- 运行时间：2026-06-05 21:24:56 UTC
+- 最新运行日期：2026-06-06
+- 运行时间：2026-06-06 20:20:33 UTC
 - 运行状态：成功
-- 本次总论文数：9
-- 精读区：3
-- 速读区：6
+- 本次总论文数：13
+- 精读区：2
+- 速读区：11
 
 ### 今日简报（AI）
-今日整理9篇论文，精读3篇聚焦可解释性与推理评估，速读6篇涉及潜在推理与对话结构。最值得关注《LLM Explainability with Counterfactual Chains and Causal Graphs》（9.0分）探索因果图反事实解释，以及《FALSIFYBENCH: Evaluating Inductive Reasoning in LLMs》（8.0分）提出规则发现游戏评估模型归纳推理。建议优先精读精读列表两篇，深入了解LLM可解释性与归纳推理的前沿方法。
-- 详情：[/202606/05/README](/202606/05/README)
+今日精读13篇论文，聚焦于高维结构去噪与多模态大模型推理优化。重点关注两篇8分工作：测地流匹配降噪法与注意力引导CoT微调策略。建议优先精读后者，其思路可直接用于提升模型推理透明度。
+- 详情：[/202606/06/README](/202606/06/README)
 
 ### 精读区论文标签
-1. [LLM Explainability with Counterfactual Chains and Causal Graphs](/202606/05/2606.05972v1-llm-explainability-with-counterfactual-chains-and-causal-graphs)  
-   标签：评分：9.0/10、query:ns-xai
-   evidence：因果图建模LLM推理以实现可解释性
-2. [FALSIFYBENCH: Evaluating Inductive Reasoning in LLMs with Rule Discovery Games](/202606/05/2606.04751v1-falsifybench-evaluating-inductive-reasoning-in-llms-with-rule-discovery-games)  
+1. [Geodesic Flow Matching for Denoising High-Dimensional Structured Representations](/202606/06/2606.00248v1-geodesic-flow-matching-for-denoising-high-dimensional-structured-representations)  
    标签：评分：8.0/10、query:ns-xai
-   evidence：评估大语言模型归纳推理的基准框架
-3. [Formal Concept Lattices are Good Semantic Scaffolds for Concept-Based Learning](/202606/05/2606.05471v1-formal-concept-lattices-are-good-semantic-scaffolds-for-concept-based-learning)  
+   evidence：用于向量符号代数的测地流匹配实现神经符号推理
+2. [Attention-guided Fine-tuning of Multimodal Large Language Models Improves Chain-of-Thought Reasoning](/202606/06/2606.01558v1-attention-guided-fine-tuning-of-multimodal-large-language-models-improves-chain-of-thought-reasoning)  
    标签：评分：8.0/10、query:ns-xai
-   evidence：利用形式概念格作为语义脚手架进行概念学习，将符号结构与神经网络集成
+   evidence：注意力引导微调提升多模态大模型链式推理
 
 ### 速读区论文标签
-1. [Adaptive Latent Agentic Reasoning](/202606/05/2606.02871v1-adaptive-latent-agentic-reasoning)  
+1. [Beyond Additive Decompositions: Interpretability Through Separability](/202606/06/2605.31200v1-beyond-additive-decompositions-interpretability-through-separability)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：提出自适应潜在推理框架提升LLM智能体推理效率
-2. [ReasoningFlow: Discourse Structures for Understanding LLM Reasoning Traces](/202606/05/2606.05402v1-reasoningflow-discourse-structures-for-understanding-llm-reasoning-traces)  
+   evidence：基于可分离性的可解释回归
+2. [BRo-JEPA: Learning Modular Arithmetic in Latent Space](/202606/06/2606.01372v1-bro-jepa-learning-modular-arithmetic-in-latent-space)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：基于篇章结构的LLM推理轨迹可解释性分析
-3. [Latent Reasoning with Normalizing Flows](/202606/05/2606.06447v1-latent-reasoning-with-normalizing-flows)  
+   evidence：在潜在世界模型中学习符号变换规则
+3. [Code-on-Graph: Iterative Programmatic Reasoning via Large Language Models on Knowledge Graphs](/202606/06/2606.03705v1-code-on-graph-iterative-programmatic-reasoning-via-large-language-models-on-knowledge-graphs)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：使用归一化流改进LLM潜在推理
-4. [Beyond Additive Decompositions: Interpretability Through Separability](/202606/05/2605.31200v2-beyond-additive-decompositions-interpretability-through-separability)  
+   evidence：结合知识图谱与程序化推理提升可解释性
+4. [Closing the Loop on Latent Reasoning via Test-Time Reconstruction](/202606/06/2606.06252v1-closing-the-loop-on-latent-reasoning-via-test-time-reconstruction)  
+   标签：评分：7.0/10、query:ns-xai
+   evidence：测试时重建确保潜在推理的忠实性
+5. [Unlocking Fine-Grained Translation Quality Estimation in LRMs through Synergistically Evolving Implicit and Explicit Reasoning](/202606/06/2605.31378v1-unlocking-fine-grained-translation-quality-estimation-in-lrms-through-synergistically-evolving-implicit-and-explicit-reasoning)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：通过可分离性实现可解释性
-5. [Learning Coherent Representations: A Topological Approach to Interpretability](/202606/05/2606.02841v1-learning-coherent-representations-a-topological-approach-to-interpretability)  
+   evidence：结合隐式和显式推理进行质量估计，与LRM推理相关
+6. [ChatHealthAI: Aligning Electronic Health Record Representations with Large Language Models for Grounded Clinical Reasoning](/202606/06/2606.02802v1-chathealthai-aligning-electronic-health-record-representations-with-large-language-models-for-grounded-clinical-reasoning)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：拓扑方法提升可解释性
-6. [The Tell-Tale Norm: $\ell_2$ Magnitude as a Signal for Reasoning Dynamics in Large Language Models](/202606/05/2606.06188v1-the-tell-tale-norm-ell2-magnitude-as-a-signal-for-reasoning-dynamics-in-large-language-models)  
+   evidence：将电子病历表示与大语言模型对齐进行临床推理，增强可解释性
+7. [PhotoCraft: Agentic Reasoning with Hierarchical Self-Evolving Memory for Deep Image Search](/202606/06/2606.03099v1-photocraft-agentic-reasoning-with-hierarchical-self-evolving-memory-for-deep-image-search)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：隐藏状态的l2范数作为LLM推理动态的内在信号
+   evidence：大模型代理中用于多步推理的分层记忆
+8. [Bridging Auxiliary Constraints to Resolve Instruction Following in Large Reasoning Models](/202606/06/2606.03624v1-bridging-auxiliary-constraints-to-resolve-instruction-following-in-large-reasoning-models)  
+   标签：评分：6.0/10、query:ns-xai
+   evidence：约束图用于大推理模型指令遵循
+9. [Entity Binding Failures in Speech LLM Reasoning: Diagnosis and Chain-of-Thought Intervention](/202606/06/2606.04474v1-entity-binding-failures-in-speech-llm-reasoning-diagnosis-and-chain-of-thought-intervention)  
+   标签：评分：6.0/10、query:ns-xai
+   evidence：诊断语音大语言模型中的实体绑定失败并提出可解释链式思维干预
+10. [DAR: Deontic Reasoning with Agentic Harnesses](/202606/06/2606.05009v1-dar-deontic-reasoning-with-agentic-harnesses)  
+   标签：评分：6.0/10、query:ns-xai
+   evidence：基于显式规则的代理道义推理
+11. [Memory is Reconstructed, Not Retrieved: Graph Memory for LLM Agents](/202606/06/2606.06036v1-memory-is-reconstructed-not-retrieved-graph-memory-for-llm-agents)  
+   标签：评分：6.0/10、query:ns-xai
+   evidence：基于图记忆与主动重建的LLM代理推理
 
 
 <div class="dpr-home-promo-card">

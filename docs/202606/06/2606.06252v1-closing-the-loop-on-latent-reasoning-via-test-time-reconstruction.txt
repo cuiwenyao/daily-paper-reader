@@ -1,0 +1,383 @@
+Title: Closing the Loop on Latent Reasoning via Test-Time Reconstruction
+
+URL Source: https://arxiv.org/pdf/2606.06252v1
+
+Published Time: Fri, 05 Jun 2026 01:17:32 GMT
+
+Number of Pages: 13
+
+Markdown Content:
+# Closing the Loop on Latent Reasoning via Test-Time Reconstruction 
+
+Xiaopeng Yuan 1, Haibo Jin 1, Ye Yu 1, Peng Kuang 1, Lijun Yu 2, Yushun Dong 3, Haohan Wang 1∗
+
+> 1
+
+University of Illinois Urbana-Champaign 
+
+> 2
+
+Google 
+
+> 3
+
+Florida State University 
+
+## Abstract 
+
+Recent work moves intermediate reasoning from natural-language traces into latent or cache-level representations to reduce token overhead and avoid a discrete communication bottleneck. However, this shift also removes a key advantage of textual reasoning: intermediate states are no longer inspectable, making it difficult to determine whether a latent state still preserves the constraints of the original query. As a result, latent reasoning typically operates in an open loop, where a latent state is produced and consumed without an input-anchored fidelity check. We propose ReLAT (Re construction-Guided Latent Reasoning At Test Time), a self-supervised test-time training method that closes this loop using the query itself as the reference. Our key observation is that if a latent state faithfully represents a query, the query should be recoverable from it; if the query cannot be recovered, the latent state has lost task-relevant information. ReLAT operationalizes this principle by constructing a differentiable Question → Latent Thought → Question cycle and optimizing query reconstruction loss through the latent thought before answer generation. This anchors opaque latent computation to the problem specification it is supposed to represent. Across mathematical reasoning, knowledge QA, and code generation benchmarks on the Qwen family, ReLAT consistently improves over single-model inference, text-based collaboration, open-loop latent collaboration, and alternative test-time training objectives. On Qwen3-8B, ReLAT raises AIME 2024 accuracy from 56.7% to 73.3%, a 16.6-point gain over the strongest open-loop latent baseline. 
+
+## 1 Introduction 
+
+Recent work has increasingly explored latent reasoning as an alternative to conventional text-based reasoning. Traditional reasoning paradigms externalize intermediate computation as natural language, including chain-of-thought rationales, self-refinement traces, and text-based communication among agents [Wei et al., 2022b, Madaan et al., 2023, Shinn et al., 2023, Li et al., 2023, Hong et al., 2023]. While such textual traces are readable and externally inspectable, they incur substantial token overhead and force a discrete bottleneck on intermediate computation. A growing line of work therefore moves intermediate reasoning into latent or cache-level representations, including latent collaboration, direct cache-to-cache communication, thought communication, and latent-space inference [Zou et al., 2025, Fu et al., 2025, Zheng et al., 2025, Li et al., 2025], aiming to preserve richer internal representations and enable more efficient continuous computation. This shift, however, removes the one property that made textual reasoning trustworthy: the ability to check, at any intermediate step, whether the reasoning state still corresponds to the original query. A natural-language trace that drops a constraint of the problem is visibly wrong; an opaque latent state 
+
+> ∗Corresponding author: haohanw@illinois.edu Preprint.
+> arXiv:2606.06252v1 [cs.AI] 4 Jun 2026
+
+that drops the same constraint looks no different from a faithful one, and is consumed by downstream computation as if it were reliable [Dziri et al., 2023, Saparov and He, 2022, Peng et al., 2025]. Latent reasoning operates in an open loop: the intermediate state is produced and consumed without any check that it still represents the query it was derived from. To close this loop, we need a way to test whether an opaque latent state still preserves the information needed to specify its original query. The key observation is that the query itself is the natural reference for this test. The information at risk in the latent state is precisely the set of constraints expressed by this particular query, so the query is what the latent state should be measured against. If a latent state is a faithful intermediate representation of a query, then the query should be recoverable from it; if the query cannot be recovered, the latent state has lost task-relevant information regardless of how confident or internally consistent it appears. Existing approaches do not provide this input-anchored fidelity check. This leaves a gap: how can we provide a self-supervised and differentiable fidelity signal that anchors latent states to the original query? We propose ReLAT (Re construction-Guided Latent Reasoning At Test Time), which operationalizes this principle as a closed-loop adaptation procedure. For each test query, ReLAT constructs a differentiable Question → Latent Thought → Question cycle and minimizes the reconstruction loss on the latent thought before any answer is generated. This anchors the opaque latent state back to the problem specification it is supposed to represent, turning latent reasoning from an open-loop pipeline into a closed-loop one whose intermediate state is verified against the only ground truth available at test time. Our contributions are three-fold. • Latent reasoning as a closed-loop problem. We identify the loss of intermediate fidelity as the core cost of moving reasoning from natural language into latent space. We formulate this as an input-fidelity problem: once an opaque latent state is produced, standard latent reasoning pipelines consume it without checking whether it still preserves the query it was derived from. • Reconstruction as the natural fidelity signal. We argue that the original query is the natural reference for testing latent-state fidelity. If a latent state faithfully represents a query, the query should be recoverable from it; if not, the latent state has lost task-relevant information. We instantiate this idea as ReLAT , a differentiable Question → Latent Thought → Question loop optimized at test time before answer generation. • Systematic evaluation. We benchmark ReLAT on mathematical reasoning, knowledge-intensive QA, and code generation, comparing against single-model inference, text-level communication, static latent-state communication, and alternative test-time training objectives. 
+
+## 2 Related Work 
+
+Natural-Language Reasoning and Communication. Early reasoning and multi-agent systems have primarily relied on natural language as the medium for intermediate reasoning and communication. Chain-of-thought prompting, self-reflection, critic-based refinement, debate, and verbal feedback make intermediate reasoning visible and easy to inspect [Wei et al., 2022a, Gou et al., 2024]. Methods such as ReAct [Yao et al., 2022], Reflexion [Shinn et al., 2023], and Self-Refine [Madaan et al., 2023] show that models can improve their outputs by generating, evaluating, and revising textual reasoning traces. Text-based multi-agent systems extend this paradigm by allowing agents to exchange natural-language messages, critiques, or proposals before producing a final answer [Wu et al., 2023, Hong et al., 2024]. However, explicit text communication is token-intensive and discrete, since each intermediate state must be decoded into language before being passed to another reasoning step or agent. This textualization process can create a lossy communication bottleneck, where information in internal representations is compressed, omitted, or distorted. 
+
+Latent Reasoning and Communication. To bypass this textual bottleneck, recent work explores latent or cache-level representations as a more direct medium for intermediate reasoning and commu-nication [Xu et al., 2025a, Hao et al., 2025]. ThoughtComm [Zheng et al., 2025] uses learned latent prefixes to bridge agent states, while Cache-to-Cache [Fu et al., 2025] synchronizes KV representa-tions between heterogeneous models. LatentMAS [Zou et al., 2025] further shows that propagating KV-cache-based thoughts can streamline multi-stage reasoning. These methods reflect a broader shift from textual reasoning traces to latent-space computation. However, most latent methods focus on how to transmit internal states rather than how to verify them. Once a hidden state or cache state is 2Open Loop Latent Collaboration   
+
+> Question Latent Thought Answer
+> Answer Question
+> No Fidelity Check
+> No Self-Supervised Correction
+> No Feedback Loop
+> Latent Thought
+> Reconstruction Question
+> Closed-loop fidelity anchoring
+> Reconstruction Loss
+> ReLAT:Reconstruction-Guided Latent Reasoning At Test Time
+
+Figure 1: Framework Overview. Comparison between Open-Loop Latent Collaboration and our proposed Reconstruction-Guided Latent Reasoning At Test Time framework. generated, it is typically treated as a reliable intermediate state and passed forward. Because these states are opaque, semantic drift may remain undetected and propagate through the reasoning chain. 
+
+Test-Time Training. The opacity of latent reasoning raises not only a verification problem, but also an adaptation problem: if a latent state drifts from the original query constraints, the model needs a way to correct this failure during inference without ground-truth answers. Test-time training provides a natural mechanism for such instance-level correction by adapting model behavior to each input using self-supervised or auxiliary objectives. Existing TTT methods often optimize entropy minimization, perplexity minimization, consistency regularization, feedback-based refinement, or query-specific parameter updates. For example, Anti-CF [Su et al., 2023] and SYTTA [Xu et al., 2025b] encourage confident predictions under distribution shift, while COME [Zhang et al., 2024] introduces conservative constraints to reduce collapse. Recent methods such as QTTT [Bansal et al., 2025] study efficient test-time updates through query matrices, and related work explores active data selection or latent optimization for long-context adaptation [Hübotter et al., 2024]. However, these objectives mainly target confidence, consistency, or context adaptation, rather than providing a structural check that latent thoughts preserve the original query constraints. 
+
+Gap and Motivation. Together, these works leave a clear gap. Natural-language reasoning is visible but token-intensive. Latent reasoning is efficient but opaque and often open-loop. Test-time training enables instance-specific adaptation, but existing objectives do not directly verify the fidelity of latent reasoning states. ReLAT addresses this gap by introducing a differentiable Question →
+
+Latent Thought → Question cycle as a self-supervised fidelity signal. The key intuition is that a useful latent thought should preserve enough information to recover the core constraints of the original question. This reconstruction criterion is not sufficient for correct reasoning, but it provides a necessary structural anchor for filtering and correcting invalid latent states. By optimizing this signal at test time, ReLAT turns open-loop latent reasoning into a closed-loop fidelity-checking process. 
+
+## 3 Preliminary 
+
+3.1 Latent-State Conditioning 
+
+Latent reasoning methods replace explicit natural-language intermediate traces with continuous intermediate states. Given an input query Q, an upstream computation produces a latent thought sequence E = ( e1, e 2, . . . , e K ), where each ei ∈ Rd. A downstream computation then conditions on both the original query and the latent state: 
+
+E = gθ (Q), z = fθ ([ Q; E]) , (1) where [·; ·] denotes concatenation along the sequence dimension. We refer to this pattern as open-loop latent conditioning . Once E is produced, the downstream computation consumes it as an intermediate reasoning state without checking whether its content 3still matches the query that produced it. This is different from ordinary hidden representations used inside a single forward pass: in latent reasoning, E is explicitly reused as a conditioning signal for later computation, and therefore any missing or distorted constraint can influence the subsequent reasoning trajectory. The presence of the original query Q in the downstream input does not remove this problem. Because 
+
+fθ conditions on both Q and E, the final output may appear plausible even when the latent state only partially preserves the task specification. In this case, degradation of E is not directly observable from the latent state itself and may only surface as an downstream reasoning error. We say that E
+
+is faithful to Q if it preserves the task-specific constraints expressed in Q. Since different queries specify different constraints, latent-state fidelity is inherently query-specific. 
+
+3.2 Test-Time Training (TTT) 
+
+A direct way to implement such per-query refinement is test-time training, which adapts a model to each test instance through temporary parameter updates without ground-truth labels. Given a test query Q, TTT minimizes an unsupervised auxiliary loss Laux before producing the final answer. The process consists of two stages: 1. Optimization: For a given query Q, temporary updates ∆θ are computed by minimizing the auxiliary loss: 
+
+∆θ∗ ≈ arg min  
+
+> ∆θ
+
+Laux (Q; θ + ∆ θ). (2) 2. Inference: The final prediction y is generated using the adapted parameters θ′ = θ + ∆ θ∗. After inference, the temporary updates are discarded, and the model reverts to the original parameters θ
+
+for the next instance. In our setting, the temporary updates are restricted to Low-Rank Adapters (LoRA) for efficiency. For a weight matrix W0, the adapted weight is parameterized as 
+
+W = W0 + ∆ W, ∆W = BA, (3) where A and B are low-rank matrices while W0 remains frozen. TTT itself is a general framework: what property is enforced during adaptation depends on the choice of Laux . Existing TTT objectives such as entropy minimization, confidence-based adaptation, or local consistency target generic prediction stability rather than latent-state fidelity. 
+
+## 4 Reconstruction-Guided Latent Reasoning at Test Time 
+
+4.1 Problem Formulation 
+
+Following the open-loop fidelity problem formalized above, ReLAT instantiates the required fidelity signal through input reconstruction. Given a test query Q, let Eϕ(Q) denote the latent thought sequence produced under temporary LoRA parameters ϕ. We say that Eϕ(Q) is faithful to Q if it preserves the query-specific constraints expressed in Q.The faithfulness of Eϕ(Q) is not directly observable at test time, since the constraints encoded in Q
+
+are not separately labeled. ReLAT therefore uses Q itself as an observable proxy: because Q specifies the task at hand, the ability to reconstruct Q from Eϕ(Q) provides a self-supervised signal for whether the latent state retains the query-specific constraints needed to support the task. This reconstruction criterion serves as an input-anchored structural check rather than a certificate of correctness. This motivates the reconstruction loop 
+
+Q → E ϕ(Q) → ˆQ, (4) which closes the open-loop conditioning of Section 3.1 by routing a feedback signal from Eϕ(Q)
+
+back to the original query. 
+
+4.2 Differentiable Thought Representation 
+
+To enable gradient-based optimization during test-time training, we replace discrete token se-lection with a continuous relaxation. Specifically, we represent the latent thought sequence as 4E = (ˆ e1, . . . , ˆeK ), where each ˆej ∈ Rd is computed as the expected token embedding under the model’s vocabulary distribution. Given the logits ℓj ∈ RV at latent step j, we first compute a softened vocabulary distribution: 
+
+αj = softmax( ℓj /τ ), (5) where τ is a temperature hyperparameter. The latent thought vector is then obtained as 
+
+ˆej = α⊤ 
+
+> j
+
+Wemb , (6) where Wemb ∈ RV ×d denotes the model’s token embedding matrix. This relaxation keeps each latent vector tied to the model’s embedding space while preserving a differentiable path from the ReLAT reconstruction loss to the latent thought generation process. 
+
+4.3 ReLAT: Reconstruction-Guided Latent Reasoning At Test Time Algorithm 1 ReLAT: Reconstruction-Guided La-tent Reasoning At Test Time                                                                                 
+
+> Require: Query Q, model Mθ, LoRA parameters ϕ, TTT steps N, learning rate η, latent length K, temperature τ.1: ϕ0←ϕ
+> 2: for n= 1 to Ndo
+> 3: // Step 1: Differentiable latent thought generation
+> 4: EQ←Embed (Q)
+> 5: Initialize E=∅, u 0=EQ
+> 6: for j= 1 to Kdo
+> 7: ℓj←Mθ,ϕ n−1(uj−1)
+> 8: αj←Softmax (ℓj/τ )
+> 9: ˆej←α⊤
+> jWemb
+> 10: E ← E ⊕ ˆej,uj←ˆej
+> 11: end for
+> 12: // Step 2: Question reconstruction
+> 13: ˆQ←Mθ,ϕ n−1([ E])
+> 14: // Step 3: LoRA-only test-time update
+> 15: LReLAT =MaskedCE ( ˆQ, Q )
+> 16: ϕn←AdamW (ϕn−1,∇ϕLReLAT , η )
+> 17: end for
+> 18: Final Inference: y←Generate (Mθ,ϕ N, Q )
+> 19: ϕ←ϕ0
+> 20: return y
+
+Building on the differentiable latent represen-tation introduced above, we propose ReLAT 
+
+(Re construction-Guided Latent Reasoning At
+
+Test Time), a self-supervised test-time training procedure for latent reasoning. ReLAT uses a single backbone model with temporary LoRA adapters to construct a differentiable Question 
+
+→ Latent Thought → Question loop. The loop is used as an auxiliary adaptation signal before final answer generation. Given an input question Q = ( q1, q 2, . . . , q m),ReLAT first produces a continuous latent thought sequence under the current LoRA pa-rameters: 
+
+Eϕ(Q) = (ˆ e1, ˆe2, . . . , ˆeK ), (7) where each latent vector ˆej is obtained through the soft embedding relaxation defined above. During training, these latent vectors are not de-coded into discrete text or detached from the computation graph, so the reconstruction objec-tive can backpropagate through Eϕ(Q) into the LoRA parameters that produced it. ReLAT then asks the same model to reconstruct the original question from the latent thought sequence. The reconstruction distribution is defined as 
+
+P (Q | E ; θ, ϕ ) = 
+
+> m
+
+Y
+
+> k=1
+
+P (qk | E , q <k ; θ, ϕ ), (8) where θ denotes the frozen backbone parameters and ϕ denotes the temporary LoRA parameters updated during test-time training. The reconstruction loss is 
+
+LReLAT = − X
+
+> k∈M (Q)
+
+log P (qk | E , q <k ; θ, ϕ ), (9) where M(Q) is a loss mask that selects the original question tokens and excludes template tokens, padding, and other formatting artifacts. This objective encourages the latent thought sequence to retain the problem-specific constraints needed to reconstruct the input. During test-time training, the backbone model remains frozen and only the LoRA parameters are updated: 
+
+ϕ∗ ≈ arg min  
+
+> ϕ
+
+LReLAT (Q; θ, ϕ ). (10) After N optimization steps, the final answer is generated from the original question using the adapted model: 
+
+y = Generate( Mθ,ϕ ∗ , Q ). (11) 5The reconstructed question is used only to define the training loss; the final answer is not generated from ˆQ. After inference, the LoRA parameters are reset before processing the next test example, ensuring instance-level training without carrying information across samples. Thus, ReLAT uses reconstruction as an adaptation signal rather than as a substitute for solving the task. The procedure turns open-loop latent reasoning into a closed-loop test-time process that anchors latent states to the current input specification before final answer generation. 
+
+## 5 Experiments 
+
+5.1 Setup Evaluation Datasets. We benchmark our approach across three categories: (1) Mathematical reasoning , using AIME 2024/2025[math-ai, 2025, Maxwell-Jia, 2024] for competition-level math problems; (2) Code generation , using MBPP+[Liu et al., 2023] with augmented test cases to ensure functional correctness; and (3) Knowledge-based Q&A , featuring GPQA-Diamond[Rein et al., 2024] for expert-level scientific reasoning and MedQA[Jin et al., 2021] for professional medical knowledge. 
+
+LLMs and Baselines. We evaluate ReLAT on four backbone models: Qwen3-4B, Qwen3-8B, Qwen3-14B[Yang et al., 2025], and DeepSeek-R1-Distill-Qwen-7B[DeepSeek-AI, 2025]. These models provide a range of backbone settings with different scales and reasoning capabilities. We compare ReLAT with three types of baselines: (1) Single , standard single-model inference; (2) 
+
+TextMAS , a text-level communication baseline where intermediate reasoning is exchanged through discrete natural-language messages; and (3) LatentMAS [Zou et al., 2025], an open-loop latent communication baseline where continuous KV-cache states are passed forward and treated as reliable once produced. This comparison evaluates whether ReLAT’s reconstruction-guided test-time training provides gains beyond standard inference, explicit text-mediated communication, and open-loop latent-state communication. 
+
+Implementation Details. We implement ReLAT on all evaluated backbone models, including Qwen3-4B, Qwen3-8B, Qwen3-14B, and DeepSeek-R1-Distill-Qwen-7B. All experiments are conducted on NVIDIA L40S GPUs. During test-time training, the backbone model parameters are frozen and only temporary LoRA parameters are updated. In the differentiable latent loop, the length of the latent thought sequence E is fixed at K = 16 . We use a Softmax-based continuous relaxation mechanism to maintain gradient flow through latent thought generation. For the test-time training phase, the learning rate η is selected from [1 × 10 −5, 5 × 10 −5], and we use AdamW to perform N = 16 optimization steps per instance. To accommodate the varying reasoning complexity across benchmarks, we set the maximum generation length to 20,000 tokens for AIME 2024/2025, 8,192 tokens for GPQA-Diamond, and 4,192 tokens for MedQA and MBPP+. The same task prompts and decoding settings are used across methods for a fair comparison. In the final generation stage, greedy decoding is applied to produce the answer. After each test instance, all LoRA parameters are reset to their initial values to preserve independence across examples and prevent cross-instance parameter contamination. 
+
+5.2 Main Results 
+
+Table 1 summarizes the main evaluation results. We compare ReLAT with Single, TextMAS, and LatentMAS across mathematical reasoning, code generation, and knowledge-based QA. Overall, ReLAT achieves the best average accuracy across all evaluated backbone models and improves per-formance on most individual benchmarks. These results suggest that reconstruction-guided test-time training provides a useful signal beyond standard inference, explicit text-mediated communication, and open-loop latent-state communication. On mathematical reasoning, ReLAT brings clear gains on the competition-level AIME 2024/2025 benchmarks. For example, with Qwen3-8B, ReLAT improves AIME 2024 accuracy from 56.7% under LatentMAS to 73.3%, and improves AIME 2025 accuracy from 53.3% to 63.3%. These gains are consistent with our motivation that open-loop latent states may lose query-specific constraints in difficult multi-step reasoning problems, while the reconstruction-guided objective provides an input-anchored training signal. 6Table 1: Main Results (Accuracy). Comparison across Qwen3 series. Improvements are reported relative to the Single baseline. The best results are highlighted in bold .
+
+Model Method AIME 2024 AIME 2025 MedQA MBPP+ GPQA D. Avg. Qwen3 -4B 
+
+Single 43.3% 43.3% 47.7% 63.5% 36.3% 46.8% TextMAS 46.7% 43.3% 65.3% 69.8% 40.4% 53.1%           
+
+> (+ 3.4% ↑)(+0.0%) (+ 17 .6% ↑)(+ 6.3% ↑)(+ 4.1% ↑)(+ 6.3% ↑)
+
+LatentMAS 56.7% 50.0% 66.3% 73.5% 41.9% 57.7%            
+
+> (+ 13 .4% ↑)(+ 6.7% ↑)(+ 18 .6% ↑)(+ 10 .0% ↑)(+ 5.6% ↑)(+ 10 .9% ↑)
+
+Ours 63.3% 56.7% 67.8% 79.9% 42.4% 62.0%            
+
+> (+ 20 .0% ↑)(+ 13 .4% ↑)(+ 20 .1% ↑)(+ 16 .4% ↑)(+ 6.1% ↑)(+ 15 .2% ↑)
+
+Qwen3 -8B 
+
+Single 50.0% 46.7% 53.0% 64.8% 39.9% 50.9% TextMAS 53.3% 53.3% 75.0% 69.5% 43.4% 58.9%            
+
+> (+ 3.3% ↑)(+ 6.6% ↑)(+ 22 .0% ↑)(+ 4.7% ↑)(+ 3.5% ↑)(+ 8.0% ↑)
+
+LatentMAS 56.7% 53.3% 75.3% 74.6% 45.5% 61.1%            
+
+> (+ 6.7% ↑)(+ 6.6% ↑)(+ 22 .3% ↑)(+ 9.8% ↑)(+ 5.6% ↑)(+ 10 .2% ↑)
+
+Ours 73.3% 63.3% 74.0% 76.7% 48.0% 67.1%            
+
+> (+ 23 .3% ↑)(+ 16 .6% ↑)(+ 21 .0% ↑)(+ 11 .9% ↑)(+ 8.1% ↑)(+ 16 .2% ↑)
+
+Qwen3 -14B 
+
+Single 63.3% 56.7% 64.7% 68.5% 48.5% 60.3% TextMAS 63.3% 60.0% 80.3% 72.8% 51.5% 65.6%           
+
+> (+0.0%) (+ 3.3% ↑)(+ 15 .6% ↑)(+ 4.3% ↑)(+ 3.0% ↑)(+ 5.2% ↑)
+
+LatentMAS 66.7% 63.3% 80.7% 75.7% 52.0% 67.7%            
+
+> (+ 3.4% ↑)(+ 6.6% ↑)(+ 16 .0% ↑)(+ 7.2% ↑)(+ 3.5% ↑)(+ 7.3% ↑)
+
+Ours 70.0% 66.7% 80.5% 83.3% 56.5% 71.4%            
+
+> (+ 6.7% ↑)(+ 10 .0% ↑)(+ 15 .8% ↑)(+ 14 .8% ↑)(+ 8.0% ↑)(+ 11 .1% ↑)
+
+DeepSeek -R1 -Distill -Qwen-7B 
+
+Single 46.7% 30.0% 38.3% 61.6% 27.7% 40.9% TextMAS 46.7% 33.3% 36.7% 64.3 % 35.3% 43.3%           
+
+> (+0.0%) (+ 3.3% ↑)(−1.6% ↓)(+ 2.7% ↑)(+ 7.6% ↑)(+ 2.4% ↑)
+
+LatentMAS 30.0% 16.7% 37.8% 60.3% 29.3% 34.8%            
+
+> (−16 .7% ↓)(−13 .3% ↓)(−0.5% ↓)(−1.3% ↓)(+ 1.6% ↑)(−6.1% ↓)
+
+Ours 56.7% 40.0% 40.5% 63.2% 37.9% 47.7%            
+
+> (+ 10 .0% ↑)(+ 10 .0% ↑)(+ 2.2% ↑)(+ 1.6% ↑)(+ 10 .2% ↑)(+ 6.8% ↑)
+
+On code generation, ReLAT also improves performance on MBPP+. At the Qwen3-4B scale, ReLAT achieves 79.9%, outperforming the same-scale LatentMAS baseline at 73.5%. At the Qwen3-14B scale, ReLAT further improves MBPP+ accuracy from 75.7% under LatentMAS to 83.3%. This result indicates that test-time reconstruction can provide useful instance-specific training for tasks requiring precise functional alignment. On knowledge-based QA, ReLAT shows clear gains on GPQA-Diamond and comparable results to LatentMAS on MedQA. On GPQA-Diamond, ReLAT achieves the best result across all Qwen3 scales, reaching 56.5% with Qwen3-14B. On MedQA, ReLAT performs comparably to LatentMAS across model scales, while both methods improve substantially over Single. Beyond the Qwen3 family, ReLAT also improves performance on DeepSeek-R1-Distill-Qwen-7B, achieving the best average accuracy among all four methods. This suggests that reconstruction-guided test-time training generalizes across backbone families with different reasoning characteristics, including reasoning-distilled models. Together, these results show that adding a reconstruction-guided closed loop to latent reasoning improves average performance across diverse tasks and backbone settings. Rather than simply transmitting latent states as reliable once produced, ReLAT provides an instance-level training signal that anchors latent reasoning to the original problem before final answer generation. 7(a) Alternative TTT objectives. Method AIME25 MBPP+ GPQA-D. 
+
+No TTT 46.7% 64.8% 39.9% COME 53.3% 75.0% 45.5% QTTT 50.0% 76.2% 47.0% 
+
+ReLAT 63.3% 76.7% 48.0% (b) Direct reconstruction TTT. Method AIME25 MedQA GPQA-D. 
+
+Qwen3-4B+TTT 43.3% 56.7% 31.8% Qwen3-4B+ Ours 56.7% 67.8% 42.4% 
+
+Qwen3-8B+TTT 50.0% 67.2% 40.4% Qwen3-8B+ Ours 63.3% 74.0% 48.0% 
+
+Table 2: Panel (a) compares ReLAT with alternative TTT objectives under the same backbone setting. Panel (b) compares ReLAT with a compute-matched direct reconstruction TTT baseline that reconstructs the question without routing the reconstruction loss through the latent thought sequence. 
+
+5.3 Comparison with Test-Time Training Method 
+
+To examine whether ReLAT’s gains come from the general TTT paradigm or from the proposed reconstruction-guided latent fidelity signal, we compare LReLAT with several alternative test-time op-timization objectives. We first compare against two representative TTT baselines: (1) COME Zhang et al. [2024], an entropy-based test-time training objective that conservatively minimizes prediction uncertainty; and (2) QTTT Bansal et al. [2025], a query-level test-time training strategy that updates model states using local contextual information. We further include a compute-matched Direct Reconstruction TTT baseline, which uses the same temporary LoRA update budget to reconstruct the current test question, but does not construct the differentiable Question → Latent Thought →
+
+Question cycle. Additional implementation details are provided in Appendix C. As shown in Table 2, ReLAT outperforms COME and QTTT on average, suggesting that the choice of TTT objective matters. Entropy-based or context-based objectives can improve over the No-TTT baseline, but they do not directly check whether the intermediate latent state preserves the original problem constraints. ReLAT instead uses reconstruction as an input-anchored fidelity signal, encouraging the latent thought sequence Eϕ(Q) to retain the query-specific constraints needed to recover the original query. The comparison with Direct Reconstruction TTT further shows that ReLAT’s gains are not fully explained by question reconstruction alone. Direct Reconstruction TTT can improve performance, but it does not place the reconstruction constraint on the latent thought sequence itself. In contrast, ReLAT routes reconstruction through Eϕ(Q), making the latent state the object being checked and refined during test-time training. This does not guarantee correctness, but it provides a necessary structural check before final answer generation. These results support our central claim that test-time reconstruction is most effective when used as a closed-loop mechanism for latent-state fidelity, rather than as a generic TTT objective. 
+
+5.4 Efficiency Comparison: Latent Optimization vs. Iterative Refinement Self-Refine ReLAT (Ours)  
+
+> 40
+> 45
+> 50
+> 55
+> 60
+> 65
+> 70
+> Accuracy (%)
+> 53.33%
+> 63.33%
+> Accuracy (%) Avg Tokens/Q
+> 0
+> 10000
+> 20000
+> 30000
+> 40000
+> 50000
+> 60000
+> 70000
+> 80000
+> Avg Tokens / Question 64381.37
+> 10280.22
+> Comparison: Accuracy vs. Computation Cost
+
+Figure 2: Efficiency on AIME 2025. Text-based iterative reasoning methods often incur sub-stantial token-level overhead because each refinement step requires generating explicit natural-language feedback and revised reasoning traces. To quantify this cost, we com-pare ReLAT with Self-Refine [Madaan et al., 2023], a representative iterative verbal refinement baseline. We use Self-Refine as a proxy for text-mediated refinement methods rather than as a strict multi-agent baseline, since its generate-feedback-revise loop captures the main source of token overhead in verbal iterative reasoning. As illustrated in Figure 2, even a simplified comparison with Self-Refine restricted to only three iterations reveals a stark efficiency gap on AIME 2025: • Token Explosion : Self-Refine requires an average of 64,381.37 tokens per question to achieve 
+
+53.33% accuracy. • ReLAT Efficiency : In contrast, ReLAT achieves a significantly higher accuracy of 63.33% using only 10,280.22 tokens .8This corresponds to an 84.0% reduction in token usage under our token-counting protocol, while improving accuracy by 10 percentage points . These results suggest that ReLAT reduces the token-level communication overhead associated with iterative verbal refinement. Unlike text-based refinement methods, which repeatedly externalize intermediate reasoning in natural language, ReLAT uses a reconstruction-guided test-time training signal to anchor the model to the original problem constraints before final answer generation. 
+
+5.5 Ablation study 
+
+To further analyze the characteristics of our framework, we conducted a series of ablation exper-iments on the representative Qwen3-8B model. These experiments aim to identify how different hyperparameter configurations—including latent thought length and learning rate—affect the final reasoning accuracy on competition-level math benchmarks.                     
+
+> (a) Learning rate
+> ηAIME 24 AIME 25 1e-4 53.30% 53.33% 5e-5 60.00% 63.33% 2e-5 73.33% 63.33% 1e-5 63.33% 60.00%
+> (b) Thought token length
+> KAIME 24 AIME 25 466.67% 56.67% 863.33% 63.33% 16 73.33% 63.33% 32 73.33% 63.33%
+
+Table 3: Hyperparameter ablations on AIME 2024 and AIME 2025. η denotes the test-time adaptation learning rate, and K denotes the number of latent thought tokens used during latent reasoning. 
+
+Impact of Learning Rate. We first evaluate the sensitivity of the test-time training process to the learning rate η. As shown in Table 3, the model’s performance on AIME 2024 and AIME 2025 varies significantly with the step size. A relatively high learning rate ( 1e−4) causes the performance to drop to 53.30% on AIME 2024, suggesting that overly aggressive updates can distort the model’s internal representations during the short inference window. Conversely, while a very small learning rate ( 1e−5) maintains stability, the improvement is limited due to insufficient adaptation within the given steps. The results indicate that η = 2 e−5 provides the most effective balance for anchoring latent thoughts to the problem constraints. 
+
+Impact of Thought Token Length. The capacity of the latent bottleneck, defined by the number of thought tokens K, is crucial for balancing information compression and reasoning density. Table 3 compares the results for K ∈ { 4, 8, 16 , 32 }. We observe that a bottleneck of K = 4 is too restrictive to capture all necessary constraints of complex problems, leading to suboptimal reconstruction. However, increasing the length to K = 32 does not further improve performance, suggesting that 
+
+K = 16 already provides sufficient capacity to preserve the task-relevant constraints for these benchmarks. Considering the additional computational cost introduced by longer latent sequences, we use K = 16 as the default thought length. 
+
+## 6 Conclusion 
+
+We propose ReLAT (Re construction-Guided Latent Reasoning At Test Time), a self-supervised test-time training framework for improving latent-state fidelity in latent reasoning. ReLAT addresses the open-loop nature of existing latent reasoning methods by constructing a differentiable Question 
+
+→ Latent Thought → Question reconstruction loop. By optimizing this reconstruction objective at test time, ReLAT provides an input-anchored signal that encourages latent thoughts to preserve the task-specific constraints of the original query before final answer generation. Across mathematical reasoning, code generation, and knowledge-intensive question answering benchmarks, ReLAT consistently improves over single-model inference, text-based communication, open-loop latent-state communication, and alternative test-time training objectives. These results suggest that reconstruction-guided test-time training is an effective mechanism for closing the loop on opaque latent reasoning states. While reconstruction is not sufficient to guarantee correct reasoning, it provides a useful structural fidelity signal for making latent reasoning more reliable, scalable, and grounded in the original problem specification. 9References 
+
+Rachit Bansal, Aston Zhang, Rishabh Tiwari, Lovish Madaan, Sai Surya Duvvuri, Devvrit Kha-tri, David Brandfonbrener, David Alvarez-Melis, Prajjwal Bhargava, Mihir Sanjay Kale, et al. Let’s (not) just put things in context: Test-time training for long-context llms. arXiv preprint arXiv:2512.13898 , 2025. DeepSeek-AI. Deepseek-r1: Incentivizing reasoning capability in llms via reinforcement learning, 2025. URL https://arxiv.org/abs/2501.12948 .Nouha Dziri, Ximing Lu, Melanie Sclar, Xiang Lorraine Li, Liwei Jiang, Bill Yuchen Lin, Sean Welleck, Peter West, Chandra Bhagavatula, Ronan Le Bras, et al. Faith and fate: Limits of transformers on compositionality. Advances in Neural Information Processing Systems , 36:70293– 70332, 2023. Tianyu Fu, Zihan Min, Hanling Zhang, Jichao Yan, Guohao Dai, Wanli Ouyang, and Yu Wang. Cache-to-cache: Direct semantic communication between large language models. arXiv preprint arXiv:2510.03215 , 2025. Zhibin Gou, Zhihong Shao, Yeyun Gong, Yelong Shen, Yujiu Yang, Nan Duan, and Weizhu Chen. Critic: Large language models can self-correct with tool-interactive critiquing, 2024. URL 
+
+https://arxiv.org/abs/2305.11738 .Shibo Hao, Sainbayar Sukhbaatar, DiJia Su, Xian Li, Zhiting Hu, Jason Weston, and Yuandong Tian. Training large language models to reason in a continuous latent space, 2025. URL https: //arxiv.org/abs/2412.06769 .Sirui Hong, Mingchen Zhuge, Jonathan Chen, Xiawu Zheng, Yuheng Cheng, Jinlin Wang, Ceyao Zhang, Zili Wang, Steven Ka Shing Yau, Zijuan Lin, et al. Metagpt: Meta programming for a multi-agent collaborative framework. In The twelfth international conference on learning representations ,2023. Sirui Hong, Mingchen Zhuge, Jiaqi Chen, Xiawu Zheng, Yuheng Cheng, Ceyao Zhang, Jinlin Wang, Zili Wang, Steven Ka Shing Yau, Zijuan Lin, Liyang Zhou, Chenyu Ran, Lingfeng Xiao, Chenglin Wu, and Jürgen Schmidhuber. Metagpt: Meta programming for a multi-agent collaborative framework, 2024. URL https://arxiv.org/abs/2308.00352 .Jonas Hübotter, Sascha Bongni, Ido Hakimi, and Andreas Krause. Efficiently learning at test-time: Active fine-tuning of llms. arXiv preprint arXiv:2410.08020 , 2024. Di Jin, Eileen Pan, Nassim Oufattole, Wei-Hung Weng, Hanyi Fang, and Peter Szolovits. What disease does this patient have? a large-scale open domain question answering dataset from medical exams. Applied Sciences , 11(14):6421, 2021. Guohao Li, Hasan Hammoud, Hani Itani, Dmitrii Khizbullin, and Bernard Ghanem. Camel: Com-municative agents for" mind" exploration of large language model society. Advances in Neural Information Processing Systems , 36:51991–52008, 2023. Hengli Li, Chenxi Li, Tong Wu, Xuekai Zhu, Yuxuan Wang, Zhaoxin Yu, Eric Hanchen Jiang, Song-Chun Zhu, Zixia Jia, Ying Nian Wu, et al. Seek in the dark: Reasoning via test-time instance-level policy gradient in latent space. arXiv preprint arXiv:2505.13308 , 2025. Jiawei Liu, Chunqiu Steven Xia, Yuyao Wang, and Lingming Zhang. Is your code generated by chatgpt really correct? rigorous evaluation of large language models for code generation. Advances in Neural Information Processing Systems , 36:21558–21572, 2023. Aman Madaan, Niket Tandon, Prakhar Gupta, Skyler Hallinan, Luyu Gao, Sarah Wiegreffe, Uri Alon, Nouha Dziri, Shrimai Prabhumoye, Yiming Yang, et al. Self-refine: Iterative refinement with self-feedback. Advances in Neural Information Processing Systems , 36:46534–46594, 2023. math-ai. Aime 2025 dataset. 2025. URL https://huggingface.co/datasets/math-ai/ aime25 .10 Maxwell-Jia. Aime 2024 dataset. 2024. URL https://huggingface.co/datasets/ Maxwell-Jia/AIME_2024 .Jingyu Peng, Maolin Wang, Xiangyu Zhao, Kai Zhang, Wanyu Wang, Pengyue Jia, Qidong Liu, Ruocheng Guo, and Qi Liu. Stepwise reasoning disruption attack of llms. In Proceedings of the 63rd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) ,pages 5040–5058, 2025. David Rein, Betty Li Hou, Asa Cooper Stickland, Jackson Petty, Richard Yuanzhe Pang, Julien Dirani, Julian Michael, and Samuel R Bowman. Gpqa: A graduate-level google-proof q&a benchmark. In 
+
+First Conference on Language Modeling , 2024. Abulhair Saparov and He He. Language models are greedy reasoners: A systematic formal analysis of chain-of-thought. arXiv preprint arXiv:2210.01240 , 2022. Noah Shinn, Federico Cassano, Ashwin Gopinath, Karthik Narasimhan, and Shunyu Yao. Reflexion: Language agents with verbal reinforcement learning. Advances in Neural Information Processing Systems , 36:8634–8652, 2023. Yi Su, Yixin Ji, Juntao Li, Hai Ye, and Min Zhang. Beware of model collapse! fast and stable test-time adaptation for robust question answering. In Proceedings of the 2023 Conference on Empirical Methods in Natural Language Processing , pages 12998–13011, 2023. Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten Bosma, brian ichter, Fei Xia, Ed Chi, Quoc V Le, and Denny Zhou. Chain-of-thought prompting elicits reasoning in large language models. In S. Koyejo, S. Mohamed, A. Agarwal, D. Belgrave, K. Cho, and A. Oh, editors, Advances in Neural Information Processing Systems , volume 35, pages 24824–24837. Curran Associates, Inc., 2022a. URL https://proceedings.neurips.cc/paper_files/paper/2022/file/ 9d5609613524ecf4f15af0f7b31abca4-Paper-Conference.pdf .Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten Bosma, Fei Xia, Ed Chi, Quoc V Le, Denny Zhou, et al. Chain-of-thought prompting elicits reasoning in large language models. Advances in neural information processing systems , 35:24824–24837, 2022b. Qingyun Wu, Gagan Bansal, Jieyu Zhang, Yiran Wu, Beibin Li, Erkang Zhu, Li Jiang, Xiaoyun Zhang, Shaokun Zhang, Jiale Liu, Ahmed Hassan Awadallah, Ryen W White, Doug Burger, and Chi Wang. Autogen: Enabling next-gen llm applications via multi-agent conversation, 2023. URL 
+
+https://arxiv.org/abs/2308.08155 .Yige Xu, Xu Guo, Zhiwei Zeng, and Chunyan Miao. Softcot: Soft chain-of-thought for efficient reasoning with llms, 2025a. URL https://arxiv.org/abs/2502.12134 .Yijie Xu, Huizai Yao, Zhiyu Guo, Weiyu Guo, Pengteng Li, Aiwei Liu, Xuming Hu, and Hui Xiong. You only need 4 extra tokens: Synergistic test-time adaptation for llms. arXiv preprint arXiv:2510.10223 , 2025b. An Yang, Anfeng Li, Baosong Yang, Beichen Zhang, Binyuan Hui, Bo Zheng, Bowen Yu, Chang Gao, Chengen Huang, Chenxu Lv, et al. Qwen3 technical report. arXiv preprint arXiv:2505.09388 ,2025. Shunyu Yao, Jeffrey Zhao, Dian Yu, Nan Du, Izhak Shafran, Karthik R Narasimhan, and Yuan Cao. React: Synergizing reasoning and acting in language models. In The eleventh international conference on learning representations , 2022. Qingyang Zhang, Yatao Bian, Xinke Kong, Peilin Zhao, and Changqing Zhang. Come: Test-time adaption by conservatively minimizing entropy. arXiv preprint arXiv:2410.10894 , 2024. Yujia Zheng, Zhuokai Zhao, Zijian Li, Yaqi Xie, Mingze Gao, Lizhu Zhang, and Kun Zhang. Thought communication in multiagent collaboration. arXiv preprint arXiv:2510.20733 , 2025. Jiaru Zou, Xiyuan Yang, Ruizhong Qiu, Gaotang Li, Katherine Tieu, Pan Lu, Ke Shen, Hanghang Tong, Yejin Choi, Jingrui He, et al. Latent collaboration in multi-agent systems. arXiv preprint arXiv:2511.20639 , 2025. 11 A Prompt Templates and Task Formatting 
+
+In this section, we present the task instruction templates used in our experiments. These prompts are used for final answer generation across all methods. For ReLAT, the reconstruction objective is applied to the original question tokens while excluding template tokens and formatting artifacts. 
+
+Instruction: Mathematics (AIME) 
+
+Please reason step by step, and put your final answer within \boxed{} .
+
+Instruction: Multiple-Choice Questions (GPQA / MedQA) 
+
+Reason through your answer step-by-step. Then, based on your reasoning, provide the single most likely answer choice. Answer in the format: “The correct answer is (insert answer here).” 
+
+Instruction: Code Completion ( MBPP+) 
+
+Please complete the function above. Wrap your code in “‘python ... “‘ .
+
+## B Case Study: Reasoning Trace Comparison 
+
+To illustrate how ReLAT can encourage latent states to preserve query-specific constraints, we present a qualitative comparison on a trigonometry phase-shift problem. 
+
+Case 1: Vanilla Qwen3-8B (Open-Loop) 
+
+Problem: Find the smallest positive constant c for y = a sin( bx + c) + d given the graph... 
+
+Reasoning Trace: 
+
+1. Read parameters from code: a = 2 , b = 3 , c = π, d = 1 .2. Wait—the problem asks for the smallest c. Let me explore periodicity. 3. Sine is periodic: sin( θ) = sin( θ + 2 πk ).4. Let c = π + 2 πk . If k = −1, c = −π (Not positive). 5. [Drift Begins] Maybe I can use sin( θ) = sin( π − θ)?6. Let’s check 3x + c = π − (3 x + π). This gives 6x + c = 0 .7. This doesn’t work for all x. Let me re-calculate the phase shift −c/b ... 8. [Redundant Loop] Let me re-verify sin(3 x − π) = − sin(3 x).9. sin(3 x − π) = sin(3 x) cos( π) − cos(3 x) sin( π) = − sin(3 x)... 10. [Result] After multiple redundant checks, c = π.
+
+Case 2: Qwen3-8B with ReLAT (Ours) 
+
+Reasoning Trace (Optimized by Reconstruction-Guided Test-Time Training): 
+
+1. Parameters identified: a = 2 , b = 3 , c = π, d = 1 .2. Goal: Smallest positive c such that y remains identical. 3. [ReLAT Anchor] The reconstruction loop Q → H → ˆQ penalizes any H that deviates from the constraint c > 0 and graph identity. 4. Directly check periodicity: c ∈ { π + 2 πk | k ∈ Z}.5. Evaluate boundary: k = 0 ⇒ c = π; k = −1 ⇒ c = −π (Violates c > 0). 6. [Early Exit] Since c = π is the first positive value in the sequence and the gradient flow from Lcycle confirms no loss of information, the search terminates. 7. Result: π .12 Method Wall-clock / sample Peak memory Memory overhead          
+
+> Vanilla 434.34 s 17,396 MB –Direct Reconstruction TTT 836.69 s 17,898 MB +2.9% ReLAT 1167.55 s 18,624 MB +7.1%
+
+Table 4: Wall-clock time and peak GPU memory on AIME 2024 with Qwen3-8B using NVIDIA L40S GPUs. 
+
+## C Direct Reconstruction TTT Baseline 
+
+The Direct Reconstruction TTT baseline uses the same backbone, LoRA configuration, optimizer, learning rate range, and number of test-time update steps as ReLAT. The difference is that the baseline reconstructs the current query directly without routing the reconstruction loss through a latent thought sequence. Thus, it tests whether ReLAT’s gains are explained by generic input reconstruction during test-time training. Formally, Direct Reconstruction TTT optimizes: 
+
+Ldirect = − X
+
+> k∈M (Q)
+
+log P (qk | q<k ; θ, ϕ ),
+
+whereas ReLAT optimizes: 
+
+LReLAT = − X
+
+> k∈M (Q)
+
+log P (qk | E ϕ(Q), q <k ; θ, ϕ ).
+
+The comparison isolates whether reconstruction is more effective when imposed as a fidelity constraint on the latent thought sequence. 
+
+## D Runtime and Memory 
+
+To complement the token-level cost comparison in Section 5.4, we report wall-clock time and peak GPU memory on AIME 2024 using Qwen3-8B on NVIDIA L40S GPUs. The reported runtime includes the full per-example inference pipeline, including test-time optimization when applicable and final answer generation. ReLAT introduces additional wall-clock cost because it performs gradient-based adaptation at test time. However, its peak memory overhead remains moderate compared with vanilla inference, since the backbone model is frozen and only temporary LoRA parameters are updated. 
+
+## E Limitations 
+
+ReLAT is designed to provide an input-anchored fidelity signal for latent reasoning rather than a complete verifier of final answers. Future work could combine reconstruction-guided adaptation with answer verification, tool-based checking, or stronger semantic constraint extraction. Our experiments mainly focus on several open-source backbone models and representative reasoning, QA, and code benchmarks. Extending ReLAT to larger models, multilingual settings, long-context tasks, and interactive agent environments would further clarify its generality. 13

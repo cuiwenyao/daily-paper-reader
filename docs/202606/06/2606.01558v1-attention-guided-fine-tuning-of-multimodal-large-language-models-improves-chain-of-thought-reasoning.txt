@@ -1,0 +1,761 @@
+Title: Attention-guided Fine-tuning of Multimodal Large Language Models Improves Chain-of-Thought Reasoning
+
+URL Source: https://arxiv.org/pdf/2606.01558v1
+
+Published Time: Tue, 02 Jun 2026 01:54:58 GMT
+
+Number of Pages: 20
+
+Markdown Content:
+# Attention-guided Fine-tuning of Multimodal Large Language Models Improves Chain-of-Thought Reasoning 
+
+Sanchit Sinha, Guangzhi Xiong, Bohan Liu, Zhenghao He and Aidong Zhang 
+
+University of Virginia 
+
+Abstract 
+
+The effectiveness of Chain-of-Thought (CoT) prompting in Multimodal Large Language Models (MLLMs) remains uncertain: across several visual reasoning benchmarks, CoT prompting often degrades performance com-pared to direct prompting. In this paper, we provide a systematic analysis of CoT behavior in three modern MLLM families across model scales on datasets requiring step-wise visual evidence. Our analysis identifies two recurring failure modes: premature answer commitment 
+
+and limited direct visual-token access during rationale generation. We further find that stan-dard CoT-style Supervised Fine-Tuning (CoT-SFT) can mitigate these issues only partially, while often increasing reliance on textual pri-ors and reducing counterfactual visual depen-dence. Motivated by these findings, we propose 
+
+Attentive-CoT (Att-CoT) , an attention-guided fine-tuning objective that encourages CoT tra-jectories to delay answer commitment while maintaining sustained visual-token access. Att-CoT can be plugged into any CoT-SFT training run without architectural changes. Experiments on three visual reasoning benchmarks across six MLLMs show that Att-CoT enhances CoT performance over standard fine-tuning. 
+
+1 Introduction 
+
+Multimodal Large Language Models (MLLMs) have revolutionized the field of visual reasoning, powering diverse and complex problems, such as autonomous driving (Tian et al., 2024; Sima et al., 2024), image captioning (Hua et al., 2025), scene understanding (Shen et al., 2022), etc. A plethora of complex MLLM architecture families of vari-ous scales have been proposed, such as LLaVA (Liu et al., 2023), Qwen-VL (Bai et al., 2025), In-ternVL (Wang et al., 2025), etc. At their core, an MLLM consists of an image encoder, a pre-trained Large Language Model (LLM), and an alignment module that maps vision embeddings to the LLM’s token space. As the most dominant part of the MLLM architecture is the LLM, MLLMs inherit many of the intrinsic reasoning mechanisms of LLMs, e.g., In-Context Learning (ICL) (Brown et al., 2020), Chain-of-Thought (CoT) reasoning (Wei et al., 2022a), etc. Despite the potential, these mechanisms in MLLMs during multi-step visual reasoning remain poorly understood, especially when compared to the growing body of analysis on text-only LLMs. Chain-of-Thought (CoT), first proposed in Wei et al. (2022b) on LLMs and improved upon in Wang et al. (2023), enables models to think step-by-step before answering a query, mimicking the human thought process. Multiple works have ascer-tained the effectiveness of CoT in LLMs (Kojima et al., 2022; Wang et al., 2023), making CoT a cornerstone of LLM reasoning research. However, unlike in the language-only setting, the effective-ness of CoT prompting in MLLMs is mixed (Turpin et al., 2023). It is observed that CoT prompting of-ten fails to improve performance and can even de-grade it relative to eliciting a simple direct answer that omits intermediate steps, an observation that 
+
+stands in contrast to LLMs . Some recent work, such as Sun et al. (2025); Xu et al. (2025); Zhang et al. (2025), has noticed this issue for MLLMs; however, it has not systematically analyzed the phenomenon. Intuitively, the reasoning of MLLMs relies heavily on both visual tokens and text tokens ,since correct reasoning traces must depend signif-icantly on understanding the image, including its compositionality and spatial relations. To improve and impart better CoT reasoning in MLLMs, recent research like Chen et al. (2024); Xu et al. (2025) has focused on Supervised Fine-Tuning (SFT) on meticulously labeled reasoning traces in addition to the final answer. In this set-ting, the model is trained to predict the correct reasoning trace in addition to the output, imitating step-by-step rationales collected from humans or 1
+
+> arXiv:2606.01558v1 [cs.CV] 1 Jun 2026
+
+distilled from stronger teacher models (e.g. GPT-4o). Such fine-tuning procedures (denoted as CoT-SFT 1) have been widely adopted in recent MLLMs (Zhang et al., 2025, 2023; Chen et al., 2024) to boost performance on complex visual reasoning benchmarks, and are often treated as a default recipe for improving MLLM reasoning. Although some works claim that it improves reasoning in MLLMs (Zhang et al., 2025), empirical results are mixed. CoT-SFT often improves formatting and step-by-step fluency, but it does not guaran-tee CoT’s reliance on visual evidence in reasoning. In practice, as state-of-the-art systems are often deployed with either off-the-shelf or SFT models, they remain largely unexplored, requiring a system-atic study. In this paper, we diagnose the shortcomings of CoT in MLLMs using three complementary per-spectives. First, we evaluate the performance gap between direct and CoT prompting on visually in-tensive benchmarks. Second, we track token-level answer probability as CoT tokens are generated and quantify it through Early Answer Commitment ,i.e., how early the model assigns high probability to the final correct answer during rationale generation. Third, we measure visual evidence usage through two views: a counterfactual Visual Dependence 
+
+probe, which replaces the image while keeping the textual context fixed, and a visual-token attention analysis, which diagnoses whether reasoning to-kens directly access image-token representations during reasoning. We treat visual-token attention values as a measurable proxy for direct access to vi-sual representations during CoT reasoning. While attention alone does not establish faithfulness (Jain and Wallace, 2019), we validate its utility by pair-ing it with counterfactual visual-dependence probes and downstream accuracy/OOD (out of distribu-tion) evaluations. Together, these analyses reveal a consistent failure mode: models often commit to the final answer early, while intermediate CoT to-kens show weak visual dependence and limited di-rect visual-token access compared to answer emis-sion, promoting worse CoT performance over di-rect decoding. Motivated by these observations, we propose a more principled view of CoT-SFT for MLLMs. We argue that a good reasoning MLLM should exhibit two desirable properties: (i) delayed answer com-
+
+> 1Sometimes also referred to as distillation. To avoid con-fusion with ‘model distillation’, we omit this term and utilize CoT-SFT.
+
+mitment , where answer probability should increase gradually with CoT token generation, and (ii) sus-tained visual access , where intermediate reasoning tokens should remain conditioned on image evi-dence rather than deferring visual processing to the final answer span. Guided by these desiderata, we propose Attentive-CoT , a simple fine-tuning objective that explicitly discourages early answer commitment while encouraging visual-token ac-cess during rationale generation. We then vali-date whether this intervention improves reason-ing not only through attention-based diagnostics, but also through downstream accuracy, Direct-CoT gap, OOD performance, and counterfactual visual dependence. More concretely, our contributions are: • We systematically analyze the shortcom-ings of Chain-of-Thought (CoT) performance through probabilistic, counterfactual, and visual-token-access perspectives in MLLMs. We attribute these failures in part to premature answer commitment and weak visual evidence usage during rationale generation. • We introduce Attentive-CoT , a simple, model-agnostic fine-tuning objective that im-proves CoT-SFT by encouraging delayed an-swer commitment and sustained visual-token access over reasoning tokens. • Across three MLLM families of two distinct scales and three visual reasoning datasets, Attentive-CoT improves CoT accuracy over the standard CoT-SFT objective and yields CoT traces that are less prone to early commit-ment and more dependent on image evidence under counterfactual visual interventions. 
+
+2 Related Work 
+
+Chain-of-thought (CoT) prompting elicits multi-step reasoning in LLMs (Wei et al., 2022b; Wang et al., 2023), but in MLLMs, it can even degrade reasoning quality. This motivates evaluation be-yond accuracy, for example (Lobo et al., 2025; Chen et al., 2024) propose metrics and interven-tions to assess and improve CoT behavior. SFT on intermediate traces alongside answers (Ren and Sutherland, 2024; Shuttleworth et al., 2024; Sinha et al., 2025a) has been proposed. Beyond generic rationale SFT, recent work targets improved multi-modal CoT by strengthening visual grounding, e.g., mitigating visual forgetting via carried-forward vi-sual conditioning (Sun et al., 2025) or explicitly 2training step-by-step reasoning (Xu et al., 2024) -choices adapted from LLM fine-tuning approaches. Faithfulness analyses argue that slow thinking should maintain evidence alignment throughout the chain (Chen et al., 2025; Uppaal et al., 2025; Sinha et al., 2025b). Our work analyzes CoT-SFT in MLLMs and introduces a simple, architecture-agnostic objective to improve CoT behavior. To the best of our knowledge, our work is the first to 
+
+improve upon the CoT-SFT objective in MLLMs ,and no widely adopted SFT objective is explicitly designed for improving CoT behavior. 
+
+Comparisons with Related Work. While LLaVA-CoT (Xu et al., 2025) and LLaVA-Reasoner-DPO (Zhang et al., 2025) also fine-tune MLLMs to improve CoT performance, our goal and train-ing signal are fundamentally different. Both works solely optimize task performance using a standard SFT optimization objective as the first step. Fur-ther, LLaVA-CoT utilizes a test-time response op-timization method to improve performance during inference, while LLaVA-Reasoner-DPO utilizes a DPO fine-tuning step (with synthetic data) after the SFT phase. Unlike them, we propose improve-ment over the SFT objective itself using proba-bilistic and mechanistic constraints drawn from CoT diagnostics. This makes our approach explic-itly mechanism-targeted - instead of what rationale to generate, we supervise how reasoning unfolds. As both approaches are trained primarily on ear-lier generations of the LLaVA family of models with limited out-of-the-box CoT performance (e.g. LLaVA 90B model underperforms Qwen2VL-7B on CoT despite containing 12 times more parame-ters - refer Figure-1 in (Xu et al., 2025)) , we repli-cate the method on current state-of-the-art MLLMs, which are pre-trained to be CoT-native off-the-shelf. The detailed replication setup can be found in the Appendix. 
+
+3 Quantifying CoT Reasoning Dynamics 
+
+3.1 Performance: Direct vs CoT Motivation. We first evaluate downstream per-formance on three datasets: ChartQA (Masry et al., 2022), CLEVR (Johnson et al., 2017) and CV-Bench (Tong et al., 2024), following the vision-centric categorization in (Tong et al., 2024). ChartQA requires extracting numerical values from charts, CLEVR emphasizes compositional queries such as counts, spatial comparisons, logical com-binations, etc., and CV-Bench tests fine-grained                  
+
+> Table 1: Direct vs CoT prediction performance.
+> Dataset QVL-7B IVL-4B
+> Direct CoT Direct CoT
+> ChartQA 83.44 79.23 86.25 82.33 CLEVR 86.25 85.71 65.50 65.17 CV-Bench 70.75 66.96 61.82 59.82
+
+visual understanding. Table 1 reports the accuracy of direct and CoT prompting across Qwen2.5-VL, denoted as QVL, and InternVL3.5, denoted as IVL. On all three visual-heavy datasets, CoT consis-tently hurts performance for both MLLMs. These results show that, unlike in text-only LLMs, CoT is not guaranteed to be superior in MLLMs on visually grounded tasks. This motivates a closer analysis of how CoT changes reasoning dynamics and visual evidence usage in MLLMs.          
+
+> Figure 1: Early answer commitment during CoT. We plot ℓt(denoted by ‘P(answer | prefix)’) and the corre-sponding relative rank (i.e., rank in the ordered prob-ability list) of the answer token over CoT timesteps for a ChartQA test sample. Top: QVL-3B is already highly confident before CoT generation starts. Bottom:
+> QVL-7B remains less committed early and gradually increases confidence as the answer is computed. The vertical dashed line separates think and answer spans.
+
+3.2 Token-level Analysis 
+
+To investigate the observed degradation, we probe how the model’s certainty over the correct answer changes as CoT tokens are generated. Let each example be (I, q, r ⋆, y ⋆), where I is the image, q is the question, r⋆ = ( r⋆
+
+> 1
+
+, . . . , r ⋆T ) is a CoT rationale, and y⋆ = ( y⋆ 
+
+> 1
+
+, . . . , y ⋆K ) is the gold answer. At step t, we construct xt = I, q, r ⋆
+
+> 1: t
+
+, p , where p is the probe prompt “Therefore the answer is ”. For parameters θ, we define probability assigned to the gold answer, normalized by answer length, as: 
+
+ℓt(xt, y ⋆) = 1
+
+K
+
+> K
+
+X
+
+> k=1
+
+pθ(y⋆k | xt, y ⋆<k ). (1) Intuitively, ℓt measures how confident the model is in the final answer if queried with the current CoT 3prefix. During generation, we enforce an explicit 
+
+<think> and <answer> output structure. Figure 1 shows ℓt across CoT tokens for a ChartQA sample. Smaller MLLMs are highly confident in the correct answer very early, even before reasoning through the CoT tokens. In contrast, larger MLLMs re-main relatively less committed early and gradually increase answer probability, peaking near answer emission. This suggests that MLLMs often gener-ate rationales around an already-selected answer. 
+
+Metric: Early Commitment AUC (EC-AUC). To quantify premature answer commitment, for each step t ∈ { 0, . . . , T }, with x0 = [ I, q, p ]:
+
+EC -AUC = 1
+
+T
+
+> T
+
+X
+
+> t=0
+
+(log ℓt(xt, y ⋆) − log ℓt(xt, [<pad>] )) .
+
+(2) 
+
+The <pad> baseline follows (Kim et al., 2020); its probability is relatively stable across CoT gener-ation and reduces sensitivity to distribution shifts. We compute EC-AUC under two rationale sources: 
+
+free-form CoT , sampled from the model itself, and 
+
+ground-truth CoT , using annotated rationales (Re-fer to Appendix for details). Lower EC-AUC indi-cates that answer confidence rises gradually over CoT rather than appearing prematurely. Table 2 reports EC-AUC across datasets, model families, and scales. Smaller MLLMs generally show higher EC-AUC, suggesting that they often commit to the answer early. Larger models show lower EC-AUC and behavior more consistent with gradual reason-ing that also correlates with better performance. 
+
+Table 2: CoT analysis metrics under CoT prompting for six off-the-shelf MLLMs. Lower EC-AUC indicates less premature commitment; lower ATR indicates more visual-token access during reasoning relative to answer emission; higher Vis-Dep indicates stronger counterfac-tual image dependence.                                                                                                     
+
+> Dataset Model Acc. ↑EC-AUC ↓ATR ↓Vis-Dep ↑
+> Freeform Gold
+> ChartQA
+> QVL-3B 78.44 0.939 0.958 0.875 0.06 IVL-4B 82.23 0.893 0.937 0.709 0.72 Gemma-4B 74.56 0.858 0.892 0.714 0.69 QVL-7B 79.23 0.765 0.743 0.793 0.97
+> IVL-8B 83.43 0.238 0.602 0.661 0.76 Gemma-12B 78.45 0.412 0.592 0.674 0.84
+> CLEVR
+> QVL-3B 80.17 0.856 0.904 0.547 0.49 IVL-4B 65.17 0.637 0.714 0.528 0.54 Gemma-4B 72.92 0.748 0.812 0.642 0.58 QVL-7B 85.71 0.772 0.766 0.580 0.52 IVL-8B 86.67 0.224 0.473 0.513 0.59
+> Gemma-12B 85.24 0.483 0.565 0.534 0.58
+> CV-Bench
+> QVL-3B 60.71 0.976 0.978 0.413 0.21 IVL-4B 59.82 0.971 0.978 0.494 0.18 Gemma-4B 62.55 0.885 0.924 0.412 0.48 QVL-7B 66.96 0.932 0.863 0.296 0.66 IVL-8B 73.25 0.558 0.503 0.231 0.47 Gemma-12B 74.85 0.527 0.482 0.252 0.71
+
+Figure 2: VTA values plotted across generation steps for each layer of the MLLM. Left: QVL-3B shows sparse VTA during CoT generation and higher values near the answer span. Right: QVL-7B shows more balanced VTA across CoT generation and answer emission. 
+
+Metric: Visual Dependence Score. EC-AUC measures answer confidence, but not whether the CoT process depends on the image. We inter-vene by replacing the image with a zero image as 
+
+xt = [ I, q, r ⋆
+
+> 1: t
+
+], x zero  
+
+> t
+
+= [ ˜I, q, r ⋆
+
+> 1: t
+
+], where ˜I is zero image of same size. We define visual dependence (Vis-Dep) as: 
+
+1
+
+T
+
+> T
+
+X
+
+> t=1
+
+(log ℓt(xt, y ⋆) − log ℓt(xzero  
+
+> t
+
+, y ⋆)) . (3) Higher Vis-Dep indicates that replacing the image substantially changes the model’s answer likeli-hood, implying stronger dependence on visual ev-idence. Table 2 reports Vis-Dep over the think 
+
+span. Smaller models consistently show lower Vis-Dep than larger models, suggesting that their CoT generation is less image-dependent and more driven by textual priors. Combined with EC-AUC, this reinforces that smaller MLLMs often generate rationales weakly conditioned on the image. Re-sults with alternative baselines are in the Appendix. 
+
+3.3 Visual Token Attention Analysis 
+
+The token-generation experiments above quantify how answer confidence evolves and whether predic-tions depend on the image, but they do not reveal whether generated reasoning tokens directly access visual representations. We therefore analyze self-attention over visual tokens during CoT generation as a diagnostic of direct visual-token access. Let an MLLM have L decoder layers and H attention heads. For generated token position t, visual-token 4set V, and attention weight A(l,h ) 
+
+> t,j
+
+, we define: VTA l(t) = 1
+
+H
+
+> H
+
+X
+
+> h=1
+
+X
+
+> j∈V
+
+A(l,h ) 
+
+> t,j
+
+. (4) Figure 2 visualizes VTA across generation steps and layers. Smaller models show intermittent vi-sual attention during the think span, followed by sharp peaks in the answer span. This suggests that they often defer direct visual-token access until answer emission, rather than maintaining it throughout the reasoning trajectory. Larger mod-els are more balanced, which aligns with early-commitment behavior: models that commit early generate CoT tokens around the answer rather than progressively conditioning on visual evidence. 
+
+Metric: Answer-Think Ratio (ATR). To quantify this imbalance, we aggregate VTA over the think 
+
+and answer spans: ATR =
+
+P
+
+> t∈answer
+
+PLl=1 VTA l(t)
+
+P
+
+> t∈think
+
+PLl=1 VTA l(t) . (5) A lower ATR indicates that the model allocates greater visual-token attention during reasoning than during answer emission. Table 2 shows that models with lower EC-AUC tend to have higher VTA dur-ing the think span and lower ATR, indicating a cor-relation between delayed answer commitment and sustained visual-token access. Conversely, models whose visual attention peaks mainly in the answer 
+
+span tend to exhibit weaker CoT performance. Overall, our analyses indicate that CoT failures in MLLMs stem from a structural mismatch be-tween reasoning dynamics, visual evidence usage, and answer commitment. Based on these find-ings, we identify two desiderata for CoT-capable MLLMs: (1) Delayed Answer Commitment ,where answer confidence should increase progres-sively over the reasoning trajectory; and (2) Sus-tained Visual Attention , where intermediate rea-soning tokens should remain consistently condi-tioned on image evidence. 
+
+4 Proposed Method: Attentive-CoT 
+
+Our analysis in Section 3 shows that, for many MLLMs and datasets, CoT tokens are only weakly grounded in the image and often exhibit premature answer commitment. Motivated by the desiderata, we introduce Attentive-CoT (Att-CoT) , a substan-tial improvement over the SFT objective that (i) discourages early answer commitment during ra-tionale generation and (ii) encourages sustained visual reliance while generating both reasoning and answer tokens. Attentive-CoT is architecture-agnostic and can be applied on top of any MLLM. We assume a dataset of CoT-annotated training examples D = {(I, q, r ⋆, y ⋆)}, where I is the input image, q is the question, r⋆ = ( r⋆
+
+> 1
+
+, . . . , r ⋆T ) is the gold CoT rationale, and y⋆ = ( y⋆ 
+
+> 1
+
+, . . . , y ⋆K ) is the gold answer sequence. Let pθ(· | · ) denote the model’s next-token distribution for parameters θ.The standard CoT-style SFT loss LSFT (θ) is: 
+
+E(I,q,r ⋆,y ⋆)∼D 
+
+"
+
+−
+
+> T
+
+X
+
+> t=1
+
+log pθ(r⋆t | I, q, r ⋆<t )
+
+−
+
+> K
+
+X
+
+> k=1
+
+log pθ(y⋆k | I, q, r ⋆, y ⋆<k )
+
+#
+
+.
+
+Attentive-CoT augments LSFT with two auxil-iary terms derived directly from our desiderata: 
+
+delayed answer commitment and sustained vi-sual reliance during reasoning . For a training sample (I, q, r ⋆, y ⋆), let s = ( s1, . . . , s T +K ) de-note the concatenation of CoT and answer to-kens, i.e., s1: T = r⋆ and sT +1: T +K = y⋆. Let 
+
+R = {1, . . . , T } index CoT positions and let 
+
+tans = T + 1 denote the position of the first answer token y⋆ 
+
+> 1
+
+. As in Section 3.3, for each position t,we compute the average attention mass assigned to visual tokens, denoted At, vis ∈ [0 , 1] , by averaging over layers/heads and summing attention weights (A) to visual-token indices V as: 
+
+At, vis = 1
+
+L · H
+
+> L
+
+X
+
+> l=1
+> H
+
+X
+
+> h=1
+
+X
+
+> j∈V
+
+A(l,h ) 
+
+> t,j
+
+. (6) 
+
+Delayed Answer Commitment. To discourage premature answer commitment during rationale generation, we penalize cases where the model assigns high probability to the answer too early in the CoT. Specifically, for each rationale position 
+
+t ∈ R , we compute the probability πt of the answer tokens at each step: 
+
+πt = pθ(y⋆ 
+
+> 1
+
+| I, q, s <t ) , t ∈ R . (7) We want the model to assign substantially higher probability to y⋆ 
+
+> 1
+
+only at the answer start tans as: 
+
+LDC (θ) = E(I,q,r ⋆,y ⋆)∼D 
+
+"
+
+1
+
+|R| 
+
+X
+
+> t∈R
+
+log 
+
+
+
+1 + exp   log πt − log πtans 
+
+#
+
+.
+
+(8) 5To minimize computation, in practice, we enforce 
+
+t ≤ T / 2. Intuitively, minimizing LDC encourages 
+
+πtans ≫ πt, i.e., the model should avoid committing to the answer until it reaches end of CoT. More details can be found in the Appendix. 
+
+Sustained Visual Access. Next, to mitigate the non-reliance of CoT tokens on the image (as quan-tified by Vis-Dep), we encourage the model to max-imize attention to visual tokens while generating intermediate reasoning tokens. Using the visual attention mass At, vis at each CoT position: 
+
+LVG (θ) = E(I,q,r ⋆,y ⋆)∼D 
+
+"
+
+− 1
+
+|R| 
+
+X
+
+> t∈R
+
+log  At, vis 
+
+#
+
+.
+
+(9) This term biases training toward allocating mean-ingful attention mass to visual tokens while produc-ing the rationale, promoting grounding throughout the think span. 
+
+Overall Attentive-CoT Objective. The final Attentive-CoT objective is: 
+
+LAtt-CoT (θ) = LSFT (θ) + LVG (θ) + LDC (θ) (10) 
+
+5 Experiments 
+
+In this section, we evaluate Att-CoT along five facets of CoT behavior: (i) performance, (ii) early answer commitment, (iii) attention on vision to-kens, (iv) visual dependence, and (v) the Direct-CoT gap. We group these into two categories -early answer commitment and visual-token atten-tion are defined over the optimization terms, so we report them as verification that the objective takes effect, while accuracy, visual dependence, and the Direct–CoT gap constitute our indepen-dent evidence that Att-CoT improves reasoning. We report results on ChartQA , CLEVR and CV-Bench across six LVLM backbones ( QVL-3B/7B 
+
+(Bai et al., 2025), IVL-4B/8B (Wang et al., 2025) and Gemma-4B/12B (Team et al., 2025)) in Ta-bles 3 and 5. We compare our approach to LLaVA-CoT (Xu et al., 2025) and LLaVA-Reasoner-DPO (LLaVA-R) (Zhang et al., 2025). Baseline replica-tion details are detailed in the Appendix. 
+
+5.1 Task Performance 
+
+We report the performance of baselines and Att-CoT on the test set from each training data set (Refer Appendix). Additionally, we report per-formance on OOD datasets for chart reasoning EvoCharts (Huang et al., 2025) and for spatial reasoning task - Super-CLEVR (Li et al., 2023) marked as OOD in Tables 3. Att-CoT improves accuracy over SFT across all model families on test sets as shown in ‘Accuracy’ column (Tables 3 and 5). We observe consistent gains on ChartQA of about 2-3% over SFT and other baselines, while on OOD EvoCharts of about 2-5%. Similarly, on CLEVR and Super-CLEVR, the improvements are substantial - 3-9% and 3-4%, respectively. Finally, on CV-Bench, the performance improvements are 2-4% as well. Notably, Att-CoT outperforms LLaVA-CoT and LLaVA-R baselines substantially, suggesting a fundamental improvement over stan-dard CoT-SFT setups. Performance on difficulty-aware splits can be found in the Appendix. 
+
+5.2 Answer Commitment: EC-AUC 
+
+Next, we test whether Att-CoT achieves the first desideratum: delayed answer commitment .Across datasets and backbones, Att-CoT substan-tially reduces EC-AUC (Note gold EC-AUC is shown in Figure 3), indicating fewer premature answer spikes during CoT generation (Tables 3, 5). The reduction in EC-AUC values holds on ChartQA, CLEVR, and CV-Bench, demonstrating that Att-CoT consistently mitigates early commit-ment across domains and model families. Notably, the baselines LLaVA-CoT and LLaVA-R demon-strate mixed results, with EC-AUC dropping mildly in the majority of cases. 
+
+> Figure 3: Gold EC-AUC and ATR across baselines. Left: ChartQA, Right: CLEVR.
+
+5.3 Visual Attention Analysis 
+
+Next, we test the second desideratum: sustained visual reliance during reasoning . Figure 3 re-ports the Answer-Think Ratio (ATR) across model families and datasets. Lower values of ATR are cor-related with higher performance on both in-domain 6Model Method ChartQA / EvoCharts CLEVR / Super-CLEVR Acc. ↑ OOD ↑ EC-F ↓ Vis-Dep ↑ ∆CoT ↓ Acc. ↑ OOD ↑ EC-F ↓ Vis-Dep ↑ ∆CoT ↓                                                                                                                                                                                                                                                
+
+> QVL-3B SFT 81.25 45.53 0.925 0.62 4.32 84.20 54.80 0.897 0.41 1.45 LLaVA-CoT 78.33 42.84 0.892 0.55 –80.20 52.90 0.876 0.38 –LLaVA-R 80.15 46.11 0.784 0.63 –82.80 54.50 0.812 0.40 –
+> Att-CoT 83.45 50.24 0.642 0.71 2.14 86.50 57.10 0.643 0.43 -0.58
+> IVL-4B SFT 86.39 57.69 0.925 0.59 3.85 65.50 52.60 0.925 0.65 8.86 LLaVA-CoT 84.81 55.21 0.843 0.44 –62.80 49.40 0.855 0.60 –LLaVA-R 85.64 57.22 0.762 0.58 –64.90 52.80 0.796 0.62 –
+> Att-CoT 86.84 59.12 0.502 0.72 3.05 74.50 54.70 0.754 0.71 -0.20
+> Gemma-4B SFT 80.44 44.92 0.894 0.67 3.64 79.80 55.10 0.882 0.45 5.59 LLaVA-CoT 78.62 40.84 0.846 0.59 –76.40 54.10 0.819 0.36 –LLaVA-R 79.35 45.68 0.855 0.64 –78.70 55.20 0.842 0.40 –
+> Att-CoT 82.54 48.22 0.624 0.78 1.04 83.10 56.50 0.806 0.55 1.82
+> QVL-7B SFT 86.61 56.25 0.572 0.60 2.05 85.50 60.40 0.478 0.35 0.75 LLaVA-CoT 80.35 55.21 0.561 0.48 –83.20 58.90 0.412 0.31 –LLaVA-R 84.81 57.22 0.476 0.57 –83.90 61.10 0.360 0.35 –
+> Att-CoT 86.82 58.55 0.315 0.83 2.15 87.40 63.20 0.231 0.52 -1.22
+> IVL-8B SFT 91.07 60.57 0.415 0.51 2.78 82.10 54.20 0.515 -0.03 0.33 LLaVA-CoT 85.66 55.21 0.407 0.43 –80.60 53.10 0.527 -0.01 –LLaVA-R 88.24 57.48 0.324 0.50 –82.00 54.60 0.464 0.08 –
+> Att-CoT 90.85 61.72 0.192 0.69 2.66 83.70 56.90 0.320 0.18 -1.24
+> Gemma-12B SFT 89.45 55.21 0.482 0.75 1.63 81.80 60.60 0.502 0.11 3.58 LLaVA-CoT 87.24 52.46 0.444 0.63 –80.60 59.30 0.516 0.09 –LLaVA-R 88.57 53.69 0.387 0.65 –81.40 61.20 0.438 0.22 –
+> Att-CoT 90.72 57.22 0.282 0.74 0.32 86.30 62.90 0.347 0.32 -1.64
+
+Table 3: Consolidated comparison across ChartQA/EvoCharts and CLEVR/Super-CLEVR. Rows are grouped by model, with each method reported once and dataset-specific metrics shown in left-right blocks. EC-F denotes free-form EC-AUC. Gold-rationale EC-AUC and ATR are visualized separately in Figure 3. All results averaged over 3 seeds with std dev. ≤0.02. 
+
+and OOD datasets. Overall, these results indicate that Att-CoT increases visual attention allocation 
+
+during reasoning and reduces late-stage attention spikes confined to answer emission. We treat this as mechanistic evidence that the model accesses visual tokens throughout multi-step generation. 
+
+5.4 Visual Dependence Score 
+
+Our primary evidence for visual reliance is counter-factual visual dependence, which intervenes on the visual modality and measures changes in answer likelihood. Tables 3 and 5 show that standard SFT often amplifies reliance on textual priors, reducing visual dependence relative to the base models. In contrast, Att-CoT consistently increases Vis-Dep across datasets and backbones (Tables 3–5), indi-cating stronger image reliance during multi-step reasoning. The gains support that Att-CoT im-proves reasoning-time visual reliance (Table 3). 
+
+5.5 Improved Visual Faithfulness 
+
+Next, we evaluate whether Att-CoT relies more strongly on task-relevant visual evidence, rather than only increasing visual-token attention. We construct a manually curated obfuscation set of 500 examples from CLEVR (350) and ChartQA (150), selecting examples that all compared meth-ods answer correctly under the original image. For each example, we manually obfuscate the visual region required to answer the query, as shown in Figure 5, while keeping the question unchanged. We measure the drop in confidence assigned to the original correct answer after obfuscation. A larger confidence drop indicates that the model’s original prediction was more dependent on the rele-vant visual evidence. As shown in Table 4, Att-CoT exhibits substantially larger confidence drops than SFT, LLaVA-CoT, and LLaVA-R on both CLEVR and ChartQA. This provides additional causal evi-dence that Att-CoT improves visual reliance. 
+
+Table 4: Faithfulness under task-relevant visual obfus-cation. We report confidence drop on the correct answer token. Higher is better. 
+
+Dataset SFT L-CoT L-R Att-CoT 
+
+CLEVR 28.05 29.33 34.25 59.85 
+
+ChartQA 15.64 20.78 19.55 44.23 
+
+5.6 Narrower Direct-CoT Performance Gap 
+
+Finally, we quantify whether Att-CoT narrows the gap between direct answering and CoT decoding. Let Acc direct denote accuracy under direct prompt-ing of a model SFT on final responses and Acc cot 
+
+denote accuracy under Att-CoT. We define the Direct-CoT gap as: ∆CoT = Acc direct − Acc cot .Lower values of ∆CoT indicate a smaller disadvan-tage for CoT (and negative values indicate CoT outperforming direct). 7Att-CoT: Answer - 832.5 SFT: Answer - 64.6 
+
+Answer Span       
+
+> Query: What's Net revenue of Polo Ralph Lauren from FY2007, by Asia and Europe?
+> Answer: 832.5
+> step-1: Locate the chart legend and identify which line represents Asia (blue) and which represents Europe (black). ….. step-4: Read the numeric label next to that Asia point.
+> step-5: Report the value shown: 64.6 million
+> step-1: Locate the legend and identify which color corresponds to "Asia*". step-2: Find the data point on the chart for FY2007 …
+> step-6: Read the numeric label next to Europe** …
+> Step-8: Sum the data points 64.6+767.9 = 832.5
+> Steps 1-4 Step-6 Step-5 Step-1
+
+Figure 4: Qualitative comparison of SFT and Att-CoT on an example from ChartQA. 
+
+Figure 5: Example from the obfuscation dataset. The task-relevant visual region is masked. Table 5: Results on CV-Bench. Att-CoT outperforms over all comparison baselines.                                                                                                                                   
+
+> Model Method Accuracy ↑EC-AUC ↓ATR ↓Vis-Dep ↑
+> Freeform Gold QVL-3B SFT 79.46 0.914 0.842 0.414 0.32 L-CoT 74.85 0.772 0.641 0.456 0.31 L-R 76.12 0.537 0.459 0.439 0.36
+> Att-CoT 80.33 0.240 0.380 0.402 0.48
+> IVL-4B SFT 62.00 0.869 0.944 0.512 -0.02 L-CoT 62.15 0.828 0.810 0.548 0.22 L-R 60.68 0.796 0.781 0.419 0.19
+> Att-CoT 63.44 0.743 0.725 0.359 0.31
+> G-4B SFT 66.85 0.599 0.587 0.455 0.45 L-CoT 64.09 0.571 0.555 0.476 0.41 L-R 67.28 0.497 0.470 0.405 0.51
+> Att-CoT 74.24 0.448 0.416 0.384 0.56
+> QVL-7B SFT 79.46 0.642 0.594 0.113 0.33 L-CoT 75.65 0.655 0.682 0.147 0.29 L-R 77.94 0.592 0.619 0.132 0.38
+> Att-CoT 81.25 0.514 0.382 0.102 0.58
+> IVL-8B SFT 75.89 0.052 0.095 0.101 0.31 L-CoT 72.34 0.104 0.170 0.143 0.25 L-R 73.12 0.077 0.121 0.122 0.46
+> Att-CoT 76.24 0.043 0.086 0.100 0.54
+> G-12B SFT 75.49 0.270 0.295 0.176 0.47 L-CoT 73.55 0.363 0.389 0.221 0.44 L-R 76.05 0.246 0.291 0.173 0.47
+> Att-CoT 79.05 0.186 0.242 0.135 0.49
+
+5.7 Qualitative Results 
+
+Figure 4 shows SFT and Att-CoT in action on a sample from the ChartQA dataset. SFT concen-trates visual attention on the initial identification step and the final reporting step, while exhibit-ing low visual attention during intermediate chart lookups and answering incorrectly. In contrast, Att-CoT maintains more uniform visual attention across the early lookup steps (Steps 1–4), support-ing fine-grained value extraction and yielding the correct aggregated answer (Note: colormap is rela-tive). We report more examples in the Appendix. 
+
+5.8 Ablation Study and Computation Requirements 
+
+Finally, we conduct an ablation study to demon-strate the effect of LDC and LVG . We focus on the QVL-3B model on the CLEVR dataset. LDC sub-stantially reduces early answer commitment and modestly improves visual reliance (Vis-Dep), while 
+
+LV G primarily increases visual dependence and shifts attention from the answer span to the think span (ATR), implying a balance between terms. 
+
+Table 6: Ablation Study on QVL-3B on CLEVR. 
+
+Setting Accuracy EC-AUC ATR Vis-Dep 
+
+SFT 84.20 0.897 0.386 0.41 w/ LDC 84.70 0.686 0.314 0.42 w/ LV G 85.60 0.752 0.244 0.43 
+
+Att-CoT 86.50 0.643 0.230 0.43 
+
+Att-CoT is asymptotically compute-matched to CoT-SFT and requires no additional model evalua-tions; implementation-level runtime and memory overhead depend on how attention statistics are ex-posed (depending on implementations). The added operation is a lightweight reduction over attention weights already produced during the forward pass, e.g., ¯A = 1
+
+LH 
+
+PLℓ=1 
+
+PHh=1 A(ℓ,h ), where cost is negligible to dominant O(LT 2d) compute. 
+
+6 Conclusion 
+
+We revisit chain-of-thought (CoT) in MLLMs and find that, across multiple visual reasoning bench-marks, CoT prompting often reduces accuracy com-pared to direct decoding. Token-level probes and attention analyses show that CoT underutilizes image evidence: smaller models commit early, while larger models delay commitment but still attend weakly to visual tokens. To address this, we propose Attentive-CoT, an attention-guided fine-tuning objective that rewards stable, visually grounded CoT trajectories, consistently improving CoT accuracy. 8Limitations 
+
+Att-CoT is designed as an improvement to the su-pervised CoT fine-tuning stage, and evaluating its interaction with RL-based post-training is left for future work. Our experiments use open-source MLLMs, and behavior may differ for larger closed-source systems with different pre-training and rea-soning procedures. Finally, we limit our analysis to autoregressive MLLMs; our analysis might not apply directly to diverse architectures such as dif-fusion language models. 
+
+References 
+
+Shuai Bai, Keqin Chen, Xuejing Liu, Jialin Wang, Wen-bin Ge, Sibo Song, Kai Dang, Peng Wang, Shi-jie Wang, Jun Tang, Humen Zhong, Yuanzhi Zhu, Mingkun Yang, Zhaohai Li, Jianqiang Wan, Pengfei Wang, Wei Ding, Zheren Fu, Yiheng Xu, and 8 others. 2025. Qwen2.5-vl technical report. arXiv preprint arXiv:2502.13923 .Tom Brown, Benjamin Mann, Nick Ryder, Melanie Subbiah, Jared D Kaplan, Prafulla Dhariwal, Arvind Neelakantan, Pranav Shyam, Girish Sastry, Amanda Askell, and 1 others. 2020. Language models are few-shot learners. Advances in neural information processing systems , 33:1877–1901. Shiqi Chen, Jinghan Zhang, Tongyao Zhu, Wei Liu, Siyang Gao, Miao Xiong, Manling Li, and Junxian He. 2025. Bring reason to vision: Understanding perception and reasoning through model merging. 
+
+arXiv preprint arXiv:2505.05464 .Yangyi Chen, Karan Sikka, Michael Cogswell, Heng Ji, and Ajay Divakaran. 2024. Measuring and improv-ing chain-of-thought reasoning in vision-language models. In Proceedings of the 2024 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Tech-nologies (Volume 1: Long Papers) , pages 192–210. Hang Hua, Qing Liu, Lingzhi Zhang, Jing Shi, Soo Ye Kim, Zhifei Zhang, Yilin Wang, Jianming Zhang, Zhe Lin, and Jiebo Luo. 2025. Finecaption: Com-positional image captioning focusing on wherever you want at any granularity. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pat-tern Recognition (CVPR) , pages 24763–24773. Muye Huang, Han Lai, Xinyu Zhang, Wenjun Wu, Jie Ma, Lingling Zhang, and Jun Liu. 2025. Evochart: A benchmark and a self-training approach towards real-world chart understanding. In Proceedings of the AAAI Conference on Artificial Intelligence , vol-ume 39, pages 3680–3688. Sarthak Jain and Byron C Wallace. 2019. Attention is not explanation. In Proceedings of the 2019 Confer-ence of the North American Chapter of the Associ-ation for Computational Linguistics: Human Lan-guage Technologies, Volume 1 (Long and Short Pa-pers) , pages 3543–3556. Justin Johnson, Bharath Hariharan, Laurens van der Maaten, Li Fei-Fei, C. Lawrence Zitnick, and Ross Girshick. 2017. Clevr: A diagnostic dataset for com-positional language and elementary visual reasoning. In Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR) .Siwon Kim, Jihun Yi, Eunji Kim, and Sungroh Yoon. 2020. Interpretation of nlp models through input marginalization. arXiv preprint arXiv:2010.13984 .Takeshi Kojima, Shixiang Shane Gu, Machel Reid, Yu-taka Matsuo, and Yusuke Iwasawa. 2022. Large lan-guage models are zero-shot reasoners. In Advances in Neural Information Processing Systems , volume 35, pages 22199–22213. Curran Associates, Inc. Zhuowan Li, Xingrui Wang, Elias Stengel-Eskin, Adam Kortylewski, Wufei Ma, Benjamin Van Durme, and Alan L Yuille. 2023. Super-clevr: A virtual bench-mark to diagnose domain robustness in visual rea-soning. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 14963–14973. Haotian Liu, Chunyuan Li, Qingyang Wu, and Yong Jae Li. 2023. LLaVA: Large language and vision assis-tant. arXiv preprint arXiv:2304.08485 .Elita Lobo, Chirag Agarwal, and Himabindu Lakkaraju. 2025. On the impact of fine-tuning on chain-of-thought reasoning. In Proceedings of the 2025 Con-ference of the Nations of the Americas Chapter of the Association for Computational Linguistics: Human Language Technologies (Volume 1: Long Papers) ,pages 11679–11698. Ahmed Masry, Xuan Long Do, Jia Qing Tan, Shafiq Joty, and Enamul Hoque. 2022. Chartqa: A benchmark for question answering about charts with visual and logical reasoning. In Findings of the Association for Computational Linguistics: ACL 2022 , pages 2263– 2279. Yi Ren and Danica J Sutherland. 2024. Learn-ing dynamics of llm finetuning. arXiv preprint arXiv:2407.10490 .Hua Shen, Tongshuang Wu, Wenbo Guo, and Ting-Hao’Kenneth’ Huang. 2022. Are shortest ratio-nales the best explanations for human understanding? 
+
+arXiv preprint arXiv:2203.08788 .Reece Shuttleworth, Jacob Andreas, Antonio Torralba, and Pratyusha Sharma. 2024. Lora vs full fine-tuning: An illusion of equivalence. arXiv preprint arXiv:2410.21228 .Chonghao Sima, Katrin Renz, Kashyap Chitta, Li Chen, Hanxue Zhang, Chengen Xie, Ping Luo, Andreas Geiger, and Hongyang Li. 2024. Drivelm: Driving with graph visual question answering. In European Conference on Computer Vision (ECCV) .
+
+9Sanchit Sinha, Oana Frunza, Kashif Rasul, Yuriy Nevmyvaka, and Aidong Zhang. 2025a. Chart-rvr: Reinforcement learning with verifiable rewards for explainable chart reasoning. arXiv preprint arXiv:2510.10973 .Sanchit Sinha, Guangzhi Xiong, and Aidong Zhang. 2025b. Coco-tree: Compositional hierarchical con-cept trees for enhanced reasoning in vision-language models. In Proceedings of the 2025 Conference on Empirical Methods in Natural Language Processing ,pages 2695–2711. Hai-Long Sun, Zhun Sun, Houwen Peng, and Han-Jia Ye. 2025. Mitigating visual forgetting via take-along visual conditioning for multi-modal long CoT reason-ing. pages 5158–5171. Gemma Team, Aishwarya Kamath, Johan Ferret, Shreya Pathak, Nino Vieillard, Ramona Merhej, Sarah Perrin, Tatiana Matejovicova, Alexandre Ramé, Morgane Rivière, and 1 others. 2025. Gemma 3 technical report. arXiv preprint arXiv:2503.19786 .Xiaoyu Tian, Junru Gu, Bailin Li, Yicheng Liu, Yang Wang, Zhiyong Zhao, Kun Zhan, Peng Jia, Xian-peng Lang, and Hang Zhao. 2024. Drivevlm: The convergence of autonomous driving and large vision-language models. In 8th Annual Conference on Robot Learning .Peter Tong, Ellis Brown, Penghao Wu, Sanghyun Woo, Adithya Jairam Vedagiri IYER, Sai Charitha Akula, Shusheng Yang, Jihan Yang, Manoj Middepogu, Ziteng Wang, and 1 others. 2024. Cambrian-1: A fully open, vision-centric exploration of multimodal llms. Advances in Neural Information Processing Systems , 37:87310–87356. Miles Turpin, Julian Michael, Ethan Perez, and Samuel Bowman. 2023. Language models don’t always say what they think: Unfaithful explanations in chain-of-thought prompting. Advances in Neural Information Processing Systems , 36:74952–74965. Rheeya Uppaal, Phu Mon Htut, Min Bai, Nikolaos Pap-pas, and Zheng Qi. 2025. Journey before destina-tion: On the importance of visual faithfulness in slow thinking. arXiv preprint arXiv:2512.12218 .Weiyun Wang, Zhangwei Gao, Lixin Gu, Hengjun Pu, Long Cui, Xingguang Wei, Zhaoyang Liu, Linglin Jing, Shenglong Ye, Jie Shao, and 1 others. 2025. In-ternvl3. 5: Advancing open-source multimodal mod-els in versatility, reasoning, and efficiency. arXiv preprint arXiv:2508.18265 .Xuezhi Wang, Jason Wei, Dale Schuurmans, Quoc V Le, Ed H. Chi, Sharan Narang, Aakanksha Chowdhery, and Denny Zhou. 2023. Self-consistency improves chain of thought reasoning in language models. In 
+
+The Eleventh International Conference on Learning Representations .Jason Wei, Yi Tay, Rishi Bommasani, Colin Raffel, Barret Zoph, Sebastian Borgeaud, Dani Yogatama, Maarten Bosma, Denny Zhou, Donald Metzler, and 1 others. 2022a. Emergent abilities of large language models. arXiv preprint arXiv:2206.07682 .Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten Bosma, Brian Ichter, Fei Xia, Ed Chi, Quoc Le, and Denny Zhou. 2022b. Chain-of-thought prompting elicits reasoning in large language models. In Ad-vances in Neural Information Processing Systems ,volume 35, pages 24824–24837. Curran Associates, Inc. Guowei Xu, Peng Jin, Li Hao, Yibing Song, Lichao Sun, and Li Yuan. 2024. Llava-o1: Let vision lan-guage models reason step-by-step. arXiv preprint arXiv:2411.10440 .Guowei Xu, Peng Jin, Ziang Wu, Hao Li, Yibing Song, Lichao Sun, and Li Yuan. 2025. Llava-cot: Let vision language models reason step-by-step. In Proceedings of the IEEE/CVF International Conference on Com-puter Vision , pages 2087–2098. Ruohong Zhang, Bowen Zhang, Yanghao Li, Haotian Zhang, Zhiqing Sun, Zhe Gan, Yinfei Yang, Ruom-ing Pang, and Yiming Yang. 2025. Improve vision language model chain-of-thought reasoning. In Pro-ceedings of the 63rd Annual Meeting of the Associa-tion for Computational Linguistics (Volume 1: Long Papers) , pages 1631–1662. Zhuosheng Zhang, Aston Zhang, Mu Li, Hai Zhao, George Karypis, and Alex Smola. 2023. Multi-modal chain-of-thought reasoning in language mod-els. arXiv preprint arXiv:2302.00923 .
+
+10 A Appendix 
+
+A.1 Dataset Details 
+
+We evaluate on three datasets selected to span dif-ferent forms of visually grounded reasoning. 
+
+ChartQA. ChartQA (Masry et al., 2022) is a chart-based visual question answering benchmark where each example consists of a chart image (e.g., bar/line/pie charts) and a natural language question. Many questions require extracting precise numeric values, comparing trends, or aggregating quantities from the plotted visual marks and axes. This makes ChartQA particularly sensitive to failures of visual grounding, since language priors alone are often insufficient to answer correctly. We utilize 15000 random samples from the original train and 1500 from the test sets. To balance the impact of both trivial questions and complex multi-step queries, we ensure a balanced split of human (complex) and machine-labeled samples (trivial) as detailed in (Masry et al., 2022). 
+
+CLEVR. CLEVR (Johnson et al., 2017) is a syn-thetic visual reasoning dataset composed of ren-dered scenes with simple objects and programmati-cally generated questions. Questions typically re-quire compositional and multi-step reasoning (e.g., attribute comparisons, counting, spatial relations) with minimal linguistic ambiguity. Because the questions are controlled and the images contain the full evidence, CLEVR serves as a clean testbed for measuring whether CoT reasoning remains an-chored to visual content. We utilize the scaled-down train and test sets consisting of 10000 train samples and 2000 test samples as sampled from the full dataset 2.
+
+CV-Bench. CV-Bench (Tong et al., 2024) is a multi-domain vision benchmark designed to probe general-purpose visual understanding and reason-ing. It includes diverse image types and question styles that require a range of capabilities (e.g., rec-ognizing visual entities, reading fine-grained vi-sual details, and performing simple reasoning over them). Compared to ChartQA and CLEVR, CV-Bench is more heterogeneous and thus provides a stress test for whether improvements in CoT grounding and commitment dynamics generalize beyond a single visual domain. As the dataset only consists of a test set, we randomly split the dataset as available 3 into 1500 samples for training and 
+
+> 2https://huggingface.co/datasets/ dpdl-benchmark/clevr
+> 3https://huggingface.co/datasets/nyu-visionx/
+
+1140 for testing. 
+
+A.2 Model Details Qwen2.5-VL (QVL-3B / QVL-7B). Both Qwen2.5-VL variants use a decoder-only Trans-former LLM with grouped-query attention (GQA) and a ViT-style vision encoder whose patch tokens are projected into the LLM hidden space. LLM (text) backbone: QVL-3B uses L=36 layers, hidden size d=2048 , h=16 attention heads with 
+
+hkv =2 KV heads (GQA), and MLP interme-diate size dff =11008 ; it supports up to 128k positions ( max_position_embeddings =128000) and uses RoPE with large θ (rope_theta =1e6). QVL-7B uses L=28 , d=3584 , h=28 , hkv =4 ,and dff =18944 , with the same 128k maximum positions and rope_theta =1e6. Vision encoder: 
+
+Both use a vision Transformer with depth 32 and width 1280, with 16 attention heads and interme-diate size 3420, patch size 14, and local-window attention (window_size =112) with periodic full-attention blocks at indices {7,15,23,31}. The vision features are mapped to the LLM hidden size via out_hidden_size (2048 for QVL-3B; 3584 for QVL-7B) and spatially merged with 
+
+spatial_merge_size =2. 
+
+InternVL3.5 (IVL-4B / IVL-8B). InternVL3.5 is released as an internvl_chat model with (i) an LLM backbone (here, Qwen3) and (ii) an InternViT vision encoder. LLM (Qwen3) backbone: IVL-4B uses L=36 , hidden size 
+
+d=2560 , h=32 attention heads with hkv =8 KV heads, head dimension 128, and MLP interme-diate size dff =9728 ; it supports up to 40960 positions. IVL-8B uses L=36 , d=4096 , h=32 ,
+
+hkv =8 , head dimension 128, and dff =12288 ,with the same 40960 maximum positions. Vi-sion encoder: Both use InternVisionModel 
+
+(InternViT-6B-style) with Lv=24 layers, hid-den size 1024, 16 attention heads, and MLP intermediate size 4096, operating at image size 448 with patch size 14. Image tokenization / dynamic patches: The configs enable dynamic image sizing ( dynamic_image_size =true) with 
+
+force_image_size =448, min_dynamic_patch =1 and max_dynamic_patch =12, and 
+
+downsample_ratio =0.5. 
+
+Gemma3 (Gemma-4B / Gemma-12B). 
+
+Gemma3 is released as a multimodal 
+
+> CV-Bench
+
+11 Gemma3ForConditionalGeneration model with (i) a Gemma3 text decoder and (ii) aSigLIP-style vision encoder. LLM backbone: 
+
+Gemma-4B uses L=34 , hidden size d=2560 ,
+
+h=8 attention heads with hkv =4 KV heads, head dimension 256, and MLP intermediate size 
+
+dff =10240 . Gemma-12B uses L=48 , hidden size 
+
+d=3840 , h=16 attention heads with hkv =8 KV heads, head dimension 256, and MLP intermediate size dff =15360 . Both support up to 131072 positions (128K context), use RoPE scaling with factor 8.0, and interleave local sliding-window attention with sliding_window =1024. Vision encoder: Both Gemma-4B and Gemma-12B use a SiglipVisionModel -style encoder with 
+
+Lv=27 layers, hidden size 1152, 16 attention heads, and MLP intermediate size 4304, operating at image size 896 with patch size 14. Image tokenization / multimodal interface: Gemma3 uses 
+
+mm_tokens_per_image =256, with dedicated be-gin/end/image token indices, and processes images at a fixed 896 ×896 resolution; optional pan-and-scan inference further crops high-resolution or non-square images into multiple smaller patches before concatenating them with the base image embedding. 
+
+Loss Coefficient Weights. We set the coefficients of all loss weights to 1.0 as the weights are self-normalized. 
+
+A.3 Chain-of-Thought Data Construction Data Annotation: To construct the ground-truth CoT supervision, we use a fixed system prompt template as shown in Figure 6 to elicit step-by-step rationales from OpenAI API for ‘gpt-5-mini-2025-08-07’. For each training instance, we provide the image, the query, and the gold answer, and instruct the model to generate a concise sequence of atomic steps labeled step-1 through step-n. The template enforces a consistent format and encourages each step to perform a single, simple operation (e.g., lo-cating an object, checking an attribute, comparing values), yielding structured rationales that are easy to parse and align with token-level analyses during fine-tuning. 
+
+Multi-agent Ensemble Check: To improve the quality of the annotated CoT traces, we employ a two-agent pipeline with gpt-5-mini-2025-08-07 .The first agent generates an initial step-by-step ra-tionale from the image, query, and gold answer, while the second agent acts as an oracle verifier that inspects the generated trace for logical consis-tency, visual faithfulness, and answer correctness. If the trace contains unsupported, incomplete, or inconsistent reasoning, the verifier revises it accord-ingly; otherwise, it is accepted unchanged. This verification stage provides an additional layer of automatic quality control before manual inspection, reducing noise in the final CoT supervision. 
+
+Manual Check for consistency: To ensure the accuracy of generated CoT data, we also conduct a manual 2-pass check detailed below: • For pass 1, all samples with overtly short/long and incorrect reasoning traces are filtered (i.e. trace length less than 3 or more than 8 based on manual inspection and outlier rejection). To validate if a trace is wrong, we algorithmi-cally check if the last CoT line trace contains the correct answer. • For pass 2, two doctoral-level researchers are employed to validate the reasoning traces of a randomly sampled data subset (1000 samples). Each researcher filtered fewer than 6 samples (1%) in total, with a 100% agreement between them. System Prompt template for CoT Dataset Generation You are a vision-language assistant. You will be given an image, query and answer. You have to output how we can answer the query step-by-step and arrive at the answer. Each step should be labeled as "step-1", ... "step-n". Keep each step simple and concise and only doing one thing at a time. Input Format: Query: query Answer: answer Output Format: step-1: step-2: ... step-n:   
+
+> Figure 6: System prompt template for generating the Ground Truth CoT Data
+
+A.4 Inference Procedure A.4.1 Structured System Prompt 
+
+To enforce a consistent and standard output format, we utilize the same system prompt shown in Fig-12 ure 7. This ensures that the free-form CoT, which can differ wildly amongst model families, has a fixed algorithmic reasoning procedure. System Prompt template for CoT Inference You are a vision-language assistant. You are given an image and a query. Think step by step and then try to answer the question with short words or phrases if possible. Output Format: 
+
+<think >
+
+step-1: step-2: ... 
+
+</think ><answer >
+
+Answer the question 
+
+</answer >  
+
+> Figure 7: System prompt template for Chain-of-Thought inference.
+
+A.4.2 Inference Settings Attention Implementation: For all our experi-ments, we utilize ‘eager’ attention implementation, which, albeit slower, gives a deterministic value to all computed attention weights as opposed to ‘FlashAttention’. 
+
+Decoding: For QVL family, we utilize a maximum number of generated tokens of 256 for CoT and 32 for direct across all datasets. As IVL family usually has a more verbose style of native CoT, we utilize a maximum of 512 tokens for CoT across all datasets. We utilize a temperature value set to 0 for all experiments to ensure deterministic outputs. 
+
+Image Size: To enforce standard layout, we en-force all images to be between 360 * 28 * 28 and 480 * 28 * 28 pixels, which corresponds to about (512,512) image sizes. 
+
+Accuracy: For ChartQA, we utilize the Relaxed Accuracy metric as proposed in (Masry et al., 2022). Relaxed Accuracy considers the predicted numer-ical answers within a tight threshold as correct (not an exact match). The threshold value is set as 0.05 (5%). Mathematically for a prediction ˆy
+
+and ground truth ˆy∗,
+
+Relaxed Accuracy (ˆ y, y ∗) = 1[ |y∗− ˆy| 
+
+> y∗
+
+≤ 0.05] ,
+
+where 1 is the Indicator Function. Note that an exact match is utilized for non-numeric or mixed alphanumeric answers. For all other datasets, we utilize RA with tolerance 0.0. 
+
+A.4.3 Output Span Description 
+
+We decompose each model generation into two con-tiguous token spans: a think span and an answer span enforced by system prompt in Figure 7. The 
+
+think span consists of all tokens emitted as the chain-of-thought - i.e., the intermediate reasoning tokens generated before the model begins produc-ing the final answer. The answer span consists of the final answer tokens only, i.e., the tokens that realize the predicted answer string. Concretely, we enforce a fixed delimiter in the decoding tem-plate </think> and define the think span as all generated tokens from the first generated token up to (but excluding) the delimiter, and the answer span as the tokens generated after the delimiter until the end-of-answer (EOS) token. When the model produces multi-token answers, the answer span includes the entire answer token sequence. For direct-answer baselines (no-CoT), the think span is empty and the full generation is treated as the answer span. 
+
+A.5 CoT Performance across model scales 
+
+Figure 8 shows an example from CLEVR. In this sample, the SFT model exhibits premature answer commitment during the thinking span. In contrast, Att-CoT suppresses these early commitment spikes and concentrates confidence closer to the answer span, yielding a correct response with a more co-herent, stepwise rationale. 
+
+A.6 Diverse Robust Baselines without Zero image for Vis-Dep 
+
+To complement our attention-based grounding anal-ysis, we evaluate model robustness under a Gaus-sian blur transformation applied to the input image. Gaussian blur suppresses high-frequency visual de-tails such as fine edges, small text, and local texture cues, while largely preserving the global scene lay-out and coarse object structure. Intuitively, if a model genuinely relies on precise visual evidence during reasoning, its performance should degrade under this perturbation, especially on visually in-tensive tasks that require fine-grained perception. We therefore use Gaussian blur as a simple but ef-fective stress test for visual dependence, allowing us to assess whether different training strategies en-courage stronger reliance on detailed image content rather than superficial language priors. 13 Figure 8: Early answer commitment differs by scale. Qwen2.5-VL-3B exhibits high confidence early in the think span (premature commitment), whereas Qwen2.5-VL-7B delays commitment until later. The dashed vertical line marks the transition from the think span to the answer span. 
+
+In Table 7, we report the Vis-Dep scores under Gaussian blur for QVL-7B, IVL-8B, and Gemma-12B on ChartQA and CLEVR datasets. Across all three backbones, Att-CoT consistently achieves the highest Vis-Dep among trained methods on both ChartQA and CLEVR, indicating stronger reliance on fine-grained visual evidence even under degraded image quality. In contrast, SFT, LLaVA-CoT, and LLaVA-R generally exhibit substantially lower scores, suggesting a greater tendency to fall back on textual priors when detailed visual cues are suppressed. The trends follow similar insights from the zero-image experiments, implying our Vis-Dep metric is robust to baseline no-information image. 
+
+A.7 Baseline Replication Details LLaVA-COT (Xu et al., 2025): LLaVA-COT was originally developed on top of earlier-generation LLaVA backbones which had extremely low CoT reasoning abilities. Since these models predate more recent multimodal architectures with stronger native reasoning and instruction-following capabilities, we replicate the method for our experiments on three modern MLLM families: Qwen2.5-VL, InternVL3.5, and Gemma3. These backbones are substantially more CoT-friendly out of the box, making them a stronger and more relevant testbed for evaluating whether the gains of the original approach persist un-der current-generation multimodal models. We format the data as described by prompt-ing API to generate <SUMMARY></SUMMARY>, <CAPTION></CAPTION>, <REASONING></REASONING> 
+
+and <CONCLUSION></CONCLUSION> tags. For test time scaling using ‘Stage-wise retracing search’, we use N = 4 , i.e., Best-of-4. Interestingly, the improvements over SFT are meager - implying modern backbones do not benefit as much from test-time scaling as LLaVA models. 
+
+LLaVA-R (Zhang et al., 2025): LLaVA-R-DPO was also introduced on older LLaVA-family backbones. We incorporate the training setup of ‘LLAVA-REASONER-SFT’ verbatim from the GitHub repo 4. We re-use the DPO data for ChartQA. For CLEVR and CV-Bench, we com-pare against the SFT approach. 
+
+A.8 Detailed Computational Cost Analysis 
+
+Let the decoder comprise L transformer layers with 
+
+H attention heads per layer, hidden size d, visual-token index set V with cardinality |V| = Nv, and total sequence length S = T +K, where T denotes the number of CoT tokens and K the number of answer tokens. Standard CoT-SFT optimizes only the autoregressive negative log-likelihood objective 
+
+LSFT , whose dominant cost is the usual forward-backward pass through the MLLM. In contrast, our method augments training with two auxiliary terms, 
+
+LAtt -CoT = LSFT + LVG + LDC ,
+
+while introducing no additional trainable parame-ters, no extra model branches, and no second de-coding pass. The visual-grounding term reuses the native attention maps A(l,h ) 
+
+> t,j
+
+already produced during decoding, and computes the average visual attention mass at rationale step t as 
+
+αvis  
+
+> t
+
+= 1
+
+LH 
+
+> L
+
+X
+
+> l=1
+> H
+
+X
+
+> h=1
+
+X
+
+> j∈V
+
+A(l,h ) 
+
+> t,j
+
+,
+
+which adds only a tensor-reduction overhead of order O(T LHN v). Similarly, the delayed-
+
+> 4https://github.com/RifleZhang/ LLaVA-Reasoner-DPO
+
+14 Method QVL-7B IVL-8B Gemma-12B ChartQA CLEVR ChartQA CLEVR ChartQA CLEVR                               
+
+> CoT (no training) 0.93 0.55 0.79 0.61 0.80 0.54 SFT 0.54 0.34 0.49 0.07 0.68 0.19 LLaVA-CoT 0.48 0.38 0.50 0.11 0.67 0.08 LLaVA-R 0.50 0.31 0.44 0.12 0.61 0.15
+> Att-CoT 0.78 0.48 0.64 0.21 0.74 0.38
+> Table 7: Performance under Gaussian blur across different MLLM backbones and training methods on ChartQA and CLEVR.
+
+commitment term operates on the gold-answer con-fidence 
+
+πt = pθ(y⋆ | I, q, r <t ),
+
+obtained directly from the model logits, and there-fore incurs only O(T ) additional elementwise op-erations across CoT positions. Consequently, the asymptotic training complexity remains identical to standard SFT, with the extra cost dominated by lightweight reductions over tensors that are already materialized in memory. Hence, if the baseline SFT cost is denoted by CSFT , the total cost of Att-CoT can be written as 
+
+CAtt -CoT = CSFT + O(T LHN v),
+
+which preserves the same dominant asymptotic scaling as vanilla CoT fine-tuning. In practice, 
+
+O(T LHN v) << CSFT .
+
+A.9 Difficulty aware Splits 
+
+In Table 8, we report the performance on the Human (complex) and Machine (trivial) splits of the ChartQA dataset. Our sampled test-set for ChartQA consists of 750 samples each from Hu-man and Machine subsets. Across three backbones, Att-CoT achieves the best performance on both splits, with the gains being consistently larger on the Human subset than on the Machine subset i.e. our method helps on queries that require deeper reasoning. For example, on QVL-3B, Att-CoT improves over SFT by only +0 .2 on Machine ques-tions but by +4 .3 on Human questions; similarly, the gain on Gemma-4B is +0 .8 on Machine versus 
+
++3 .3 on Human. 
+
+A.10 Hyperparameter Setup Training Configuration For both SFT and Att-CoT, we train the model for a maximum of 5 epochs and select the model with the lowest loss on the validation set. For comparison baselines, we utilize the hyperparameters mentioned in the respective method implementation descriptions. Additionally, we utilize the AdamW optimizer for training with a training batch size of 4 across 2 NVIDIA A100 GPUs. The learning rate schedule utilized is linear with a maximum learning rate of 1e − 5 and 1000 warmup steps. During training, the entire model is trained with FP16 precision, and the vision tower is trained using an LR of 2e − 6. As is standard practice, all image-relevant tokens are masked dur-ing fine-tuning. The prompt to elicit CoT response is the same prompt shown in Figure 7. 
+
+A.11 Answer Commitment Visual Analysis 
+
+Figure 9 visualizes answer commitment for SFT vs Att-CoT, illustrating how Att-CoT delays answer commitment until the end of reasoning. Figure 11 visualizes attention mass on visual tokens across layers for SFT vs Att-CoT, illustrating how Att-CoT encourages more sustained visual token access during the think span. 
+
+A.12 Visual Attention Analysis across MLLM scales 
+
+Next, Figure 10 reports VTA heatmaps across model scales, showing how visual attention mass varies across layers and generation steps. Across Qwen2.5-VL (3B, 7B, 72B) on the same CoT-prompted example, smaller models display more sporadic and uneven visual grounding across steps, while larger models exhibit more structured, dis-tributed attention patterns across layers, with grounding that is generally more stable across the trajectory. 
+
+A.13 How Att-CoT changes visual attention as compared to base model 
+
+In Figure 11, we demonstrate the change in visual attention mass of Att-CoT as compared to the base model. We observe that Att-CoT has higher atten-tion weights on the think span. This observation, along with higher accuracies and improved qualita-15 Method QVL-3B IVL-4B Gemma-4B M H M H M H
+
+SFT 92.0 70.4 95.2 77.5 91.4 69.5 LLaVA-CoT 91.2 65.4 94.9 74.7 91.2 66.0 LLaVA-R 91.7 68.6 94.9 76.3 91.3 67.4 
+
+Att-CoT 92.2 74.7 95.3 78.3 92.2 72.8 
+
+> Table 8: Comparison of different training methods across multiple MLLM backbones under machine and human sub-splits of ChartQA.
+> Figure 9: Representative example where SFT exhibits intermittent spikes during the thinking span, indicating premature commitment to the final answer, whereas Att-CoT suppresses early peaks and concentrates commitment closer to the answer span.
+
+tive reasoning performance, Att-CoT is an effective tool to improve fine-tuning performance. 
+
+A.14 Qualitative Examples 
+
+Figures 12 and 13 show qualitative comparisons between SFT and Att-CoT. We visualize the gener-ated spans and the corresponding attention behavior to highlight cases where Att-CoT improves both correctness and grounding. Cumulative attention mass over visual tokens improves accurate spatial understanding - making Att-CoT outperform SFT. 
+
+A.15 Attention-based Grounding Analysis 
+
+Figure 14 compares the spatial distribution of token-to-visual attention for the base model, SFT, and Att-CoT on the same sample from ChartQA (TOP) and CLEVR (BOTTOM). We observe that Att-CoT assigns more concentrated attention mass to the visually relevant region, whereas the base model and SFT exhibit more diffuse or weakly lo-calized patterns. This qualitative trend is consistent with our broader visual-attention analysis, where Att-CoT increases attention over the think span and improves grounding during multi-step reason-ing. Together, these overlays suggest that Att-CoT encourages more faithful and task-aligned visual attention than standard fine-tuning. 16 Figure 10: Visual Token Attention across model scales. We plot layer-step heatmaps of the average attention mass assigned to visual tokens, At, vis , for Qwen2.5-VL-{3B, 7B, 72B} on the same CoT-prompted example. The horizontal axis is the generation step t, the vertical axis is the decoder layer, and color indicates At, vis (higher = more cumulative visual attention). The think and answer spans are delineated to show how visual grounding evolves during think and answer generation. 
+
+Figure 11: Attentive-CoT increases sustained visual attention during reasoning. Layer-step heatmaps of At, vis 
+
+for the base model (top) versus Att-CoT (bottom) on the same CoT-prompted sample. Att-CoT shifts attention mass toward the think span and maintains more consistent visual grounding across steps, compared to the base model’s more transient/spiky visual attention near the answer span. 
+
+17 Att-CoT: Answer - Yes 
+
+SFT: Answer - No 
+
+## Answer Span 
+
+## Query: Are there any blue rubber things of the same size as the gray matte cylinder? 
+
+## Answer: Yes 
+
+step-1: Locate the gray matte cylinder in the foreground left-left of center….. 
+
+step-4: Identify the medium blue rubber cylinder behind the gray matte cylinder..and compare sizes; it is also much smaller than the gray matte cylinder. …. 
+
+step-1: Locate the gray matte cylinder in the foreground center of the image. 
+
+step-2: Observe the gray cylinder…. 
+
+step-4: Identify a large blue sphere on the left as a blue rubber object. 
+
+step-5: Compare the size of that large blue sphere to the gray matte cylinder and note they are about the same size.    
+
+> Step-1 Step-4,5 Step-1-3 Step-4,5
+
+Figure 12: Qualitative comparison of SFT vs. Att-CoT on a CLEVR example. SFT model commits to an incorrect answer (No) and produces a loosely grounded rationale, whereas Att-CoT correctly answers (Yes) with a more faithful size-comparison trace. The bottom heatmaps (token-to-visual attention over the CoT trajectory, aggregated across heads) show that Att-CoT sustains stronger, more structured visual grounding during reasoning, while SFT has multiple spikes in between sparse values and also spikes during answer. Black boxes highlight high-attention regions over visual tokens. 
+
+18 Att-CoT: Answer - (A) 
+
+SFT: Answer - (B) Answer Span 
+
+Query: Considering the relative positions of the sports ball and the baseball bat in the image provided, where is the sports ball located with respect to the baseball bat? Select from the following choices.(A) above (B) below 
+
+Answer: (A) 
+
+Step-1: In the image, we can see a baseball player Step-2: The ball needs to be located to answer the question …. Step-4 The ball is below the baseball player and the bat 
+
+step-1: Observe the image and locate the baseball bat — it's held by the batter near the center-right of the frame. step-2: Locate the sports ball — it's visible in the air to the left of the batter. step-3: Compare their vertical positions the ball is higher in the image than the bat. step-4: Conclude the ball is above the bat.    
+
+> Step-1,2 Step-4, Answer Step-1-3 Step-4
+
+Figure 13: Qualitative comparison of SFT vs. Att-CoT on a CV-Bench example. SFT model commits to an incorrect answer (Below) and produces a loosely grounded rationale, whereas Att-CoT correctly answers (Above) with a more faithful stepwise spatial comparison. The bottom heatmaps (token-to-visual attention over the CoT trajectory, aggregated across heads) show that Att-CoT sustains stronger, more structured visual grounding during reasoning, especially when evaluating the locations of the objects in the image, while SFT focuses attention mass near the answer span. Black boxes highlight high-attention regions over visual tokens. 
+
+19 Base SFT Att-CoT Figure 14: Comparison of token-to-visual attention overlays for the base model, SFT, and Att-CoT on the same example. (TOP) Query: ‘Number of items in the chart?’ (BOTTOM) ’Where is the cylinder with respect to the shiny sphere?’. We visualize the cumulative visual attention induced by the generated CoT trajectory, together with zoomed-in views of the relevant region. Relative to the base model and SFT, Att-CoT produces more spatially concentrated and semantically aligned attention on the task-relevant visual evidence, indicating stronger grounding during reasoning rather than only near the final answer span. 
+
+20
