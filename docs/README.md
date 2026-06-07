@@ -6,59 +6,58 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-06-06
-- 运行时间：2026-06-06 20:20:33 UTC
+- 最新运行日期：2026-06-07
+- 运行时间：2026-06-07 20:47:01 UTC
 - 运行状态：成功
-- 本次总论文数：13
-- 精读区：2
+- 本次总论文数：12
+- 精读区：1
 - 速读区：11
 
 ### 今日简报（AI）
-今日精读13篇论文，聚焦于高维结构去噪与多模态大模型推理优化。重点关注两篇8分工作：测地流匹配降噪法与注意力引导CoT微调策略。建议优先精读后者，其思路可直接用于提升模型推理透明度。
-- 详情：[/202606/06/README](/202606/06/README)
+1. 今日解读12篇论文，聚焦多模态LLM功能稀疏性、参数知识编辑极限及推理链折叠等前沿议题。  
+2. 精读推荐《Mechanistic Insights into Functional Sparsity in Multimodal LLMs via CoRe Heads》（8分），揭示多模态大模型中基于“CoRe头”的稀疏机制；速读中《Revisiting Parameter-Based Knowledge Editing》与《Geometric Latent Reasoning》分别挑战知识编辑有效性与提出更简短的几何潜在推理。  
+3. 建议优先精读“CoRe头”一文理解稀疏性原理，再结合速读中知识编辑的局限性反思当前LLM调优方法。
+- 详情：[/202606/07/README](/202606/07/README)
 
 ### 精读区论文标签
-1. [Geodesic Flow Matching for Denoising High-Dimensional Structured Representations](/202606/06/2606.00248v1-geodesic-flow-matching-for-denoising-high-dimensional-structured-representations)  
+1. [Mechanistic Insights into Functional Sparsity in Multimodal LLMs via CoRe Heads](/202606/07/2606.05843v1-mechanistic-insights-into-functional-sparsity-in-multimodal-llms-via-core-heads)  
    标签：评分：8.0/10、query:ns-xai
-   evidence：用于向量符号代数的测地流匹配实现神经符号推理
-2. [Attention-guided Fine-tuning of Multimodal Large Language Models Improves Chain-of-Thought Reasoning](/202606/06/2606.01558v1-attention-guided-fine-tuning-of-multimodal-large-language-models-improves-chain-of-thought-reasoning)  
-   标签：评分：8.0/10、query:ns-xai
-   evidence：注意力引导微调提升多模态大模型链式推理
+   evidence：多模态LLM中注意力头的机制可解释性研究
 
 ### 速读区论文标签
-1. [Beyond Additive Decompositions: Interpretability Through Separability](/202606/06/2605.31200v1-beyond-additive-decompositions-interpretability-through-separability)  
+1. [Revisiting Parameter-Based Knowledge Editing in Large Language Models: Theoretical Limits and Empirical Evidence](/202606/07/2606.00570v1-revisiting-parameter-based-knowledge-editing-in-large-language-models-theoretical-limits-and-empirical-evidence)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：基于可分离性的可解释回归
-2. [BRo-JEPA: Learning Modular Arithmetic in Latent Space](/202606/06/2606.01372v1-bro-jepa-learning-modular-arithmetic-in-latent-space)  
+   evidence：分析知识编辑导致的大模型推理崩溃，贡献于可解释性
+2. [Geometric Latent Reasoning Induces Shorter Generations in LLMs](/202606/07/2606.02248v1-geometric-latent-reasoning-induces-shorter-generations-in-llms)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：在潜在世界模型中学习符号变换规则
-3. [Code-on-Graph: Iterative Programmatic Reasoning via Large Language Models on Knowledge Graphs](/202606/06/2606.03705v1-code-on-graph-iterative-programmatic-reasoning-via-large-language-models-on-knowledge-graphs)  
+   evidence：几何潜在推理方法缩短LLM生成长度
+3. [ThoughtFold: Folding Reasoning Chains via Introspective Preference Learning](/202606/07/2606.03503v1-thoughtfold-folding-reasoning-chains-via-introspective-preference-learning)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：结合知识图谱与程序化推理提升可解释性
-4. [Closing the Loop on Latent Reasoning via Test-Time Reconstruction](/202606/06/2606.06252v1-closing-the-loop-on-latent-reasoning-via-test-time-reconstruction)  
-   标签：评分：7.0/10、query:ns-xai
-   evidence：测试时重建确保潜在推理的忠实性
-5. [Unlocking Fine-Grained Translation Quality Estimation in LRMs through Synergistically Evolving Implicit and Explicit Reasoning](/202606/06/2605.31378v1-unlocking-fine-grained-translation-quality-estimation-in-lrms-through-synergistically-evolving-implicit-and-explicit-reasoning)  
+   evidence：通过偏好学习缓解大推理模型的过度思考问题，提升效率与可解释性
+4. [ThinkSwitch: Context Distillation with LoRA and Weight Interpolation for Specific-Purpose Reasoning Tasks](/202606/07/2606.01080v1-thinkswitch-context-distillation-with-lora-and-weight-interpolation-for-specific-purpose-reasoning-tasks)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：结合隐式和显式推理进行质量估计，与LRM推理相关
-6. [ChatHealthAI: Aligning Electronic Health Record Representations with Large Language Models for Grounded Clinical Reasoning](/202606/06/2606.02802v1-chathealthai-aligning-electronic-health-record-representations-with-large-language-models-for-grounded-clinical-reasoning)  
+   evidence：通过上下文蒸馏和权重插值实现高效推理
+5. [Cross-lingual Self-Consistency for Multilingual Reasoning with Language Models](/202606/07/2606.01464v1-cross-lingual-self-consistency-for-multilingual-reasoning-with-language-models)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：将电子病历表示与大语言模型对齐进行临床推理，增强可解释性
-7. [PhotoCraft: Agentic Reasoning with Hierarchical Self-Evolving Memory for Deep Image Search](/202606/06/2606.03099v1-photocraft-agentic-reasoning-with-hierarchical-self-evolving-memory-for-deep-image-search)  
+   evidence：通过跨语言自一致性增强多语言推理
+6. [CRAFTQA: A Code-Driven Adaptive Framework for Complex Structured Data Reasoning](/202606/07/2606.02170v1-craftqa-a-code-driven-adaptive-framework-for-complex-structured-data-reasoning)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：大模型代理中用于多步推理的分层记忆
-8. [Bridging Auxiliary Constraints to Resolve Instruction Following in Large Reasoning Models](/202606/06/2606.03624v1-bridging-auxiliary-constraints-to-resolve-instruction-following-in-large-reasoning-models)  
+   evidence：使用代码驱动框架进行结构化数据推理，结合符号操作与神经模型
+7. [Learning When to Translate for Multilingual Reasoning](/202606/07/2606.02465v1-learning-when-to-translate-for-multilingual-reasoning)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：约束图用于大推理模型指令遵循
-9. [Entity Binding Failures in Speech LLM Reasoning: Diagnosis and Chain-of-Thought Intervention](/202606/06/2606.04474v1-entity-binding-failures-in-speech-llm-reasoning-diagnosis-and-chain-of-thought-intervention)  
+   evidence：通过选择性翻译提升多语言推理能力，但未直接涉及可解释性
+8. [Linear Probes Detect Task Format, Not Reasoning Mode in Language Model Hidden States](/202606/07/2606.02907v1-linear-probes-detect-task-format-not-reasoning-mode-in-language-model-hidden-states)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：诊断语音大语言模型中的实体绑定失败并提出可解释链式思维干预
-10. [DAR: Deontic Reasoning with Agentic Harnesses](/202606/06/2606.05009v1-dar-deontic-reasoning-with-agentic-harnesses)  
+   evidence：批判性检测线性探针对大模型推理模式的归因能力
+9. [Linear Probes Detect Task Format, Not Reasoning Mode in Language Model Hidden States](/202606/07/2606.02907v2-linear-probes-detect-task-format-not-reasoning-mode-in-language-model-hidden-states)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：基于显式规则的代理道义推理
-11. [Memory is Reconstructed, Not Retrieved: Graph Memory for LLM Agents](/202606/06/2606.06036v1-memory-is-reconstructed-not-retrieved-graph-memory-for-llm-agents)  
+   evidence：线性探针检测LLM推理模式发现格式混淆
+10. [NeuroSymbolic Robustness Analysis for Discrete Systems with Respect to Transition Deviations](/202606/07/2606.03872v1-neurosymbolic-robustness-analysis-for-discrete-systems-with-respect-to-transition-deviations)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：基于图记忆与主动重建的LLM代理推理
+   evidence：神经符号鲁棒性分析，融合神经网络与符号推理
+11. [LoRi: Low-Rank Distillation for Implicit Reasoning](/202606/07/2606.05315v1-lori-low-rank-distillation-for-implicit-reasoning)  
+   标签：评分：6.0/10、query:ns-xai
+   evidence：面向LLM隐式推理的低秩蒸馏
 
 
 <div class="dpr-home-promo-card">
