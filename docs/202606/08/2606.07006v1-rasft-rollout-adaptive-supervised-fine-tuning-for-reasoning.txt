@@ -1,0 +1,924 @@
+Title: RASFT: Rollout-Adaptive Supervised Fine-Tuning for Reasoning
+
+URL Source: https://arxiv.org/pdf/2606.07006v1
+
+Published Time: Mon, 08 Jun 2026 00:41:42 GMT
+
+Number of Pages: 17
+
+Markdown Content:
+# RASFT: Rollout-Adaptive Supervised Fine-Tuning for Reasoning 
+
+Yongliang Miao 1,* , Fengyuan Liu 1,* , Wei Shi 2
+
+Yanguang Liu 3, Fei Sun 4, Na Zou 2, Mengnan Du 1,† 1The Chinese University of Hong Kong, Shenzhen 2Shanghai Artificial Intelligence Laboratory 
+
+> 3
+
+New Jersey Institute of Technology 4Institute of Computing Technology, CAS  
+
+> r130026108@gmail.com, mengnandu@cuhk.edu.cn
+> *Equal contribution. †Corresponding author.
+
+Abstract 
+
+Supervised fine-tuning (SFT) is a prevailing method for adapting large language models to reasoning tasks by imitating offline expert demonstrations, often treating a single expert trajectory as the target behavior. However, rea-soning is not simple path imitation: rigidly fol-lowing one demonstrated solution may overfit to surface forms and suppress the model’s own reasoning distribution. We propose Rollout-Adaptive Supervised Fine-Tuning (RASFT) ,a policy-aware SFT framework that calibrates expert supervision according to problem-level solvability estimated from verified on-policy rollouts. For each problem, RASFT strength-ens expert guidance when the current policy struggles, while relaxing rigid imitation and incorporating correct self-generated trajecto-ries when the model already exhibits reliable reasoning behavior. To preserve useful rea-soning priors, RASFT further introduces a clipped inverse ratio between the frozen refer-ence model and the current policy to constrain excessive policy drift. Experiments across mul-tiple models on six mathematical reasoning benchmarks and two code reasoning bench-marks show that RASFT achieves better overall performance than SFT, SFT variants, and rep-resentative RL methods. The code is available at https://github.com/zjd1sq/RASFT .
+
+1 Introduction 
+
+Supervised fine-tuning (SFT) has been widely used to adapt large language models (LLMs) to reason-ing domains (Ouyang et al., 2022; Chung et al., 2024; Mukherjee et al., 2023; Yue et al., 2023). Standard SFT relies on offline expert demonstra-tions and implicitly assumes that expert trajectories are the targets to be imitated (Ouyang et al., 2022; Wang et al., 2023; Zhou et al., 2023). However, reasoning is not simple imitation: one problem can often be solved through multiple valid paths, while an offline expert response presents only one possible reasoning trajectory (Wei et al., 2022; Ze-likman et al., 2022; Yuan et al., 2023). Mean-while, pretrained LLMs may already possess rich potential reasoning distributions (Zelikman et al., 2022; Mukherjee et al., 2023). If fine-tuning overly follows a single expert trajectory, the model may fit the surface form of the demonstration, thereby weakening its original reasoning distribution and limiting the activation of its own reasoning abil-ity (Chu et al., 2025; Mukherjee et al., 2023). This limitation has motivated recent SFT vari-ants to reconsider how expert demonstrations should be optimized. DFT (Wu et al., 2026) weak-ens uniform token-level imitation by rescaling the learning signal according to the model’s confidence. ASFT (Zhu et al., 2026) further anchors this opti-mization to a reference model to improve stability and reduce distributional drift. ProFiT (Liu et al., 2026) reduces unnecessary fitting by emphasizing high-value supervision signals within the expert response. These methods make SFT less blindly imitative at the token or objective level, but their adaptivity remains largely demonstration-internal, not policy-aware: the expert trajectory is still op-timized as the default target, leaving the objective unable to distinguish when expert imitation pro-vides necessary correction and when it becomes rigid path fitting for the current policy. This motivates a policy-adaptive view of SFT in reasoning domains: expert demonstrations should serve as problem-level guidance whose strength is calibrated by the current policy’s ability to solve each problem, rather than only by signals within the offline trajectory. The challenge is therefore how to determine the role of expert supervision for each problem under the current policy. When the model still struggles, expert trajectories should pro-vide stronger corrective guidance; when the model already exhibits reliable reasoning behavior, rigid imitation of the same expert path becomes less nec-essary. Therefore, effective SFT should move be-1
+
+> arXiv:2606.07006v1 [cs.LG] 5 Jun 2026
+
+yond static demonstration fitting and adjust expert supervision according to policy-dependent problem difficulty, while avoiding unnecessary suppression of the model’s own reasoning distribution. To this end, we propose Rollout-Adaptive Su-pervised Fine-Tuning (RASFT) , a policy-aware SFT framework that adapts expert supervision us-ing the current model’s rollout behavior. For each problem, RASFT constructs a local candidate pool consisting of the offline expert trajectory and veri-fied correct trajectories generated by the current model. It estimates a problem-level solvability score from the success rate of model-generated rollouts, which reflects how well the current policy can solve the problem. Based on this score, RASFT increases the influence of expert demonstrations on difficult problems and attenuates it when the model already exhibits reliable reasoning behavior. Fur-thermore, to conservatively activate the model’s reasoning ability rather than overwrite it through excessive imitation, RASFT introduces an inverse ratio between the frozen reference model and the current policy to constrain excessive policy drift. Empirically, RASFT consistently outperforms SFT-style baselines across mathematical and code reasoning tasks. It achieves a 10 .9% relative gain on Qwen2.5-Math-1.5B math reasoning ( 25 .00 →
+
+27 .72 ) and up to 26 .9% on Llama-3.2-3B code generation ( 24 .93 → 31 .63 ), suggesting that rollout-adaptive supervision brings benefits beyond stronger demonstration fitting. Compared with GRPO (Shao et al., 2024), RASFT further im-proves average math accuracy by 15 .9% (20 .25 →
+
+23 .47 ), highlighting the robustness of combining expert guidance with rollout-based adaptation. Our key contributions are summarized as follows: • We identify a key limitation of existing SFT vari-ants for reasoning: their adaptivity mainly oper-ates within offline expert demonstrations, rather than calibrating expert supervision according to the current policy’s problem-level ability. • We propose RASFT, a rollout-adaptive SFT framework that uses verified on-policy rollouts to estimate problem solvability and dynamically balance expert guidance with self-generated cor-rect reasoning trajectories. • Extensive experiments on mathematical and code reasoning tasks show that RASFT outperforms SFT-style baselines across multiple models, with ablations and RL comparisons further confirming its effectiveness and robustness. 
+
+2 Methodology 
+
+2.1 Preliminaries 
+
+We consider supervised post-training for reasoning tasks. Let Doff = {(xi, y ei )}Ni=1 denote an offline reasoning dataset, where xi is a problem prompt and yei is an expert-written reasoning trajectory. A language model parameterized by θ defines an autoregressive policy 
+
+πθ(y | x) = 
+
+> |y|
+
+Y
+
+> t=1
+
+πθ(yt | x, y <t ). (1) Conventional supervised fine-tuning optimizes the negative log-likelihood of the expert response: 
+
+LSFT (θ)= − E
+
+> (x,y e)∼D off
+
+
+
+> |ye|
+
+X
+
+> t=1
+
+log πθ(yet |x, y e<t )
+
+ .
+
+This objective treats each expert trajectory as the desired target behavior and applies uniform token-level imitation along the given response. However, reasoning differs from ordinary se-quence imitation: the expert trajectory ye provides only one possible solution path, while the model generates according to its own policy πθ(· | x). We aim to use expert responses as supervision with less excessive imitation of trajectories that are re-dundant, misaligned, or already well captured by the current policy (Figure 1). 
+
+2.2 RASFT Framework Policy-aware regularization. RASFT optimizes expert and model-generated reasoning trajectories using policy-aware regularization and trajectory-level adaptive weighting, moving away from treat-ing offline expert responses as uniformly imitative targets. Instead of framing post-training through an explicit reinforcement learning lens with rigid reward or advantage formulations, we view expert trajectories and self-generated successful behav-iors as an aligned candidate pool where optimiza-tion scales dynamically according to policy-relative properties. The core motivation is that large language mod-els already possess substantial reasoning capac-ity from pretraining. Thus, the objective of post-training is not to force the mechanical memoriza-tion of static demonstrations, but to leverage expert knowledge to activate and refine the model’s la-tent policy distribution. Let πref denote the frozen 2(a) Rollout & Verification   
+
+> Input Prompt
+> Expert trajectory (offline)
+> Model rollouts
+> . . . K
+
+(b) Adaptive Weighting 
+
+> Candidate pool
+
+𝑥 𝑖 
+
+𝑦 𝑖 
+
+> 𝑒
+
+𝑦 𝑖 ,1
+
+> 𝜃
+
+𝑦 𝑖 ,2
+
+> 𝜃
+
+𝑦 𝑖 ,𝐾           
+
+> 𝜃
+> 𝐺 𝑖 =𝑦 𝑖
+> 𝑒 ∪{𝑦 𝑖
+> 𝜃 |correct }
+> Solvability index
+> 𝜁 𝑖 =Correct
+> 𝐾
+> Low 𝜁 𝑖 (hard)
+> High 𝜁 𝑖 (easy)
+
+(c) Optimization 
+
+> Reference model
+
+𝜋 𝑟𝑒𝑓 
+
+> Updated policy
+
+𝜋 𝜃                 
+
+> Iterate: 𝜋 𝜃 generates new rollouts
+> Trajectory weights
+> 𝑊 𝑒 ↑when 𝜁 𝑖 low
+> 𝑊 𝑒 ↓when 𝜁 𝑖 high
+> Verified rollouts get fixed weight 𝑊 𝑟
+> normalize every 𝑊 𝑡𝑜 ഥ𝑊
+> Weighted
+> loss
+> Compound
+> weight
+> Token
+> confidence
+> ratio
+
+𝑟 = 𝜋 𝑟𝑒𝑓 
+
+𝜋 𝜃 
+
+𝑝 𝜃 
+
+𝜔 = ഥ𝑊 ∙ 𝑟 ∙ 𝑝 𝜃 
+
+𝐿 = −∑𝜔 log 𝑝 𝜃 Figure 1: RASFT pipeline. (a) For each prompt, policy model πθ samples multiple rollouts, which are verified and combined with offline expert trajectory. (b) Rollout-based solvability ζi, which adaptively calibrates expert and rollout trajectory weights. (c) RASFT updates the policy model πθ by optimizing candidate trajectories with a compound weight that combines normalized trajectory weights, an inverse policy ratio, and token probability. 
+
+initial reference model, and let πθ denote the cur-rent trainable policy. For an arbitrary target tra-jectory yi,j = ( yi,j, 1, . . . , y i,j, |yi,j |) associated with prompt xi, where j indexes a candidate trajectory, the target-token probability under the active policy is defined as: 
+
+pθi,j,t = πθ(yi,j,t | xi, y i,j,<t ).
+
+To regularize how aggressively a candidate trajectory updates the policy, RASFT defines a sequence-level inverse importance sampling ratio: 
+
+ri,j (θ)= 
+
+ πref (yi,j | xi)
+
+πθ(yi,j | xi)
+
+ 1 
+
+> |yi,j |
+
+= exp 
+
+ 1
+
+|yi,j | 
+
+> |yi,j |
+
+X
+
+> t=1
+
+log πref (yi,j,t |xi, y i,j,<t )
+
+πθ(yi,j,t |xi, y i,j,<t )
+
+ .
+
+Here, the numerator reflects the reference model’s support for the candidate trajectory, ensuring that updates consistent with the pretrained prior are pre-served to prevent distributional drift. Conversely, as πθ(yi,j | xi) grows relative to πref (yi,j | xi), in-dicating that the current policy has already shifted toward this behavior, the inverse ratio diminishes the gradient magnitude. This ratio stabilizes opti-mization against length variations and helps pre-vent over-imitation of trajectories. 
+
+Rollout-based solvability. To augment offline guidance with online policy feedback, RASFT incorporates self-sampled rollouts. For a given prompt xi, the current model generates K rollouts, which are verified by a task-specific verifier (e.g., final-answer matching). Let ci,k ∈ { 0, 1} indicate whether the k-th rollout is correct. We define the problem-level solvability index as: 
+
+ζi = 1
+
+K
+
+> K
+
+X
+
+> k=1
+
+ci,k .
+
+Crucially, all incorrect rollouts are strictly filtered out from the optimization targets to avoid training noise; they are exclusively utilized to compute ζi
+
+as an explicit proxy for problem difficulty. For compute efficiency, RASFT does not per-form rollouts for every training instance. Instead, it maintains a sliding window over the current expert-sequence loss and allocates rollouts only to in-stances within this window. Samples outside the window fall back to expert data-only supervision, since very easy instances provide limited explo-ration value and difficult ones yield relatively few reliable successful rollouts. For samples within the window, we construct a local candidate pool Gi consisting of the expert trajectory and the model’s own successful rollouts: 
+
+Gi = {yei } ∪ { yθi,k | ci,k = 1 }.
+
+Adaptive weighting and objective. We assign trajectory-level weights Wi within this pool. For the expert trajectory, we assign a difficulty-adaptive weight using the rollout success rate: 
+
+Wi(yei ) = W min  
+
+> e
+
++ (1 − ζi)( W max  
+
+> e
+
+− W min  
+
+> e
+
+),
+
+where W min  
+
+> e
+
+and W max  
+
+> e
+
+denote the minimum and maximum expert weights. When ζi is low, the 3expert trajectory provides stronger corrective super-vision; when ζi is high, its influence is weakened to prevent rigid fitting. Self-generated correct rollouts receive a fixed weight Wi(yθi,k ) = Wr. We then perform a normalization over the candidate pool to obtain the relative trajectory coefficient ¯Wi,j :
+
+¯Wi,j = Wi(yi,j )
+
+P  
+
+> yi,r ∈G i
+
+Wi(yi,r ) .
+
+Following token-scaled optimization principles, we combine this trajectory coefficient with a token-level confidence factor pθi,j,t and the clipped inverse sequence ratio to derive the final compound weight: 
+
+ωi,j,t = ¯Wi,j Clip( ri,j (θ), 1−ϵlow , 1+ ϵhigh ) pθi,j,t ,
+
+(2) where ϵlow and ϵhigh bound the policy deviation limits. ¯Wi,j , the clipped ratio term, and the to-ken confidence factor are treated as stop-gradient weights. The final RASFT objective is minimized as a regularized, weighted sequence-to-sequence loss: 
+
+L(θ) = −Ei
+
+ X  
+
+> yi,j ∈G i
+> |yi,j |
+
+X
+
+> t=1
+
+ωi,j,t log pθi,j,t 
+
+ .
+
+This objective keeps RASFT within a super-vised fine-tuning framework, but makes the super-vision policy-adaptive rather than uniformly imi-tative. The rollout-derived solvability controls the expert–rollout balance, while the inverse ratio con-strains excessive drift from the pretrained policy. 
+
+3 Experiments 
+
+In this section, we evaluate RASFT to answer the following research questions (RQs): RQ1 : How does RASFT compare with recent SFT variants on mathematical and code reasoning tasks? RQ2 : Is difficulty-adaptive weighting beneficial for balanc-ing expert trajectories and model-generated roll-outs? RQ3 : Do on-policy rollouts improve the training? RQ4 : How much does the inverse ra-tio contribute to performance? RQ5 : Can RASFT be effectively combined with different supervised fine-tuning objectives? 
+
+3.1 Experimental Setup Models and Data. We conduct fine-tuning ex-periments on two widely adopted model fami-lies, namely LLaMA (AI at Meta, 2024) and Qwen2.5 (Qwen Team, 2024). (i) For mathemat-ical reasoning experiments , we select Qwen2.5-Math-1.5B, Qwen2.5-Math-7B (Yang et al., 2024), and Llama-3.2-3B due to their strong mathemati-cal capabilities. Following the experimental pro-tocols of DFT (Wu et al., 2026) and ASFT (Zhu et al., 2026), we use 10k samples from Numina-Math CoT (Li et al., 2024) for training. We evaluate mathematical reasoning performance on six bench-marks: MATH-500 (Lightman et al., 2023), Min-erva Math (Lewkowycz et al., 2022), Olympiad-Bench (He et al., 2024), AIME 2024 (Mathematical Association of America, 2024), AIME 2025 (Math-ematical Association of America, 2025), and AMC 2023 (Mathematical Association of Amer-ica, 2023). (ii) For code reasoning experiments ,we select Qwen2.5-Coder-3B, Qwen2.5-Coder-7B (Hui et al., 2024), and Llama-3.2-3B, and use 10k samples from KodCode-V1-SFT-R1 (Xu et al., 2025) as the training dataset. We evaluate code reasoning performance on HumanEval (Chen et al., 2021) and MBPP (Austin et al., 2021). 
+
+Baselines. We compare our method with stan-dard SFT, and several recent variants of SFT-based post-training methods, including: (i) SFT, a classi-cal post-training paradigm that directly learns from expert demonstrations; (ii) DFT (Wu et al., 2026), which dynamically rescales the token-level SFT ob-jective according to token probabilities to improve generalization; (iii) ASFT (Zhu et al., 2026), which augments DFT with a lightweight KL-based an-choring term to stabilize training and mitigate dis-tributional drift; and (iv) ProFiT (Liu et al., 2026), which leverages probability-guided token selection to mask low-probability tokens and reduce overfit-ting to non-essential surface expressions. 
+
+Implementation Details. For training, all mod-els are optimized with a learning rate of 5×10 −5, a batch size of 256, a maximum input length of 2048 tokens, and 4 warm-up steps. For evaluation, we follow the evaluation protocols of two ICLR 2026 works, DFT (Wu et al., 2026) and ASFT (Zhu et al., 2026) to report the mean accuracy over 16 decod-ing runs for all models, using a temperature of 1.0 and a maximum generation length of 4096 tokens. See Appendix A for details. 
+
+3.2 Main Results Analysis (RQ1) RASFT establishes superior performance across mathematical and code reasoning benchmarks. 
+
+As shown in Table 1, RASFT achieves the best av-4Methods Math Benchmarks Code Benchmarks Math Minerva Olympiad AIME24 AIME25 AMC23 Avg. HumanEval MBPP Avg.                                                                                                                                                                                        
+
+> Qwen2.5-Math-1.5B Qwen2.5-Coder-3B
+> Base 23.21 5.82 13.24 1.87 1.46 18.28 10.65 19.55 33.40 26.48 SFT 40.69 11.27 10.28 1.66 0.41 16.56 13.48 55.87 48.39 52.13 DFT (Wu et al., 2026) 60.58 20.41 22.42 4.79 3.32 33.59 24.19 63.15 56.09 59.62 ASFT (Zhu et al., 2026) 60.89 20.18 24.11 4.37 4.37 36.09 25.00 60.33 47.98 54.16 ProFiT (Liu et al., 2026) 58.40 22.79 22.84 3.74 2.28 32.97 23.84 64.33 56.43 60.38
+> RASFT (Ours) 66.39 23.59 27.10 7.92 3.96 37.34 27.72 65.05 56.50 60.78
+> Qwen2.5-Math-7B Qwen2.5-Coder-7B
+> Base 32.39 7.92 9.01 7.29 1.87 19.22 12.95 20.39 41.59 30.99 SFT 51.52 17.49 16.38 1.88 1.04 27.97 19.38 66.12 51.29 58.71 DFT (Wu et al., 2026) 68.28 32.96 32.06 8.97 4.80 45.31 32.06 71.46 56.32 63.89 ASFT (Zhu et al., 2026) 65.76 24.14 29.25 8.97 5.83 43.28 29.54 69.28 53.29 61.29 ProFiT (Liu et al., 2026) 68.45 28.67 31.41 7.08 4.99 44.06 30.78 71.57 55.44 63.51
+> RASFT (Ours) 70.65 29.97 32.99 8.76 5.84 45.78 32.33 72.29 58.33 65.31
+> Llama-3.2-3B Llama-3.2-3B
+> Base 1.51 1.15 0.86 0.00 0.41 1.56 0.92 8.35 9.54 8.95 SFT 4.86 1.58 1.24 0.00 0.00 1.09 1.46 19.74 23.65 21.70 DFT (Wu et al., 2026) 7.71 3.07 2.03 0.21 0.21 2.19 2.57 21.80 26.49 24.15 ASFT (Zhu et al., 2026) 4.35 1.99 1.42 0.21 0.21 2.66 1.81 20.73 29.13 24.93 ProFiT (Liu et al., 2026) 8.51 3.07 2.26 0.21 0.21 4.38 3.11 17.95 25.98 21.97
+> RASFT (Ours) 8.26 3.99 1.98 0.21 0.21 4.84 3.25 28.39 34.87 31.63
+
+Table 1: Performance comparison of SFT and its variants on mathematical and code benchmarks. The left block reports mathematical reasoning results, while the right block reports code reasoning results. Bold numbers indicate the best performance within each model group. Blue-shaded rows denote our RASFT method. 
+
+erage performance across all models on both math-ematical and code reasoning tasks. On math bench-marks, it improves the strongest baselines by +2.72, +0.27, and +0.14 average points on Qwen2.5-Math-1.5B, Qwen2.5-Math-7B, and Llama-3.2-3B, re-spectively; on code benchmarks, the corresponding gains are +0.40, +1.42, and +6.70 points. These results indicate that rollout-adaptive supervision provides benefits beyond static expert imitation: verified rollouts supply additional correct reasoning trajectories, while the solvability-based weighting dynamically adjusts the reliance on expert demon-strations. The gains are especially clear on bench-marks such as OlympiadBench and AIME24 for Qwen2.5-Math-1.5B, where RASFT improves the best baseline scores from 24.11 to 27.10 and from 4.79 to 7.92, respectively. 
+
+The gains of RASFT vary across model scales and task domains. On mathematical reasoning, the improvement over the strongest baseline be-comes smaller as model capacity increases: on the MATH benchmark, the gain decreases from +5.50 points on Qwen2.5-Math-1.5B (66.39 vs. 60.89 for ASFT) to +2.20 points on Qwen2.5-Math-7B (70.65 vs. 68.45 for ProFiT). The same pattern ap-pears in the average mathematical score, where the gain decreases from +2.72 to +0.27 points. This suggests that RASFT is especially helpful when the base model’s reasoning distribution is under-optimized. For code reasoning, however, the scaling trend is less monotonic: RASFT improves the average score by +0.40 points on Qwen2.5-Coder-3B and by +1.42 points on Qwen2.5-Coder-7B. Thus, the effectiveness of RASFT depends on both model capacity and task domain. Importantly, RASFT achieves the best average performance for both 7B mathematical and code models, indicating that its rollout-adaptive weighting remains effective for stronger pretrained policies. 
+
+3.3 Ablation Study (RQ2-5) 
+
+To evaluate the effectiveness of RASFT, we con-duct ablation studies on Qwen2.5-Math-1.5B and report results on Math benchmarks, covering the following components: ① Difficulty-adaptive train-ing , ② The on-policy rollout , ③ The inverse impor-tance sampling ratio and ④ The transferability of RASFT to SFT and variants algorithms .
+
+① Difficulty-adaptive training. To exam-5Table 2: Ablation Studies on Qwen2.5-Math-1.5B. Bold numbers indicate the best performance within each block. 
+
+↑ and ↓ indicate performance gain or drop relative to the baseline configuration within each block respectively.                                                                                      
+
+> Ablation Experiment Math Minerva Olympiad AIME24 AIME25 AMC23 Avg.
+> ①Difficulty Adaptivity w/o Adaptivity 63.04 21.24 23.61 5.22 3.95 36.09 25.53 w/ Adaptivity 66.39 ↑3.35 23.59 ↑2.35 27.10 ↑3.49 7.92 ↑2.70 3.96 ↑0.01 37.34 ↑1.25 27.72 ↑2.19
+> ②Exploration Strategy w/o Rollout 63.65 20.31 23.23 6.06 3.74 33.28 25.05 w/ Rollout 66.39 ↑2.74 23.59 ↑3.28 27.10 ↑3.87 7.92 ↑1.86 3.96 ↑0.22 37.34 ↑4.06 27.72 ↑2.67
+> ③Policy Regularizer w/o Ratio 64.24 22.53 25.91 8.54 5.41 37.19 27.30 w/ Ratio 66.39 ↑2.15 23.59 ↑1.06 27.10 ↑1.19 7.92 ↓0.62 3.96 ↓1.45 37.34 ↑0.15 27.72 ↑0.42
+> ④Transferability
+> SFT 40.69 11.27 10.28 1.66 0.41 16.56 13.48 + RASFT 42.96 ↑2.27 12.91 ↑1.64 11.26 ↑0.98 0.83 ↓0.83 0.21 ↓0.20 18.12 ↑1.56 14.38 ↑0.90
+> ProFiT 58.40 22.79 22.84 3.74 2.28 32.97 23.84 + RASFT 62.99 ↑4.59 25.99 ↑3.20 26.25 ↑3.41 5.01 ↑1.27 4.17 ↑1.89 36.09 ↑3.12 26.75 ↑2.91
+
+ine whether RASFT effectively assigns different weights to trajectories within each group accord-ing to problem difficulty, we introduce a variant that assigns equal weights to the expert trajectory and verified rollout trajectories for all problems, regardless of their estimated difficulty. As shown in Table 2, removing difficulty adaptivity leads to a clear performance drop, with the average score decreasing from 27 .72 to 25 .53 . The improvement brought by adaptive weighting is consistent across all six benchmarks: +3 .35 on Math, +2 .35 on Minerva Math, +3 .49 on OlympiadBench, +2 .70 
+
+on AIME24, +0 .01 on AIME25, and +1 .25 on AMC23. The gains are especially pronounced on Math, OlympiadBench, and AIME24, indicating that treating all problems with the same expert-rollout balance is suboptimal. 
+
+② The on-policy rollout. To evaluate the signifi-cance of online exploration and dynamic solvability estimation, we remove the on-policy rollout sam-pling mechanism and assign a fixed static weight to the expert trajectories. As summarized in Ta-ble 2, discarding the on-policy rollouts triggers an across-the-board performance degradation on every single evaluated benchmark, with the average score decreasing from 27.72 to 25.05. The drop is partic-ularly pronounced on challenging datasets such as OlympiadBench (-3.87%) and AMC23 (-4.06%). This uniform regression demonstrates that pairing external expert trajectories with the model’s own attempts in a local comparison group is vital for ef-fective post-training. Without this online feedback loop, the optimization lapses into rigid imitation of offline data without online adaptive calibration, fail-ing to calibrate the training pressure according to the model’s evolving capacity and thereby limiting the activation of its latent reasoning pathways. 
+
+③ The inverse importance sampling ratio. To examine the impact of the sequence-level inverse importance sampling ratio ri,j (θ), we evaluate a variant by setting ri,j (θ) uniformly, which removes the reference-relative policy regularization. As shown in Table 2, introducing the inverse ratio im-proves the overall performance from 27.30% to 27.72%, yielding advancements on primary bench-marks such as Math (+2.15%), Minerva Math (+1.06%), and OlympiadBench (+1.19%). This growth confirms that the sequence-level ratio effec-tively modulates the update magnitude by damp-ening gradient updates when the current policy al-ready aligns closely with the expert trajectories. By preventing the model from overfitting to of-fline demonstrations, this regularization mecha-nism safeguards the model’s pretrained reasoning priors and ensures more balanced generalization across the mathematical benchmarks. 
+
+④ The transferability of RASFT to SFT and its variants. To evaluate whether RASFT can gen-eralize across different SFT-style objectives, we integrate it with standard SFT and ProFiT. For the SFT variant, we remove the token-level probability factor pθi,j,t from Eq. 2. For the ProFiT variant, we additionally apply its token masking strategy by filtering tokens whose predictive probabilities are below 0.1. Since Table 1 reports the default RASFT built upon DFT, this ablation compares RASFT when combined with SFT, ProFiT, and DFT. As shown in Tables 1 and 2, RASFT consistently im-proves all three SFT-style baselines, confirming its transferability. In particular, it improves the aver-age score by +0.90 points over SFT, +2.91 points over ProFiT, and +3.53 points over DFT. The gains are also evident on difficult competition bench-marks: RASFT raises ProFiT on AIME25 from 62.28% to 4.17%, and improves DFT on Olympiad-Bench from 22.42% to 27.10%. These results sup-port our motivation that difficult problems benefit from stronger expert guidance, while easier prob-lems can rely more on verified model-generated trajectories. Moreover, the larger gains on ProFiT and DFT suggest that RASFT is complementary to token-level rescaling or filtering methods, as it introduces sequence-level rollout adaptivity and candidate-pool weighting. 
+
+4 Analysis and Discussion 
+
+4.1 Comparison with RL methods 
+
+To contextualize RASFT within the landscape of recent RL alignment paradigms, we evaluate our method against two representative RL-driven al-gorithms: (i) GRPO (Shao et al., 2024), a promi-nent pure on-policy reinforcement learning base-line, and (ii) LUFFY (Yan et al., 2025), a mixed-policy framework that augments on-policy explo-ration with off-policy reasoning guidance via regu-larized importance sampling. For all 3 experiments, we train on Qwen2.5-Math-1.5B. More training de-tails are provided in Appendix C. As illustrated in Figure 2, RASFT secures the highest average accuracy of 23.47%. This robust performance is characterized by two primary in-sights: first, our solvability-aware modulation adap-tively scales up the expert trajectory weight when online exploration fails, which successfully by-passes the exploration cold-start and optimization stagnation that cause pure on-policy methods like GRPO to collapse on ultra-hard tasks like AIME25; second, while unconstrained exploration enables GRPO to occasionally discover highly alternative reasoning paths on specific domains like Minerva Math, RASFT maintains a superior and more sta-ble overall optimization trajectory by utilizing the sequence-level inverse importance sampling ratio to dampen redundant updates and safeguard pre-trained reasoning priors. 
+
+4.2 Training Dynamics Analysis 
+
+We further analyze the training dynamics of dif-ferent SFT-style methods by tracking the training objective and parameter-update magnitude. For the latter, we define parameter-update density as the fraction of parameters whose absolute update magnitude exceeds 10 −5 at each optimization step, which reflects how broadly model parameters are modified during training. As shown in Figure 3, 0 10 20 30 40 50 60 70 
+
+> Accuracy (%)
+> Math
+> Minerva
+> Olympiad
+> AIME24
+> AIME25
+> AMC23
+> Avg.
+> 52.38
+> 17.17
+> 18.07
+> 6.87
+> 1.86
+> 25.16
+> 20.25
+> 52.98
+> 16.98
+> 17.96
+> 3.74
+> 1.87
+> 26.09
+> 19.94
+> 58.75
+> 16.79
+> 22.17
+> 5.42
+> 4.59
+> 33.13
+> 23.47
+> GRPO
+> LUFFY
+> RASFT
+
+Figure 2: Comparison between RASFT and representa-tive RL methods (GRPO and LUFFY). RASFT demon-strates superior performance by dynamically balancing offline expert guidance and online exploration. More training details are provided in Appendix C. 
+
+RASFT maintains a stable training trajectory. Its training objective decreases smoothly and does not exhibit noticeable oscillation, showing a stability pattern consistent with strong SFT variants such as DFT, ASFT, and ProFiT. This indicates that in-troducing verified rollouts and difficulty-adaptive weighting does not destabilize supervised post-training. Meanwhile, the parameter-update density of all methods increases rapidly in the early stage and then saturates, while RASFT remains compa-rable to or slightly lower than the other methods in the late stage. Specifically, RASFT reaches a final update density of 0.2483 , compared with 0.2507 
+
+for ProFiT, 0.2540 for ASFT, 0.2573 for DFT, and 
+
+0.2549 for SFT; the last-five-step average follows the same pattern, with RASFT obtaining the lowest density of 0.2480 . This supports our motivation that rollout-adaptive weighting, together with the inverse ratio, provides targeted supervision while better preserving the pretrained reasoning prior. 
+
+4.3 Sensitivity to the Rollout Number 
+
+To examine the sensitivity of RASFT to the rollout number, we vary K in {3, 5, 7, 9} and report the average mathematical reasoning accuracy in Fig-ure 4. The performance first increases from 27.72 at K = 3 to 29.33 at K = 5 , yielding a gain of 1.61 points, but then drops to 27.01 at K = 7 and 26.37 at K = 9 , corresponding to decreases of 2.32 and 2.96 points compared with K = 5 . This non-monotonic trend shows that simply increasing the rollout budget does not necessarily improve RASFT: a small rollout number may provide insuf-7RASFT ProFiT ASFT DFT SFT           
+
+> 010 20 30 40
+> 0.1
+> 0.2
+> 0.3
+> 0.4
+> 0.5
+> loss
+> (a) Training loss
+> 10 20 30 40
+> Step
+> 0.05
+> 0.10
+> 0.15
+> 0.20
+> 0.25
+> Update density
+> (b) Parameter-update density
+> 25 30 35 40
+> 0.246
+> 0.252
+> 0.258
+> Step 25–40
+
+Figure 3: Training dynamics. Training loss and parameter-update density across SFT variants; density is the fraction of updates with magnitude above 10 −5.
+
+ficient on-policy feedback, while excessive rollouts may introduce redundant self-generated trajecto-ries and weaken the relative contribution of expert demonstrations after candidate-pool normalization. Nevertheless, all rollout settings still outperform the other baselines in Table 1; even the weakest set-ting, K=9, achieves 26.37 average accuracy, which remains higher than the strongest baseline average of 25.00. The complete statistical results are pro-vided in Appendix B. 
+
+5 Related Work 
+
+Objective Refinement of SFT. Supervised SFT with Chain-of-Thought (CoT) demonstrations is widely used to activate the reasoning abilities of large language models (Wei et al., 2022; Chung et al., 2024; Mukherjee et al., 2023; Yue et al., 2023). However, standard cross-entropy training treats offline demonstrations as fixed targets and uniformly maximizes the likelihood of the refer-ence response, which can lead to overfitting to demonstration-specific patterns and limited gen-eralization. Recent methods improve SFT by reweighting or selecting supervision signals from offline data. DFT (Wu et al., 2026) rescales the objective according to the model’s prediction probability, ASFT (Zhu et al., 2026) adds refer-ence anchoring to stabilize this reweighting, and ProFiT (Liu et al., 2026) selects high-value tokens to reduce unnecessary fitting. However, they still center on the expert response and overlook model-generated reasoning trajectories. 
+
+Rollout-Based Policy Optimization for Reason-ing. Recent post-training methods for reasoning 3 5 7 9
+
+> Rollout Numbers
+> 26
+> 27
+> 28
+> 29
+> 30
+> AVG(%)
+> 27.72
+> 29.33
+> 27.01
+> 26.37
+
+Figure 4: Sensitivity to the Rollout Number. 
+
+increasingly rely on reinforcement learning with sampled trajectories and outcome feedback (Cobbe et al., 2021; Yuan et al., 2023; Zelikman et al., 2022; Gulcehre et al., 2023; DeepSeek-AI, 2025). PPO (Schulman et al., 2017) has been widely used as a policy-optimization algorithm, using clipped policy updates to improve training stability. Build-ing on this direction, GRPO (Shao et al., 2024) op-timizes relative advantages within sampled groups, emphasizing the importance of comparing mul-tiple candidate reasoning trajectories rather than fitting one reference response. More recently, LUFFY (Yan et al., 2025) incorporates off-policy reasoning guidance into RL training, showing the value of combining online exploration with external trajectory information. However, these RL meth-ods require explicit policy optimization and exten-sive rollouts, whereas RASFT uses verified rollouts as adaptive supervision within an SFT objective. 
+
+6 Conclusions and Future Work 
+
+We introduce RASFT, a rollout-adaptive supervised fine-tuning method that calibrates expert supervi-sion using the model’s own rollout behavior. Em-pirical results show that RASFT improves over SFT and SFT variants across multiple models and challenging mathematical and code reasoning tasks. Compared with RL methods, RASFT also achieves stronger overall performance. Overall, our results suggest that expert demonstrations can serve as adaptive guidance rather than fixed imitation tar-gets, while the inverse policy ratio helps preserve useful reasoning priors. Looking forward, a promis-ing direction is to extend RASFT to open-ended reasoning tasks where reliable automatic correct-ness signals are harder to define. Another direction is to study how rollout-adaptive supervision scales with stronger models and larger training corpora across broader domains, especially when combined with more diverse verifiers and broader forms of verified, diverse self-generated supervision. 8Limitations 
+
+RASFT introduces additional computational cost compared with standard SFT, since it requires pe-riodically generating on-policy rollouts and veri-fying their correctness. Although we reduce this cost by applying rollouts only to selected training instances, the overall training pipeline is still more expensive than methods that only optimize offline demonstrations. This also makes the method sen-sitive to the rollout budget: using too few rollouts may provide insufficient feedback, while excessive rollouts can increase computation and introduce redundant verified trajectories. Our method also relies on task-specific verification signals. In math-ematical reasoning, we verify sampled responses by extracting the final answer from \boxed {} and comparing it with the ground-truth answer, follow-ing the common practice of evaluating mathemati-cal problem solving through final-answer correct-ness (Hendrycks et al., 2021b). In code reason-ing, we use assertion-based tests, following the common practice of evaluating generated programs with executable test cases (Hendrycks et al., 2021a; Li et al., 2022). Therefore, RASFT is most directly applicable to domains where reliable automatic verification is available. Extending the method to open-ended reasoning tasks without clear cor-rectness signals remains challenging. Such tasks often rely on human preferences or learned reward models, which require costly annotation and may depend on task-specific preference modeling (Sti-ennon et al., 2020; Bai et al., 2022). Recent LLM-based judges provide a scalable alternative, but they may still introduce evaluator-specific biases, including positional or instruction-following fail-ures (Zheng et al., 2023; Liu et al., 2023; Wang et al., 2024; Zeng et al., 2024). 
+
+References 
+
+AI at Meta. 2024. Llama 3.2: Revolutionizing edge ai and vision with open, customizable models. Meta AI Blog. Accessed: 2026-05-21. Jacob Austin, Augustus Odena, Maxwell Nye, Maarten Bosma, Henryk Michalewski, David Dohan, Ellen Jiang, Carrie Cai, Michael Terry, Quoc Le, and Charles Sutton. 2021. Program synthesis with large language models. arXiv preprint arXiv:2108.07732 .Yuntao Bai, Andy Jones, Kamal Ndousse, Amanda Askell, Anna Chen, Nova DasSarma, Dawn Drain, Stanislav Fort, Deep Ganguli, Tom Henighan, Nicholas Joseph, Saurav Kadavath, Jackson Kernion, Tom Conerly, Sheer El-Showk, Nelson Elhage, Zac Hatfield-Dodds, Danny Hernandez, Tristan Hume, and 12 others. 2022. Training a helpful and harmless assistant with reinforcement learning from human feedback. arXiv preprint arXiv:2204.05862 .Mark Chen, Jerry Tworek, Heewoo Jun, Qiming Yuan, Henrique Ponde de Oliveira Pinto, Jared Kaplan, Harri Edwards, Yuri Burda, Nicholas Joseph, Greg Brockman, Alex Ray, Raul Puri, Gretchen Krueger, Michael Petrov, Heidy Khlaaf, Girish Sastry, Pamela Mishkin, Brooke Chan, Scott Gray, and 39 others. 2021. Evaluating large language models trained on code. arXiv preprint arXiv:2107.03374 .Tianzhe Chu, Yuexiang Zhai, Jihan Yang, Shengbang Tong, Saining Xie, Dale Schuurmans, Quoc V. Le, Sergey Levine, and Yi Ma. 2025. Sft memorizes, rl generalizes: A comparative study of foundation model post-training. In International Conference on Machine Learning .Hyung Won Chung, Le Hou, Shayne Longpre, Barret Zoph, Yi Tay, William Fedus, Yunxuan Li, Xuezhi Wang, Mostafa Dehghani, Siddhartha Brahma, Al-bert Webson, Shixiang Shane Gu, Zhuyun Dai, Mirac Suzgun, Xinyun Chen, Aakanksha Chowdhery, Alex Castro-Ros, Marie Pellat, Kevin Robinson, and 16 others. 2024. Scaling instruction-finetuned language models. Journal of Machine Learning Research ,25(70):1–53. Karl Cobbe, Vineet Kosaraju, Mohammad Bavarian, Mark Chen, Heewoo Jun, Lukasz Kaiser, Matthias Plappert, Jerry Tworek, Jacob Hilton, Reiichiro Nakano, Christopher Hesse, and John Schulman. 2021. Training verifiers to solve math word prob-lems. arXiv preprint arXiv:2110.14168 .DeepSeek-AI. 2025. DeepSeek-R1: Incentivizing rea-soning capability in llms via reinforcement learning. 
+
+arXiv preprint arXiv:2501.12948 .Caglar Gulcehre, Tom Le Paine, Srivatsan Srini-vasan, Ksenia Konyushkova, Lotte Weerts, Abhishek Sharma, Aditya Siddhant, Alex Ahern, Miaosen Wang, Chenjie Gu, Wolfgang Macherey, Arnaud Doucet, Orhan Firat, and Nando de Freitas. 2023. Reinforced self-training (ReST) for language model-ing. arXiv preprint arXiv:2308.08998 .Chaoqun He, Renjie Luo, Yuzhuo Bai, Shengding Hu, Zhen Leng Thai, Junhao Shen, Jinyi Hu, Xu Han, Yu-jie Huang, Yuxiang Zhang, Jie Liu, Lei Qi, Zhiyuan Liu, and Maosong Sun. 2024. Olympiadbench: A challenging benchmark for promoting agi with olympiad-level bilingual multimodal scientific prob-lems. In Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics .Dan Hendrycks, Steven Basart, Saurav Kadavath, Man-tas Mazeika, Akul Arora, Ethan Guo, Collin Burns, Samir Puranik, Horace He, Dawn Song, and Jacob Steinhardt. 2021a. Measuring coding challenge com-petence with APPS. In Advances in Neural Informa-tion Processing Systems .
+
+9Dan Hendrycks, Collin Burns, Saurav Kadavath, Akul Arora, Steven Basart, Eric Tang, Dawn Song, and Jacob Steinhardt. 2021b. Measuring mathematical problem solving with the MATH dataset. In Ad-vances in Neural Information Processing Systems .Binyuan Hui, Jian Yang, Zeyu Cui, Jiaxi Yang, Day-iheng Liu, Lei Zhang, Tianyu Liu, Jiajun Zhang, Bowen Yu, Keming Lu, Kai Dang, Yang Fan, Yichang Zhang, An Yang, Rui Men, Fei Huang, Bo Zheng, Yibo Miao, Shanghaoran Quan, and 5 oth-ers. 2024. Qwen2.5-Coder technical report. arXiv preprint arXiv:2409.12186 .Aitor Lewkowycz, Anders Andreassen, David Dohan, Ethan Dyer, Henryk Michalewski, Vinay Ramasesh, Ambrose Slone, Cem Anil, Imanol Schlag, Theo Gutman-Solo, Yuhuai Wu, Behnam Neyshabur, Guy Gur-Ari, and Vedant Misra. 2022. Solving quantita-tive reasoning problems with language models. arXiv preprint arXiv:2206.14858 .Jia Li, Edward Beeching, Lewis Tunstall, Ben Lipkin, Roman Soletskyi, Shengyi Costa Huang, Kashif Rasul, Longhui Yu, Albert Jiang, Ziju Shen, Zihan Qin, Bin Dong, Li Zhou, Yann Fleureau, Guillaume Lample, and Stanislas Polu. 2024. NuminaMath: The largest public dataset in ai4maths with 860k pairs of competition math problems and solutions. Hug-ging Face dataset. Dataset report: https://github. com/project-numina/aimo-progress-prize/ blob/main/report/numina_dataset.pdf .Yujia Li, David Choi, Junyoung Chung, Nate Kush-man, Julian Schrittwieser, Rémi Leblond, Tom Eccles, James Keeling, Felix Gimeno, Agustin Dal Lago, Thomas Hubert, Peter Choy, Cyprien de Masson d’Autume, Igor Babuschkin, Xinyun Chen, Po-Sen Huang, Johannes Welbl, Sven Gowal, Alexey Cherepanov, and 7 others. 2022. Competition-level code generation with AlphaCode. Science ,378(6624):1092–1097. Hunter Lightman, Vineet Kosaraju, Yura Burda, Harri Edwards, Bowen Baker, Teddy Lee, Jan Leike, John Schulman, Ilya Sutskever, and Karl Cobbe. 2023. Let’s verify step by step. arXiv preprint arXiv:2305.20050 .Tao Liu, Taiqiang Wu, Runming Yang, Shaoning Sun, Junjie Wang, and Yujiu Yang. 2026. Profit: Leverag-ing high-value signals in sft via probability-guided token selection. arXiv preprint arXiv:2601.09195 .Yang Liu, Dan Iter, Yichong Xu, Shuohang Wang, Ruochen Xu, and Chenguang Zhu. 2023. G-Eval: NLG evaluation using GPT-4 with better human alignment. In Proceedings of the 2023 Conference on Empirical Methods in Natural Language Processing ,pages 2511–2522. Mathematical Association of America. 2023. 2023 American Mathematics Competitions. MAA Ameri-can Mathematics Competitions. AMC 2023 competi-tion problems. Mathematical Association of America. 2024. 2024 American Invitational Mathematics Examination. MAA American Mathematics Competitions. AIME 2024 competition problems. Mathematical Association of America. 2025. 2025 American Invitational Mathematics Examination. MAA American Mathematics Competitions. AIME 2025 competition problems. Subhabrata Mukherjee, Arindam Mitra, Ganesh Jawa-har, Sahaj Agarwal, Hamid Palangi, and Ahmed Awadallah. 2023. Orca: Progressive learning from complex explanation traces of GPT-4. arXiv preprint arXiv:2306.02707 .Long Ouyang, Jeff Wu, Xu Jiang, Diogo Almeida, Car-roll L. Wainwright, Pamela Mishkin, Chong Zhang, Sandhini Agarwal, Katarina Slama, Alex Ray, John Schulman, Jacob Hilton, Fraser Kelton, Luke Miller, Maddie Simens, Amanda Askell, Peter Welinder, Paul Christiano, Jan Leike, and Ryan Lowe. 2022. Training language models to follow instructions with human feedback. In Advances in Neural Information Processing Systems .Qwen Team. 2024. Qwen2.5 technical report. arXiv preprint arXiv:2412.15115 .John Schulman, Filip Wolski, Prafulla Dhariwal, Alec Radford, and Oleg Klimov. 2017. Proxi-mal policy optimization algorithms. arXiv preprint arXiv:1707.06347 .Zhihong Shao, Peiyi Wang, Qihao Zhu, Runxin Xu, Junxiao Song, Xiao Bi, Haowei Zhang, Mingchuan Zhang, Y. K. Li, Y. Wu, and Daya Guo. 2024. Deepseekmath: Pushing the limits of mathematical reasoning in open language models. arXiv preprint arXiv:2402.03300 .Nisan Stiennon, Long Ouyang, Jeff Wu, Daniel M. Ziegler, Ryan Lowe, Chelsea Voss, Alec Radford, Dario Amodei, and Paul Christiano. 2020. Learning to summarize from human feedback. In Advances in Neural Information Processing Systems .Peiyi Wang, Lei Li, Liang Chen, Zefan Cai, Dawei Zhu, Binghuai Lin, Yunbo Cao, Lingpeng Kong, Qi Liu, Tianyu Liu, and Zhifang Sui. 2024. Large language models are not fair evaluators. In Proceedings of the 62nd Annual Meeting of the Association for Compu-tational Linguistics (Volume 1: Long Papers) , pages 9440–9450. Yizhong Wang, Yeganeh Kordi, Swaroop Mishra, Alisa Liu, Noah A. Smith, Daniel Khashabi, and Hannaneh Hajishirzi. 2023. Self-instruct: Aligning language models with self-generated instructions. In Proceed-ings of the 61st Annual Meeting of the Association for Computational Linguistics , pages 13484–13508. Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten Bosma, Brian Ichter, Fei Xia, Ed Chi, Quoc V. Le, and Denny Zhou. 2022. Chain-of-thought prompt-ing elicits reasoning in large language models. In 
+
+Advances in Neural Information Processing Systems .
+
+10 Yongliang Wu, Yizhou Zhou, Ziheng Zhou, Yingzhe Peng, Xinyu Ye, Xinting Hu, Wenbo Zhu, Lu Qi, Ming-Hsuan Yang, and Xu Yang. 2026. On the gener-alization of sft: A reinforcement learning perspective with reward rectification. In International Confer-ence on Learning Representations .Zhangchen Xu, Yang Liu, Yueqin Yin, Mingyuan Zhou, and Radha Poovendran. 2025. Kodcode: A diverse, challenging, and verifiable synthetic dataset for cod-ing. arXiv preprint arXiv:2503.02951 .Jianhao Yan, Yafu Li, Zican Hu, Zhi Wang, Ganqu Cui, Xiaoye Qu, Yu Cheng, and Yue Zhang. 2025. Learning to reason under off-policy guidance. arXiv preprint arXiv:2504.14945 .An Yang, Beichen Zhang, Binyuan Hui, Bofei Gao, Bowen Yu, Chengpeng Li, Dayiheng Liu, Jian-hong Tu, Jingren Zhou, Junyang Lin, Keming Lu, Mingfeng Xue, Runji Lin, Tianyu Liu, Xingzhang Ren, and Zhenru Zhang. 2024. Qwen2.5-Math tech-nical report: Toward mathematical expert model via self-improvement. arXiv preprint arXiv:2409.12122 .Zheng Yuan, Hongyi Yuan, Chengpeng Li, Guanting Dong, Keming Lu, Chuanqi Tan, Chang Zhou, and Jingren Zhou. 2023. Scaling relationship on learning mathematical reasoning with large language models. 
+
+arXiv preprint arXiv:2308.01825 .Xiang Yue, Xingwei Qu, Ge Zhang, Yao Fu, Wen-hao Huang, Huan Sun, Yu Su, and Wenhu Chen. 2023. MAmmoTH: Building math generalist mod-els through hybrid instruction tuning. arXiv preprint arXiv:2309.05653 .Eric Zelikman, Yuhuai Wu, Jesse Mu, and Noah D. Goodman. 2022. STaR: Self-taught reasoner boot-strapping reasoning with reasoning. In Advances in Neural Information Processing Systems .Zhiyuan Zeng, Jiatong Yu, Tianyu Gao, Yu Meng, Tanya Goyal, and Danqi Chen. 2024. Evaluating large lan-guage models at evaluating instruction following. In 
+
+International Conference on Learning Representa-tions .Lianmin Zheng, Wei-Lin Chiang, Ying Sheng, Siyuan Zhuang, Zhanghao Wu, Yonghao Zhuang, Zi Lin, Zhuohan Li, Dacheng Li, Eric P. Xing, Hao Zhang, Joseph E. Gonzalez, and Ion Stoica. 2023. Judging LLM-as-a-judge with MT-Bench and chatbot arena. In Advances in Neural Information Processing Sys-tems .Chunting Zhou, Pengfei Liu, Puxin Xu, Srini Iyer, Jiao Sun, Yuning Mao, Xuezhe Ma, Avia Efrat, Ping Yu, Lili Yu, Susan Zhang, Gargi Ghosh, Mike Lewis, Luke Zettlemoyer, and Omer Levy. 2023. LIMA: Less is more for alignment. In Advances in Neural Information Processing Systems .He Zhu, Junyou Su, Peng Lai, Ren Ma, Wenjia Zhang, Linyi Yang, and Guanhua Chen. 2026. Anchored supervised fine-tuning. In International Conference on Learning Representations .
+
+11 A Training and Evaluation Details 
+
+Training details. For all experiments, we train all models with AdamW and a cosine learning-rate schedule. We use a learning rate of 5 × 10 −5, an effective batch size of 256, a batch size per-device of 2, a maximum input length of 2048 tokens, 4 warm-up steps, bf16 precision, gradient checkpoint-ing and gradient clipping with a maximum norm of 1.0. All models are trained for 1 epoch with ran-dom seed 42. For RASFT, we generate 3 rollouts per selected prompt with temperature 0.9, top-p 0.95, repetition penalty 1.1, and a maximum roll-out length of 1024 tokens. We clip the ratio to [0.4, 1.1]. For RASFT on mathematical tasks, we set 
+
+W min  
+
+> e
+
+= Wr = 1 .0 and W max  
+
+> e
+
+= 3 .0 for the two Qwen2.5-Math models, and W min  
+
+> e
+
+= Wr = 1 .5
+
+and W max  
+
+> e
+
+= 3 .0 for Llama-3.2-3B. The correct-ness of sampled responses is verified by extracting and comparing the final answer enclosed in the last 
+
+\boxed {} in the response. For code tasks, we set 
+
+W min  
+
+> e
+
+= 1 .0, Wr = 1 .5, and W max  
+
+> e
+
+= 1 .8 for the two Qwen2.5-Coder models, and W min  
+
+> e
+
+= Wr =1.5 and W max  
+
+> e
+
+= 3 .0 for Llama-3.2-3B. The cor-rectness of generated code samples is verified using assertion-based tests. 
+
+Evaluation details. We follow the evaluation pro-tocols of DFT (Wu et al., 2026) and ASFT (Zhu et al., 2026). For mathematical reasoning, we evaluate all methods on the 6 mathematical rea-soning benchmarks mentioned above. For each problem, we sample 16 responses with temperature 1.0 and a maximum generation length of 4096 to-kens. We report the average accuracy over the 16 sampled responses. Correctness is determined by extracting the final answer and comparing it with the ground-truth answer; for code reasoning, we evaluate all methods on HumanEval (Chen et al., 2021) and MBPP (Austin et al., 2021). We use the same decoding setting as in mathematical rea-soning: temperature 1.0, 16 sampled responses per problem, and a maximum generation length of 4096 tokens. We report the mean accuracy over the 16 sampled responses, where the correctness is de-termined by executing the generated code against assertion-based tests. 
+
+Computation cost. We report the computational cost of different training modes in Table 3. For the baseline methods reported in Table 1, SFT, DFT, and ProFiT are expected to have nearly iden-                      
+
+> Model Mode TFLOPs/h Mem (GB) Hours
+> Qwen2.5-Math-1.5B SFT 2.40 ×10 581.37 0.227 ASFT 1.70 ×10 5117.69 0.320 RASFT 2.61 ×10 5154.40 0.554 Qwen2.5-Math-7B SFT 5.38 ×10 5145.76 0.545 ASFT 3.95 ×10 5217.15 0.743 RASFT 4.95 ×10 5211.11 1.331
+
+Table 3: Computation cost comparison across different training modes.                                     
+
+> Benchmark K= 3 K= 5 K= 7 K= 9
+> MATH-500 66.39 68.34 66.08 65.78 Minerva 23.59 25.13 21.63 23.59 OlympiadBench 27.10 28.87 27.74 26.41 AIME24 7.92 10.00 7.91 5.83 AIME25 3.96 5.85 3.54 2.09 AMC23 37.34 37.81 35.15 34.53 Avg. 27.72 29.33 27.01 26.37
+
+Table 4: Detailed mathematical reasoning results of RASFT with different rollout numbers K on Qwen2.5-Math-1.5B. We report accuracy on each benchmark and the average accuracy across all six benchmarks. 
+
+tical computation costs, since DFT and ProFiT do not introduce additional model components and only modify the token-level training objective. In contrast, ASFT introduces an additional reference model, leading to higher memory usage and differ-ent computational efficiency. Therefore, we report the training costs of SFT, ASFT, and RASFT on the math task using 4× A100 SXM4 GPUs. 
+
+B Detailed Results for Rollout Number Sensitivity 
+
+This appendix provides the complete benchmark-level results for the rollout number sensitivity anal-ysis. We evaluate RASFT on Qwen2.5-Math-1.5B using 10k samples from NuminaMath CoT, varying the number of sampled rollouts K in {3, 5, 7, 9}.The results are reported in Table 4. Overall, the best average performance is obtained when K = 5 , sug-gesting that a moderate number of rollouts provides more informative on-policy feedback than a smaller rollout budget. However, further increasing K to 7 or 9 does not lead to additional gains. This sup-ports the observation that excessive rollouts may introduce redundant self-generated trajectories and reduce the relative influence of expert demonstra-tions after candidate-pool normalization. Although we use K = 3 in the main experiments for effi-ciency, all evaluated rollout settings achieve higher 12 Hyperparameter Value                
+
+> Training batch size 64 Validation batch size 128 Maximum prompt length 1024 Maximum response length 1024 Actor learning rate 1×10 −6
+> Training rollout temperature 1.0 Validation rollout temperature 0.6 Number of training rollouts 4Number of validation rollouts 1Entropy coefficient 0.001 KL coefficient 0.0 Training epochs 10 Number of GPUs 4
+
+Table 5: Training hyperparameters used for GRPO and LUFFY. We follow the configuration provided by LUFFY. 
+
+average accuracy than the strongest non-RASFT baseline reported in Table 1 for Qwen2.5-Math-1.5B. 
+
+C Training Details for RL Baselines 
+
+We compare RASFT with two representative RL-based training methods, GRPO (Shao et al., 2024) and LUFFY (Yan et al., 2025), on Qwen2.5-Math-1.5B. For RASFT, we use the same training con-figuration as described in Appendix A. For GRPO and LUFFY, we follow the configuration provided by LUFFY. For all 3 experiments, we sample 2000 from NuminaMath CoT as training data. The main hyperparameters are summarized in Table 5. For LUFFY, we keep its default mixed-policy training configuration. In particular, we enable the token-level off-policy loss, use no off-policy nor-malization, and adopt the p_div_p_0.1 off-policy reshaping strategy. For GRPO, we use the group-relative advantage estimator under the same rollout and optimization settings. 
+
+D Case Studies 
+
+D.1 Case 1 Question 
+
+It rained some inches on Monday. On Tuesday, it rained 0.7 inches less than on Monday, and it rained 0.2 inches on Tuesday. How much did it rain on Monday? 
+
+Standard Response 
+
+Let M denote the amount of rain on Monday. Since Tuesday’s rainfall was 0.7 inches less than Monday’s rainfall, and Tuesday’s rainfall 
+
+was 0.2 inches, we have 
+
+M − 0.7 = 0 .2.
+
+Solving for M ,
+
+M = 0 .2 + 0 .7 = 0 .9.
+
+Therefore, it rained 
+
+0.9
+
+inches on Monday. 
+
+Model Sampling Rollout 1 
+
+The model denotes Monday’s rainfall as M .Since Tuesday’s rainfall is 0.7 inches less than Monday’s rainfall, it sets up 
+
+M − 0.7 = 0 .2.
+
+Solving the equation gives 
+
+M = 0 .2 + 0 .7 = 0 .9.
+
+Thus, the model predicts 
+
+0.9 .
+
+Model Sampling Rollout 2 
+
+The model writes the relation between Mon-day’s and Tuesday’s rainfall as 
+
+M − 0.7 = 0 .2.
+
+It then solves for M :
+
+M = 0 .2 + 0 .7 = 0 .9.
+
+Therefore, the model predicts 
+
+0.9 .
+
+Model Sampling Rollout 3 
+
+The model again represents Tuesday’s rainfall as M − 0.7, where M is Monday’s rainfall. Since Tuesday’s rainfall is 0.2, it obtains 
+
+M − 0.7 = 0 .2.
+
+Therefore, 
+
+M = 0 .9.
+
+13 Thus, the model predicts 
+
+0.9 .
+
+D.2 Case 2 Question 
+
+Let 
+
+(x + 2) n = a0 + a1x + a2x2 + · · · + anxn,
+
+where n ∈ N∗, n ≥ 2, and a0, a1, a2 form an arithmetic sequence. (1) Find the middle term of the expansion of 
+
+(x + 2) n.(2) Find the sum of the coefficients of the terms with odd powers of x in the expansion of (x +2) n.
+
+Standard Response 
+
+The coefficient of xr in (x + 2) n is 
+
+ar =
+
+nr
+
+
+
+2n−r.
+
+Thus, 
+
+a0 = 2 n, a1 = n2n−1, a2 =
+
+n
+
+2
+
+
+
+2n−2.
+
+Since a0, a 1, a 2 form an arithmetic sequence, 
+
+2a1 = a0 + a2.
+
+Substituting the coefficients gives 
+
+2n2n−1 = 2 n +
+
+n
+
+2
+
+
+
+2n−2,n2 − 9n + 8 = 0 .
+
+Hence n = 1 or n = 8 . Since n ≥ 2, we have 
+
+n = 8 .For n = 8 , the expansion has 9 terms, so the middle term is the fifth term: 
+
+T5 =
+
+84
+
+
+
+24x4 = 1120 x4.
+
+For the sum of the coefficients of odd powers of x, let 
+
+f (x) = ( x + 2) 8.
+
+Then 
+
+f (1) = 3 8, f (−1) = 1 .
+
+Therefore, 
+
+a1 + a3 + a5 + a7 = f (1) − f (−1) 2= 38 − 12= 3280 .
+
+Thus, the answers are 
+
+1120 x4 and 3280 .
+
+Model Sampling Rollout 1 
+
+The model correctly uses the arithmetic-sequence condition 
+
+2a1 = a0 + a2,
+
+where a0 = 2 n,a1 =
+
+n
+
+1
+
+
+
+2n−1,a2 =
+
+n
+
+2
+
+
+
+2n−2.
+
+It obtains 
+
+n2 − 9n + 8 = 0 ,
+
+so n = 8 . Therefore, the middle term is 
+
+84
+
+
+
+24x4 = 1120 x4.
+
+For the odd-power coefficients, the model eval-uates f (1) − f (−1) 2 = 38 − 12= 3280 .
+
+Thus, this rollout predicts the correct answers: 
+
+1120 x4 and 3280 .
+
+Model Sampling Rollout 2 
+
+The model correctly derives 
+
+n2 − 9n + 8 = 0 ,
+
+and therefore correctly obtains n = 8 . It also correctly identifies the middle term: 
+
+84
+
+
+
+24x4 = 1120 x4.
+
+14 However, when computing the sum of the odd-power coefficients directly, it writes 
+
+S =
+
+81
+
+
+
+27 +
+
+83
+
+
+
+25
+
++
+
+85
+
+
+
+23 +
+
+87
+
+
+
+2.
+
+This expression is correct, but the model evalu-ates it incorrectly as 
+
+S = 1056 .
+
+The correct value should be 
+
+S = 3280 .
+
+Thus, this rollout has a local arithmetic error in the final computation and predicts 
+
+1056 .
+
+Model Sampling Rollout 3 
+
+The model starts from the correct condition 
+
+2a1 = a0 + a2,
+
+but then incorrectly simplifies the resulting equation as 
+
+2n = 2 + n(n − 1) 2 ,
+
+which leads to 
+
+n = 4 .
+
+This is incorrect. The correct simplification gives 
+
+n2 − 9n + 8 = 0 ,
+
+so n = 8 .Because of this early algebraic error, the model gives the wrong middle term: 
+
+24 x2.
+
+It then continues with n = 4 and computes 
+
+f (1) − f (−1) = 3 4 − 1 = 80 .
+
+This also misses the required factor of 1/2 for extracting odd-power coefficients. Therefore, this rollout contains both an incorrect value of 
+
+n and an incorrect odd-coefficient computation. It predicts 
+
+80 .
+
+D.3 Case 3 Question       
+
+> def nextGreaterElement(arr): """ Modify the array such that each element
+> ,→in the array is replaced with the
+> ,→next greater element present on its right side
+> ,→in the array. If there is no greater element, replace it with -1. Parameters: arr (List[int]): An array of integers Returns: List[int]: A new array with each element
+> ,→replaced by the next greater element Examples: >>> nextGreaterElement([4, 5, 2, 10, 8]) [5, 10, 10, -1, -1] >>> nextGreaterElement([3, 7, 1, 7, 8, 4,
+> ,→5]) [7, 8, 7, 8, -1, 5, -1] """
+
+Standard Response            
+
+> def nextGreaterElement(arr):
+> if not arr:
+> return [] n = len (arr) res = [-1] * n stack = []
+> for iin range (n - 1, -1, -1): current = arr[i]
+> while stack and stack[-1] <= current: stack.pop()
+> if stack: res[i] = stack[-1] stack.append(current)
+> return res
+
+Model Sampling Rollout 1         
+
+> def nextGreaterElement(arr): stack = [] result = [-1] * len (arr)
+> for iin range (len (arr)):
+> while stack and arr[i] > arr[stack
+> ,→[-1]]: j = stack.pop() result[j] = arr[i] stack.append(i)
+
+15 return result 
+
+Model Sampling Rollout 2 
+
+def nextGreaterElement(arr): stack = [] result = [] 
+
+for num in reversed (arr): 
+
+while stack and stack[-1] <= num: stack.pop() 
+
+if stack: result.append(stack[-1]) 
+
+else :result.append(-1) stack.append(num) result.reverse() 
+
+return result 
+
+Model Sampling Rollout 3 
+
+def nextGreaterElement(arr): stack = [] result = [] 
+
+for num in reversed (arr): 
+
+while stack and stack[-1] <= num: stack.pop() 
+
+if stack: result.append(stack[-1]) 
+
+else :result.append(-1) stack.append(num) result.reverse() 
+
+return result 
+
+D.4 Case 4 Question 
+
+def pair_participants(n, skill_levels): """ Pairs participants such that the 
+
+,→ difference in their skill levels is 
+
+,→ minimized. If the number of participants is odd, one 
+
+,→ participant will be left unpaired. Parameters: n (int): Number of participants. skill_levels (list): List of skill levels 
+
+,→ of participants in non-decreasing 
+
+,→ order. Returns: list: A list of tuples where each tuple 
+
+,→ represents a pair of participants. If there is an odd number of participants 
+
+,→ , the last element will be a single 
+
+,→ skill level. Examples: >>> pair_participants(6, [1, 2, 3, 5, 9, 
+
+,→ 12]) [(1, 2), (3, 5), (9, 12)] >>> pair_participants(5, [1, 1, 3, 4, 9]) [(1, 1), (3, 4), (9,)] """ # Implementation here 
+
+Standard Response 
+
+def pair_participants(n, skill_levels): pairs = [] 
+
+for i in range (0, n, 2): 
+
+if i + 1 < n: pairs.append(( skill_levels[i], skill_levels[i + 1] )) 
+
+else :pairs.append((skill_levels[i],)) 
+
+return pairs 
+
+Model Sampling Rollout 1 
+
+def pair_participants(n, skill_levels): 
+
+if n % 2 == 0: pairs = [] 
+
+for i in range (0, n, 2): pairs.append(( skill_levels[i], skill_levels[i + 1] )) 
+
+return pairs 
+
+else :pairs = [] 
+
+for i in range (0, n - 1, 2): pairs.append(( skill_levels[i], skill_levels[i + 1] )) pairs.append(skill_levels[-1]) 
+
+return pairs 
+
+Model Sampling Rollout 2 
+
+def pair_participants(n, skill_levels): 
+
+if n % 2 == 0: pairs = [] 
+
+for i in range (0, n, 2): pairs.append(( skill_levels[i], skill_levels[i + 1] )) 
+
+16 return pairs 
+
+else :pairs = [] 
+
+for i in range (0, n - 1, 2): pairs.append(( skill_levels[i], skill_levels[i + 1] )) pairs.append(skill_levels[-1]) 
+
+return pairs 
+
+Model Sampling Rollout 3 
+
+def pair_participants(n, skill_levels): 
+
+if n % 2 == 0: 
+
+return list (zip (skill_levels[::2], skill_levels[1::2] )) 
+
+else :
+
+return (
+
+list (zip (skill_levels[::2], skill_levels[1::2] )) + [(skill_levels[-1],)] )
+
+17
