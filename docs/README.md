@@ -6,41 +6,44 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-06-10
-- 运行时间：2026-06-10 22:42:01 UTC
+- 最新运行日期：2026-06-11
+- 运行时间：2026-06-11 21:16:55 UTC
 - 运行状态：成功
-- 本次总论文数：7
-- 精读区：1
-- 速读区：6
+- 本次总论文数：8
+- 精读区：4
+- 速读区：4
 
 ### 今日简报（AI）
-今日聚焦NeurASP的向量化与缓存加速，以及LLM推理流与测试时扩展。建议优先精读《Accelerating NeurASP with vectorization and caching》以掌握高效实现技巧。
-- 详情：[/202606/10/README](/202606/10/README)
+今日精读聚焦神经关系程序统一查询与神经计算，以及LLM对不规则医疗时间序列的可解释风险预测；速读则关注持久记忆提升连续潜在推理与一致性增强空间推理事实性。建议优先深入精读两篇高分论文，把握结构化数据与神经计算结合的前沿思路。
+- 详情：[/202606/11/README](/202606/11/README)
 
 ### 精读区论文标签
-1. [Accelerating NeurASP with vectorization and caching](/202606/10/2606.10787v1-accelerating-neurasp-with-vectorization-and-caching)  
+1. [Neuro-Relational Programs: Unifying Queries and Neural Computation over Structured Data](/202606/11/2606.11946v1-neuro-relational-programs-unifying-queries-and-neural-computation-over-structured-data)  
    标签：评分：9.0/10、query:ns-xai
-   evidence：加速NeurASP以支持神经符号AI
+   evidence：将神经计算与Datalog风格符号推理统一
+2. [TRIAGE: Dialectical Reasoning for Explainable Risk Prediction on Irregularly Sampled Medical Time Series with LLMs](/202606/11/2606.09030v1-triage-dialectical-reasoning-for-explainable-risk-prediction-on-irregularly-sampled-medical-time-series-with-llms)  
+   标签：评分：8.0/10、query:ns-xai
+   evidence：通过辩证理性生成可解释的LLM推理
+3. [A Neurosymbolic Prolog Skill for LLM-Driven Service Placement](/202606/11/2606.11113v1-a-neurosymbolic-prolog-skill-for-llm-driven-service-placement)  
+   标签：评分：8.0/10、query:ns-xai
+   evidence：神经符号Prolog技能与LLM结合
+4. [Forecasting Future Behavior as a Learning Task](/202606/11/2606.11445v1-forecasting-future-behavior-as-a-learning-task)  
+   标签：评分：8.0/10、query:ns-xai
+   evidence：行为预测用于可解释性
 
 ### 速读区论文标签
-1. [CRANE: Knowledge Editing for Reasoning MLLMs](/202606/10/2606.09033v1-crane-knowledge-editing-for-reasoning-mllms)  
+1. [Why Limit the Residual Stream to Layers and Not Tokens? Persistent Memory for Continuous Latent Reasoning](/202606/11/2606.07720v1-why-limit-the-residual-stream-to-layers-and-not-tokens-persistent-memory-for-continuous-latent-reasoning)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：分析推理多模态大模型知识编辑的失败模式，强调基于推理链的评估
-2. [How Does Reasoning Flow? Tracing Attention-Induced Information Flow for Targeted RL in LLMs](/202606/10/2606.10646v1-how-does-reasoning-flow-tracing-attention-induced-information-flow-for-targeted-rl-in-llms)  
+   evidence：为LLM连续潜在推理提供持久记忆
+2. [The Art of Interrogation: Consistency Amplifies Factuality in Spatial Reasoning](/202606/11/2606.11918v1-the-art-of-interrogation-consistency-amplifies-factuality-in-spatial-reasoning)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：通过注意力图追踪LLM中的推理流以实现可解释的信用分配
-3. [ThinkBooster: A Unified Framework for Seamless Test-Time Scaling of LLM Reasoning](/202606/10/2606.06915v1-thinkbooster-a-unified-framework-for-seamless-test-time-scaling-of-llm-reasoning)  
+   evidence：自监督强化学习增强空间推理中的一致性
+3. [Enhancing AI Interpretability and Safety through Localised Architectures](/202606/11/2606.07998v2-enhancing-ai-interpretability-and-safety-through-localised-architectures)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：统一的测试时计算扩展框架以提升LLM推理
-4. [ThinkBooster: A Unified Framework for Seamless Test-Time Scaling of LLM Reasoning](/202606/10/2606.06915v2-thinkbooster-a-unified-framework-for-seamless-test-time-scaling-of-llm-reasoning)  
+   evidence：通过局部化架构提升可解释性
+4. [ICA Lens: Interpreting Language Models Without Training Another Dictionary](/202606/11/2606.11722v1-ica-lens-interpreting-language-models-without-training-another-dictionary)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：统一的测试时计算扩展框架以提升LLM推理
-5. [DyCo-RL: Dynamic Cross-Modal Coordination for Visual Reasoning](/202606/10/2606.08035v1-dyco-rl-dynamic-cross-modal-coordination-for-visual-reasoning)  
-   标签：评分：6.0/10、query:ns-xai
-   evidence：通过动态跨模态协调改进MLLM的视觉推理，揭示推理动态
-6. [ConSteer-RL: Steering Reasoning Capabilities in Large Language Models via Confidence-Aware Reinforcement Learning](/202606/10/2606.08088v1-consteer-rl-steering-reasoning-capabilities-in-large-language-models-via-confidence-aware-reinforcement-learning)  
-   标签：评分：6.0/10、query:ns-xai
-   evidence：利用置信度信号进行强化学习以增强大模型推理能力
+   evidence：使用ICA解释语言模型
 
 
 <div class="dpr-home-promo-card">
