@@ -6,44 +6,53 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-06-11
-- 运行时间：2026-06-11 21:16:55 UTC
+- 最新运行日期：2026-06-12
+- 运行时间：2026-06-12 22:03:49 UTC
 - 运行状态：成功
-- 本次总论文数：8
-- 精读区：4
-- 速读区：4
+- 本次总论文数：10
+- 精读区：0
+- 速读区：10
 
 ### 今日简报（AI）
-今日精读聚焦神经关系程序统一查询与神经计算，以及LLM对不规则医疗时间序列的可解释风险预测；速读则关注持久记忆提升连续潜在推理与一致性增强空间推理事实性。建议优先深入精读两篇高分论文，把握结构化数据与神经计算结合的前沿思路。
-- 详情：[/202606/11/README](/202606/11/README)
+今天速读三篇7分论文，聚焦推理模型的不确定性诊断与可信度提升。  
+最值得关注的方向：结构化无知证书校准与逻辑基础解释，它们分别针对模型未知未知的识别和置信度可解释性。  
+建议下一步关注未来行为预测在模型引导中的应用，这三项都是提升AI系统可靠性的一线探索。
+- 详情：[/202606/12/README](/202606/12/README)
 
 ### 精读区论文标签
-1. [Neuro-Relational Programs: Unifying Queries and Neural Computation over Structured Data](/202606/11/2606.11946v1-neuro-relational-programs-unifying-queries-and-neural-computation-over-structured-data)  
-   标签：评分：9.0/10、query:ns-xai
-   evidence：将神经计算与Datalog风格符号推理统一
-2. [TRIAGE: Dialectical Reasoning for Explainable Risk Prediction on Irregularly Sampled Medical Time Series with LLMs](/202606/11/2606.09030v1-triage-dialectical-reasoning-for-explainable-risk-prediction-on-irregularly-sampled-medical-time-series-with-llms)  
-   标签：评分：8.0/10、query:ns-xai
-   evidence：通过辩证理性生成可解释的LLM推理
-3. [A Neurosymbolic Prolog Skill for LLM-Driven Service Placement](/202606/11/2606.11113v1-a-neurosymbolic-prolog-skill-for-llm-driven-service-placement)  
-   标签：评分：8.0/10、query:ns-xai
-   evidence：神经符号Prolog技能与LLM结合
-4. [Forecasting Future Behavior as a Learning Task](/202606/11/2606.11445v1-forecasting-future-behavior-as-a-learning-task)  
-   标签：评分：8.0/10、query:ns-xai
-   evidence：行为预测用于可解释性
+- 本次无精读推荐。
 
 ### 速读区论文标签
-1. [Why Limit the Residual Stream to Layers and Not Tokens? Persistent Memory for Continuous Latent Reasoning](/202606/11/2606.07720v1-why-limit-the-residual-stream-to-layers-and-not-tokens-persistent-memory-for-continuous-latent-reasoning)  
+1. [Calibration of Structured Ignorance Certificates for Diagnosing Unknown Unknowns in Reasoning Models](/202606/12/2606.08571v1-calibration-of-structured-ignorance-certificates-for-diagnosing-unknown-unknowns-in-reasoning-models)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：为LLM连续潜在推理提供持久记忆
-2. [The Art of Interrogation: Consistency Amplifies Factuality in Spatial Reasoning](/202606/11/2606.11918v1-the-art-of-interrogation-consistency-amplifies-factuality-in-spatial-reasoning)  
+   evidence：通过结构化不知情证书诊断大语言模型未知未知错误
+2. [Beyond Explaining Predictions: Logic-Based Explanations for Confidence in Machine Learning Models](/202606/12/2606.10347v1-beyond-explaining-predictions-logic-based-explanations-for-confidence-in-machine-learning-models)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：自监督强化学习增强空间推理中的一致性
-3. [Enhancing AI Interpretability and Safety through Localised Architectures](/202606/11/2606.07998v2-enhancing-ai-interpretability-and-safety-through-localised-architectures)  
+   evidence：基于逻辑的模型置信度解释，引入最小置信度阈值
+3. [Predicting Future Behaviors in Reasoning Models Enables Better Steering](/202606/12/2606.11172v1-predicting-future-behaviors-in-reasoning-models-enables-better-steering)  
+   标签：评分：7.0/10、query:ns-xai
+   evidence：从中间步骤预测未来行为以引导大推理模型
+4. [Mind the Perspective: Let's Reason Recursively for Theory of Mind](/202606/12/2606.11724v1-mind-the-perspective-lets-reason-recursively-for-theory-of-mind)  
+   标签：评分：7.0/10、query:ns-xai
+   evidence：递归视角构建用于大语言模型心理理论推理
+5. [Beyond representational alignment with brain-guided language models for robust reasoning](/202606/12/2606.11893v1-beyond-representational-alignment-with-brain-guided-language-models-for-robust-reasoning)  
+   标签：评分：7.0/10、query:ns-xai
+   evidence：通过fMRI对齐的脑引导LLM推理增强
+6. [CRAFT: A Unified Counterfactual Reasoning Framework for Tabular Question Answering and Fact Verification](/202606/12/2606.06842v1-craft-a-unified-counterfactual-reasoning-framework-for-tabular-question-answering-and-fact-verification)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：通过局部化架构提升可解释性
-4. [ICA Lens: Interpreting Language Models Without Training Another Dictionary](/202606/11/2606.11722v1-ica-lens-interpreting-language-models-without-training-another-dictionary)  
+   evidence：反事实推理框架用于可解释的表格推理
+7. [Diverse Thinking Schemata Elicit Better Reasoning in Large Language Models](/202606/12/2606.08974v1-diverse-thinking-schemata-elicit-better-reasoning-in-large-language-models)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：使用ICA解释语言模型
+   evidence：多样化思维模式策略优化提升LLM推理
+8. [Visual Para-Thinker++: A Single-Policy Multi-Agent Framework for Visual Reasoning](/202606/12/2606.09290v1-visual-para-thinker-a-single-policy-multi-agent-framework-for-visual-reasoning)  
+   标签：评分：6.0/10、query:ns-xai
+   evidence：利用多智能体并行推理进行视觉推理
+9. [A constrained symbolic regression approach for Lyapunov function discovery](/202606/12/2606.10045v1-a-constrained-symbolic-regression-approach-for-lyapunov-function-discovery)  
+   标签：评分：6.0/10、query:ns-xai
+   evidence：符号回归方法发现可解释的李雅普诺夫函数
+10. [LLMs+Graphs: Toward Graph-Native, Synergistic AI Systems](/202606/12/2606.11560v1-llmsgraphs-toward-graph-native-synergistic-ai-systems)  
+   标签：评分：6.0/10、query:ns-xai
+   evidence：大语言模型与图的协同整合以增强推理
 
 
 <div class="dpr-home-promo-card">
