@@ -6,53 +6,43 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-06-12
-- 运行时间：2026-06-12 22:03:49 UTC
+- 最新运行日期：2026-06-13
+- 运行时间：2026-06-13 20:38:32 UTC
 - 运行状态：成功
-- 本次总论文数：10
-- 精读区：0
-- 速读区：10
+- 本次总论文数：7
+- 精读区：1
+- 速读区：6
 
 ### 今日简报（AI）
-今天速读三篇7分论文，聚焦推理模型的不确定性诊断与可信度提升。  
-最值得关注的方向：结构化无知证书校准与逻辑基础解释，它们分别针对模型未知未知的识别和置信度可解释性。  
-建议下一步关注未来行为预测在模型引导中的应用，这三项都是提升AI系统可靠性的一线探索。
-- 详情：[/202606/12/README](/202606/12/README)
+今日聚焦AI模型可解释性，精读高分论文《Disentanglement with Holographic Reduced Representations》。  
+最值得关注的方向：全息简化表示实现层次化解耦，为理解LLM内部结构提供新框架；另需留意指令集恢复与基于词子集的可解释优化。  
+建议深入掌握解耦表示原理，并跟进PRISM等激活分析工具的实际应用进展。
+- 详情：[/202606/13/README](/202606/13/README)
 
 ### 精读区论文标签
-- 本次无精读推荐。
+1. [Disentanglement with Holographic Reduced Representations](/202606/13/2606.09725v1-disentanglement-with-holographic-reduced-representations)  
+   标签：评分：9.0/10、query:ns-xai
+   evidence：提出符号结构进行解缠，属于神经符号方法
 
 ### 速读区论文标签
-1. [Calibration of Structured Ignorance Certificates for Diagnosing Unknown Unknowns in Reasoning Models](/202606/12/2606.08571v1-calibration-of-structured-ignorance-certificates-for-diagnosing-unknown-unknowns-in-reasoning-models)  
+1. [PRISM: Recovering Instruction Sets from Language Model Activations](/202606/13/2606.09563v1-prism-recovering-instruction-sets-from-language-model-activations)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：通过结构化不知情证书诊断大语言模型未知未知错误
-2. [Beyond Explaining Predictions: Logic-Based Explanations for Confidence in Machine Learning Models](/202606/12/2606.10347v1-beyond-explaining-predictions-logic-based-explanations-for-confidence-in-machine-learning-models)  
-   标签：评分：7.0/10、query:ns-xai
-   evidence：基于逻辑的模型置信度解释，引入最小置信度阈值
-3. [Predicting Future Behaviors in Reasoning Models Enables Better Steering](/202606/12/2606.11172v1-predicting-future-behaviors-in-reasoning-models-enables-better-steering)  
-   标签：评分：7.0/10、query:ns-xai
-   evidence：从中间步骤预测未来行为以引导大推理模型
-4. [Mind the Perspective: Let's Reason Recursively for Theory of Mind](/202606/12/2606.11724v1-mind-the-perspective-lets-reason-recursively-for-theory-of-mind)  
-   标签：评分：7.0/10、query:ns-xai
-   evidence：递归视角构建用于大语言模型心理理论推理
-5. [Beyond representational alignment with brain-guided language models for robust reasoning](/202606/12/2606.11893v1-beyond-representational-alignment-with-brain-guided-language-models-for-robust-reasoning)  
-   标签：评分：7.0/10、query:ns-xai
-   evidence：通过fMRI对齐的脑引导LLM推理增强
-6. [CRAFT: A Unified Counterfactual Reasoning Framework for Tabular Question Answering and Fact Verification](/202606/12/2606.06842v1-craft-a-unified-counterfactual-reasoning-framework-for-tabular-question-answering-and-fact-verification)  
+   evidence：从隐藏状态解码指令集以监控LLM行为
+2. [Explaining Black-Box Language Models: Learning to Optimize Linguistically-Structured Word Subsets](/202606/13/2606.08497v1-explaining-black-box-language-models-learning-to-optimize-linguistically-structured-word-subsets)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：反事实推理框架用于可解释的表格推理
-7. [Diverse Thinking Schemata Elicit Better Reasoning in Large Language Models](/202606/12/2606.08974v1-diverse-thinking-schemata-elicit-better-reasoning-in-large-language-models)  
+   evidence：通过优化语言学结构的词子集解释黑盒语言模型
+3. [PAEC: Position-Aware Entropy Calibration for LLM Reasoning in RLVR](/202606/13/2606.08543v1-paec-position-aware-entropy-calibration-for-llm-reasoning-in-rlvr)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：多样化思维模式策略优化提升LLM推理
-8. [Visual Para-Thinker++: A Single-Policy Multi-Agent Framework for Visual Reasoning](/202606/12/2606.09290v1-visual-para-thinker-a-single-policy-multi-agent-framework-for-visual-reasoning)  
+   evidence：通过熵校准改进大模型推理，与推理训练相关
+4. [Multi-Hop Knowledge Composition is Bound by Pretraining Exposure](/202606/13/2606.09338v1-multi-hop-knowledge-composition-is-bound-by-pretraining-exposure)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：利用多智能体并行推理进行视觉推理
-9. [A constrained symbolic regression approach for Lyapunov function discovery](/202606/12/2606.10045v1-a-constrained-symbolic-regression-approach-for-lyapunov-function-discovery)  
+   evidence：研究大模型多跳推理失败，与推理可解释性相关
+5. [From Prompts to Tokens: Internalizing Causal Supervision in Vision-Language Model for Multi-Image Causal Reasoning](/202606/13/2606.11745v1-from-prompts-to-tokens-internalizing-causal-supervision-in-vision-language-model-for-multi-image-causal-reasoning)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：符号回归方法发现可解释的李雅普诺夫函数
-10. [LLMs+Graphs: Toward Graph-Native, Synergistic AI Systems](/202606/12/2606.11560v1-llmsgraphs-toward-graph-native-synergistic-ai-systems)  
+   evidence：通过因果图归纳在视觉语言模型中内化因果推理，增强可解释推理
+6. [Agreement in Representation Space for Open-Ended Self-Consistency](/202606/13/2606.12003v1-agreement-in-representation-space-for-open-ended-self-consistency)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：大语言模型与图的协同整合以增强推理
+   evidence：基于嵌入的自我一致性提升LLM推理
 
 
 <div class="dpr-home-promo-card">

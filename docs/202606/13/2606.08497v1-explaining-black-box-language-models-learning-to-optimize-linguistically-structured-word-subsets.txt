@@ -1,0 +1,1298 @@
+Title: Explaining Black-Box Language Models: Learning to Optimize Linguistically-Structured Word Subsets
+
+URL Source: https://arxiv.org/pdf/2606.08497v1
+
+Published Time: Tue, 09 Jun 2026 01:23:05 GMT
+
+Number of Pages: 30
+
+Markdown Content:
+# Explaining Black-Box Language Models: Learning to Optimize Linguistically-Structured Word Subsets 
+
+## Minyoung Hwang ∗
+
+Korea University Republic of Korea minyoung58@korea.ac.kr 
+
+## Seokhyun Lee ∗
+
+Korea University Republic of Korea nshuhsn@korea.ac.kr 
+
+## Changhee Lee 
+
+Korea University Republic of Korea changheelee@korea.ac.kr 
+
+Abstract 
+
+As deep language models (DLMs) are increasingly deployed in high-stakes domains such as healthcare, understanding their decision rationale becomes paramount for ensuring trust, safety, and ac-countability. However, achieving this vital level of interpretability is particularly challenging when these DLMs operate as black-box 
+
+systems (e.g., via APIs), where access to internal model states (e.g., parameters, gradients) is restricted. Despite numerous efforts, exist-ing explanation methods often fail to concurrently satisfy three key desiderata: (i) inference-time efficiency , (ii) black-box compatibility 
+
+without inducing out-of-distribution behavior, and (iii) comprehen-sible explanations grounded in the input’s linguistic structure. To address these challenges, we propose a method that explains pre-dictions of DLMs by selecting a small, informative subset of input words. We formulate this as an amortized optimization problem, enabling efficient one-shot inference without the need for input-specific search. Our selection policy is trained via REINFORCE-style policy gradients, allowing discrete word selection in a fully gradient-free setting. To enhance interpretability and align with human linguistic intuition, we integrate graph-structured knowl-edge into this selection process, fostering linguistically coherent subsets that result in explanations both highly informative and cognitively meaningful to end-users. We evaluated our method on diverse DLM architectures and multiple real-world datasets. It consistently identifies word subsets with enhanced discriminative power and stronger alignment with linguistically salient cues, out-performing both conventional black-box compatible methods and gradient-based approaches that are given oracle access to the black-box model’s gradients for a more challenging benchmark. Our code is available at here. 
+
+CCS Concepts 
+
+• Computing methodologies → Reasoning about belief and knowledge ; Natural language processing .
+
+Keywords 
+
+black-box language model, explainable AI, word subset selection, instance-wise feature selection  
+
+> ∗Both authors contributed equally to this research.
+> This work is licensed under a Creative Commons Attribution 4.0 International License.
+> KDD ’26, Jeju Island, Republic of Korea
+> ©2026 Copyright held by the owner/author(s). ACM ISBN 979-8-4007-2259-2/2026/08 https://doi.org/10.1145/3770855.3817677
+
+ACM Reference Format: 
+
+Minyoung Hwang, Seokhyun Lee, and Changhee Lee. 2026. Explaining Black-Box Language Models: Learning to Optimize Linguistically-Structured Word Subsets . In Proceedings of the 32nd ACM SIGKDD Conference on Knowledge Discovery and Data Mining V.2 (KDD ’26), August 09–13, 2026, Jeju Island, Republic of Korea. ACM, New York, NY, USA, 30 pages. https: //doi.org/10.1145/3770855.3817677 
+
+1 Introduction 
+
+Deep Language models (DLMs) have become foundational to di-verse applications ranging from clinical decision support and legal analysis to scientific discovery [ 5, 9, 28 ]. As these models are in-creasingly deployed in high-stakes settings, the demand for under-standing model predictions has become increasingly critical. This need is severely compounded when DLMs are provided as strict black-box systems (e.g., via APIs), which typically restrict access to internal parameters, gradients, and may even obscure crucial details of their input processing pipelines, including tokenization schemes. When users are unable to understand the rationale behind a model’s decision, the system remains a powerful yet opaque tool, raising concerns around trust, safety, and accountability. To enable widespread adoption of model explanations in real-world workflows — especially, those operating at scale or under tight latency constraints — fast inference is crucial. Memoryless explanation methods [ 7, 36 , 49 , 53 , 56 , 65 ] often fall short in this regard, as they require multiple queries to the model or costly per-instance optimization to identify salient features, making them impractical for time-sensitive environments. Amortized explana-tion methods [ 4 , 10 , 52 , 62 ] present a compelling alternative by training a reusable explainer model capable of generating explana-tions in a single pass that generalize across inputs. However, even though these approaches avoid direct reliance on model gradients, applying them to large-scale DLMs remains challenging — train-ing a sufficiently expressive surrogate often requires substantial data and computational resources, making them impractical for many real-world scenarios. While both memoryless and amortized methods provide local (instance-specific) explanations, they differ fundamentally in how these explanations are produced. A summary comparison is presented in Table 1. (See Section 4 for more details). Compounding the issue, comprehensibility of explanations is of-ten overlooked in many existing explanation methods. Previous methods concentrate primarily on identifying input tokens that are most influential to the model’s prediction, without adequately con-sidering whether the selected subset forms a coherent, meaningful span from a linguistic perspective. For instance, an explanation composed of scattered or grammatically disconnected words might faithfully reflect certain aspects of the model’s internal decision  
+
+> arXiv:2606.08497v1 [cs.AI] 7 Jun 2026 KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea Minyoung Hwang, Seokhyun Lee, and Changhee Lee
+
+Table 1: A comparative summary of explanation methods.                                                                 
+
+> Method Black-box Discrete Linguistic Black-box Cost Compatibility Space Structure Reuse Training Inference
+> Memoryless
+> IG [56] ✗✗✗✓None High LRP, DeepLIFT [7, 53] ✗✗✗✓None Low PDA, KernelSHAP [35, 36] ✓✓✗✓None High LIME [49] ✓✓✗✗None High
+> Amortized
+> LTX [4] ✗✗✗✓Low Low INVASE [62] ✓✓✗✗Moderate Low L2X [10] ✓✗✗✗Moderate Low CXPlain [52] ✓✓✗✗High Low
+> Ours ✓✓✓✓Low Low
+
+process, yet fail to help a human understand the underlying ratio-nale or trust the decision [ 44 ]. In such cases, technical fidelity alone is insufficient. As DLMs are increasingly integrated into human-centered applications — often under strict black-box settings — it becomes critical to generate explanations that align with human linguistic expectations, which is key to ensuring interpretability, usability, and responsible deployment. 
+
+Contributions. We propose a novel method that jointly satisfies the three core desiderata for explaining strict black-box DLMs: (i) 
+
+efficiency , (ii) black-box compatibility , and (iii) comprehensi-ble explanations . We cast the explanation task as an amortized optimization problem, training a reusable selector that enables fast, single-pass inference at test time. Our selector is trained using policy gradients — defining a Bernoulli policy for selecting input words and using rewards from the black-box model’s outputs — which ensures compatibility with strictly opaque systems and avoids the need for computationally expensive and potentially unfaithful surrogate models (specifically, for large DLMs). Furthermore, to enhance the comprehensibility of the resulting explanations, we incorporate graph-structured linguistic knowledge (e.g., syntactic dependency graphs) into the selection mechanism. Unlike methods that view text as a simple sequence of tokens, this structural guidance biases our selector towards identifying subsets that are both predictive of the model’s output and linguistically coherent, thereby providing rationales that are more readily understood by human users. 
+
+2 Problem Formulation 
+
+Suppose that we are given a DLM, 𝑔 : X𝑇 → [ 0, 1]𝐶 , trained to predict a target label 𝑦 ∈ { 1, . . . , 𝐶 } based on a variable-length input sequence x = (𝑥 1, 𝑥 2, . . . , 𝑥 𝑇 ) ∈ X 𝑇 consisting of 𝑇 words, where 
+
+X denotes the input (word) space. Note that the sequence length 
+
+𝑇 varies as the input sequence changes. In this work, we focus on the classification setting where the DLM has been fine-tuned or trained for a specific task; we also demonstrate its extensibility to generation tasks in Section 5.3 and discuss the formulation for regression in Appendix A.1. We assume that 𝑔 is a strict black-box 
+
+function that we can evaluate the model output 𝑔 (x) for any given instance x, but we do not have any knowledge of the internal model states such as parameters, gradients, and existence of particular tokens (e.g., [MASK] ,[PAD] ). Our goal of explanation is to identify a subset of words in x that are most influential in determining the model output 𝑔 (x) given an input x. To formalize this, we introduce a binary gating vector 
+
+m = (𝑚 1, 𝑚 2 . . . , 𝑚 𝑇 ) ∈ { 0, 1}𝑇 , where each element 𝑚 𝑡 specifies whether the 𝑡 -th word in the input sequence is selected (i.e., 𝑚 𝑡 = 1)or not (i.e., 𝑚 𝑡 = 0). Then, the input sequence corrupted by m can be written as 
+
+˜x = m ⊙ x + ( 1 − m) · 𝑥 NULL (1) where ⊙ is element-wise multiplication and 𝑥 NULL is a word-level placeholder to fill the positions of not chosen words. This formula-tion relies on the assumption that replacing unselected words with placeholders does not substantially alter the model’s behavior. 
+
+Memoryless Optimization. For a given input sequence x, identi-fying the important words can be achieved by selecting the set of words that make similar outputs when compared to those given the original input. This can be formally defined through the following optimization problem: 
+
+minimize  
+
+> m∈ { 0,1}𝑇
+
+ℓ  𝑔 (x), 𝑔 ( ˜x) subject to ∥m∥0 < 𝛿 (2) where 𝛿 constrains the number of important words and ℓ is a loss function — e.g., the KL divergence — that quantifies the difference between the black-box model output based on the original input 
+
+x and that based on the corrupted input ˜x. The optimal subset of words can be identified by evaluating how the model’s output changes when the corresponding words are corrupted. However, this optimization is inherently memoryless ; it requires recomputing the solution independently for each input sequence, without exploit-ing information from previously processed (and potentially similar) sequences. Furthermore, since the search space over word subsets is discrete, the computational cost of solving the optimization grows exponentially with the sequence length. 
+
+Amortized Optimization. To address above limitations, we amor-tize the cost of solving the per-instance optimization problems in (2) over a population of input sequences by introducing a selection mechanism parameterized by a neural network. Specifically, we define a selector (parameterized by 𝜃 ), 𝜋 𝜃 : X𝑇 → [ 0, 1]𝑇 , that stochastically maps an input sequence to a binary gating vector, i.e., m ∼ Bern (𝜋 𝜃 (x)) . Then, we can reformulate (2) as: 
+
+minimize  
+
+> 𝜃
+
+Ex∼𝑝 𝑋 Em∼Bern (𝜋 𝜃 (x) ) 
+
+ℓ  𝑔 (x) , 𝑔 ( ˜x) + 𝜆 || m|| 0
+
+ (3) where 𝜆 ≥ 0 balances fidelity and sparsity by controlling the num-ber of words selected. Hereafter, we will denote this objective as 
+
+L( 𝜃 ). This amortized formulation is particularly appealing because, in many practical settings, there exists substantial structure and correlation among the optimal gating vectors across different input sequences, allowing us to replace the combinatorial search in (2) with a more tractable optimization over continuous parameters 
+
+𝜃 . More importantly, we deviate from estimating the black-box function to approximate 𝑔 ( ˜x) — a common step in previous joint amortized explanation approaches [ 10 , 24 , 45 , 62 ] — as training a sufficiently complex predictor to match the behavior of large-scale DLMs typically requires considerable data and computational over-head, ultimately limiting the practical utility of such approaches. Unfortunately, identifying important word subsets via (3) to ex-plain black-box DLMs poses following challenges: (i) Gradients are inaccessible : Many black-box DLMs (particularly those accessed via APIs) do not provide access to the internal gradients, which makes learning to select gate vectors using backpropagation from model outputs inapplicable. (ii) Meaning in language emerges from com-positional structure : DLMs rely heavily on syntactic and semantic interactions between words to make predictions. Methods failing Explaining Black-Box Language Models: Learning to Optimize Linguistically-Structured Word Subsets KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea Embedding Model (𝑓 )  
+
+> Black -box
+> DLM
+> (𝑔 )
+> 𝐱
+> Sampling
+> 𝐦
+> Subset
+> Selection
+> 𝐱
+> 𝐱 &
+> 𝐱
+> 𝑔 𝐱 '
+> 𝑔 𝐱
+> Input
+
+ℒ 𝜃 
+
+𝑦       
+
+> Label
+> Policy Gradient
+> Language Parser (𝒦 )
+> The
+> movie
+> is
+> not
+> good
+> “The movie is not good.”
+> movie
+> is
+> good not
+> The
+> Selector (𝜋 !)
+> movie: 0.6
+> is: 0.4
+> good: 0.9
+> not: 0.8
+> The : 0.1
+> “𝐱 "#$$ movie 𝐱 "#$$ not good.”
+
+Figure 1: A schematic illustration of GLASS. The selector, 𝜋 𝜃 , is trained via policy gradient, while the pre-trained word embedding model, 𝑓 ,and the black-box DLM, 𝑔 , remain fixed. A language parser (e.g., SpaCy’s dependency parser [ 22 ]) provides a graph representing the input’s linguistic structure to inform the selector. 
+
+to account for such dependencies risk producing explanations that misrepresent the model’s actual decision-making process. 
+
+3 Method 
+
+To address the challenges outlined above, we introduce a novel method designed to produce faithful and interpretable explanations for black-box DLMs, which we refer to as Graph-aware, Label-aligned, Amortized Subset Selection ( GLASS ). Our approach com-bines (i) a policy gradient-based learning strategy to address the discrete and non-differentiable nature of black-box DLMs, and (ii) 
+
+inductive bias by incorporating the input’s structural knowledge to encourage the selection of linguistically coherent word subsets. 
+
+3.1 Optimizing the Selector via Policy Gradients 
+
+In many applications, explanations need to be anchored to ground-truth outcomes, such as identifying a minimal subset of input words that leads the black-box model to the correct classification. Thus, we employ a supervised loss term for ℓ (𝑔 (x), 𝑔 ( ˜x)) in (3) by incor-porating the ground-truth label 𝑦 to guide the selection process: 
+
+ℓ𝑦 
+
+ 𝑔 (x), 𝑔 ( ˜x) =
+
+> 𝐶
+
+∑︁ 
+
+> 𝑐 =1
+
+I(𝑦 = 𝑐 )   log (𝑔 (x)𝑐 ) − log (𝑔 ( ˜x)𝑐 ). (4) Here, 𝑔 (x)𝑐 and 𝑔 ( ˜x)𝑐 denote the model’s prediction for class 𝑐 given the entire input sequence x and the word subset ˜x, respectively. The loss in (4) can be interpreted as the difference between two cross-entropy terms: the first (constant with respect to 𝜃 ) term reflects the cross-entropy between the true label and the model’s original prediction, while the second measures the cross-entropy based on the selected word subset. This formulation is designed for label-centric explanation (as similarly proposed in [ 61 ]) and naturally performs as baseline variance reduction, where the prediction on the full input serves as a fixed reference point, thereby stabilizing the gradient signal and reducing variance while minimizing the difference during training. Now, we optimize the selector based on a REINFORCE-style policy gradient method [ 60 ]. This approach operates directly on the discrete action space of word selection, thereby obviating the need for continuous relaxations [ 31 , 38 ]. Such adherence to discrete inputs ensures that selected words are valid vocabulary items and mitigates the risk of potential out-of-distribution representations. Furthermore, this enables the selector to learn solely from sampled model outputs and corresponding scalar rewards, making it ideally suited for black-box DLMs where internal gradients are unavailable. Formally, we can compute the gradient of our objective L( 𝜃 ) in (3) with respect to the selector parameters 𝜃 as follows: 
+
+∇𝜃 L( 𝜃 ) =Ex,𝑦 ∼𝑝 𝑋 𝑌 
+
+h
+
+Em∼Bern (𝜋 𝜃 (x) ) 
+
+h
+
+(5) 
+
+∇𝜃 log 𝑝 𝜃 (m) ·  ℓ𝑦 
+
+ 𝑔 (x), 𝑔 ( ˜x) + 𝜆 || m|| 0
+
+i i 
+
+,
+
+where 𝑝 𝜃 (m) = Î𝑇 𝑡 =1 𝜋 𝜃 (x)𝑚 𝑡  
+
+> 𝑡
+
+(1 − 𝜋 𝜃 (x)𝑡 ) (1−𝑚 𝑡 ) is the probability of generating the gate vector m given input x, and is modeled as a multivariate Bernoulli distribution. Here, each 𝜋 𝜃 (x)𝑡 denotes the selection probability of the 𝑡 -th word. See Appendix A.2 for details. 
+
+3.2 Incorporating Human Linguistic Intuition 
+
+To achieve explanations that are interpretable and structurally grounded, we design our selector to leverage external knowledge 
+
+reflecting human linguistic intuition , denoted as K ( x), during the word selection process for any given input sequence x. This knowl-edge is presented in the form of graph structures that explicitly define linguistic relationships within the input, which represent grammatical organization (e.g., syntactic dependency graphs), se-mantic connections (e.g., semantic relation networks), or other task-specific constraints. A straightforward way to integrate linguistic structure is by applying graph Laplacian regularization to the selector’s output, thereby encouraging the assignment of similar selection probabili-ties to structurally connected words. Although effective in smooth-ing the selector output, it relies on the strong assumption that edge connectivity directly translates to functional similarity. However, as noted by [ 26 ], graph edges often encode diverse relationships, such as contrastive, hierarchical, or task-specific dependencies, where such similarity is not guaranteed or even desired. Please refer to Appendix A.3 for further details on how graph Laplacian regular-ization can be considered within our method. Instead, we directly condition our selector on both input x and external structural knowledge K ( x), allowing for dynamic adapta-tion to the specific relationships encoded in the input’s linguistic structure. To achieve this, we implement the selector 𝜋 𝜃 as a Graph KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea Minyoung Hwang, Seokhyun Lee, and Changhee Lee 
+
+Neural Network (GNN) that computes word-level selection proba-bilities by representing words in x as nodes and utilizing K ( x) to define the graph edges. First, we derive initial node representations for each word from contextualized embeddings generated by a pre-trained DLM, 𝑓 : X𝑇 → R𝑇 ×𝑑 , where R𝑑 denotes the embedding space. The embedding model 𝑓 is a separate component from the target black-box model 𝑔 and is used exclusively to provide input features for the selector, which is fixed during training. This al-lows us to leverage 𝑓 ’s robust representational power to capture rich relationships among input words, ensuring efficient feature extraction without the complexity of additional training. Then, we compute the selector output using the GNN architecture as follows: 
+
+𝜋 𝜃 (x, K ( x)) 𝑡 = 𝜎 (ℎ𝑡 ) for 𝑡 = 1, . . . ,𝑇 (6) Here, h = (ℎ1, . . . , ℎ 𝑇 ) = GNN (𝑓 (x), K ( x)) and 𝜎 is a sigmoid func-tion. Note that multiple types of linguistic structure can be derived from a given input sequence [ 59 ]. we provide an extension of GLASS that uses multiple forms of external knowledge in Appendix B.2. 
+
+3.3 Sampling Important Word Subsets 
+
+To adhere to strict black-box constraints — where access to the model’s input processing pipeline, including tokenization, embed-ding mappings, or special token IDs (e.g., [MASK] , [PAD] ), is entirely restricted — we apply a word-level gating mechanism. Unselected words in each input sequence are replaced with a semantically neu-tral placeholder (e.g., “the” or an empty string) that is unlikely to affect the model’s prediction. This substitution preserves both the input length and syntactic structure, avoiding unnatural artifacts due to word deletion or embedding-level interventions. Finally, given a designated placeholder 𝑥 NULL , we construct a corrupted input sequence ˜x from an original input x according to (1) .This involves sampling a binary gate vector m ∼ Bern (𝜋 𝜃 (x, K ( x))) ,where the selector 𝜋 𝜃 is conditioned on the original input x and ex-ternal linguistic structure K ( x). Unlike approaches that manipulate token embeddings or internal attention mechanisms, our word-level gating mechanism requires no assumptions about the target model’s vocabulary, input processing pipeline, or tokenizer behavior. This design ensures full compatibility with strict black-box settings. 
+
+4 Related Work 
+
+Memoryless Explanation Methods. Perturbation-based methods estimate feature importance by observing changes in the output of the target model when individual features (e.g., a leave-one-feature-out method [ 35 ]) or combinations of features (e.g., KernelSHAP [ 36 ]) are perturbed. Since these methods rely solely on the interactions between input and model output, they can offer model-agnostic ex-planations — hence, applicable to strict black-box models — without training an additional model to generate explanations. However, in practice, applying these methods to DLMs often necessitates implicit or explicit access to the model’s input processing pipeline. This can involve managing special token IDs (e.g., [MASK] , [PAD] ), or even directly manipulating token embeddings (e.g., zeroing out embeddings of unselected words), to ensure these words are effec-tively neutralized, thereby avoiding unintended model behavior caused by improper word corruption [50]. Backpropagation-based methods compute feature attributions in a single forward or backward pass through the target model. Integrated Gradients (IG) [ 56 ] and its recent adaptation for discrete inputs in language models [ 16 , 50 ] calculate feature importance by integrating the gradients of the target model along a path from a baseline to the input. Layer-wise Relevance Propagation [ 7 ] and DeepLIFT [ 53 ] instead redistribute the model’s output to the input by tracing gradients or activation differences across layers. Overall, while training-free, many memoryless explanation meth-ods are not readily applicable to strict black-box DLMs because they rely on a degree of internal model access, such as special token IDs, token embeddings, gradient, or even layer-specific computations. 
+
+Amortization Explanation Methods. To address the computa-tional inefficiency of memoryless methods during inference (due to multiple model evaluations for each input), many recent approaches have adopted a “learning to explain” framework. These methods train a reusable explainer (or selector) that generalizes across inputs by finding explanation patterns via a separate, trainable model. Joint amortized explanation methods [ 10 , 24 , 45 , 62 ] jointly train two key components: a selector to identify relevant input feature subsets, and a predictor to estimate the target model’s output distri-bution conditioned on these subsets. The overarching goal is to find feature subsets maximally predictive of the target model’s output, often achieved by maximizing mutual information between the se-lected features and target outputs, or, equivalently, by minimizing the Kullback-Leibler (KL) divergence between the target model’s output distribution and the distribution predicted using only the selected feature subset. However, L2X [ 10 ] and its variants [ 24 , 45 ]rely on continuous relaxation to approximate discrete subset se-lection, which poses a fundamental challenge in natural language tasks, where soft-weighted combinations of word (token) embed-dings do not correspond to any valid word. Such representations can induce out-of-distribution behavior [ 20 ], potentially compromising the fidelity and stability of the resulting explanations. In contrast, surrogate explanation methods such as L2E [ 54 ] and CXPlain [ 52 ] aim to approximate existing explanation strategies by learning from the input-output behavior of the target model. L2E distills instance-level explanations — typically, generated by memoryless methods — into a stable, fast explainer through super-vised learning. Similarly, CXPlain trains a surrogate model using feature ablation scores as the ground truth. While efficient at infer-ence, these methods require extensive training queries to construct supervised labels, making them computationally expensive upfront. Alternatively, recent approaches like GELPE [ 1] create a global surrogate model to resolve inconsistencies among local explainers. In contrast, our work focuses on improving the intrinsic quality and linguistic coherence of the individual local explanation itself. 
+
+Graph-based Linguistic Structure in NLP. Linguistic graphs, such as syntactic dependency trees, are central to improving both performance and interpretability of NLP models. By encoding struc-tural relationships beyond sequential order, they offer valuable in-ductive bias, enhancing generalization in tasks like knowledge base completion [ 58 ] and open-domain information extraction [ 2 , 8 ]. Explaining Black-Box Language Models: Learning to Optimize Linguistically-Structured Word Subsets KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea 
+
+Crucially for our work, these structures also improve interpretabil-ity; for example, syntax-aware attention can produce more linguis-tically grounded explanations [ 30 , 51 ], and aligning model behav-ior with grammar improves comprehensibility of predictions [ 41 ]. While previous works typically used linguistic structures to analyze or build inherently interpretable models, we repurpose them for a post-hoc explanatory framework suitable for black-box models. 
+
+5 Experiment 
+
+In this section, we evaluate the performance of GLASS and cutting-edge explanation methods using several real-world datasets, com-plemented by comprehensive ablation studies. Additional experi-ments, as well as more detailed descriptions of datasets, benchmarks, and experimental settings, are provided in Appendix B. 
+
+Benchmarks. We compare our method against seven representa-tive explanation methods: three memoryless methods — i.e., Ker-nelSHAP [ 36 ], LIME [ 49 ], and Integrated Gradients (IG) [ 56 ] — that estimate importance without training, and four amortized method — i.e., L2X [ 10 ], LTX[ 4 ], CXPlain[ 52 ], INVASE[ 62 ] and variants of GLASS — where important word subsets are inferred via a learned selector. To ensure a fair and rigorous comparison across a broad range of baselines, we make several improvements to the origi-nal baseline implementations. To all the amortization methods, we standardize the input features by replacing their original encoders (e.g., RNNs, CNNs, or static word embeddings like GloVe [ 47 ]) with embeddings from the same pre-trained DLM, 𝑓 , as our method, followed by a shared MLP layer to handle variable-length input words robustly. 1 It is worth highlighting that these modifications are made deliberately to ensure that all methods operate under comparable conditions, allowing each baseline to demonstrate its best possible performance within our evaluation framework. Some model-specific details can be found below: 
+
+• IG : We assume oracle access to the gradients of the black-box DLM and use them directly to compute word-level attributions. 
+
+• L2X, LTX : Since training a surrogate model that matches the predictive performance of the target black-box DLM is often infeasible, we instead treat the black-box DLM itself as the surro-gate, assuming oracle access to its gradients for selector training. 
+
+• Variants of GLASS: For rigorous and compelling baselines, we introduce variants along two dimensions: (i) We replace the GNN architecture with an MLP (as described earlier), denoted as MLP .2
+
+To encourage linguistic coherence, we further introduce a variant with graph Laplacian regularization, denoted as MLP (w/LP) , as detailed in Section 3.2. (ii) We substitute the REINFORCE algo-rithm with reparameterization-based methods—specifically, the Hard Concrete ( HC ) distribution [ 34 ] and the Straight-Through Estimator ( STE ) [ 6], under the assumption that oracle access to the gradients of the black-box DLM is available. 
+
+• Oracle: An oracle baseline representing the black-box model’s performance on full input text, serving as the target performance.     
+
+> 1This modification is done by replacing the GNN architecture in (6) with an MLP layer, which is effective due to the rich contextual embeddings from 𝑓 that already encode complex inter-word relationships.
+> 2This can be viewed as an extension of INVASE [ 62 ] — an instance-wise feature selection approach — adapted for explaining black-box DLMs.
+
+Performance Metric. We evaluate the explanation quality of each method along the two axes, i.e., discriminative/generation perfor-mance and linguistic coherence: 
+
+• Discriminative performance : We assess how discriminative the selected words are by assessing classification accuracy (ACC), area under the ROC curve (AUROC), and area under the precision-recall curve (AUPRC) based on the black-box predictions with selected words. For a fair comparison, we neutralize unselected words by either adopting the default strategy for relevant base-lines (e.g., zero-embeddings for L2X) or, for all others, by replac-ing them with a neutral word (e.g., “the”). 
+
+• Generation performance : To evaluate summary quality, we use three standard metrics: To measure lexical overlap, we use ROUGE-1 (unigrams) and ROUGE-L (longest common subse-quence) [ 32 ]. To capture semantic similarity, we use BERTScore [66 ], which calculates the cosine similarity between contextual token embeddings from the generated and reference summaries, making it robust to variations in phrasing. 
+
+• Linguistic coherence : We analyze the structural properties of the subgraphs induced by the selected word subsets using external knowledge K ( x). Specifically, we evaluate three metrics — the number of subgraphs, average node degree (i.e., the average number of neighbors for each node), and edge density (i.e., the average connectivity within each subgraph) — each reflecting the structural cohesion of the resulting explanations. 
+
+• Alignment with human annotation : We average the precision score (of each instance) to evaluate the proportion of words identified by the model as important that overlap with the human-annotated rationales. 
+
+Implementation. For each input sentence, we construct a syn-tactic dependency graph using SpaCy’s dependency parser [ 22 ], where each node represents a word and edges reflect grammatical relations. This provides a structured approximation of sentence syntax and enables the GNN-based selector to exploit composi-tional signals in natural language. For datasets that rely solely on syntactic dependency graphs, we implement the selector 𝜋 𝜃 using Graph Convolutional Networks (GCNs) [ 26 ]. Specifically, to ensure our selector can adapt to unique linguistic patterns of each input, we provide GCNs with instance-specific adjacency graphs, allow-ing the selector to flexibly adapt to varying input structures. For the Graph-SST2 dataset, which contains denser semantic graphs, we instead adopt GraphSAGE [ 19 ], as its neighborhood aggrega-tion mechanism is better suited for capturing rich local semantics. Hyperparameter details can be found in Table S.1. 
+
+5.1 Sentiment Analysis 
+
+In this subsection, we evaluate our proposed and baseline methods on two publicly available sentiment classification datasets with varying input lengths and structural complexity: 
+
+• Movies [ 64 ]: This dataset provides binary sentiment labels along with human-annotated rationales at the span level. Each review may contain multiple rationale spans that reflect different aspects or reinforce the same sentiment. These ground-truth rationales provide a reliable basis for evaluating explanation quality. 
+
+• Graph-SST2 [63 ]: A graph-structured version of the SST2 dataset [55 ], where each sentence is augmented with a dependency parse KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea Minyoung Hwang, Seokhyun Lee, and Changhee Lee 
+
+Table 2: Performance comparison on the Movie, Graph-SST, and HateXplain datasets with fixed selection rates. 
+
+Dataset Movie Graph-SST2 HateXplain Metric ACC AUROC AUPRC Annotation Precision ACC AUROC AUPRC ACC AUROC AUPRC Annotation Precision SHAP 0.491 ± 0.015 0.505 ± 0.020 0.518 ± 0.012 0.252 ± 0.003 0.511 ± 0.002 0.651 ± 0.007 0.631 ± 0.005 0.586 ± 0.002 0.710 ± 0.004 0.563 ± 0.008 0.239 ± 0.001 
+
+LIME 0.495 ± 0.026 0.531 ± 0.060 0.511 ± 0.032 0.358 ± 0.002 0.502 ± 0.001 0.611 ± 0.002 0.588 ± 0.003 0.572 ± 0.002 0.746 ± 0.003 0.603 ± 0.004 0.256 ± 0.001 
+
+IG 0.503 ± 0.000 0.544 ± 0.000 0.501 ± 0.000 0.277 ± 0.000 0.500 ± 0.000 0.581 ± 0.000 0.570 ± 0.000 0.587 ± 0.000 0.761 ± 0.000 0.613 ± 0.000 0.247 ± 0.000 
+
+L2X 0.561 ± 0.054 0.596 ± 0.060 0.590 ± 0.080 0.337 ± 0.021 0.526 ± 0.007 0.552 ± 0.016 0.558 ± 0.016 0.493 ± 0.003 0.624 ± 0.003 0.479 ± 0.002 0.141 ± 0.002 
+
+LTX 0.589 ± 0.066 0.605 ± 0.078 0.625 ± 0.104 0.355 ± 0.023 0.525 ± 0.007 0.555 ± 0.017 0.563 ± 0.019 0.511 ± 0.003 0.644 ± 0.003 0.483 ± 0.014 0.161 ± 0.004 
+
+CXPlain 0.512 ± 0.004 0.571 ± 0.019 0.571 ± 0.010 0.358 ± 0.004 0.524 ± 0.004 0.554 ± 0.016 0.561 ± 0.018 0.612 ± 0.008 0.777 ± 0.006 0.645 ± 0.007 0.234 ± 0.004 
+
+MLP (HC) 0.551 ± 0.017 0.590 ± 0.005 0.692 ± 0.004 0.368 ± 0.006 0.502 ± 0.002 0.512 ± 0.008 0.544 ± 0.006 0.415 ± 0.005 0.536 ± 0.011 0.369 ± 0.011 0.181 ± 0.013 
+
+MLP (STE) 0.509 ± 0.006 0.574 ± 0.041 0.577 ± 0.044 0.262 ± 0.038 0.538 ± 0.012 0.577 ± 0.019 0.566 ± 0.011 0.529 ± 0.060 0.666 ± 0.070 0.511 ± 0.073 0.214 ± 0.019 
+
+MLP (RL) 0.733 ± 0.015 0.805 ± 0.016 0.797 ± 0.025 0.347 ± 0.011 0.702 ± 0.036 0.781 ± 0.036 0.770 ± 0.029 0.672 ± 0.003 0.835 ± 0.001 0.713 ± 0.003 0.338 ± 0.002 
+
+GLASS (HC) 0.539 ± 0.009 0.551 ± 0.008 0.646 ± 0.012 0.391 ± 0.026 0.505 ± 0.001 0.513 ± 0.006 0.524 ± 0.015 0.446 ± 0.015 0.572 ± 0.019 0.419 ± 0.022 0.206 ± 0.007 
+
+GLASS (STE) 0.605 ± 0.101 0.639 ± 0.116 0.641 ± 0.119 0.536 ± 0.041 0.551 ± 0.015 0.593 ± 0.024 0.587 ± 0.029 0.550 ± 0.037 0.677 ± 0.039 0.530 ± 0.035 0.228 ± 0.011 
+
+GLASS 0.829 ± 0.017 0.954 ± 0.012 0.962 ± 0.009 0.418 ± 0.005 0.767 ± 0.031 0.864 ± 0.022 0.860 ± 0.022 0.673 ± 0.002 0.833 ± 0.001 0.713 ± 0.002 0.354 ± 0.001 
+
+Oracle 0.859 0.942 0.944 - 0.842 0.926 0.928 0.674 0.847 0.740 -
+
+GCN w/ syntactic dependency graph (Annotation Precision: 0.806) 
+
+MLP (Annotation Precision: 0.737) 
+
+MLP w/ graph Laplacian (Annotation Precision: 0.771) 
+
+Figure 2: Examples of important word subsets identified by GLASS and its variants on the Movies dataset. Based on the human rationales provided in the dataset, words highlighted in green correspond to selected human rationales, those in red represent unselected human rationales, and words highlighted in orange denote selected words that are not part of the human rationale. The accompanying subgraph illustrates the structural relationships among selected words, highlighting how well the explanation aligns with the underlying linguistic structure. We also report the sample-level precision score with respect to human rationales to quantify the degree of alignment. 
+
+graph constructed via the Biaffine parser [ 13 ], providing the underlying semantic structure of the input sequences. 
+
+Quantitative Analysis. We evaluate the discriminative power of word subsets selected by our method and baseline methods under a fixed selection rate (determined by their respective importance scores). Table 2 shows that at a 10% rate, the subsets chosen by base-line methods exhibit notably lower discriminative power than ours. We attribute this advantage to a fundamental design difference: while methods like KernelSHAP, IG, and LIME prioritize individu-ally impactful words, our approach is explicitly optimized to find subsets that collectively preserve the original input’s meaning and predictive signal. This limitation of focusing on individual word impact is particularly detrimental for CXPlain since its surrogate model is trained to approximate leave-one-out importance scores. GLASS consistently outperforms its MLP-based variants, achiev-ing notable gains in both the discriminative power of selected word Explaining Black-Box Language Models: Learning to Optimize Linguistically-Structured Word Subsets KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea 
+
+subsets and their alignment with human-annotated rationales. This performance gain stems from the structural advantage of its GNN architecture, which effectively leverages the underlying linguistic structure of the input — a strength that becomes especially valu-able when processing longer texts. Moreover, when comparing optimization strategies, our policy gradient method demonstrates superior performance over reparameterization tricks. We attribute this to the distinct drawbacks of the alternatives: STE introduces biased gradient estimates for its discrete selections while methods like HC, L2X, and LTX rely on soft, continuous gates for training, which leads to a train-test mismatch, as these models must make hard selections at inference, forcing them into out-of-distribution scenarios that degrade performance. 
+
+Qualitative Analysis. Figure 2 illustrates the benefit of incorpo-rating linguistic structure by showcasing a representative example from the Movies dataset, which compares the explanation gener-ated by our method to those from two variants: MLP and MLP w/ LP (those of other baselines are shown in Figure S.9) . To ensure a fair comparison, all methods are configured to select an identical proportion of words (30% of the input length): 
+
+• The sentence “The acting and direction is top-notch — never sappy, always touching.” contains a clear positive sentiment. However, MLP and MLP (w/ LP) models independently select “never” , “al-ways” , and “touching” , yielding the misleading “never always touching” which contradicts the true sentiment. This contradicts the positive sentiment in the full sentence and may be misinter-preted when viewed in isolation, especially since it immediately follows the strongly positive phrase “acting and direction is top-notch” . Conversely, our GCN-based selector identifies coherent, structure- and meaning-preserving phrases— acting and direction is top-notch” and always touching” —that better align with the original sentiment. 
+
+• The sentence “Martin Scorsese once described the movies as a dream state — like taking dope, and immersing yourself in an alterna-tive world.” illustrates a failure case for the MLP and MLP (w/ LP) models, which produce fragmented and semantically sparse word selections that offer little interpretive value. This is due to their inability to model local structure or capture long-range dependencies. Contrarily, our GCN-based selector identifies a cohesive span of structurally connected words that align with the dependency graph, producing a fluent and interpretable phrase. The selected subspan effectively captures the themes of escapism and immersion, and aligns well with the sentence’s sentiment la-bel. This demonstrates the advantage of incorporating linguistic structure into the selection process. 
+
+5.2 Explainable Hate Speech Detection 
+
+To demonstrate applicability in the nuanced and often ambiguous context of social media language [ 11 , 40 ], we evaluate our method and the baseline methods in the task of hate speech detection. 
+
+• HateXplain [40 ]: This dataset focuses on hate speech and in-cludes multi-faceted annotations for each post, including toxicity level (hate, offensive, or normal), the targeted group, and cru-cially, human-annotated rationales (i.e., text spans that justify the assigned label). The presence of these ground-truth rationales makes it an ideal dataset for evaluating explanation fidelity. 
+
+Table 3: Generation performance for the XSum dataset.              
+
+> Dataset XSum Metric Rouge-1 Rouge-L Bert Score
+> MLP (RL) 0.245 0.196 0.849
+> GLASS 0.277 0.219 0.882
+> Oracle 0.391 0.320 0.908
+
+Quantitative Results. While GLASS significantly outperforms conventional methods on this dataset in discriminating toxicity lev-els, its performance on this metric is comparable to its MLP-based variant — a result that differs from our findings on the Movies and Graph-SST2 datasets. We conjecture this is due to the dataset’s informal language and community-specific slang, characteristics known to reduce the effectiveness of the formal structural biases our GNN relies on [ 3 , 14 ]. Nevertheless, even with comparable discriminative power, GLASS produces superior explanations. Met-rics measuring precision against human-annotated rationales and linguistic coherence both confirm that our GNN-based method cap-tures structural information more effectively than the MLP variant. See Figure S.6 for qualitative examples. 
+
+5.3 Abstractive Text Summarization 
+
+To demonstrate the broader applicability of our method beyond classification, we evaluate it on a challenging generative benchmark known for its high level of abstraction. Our approach offers key flexibility by learning from appropriately defined reward signals without task-specific constraints. 
+
+• XSum [ 43 ]: This dataset is a large-scale collection of BBC articles, each with a single-sentence summary that abstractly describes the article’s main topic. Since the ground-truth summaries have minimal lexical overlap with the original text, this makes it an ideal dataset for evaluating explanation methods for true lan-guage understanding and novel text generation. 
+
+Quantitative Results. Even in this challenging abstractive sum-marization task, where low lexical overlap makes selection-based methods difficult, GLASS demonstrates robust performance. Despite the inherent constraint of using only a partial input (i.e., selection rate of 50%), a notable finding emerges: while lexical overlap metrics like ROUGE-L expectedly decrease, the semantic-based BERTScore remains high. This indicates that our selector is adept at identi-fying and preserving the core semantic meaning of a text even with a limited word subset, which is crucial for effective abstractive summarization. See Figure S.7 for qualitative examples. 
+
+5.4 Ablation Studies 
+
+Linguistic Structures. To further demonstrate the effectiveness of our method in leveraging GNN architectures with input-specific external knowledge K ( x), we evaluate how well the selected word subsets align with the underlying linguistic structure. We compare our GCN-based selector with two variants of our method: MLP and MLP (w/ LP) (see Appendix A.3 for details). This comparison relies on coherence metrics that gauge faithfulness to the syntactic prior by assessing if the selected words: (i) form cohesive linguistic units (i.e., phrases or clauses), as measured by subgraph count and edge KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea Minyoung Hwang, Seokhyun Lee, and Changhee Lee 
+
+Figure 3: Comparison of linguistic coherence with respect to (left) average node degree, (middle) the number of subgraphs, and (right) edge density in the Movies dataset. 
+
+Table 4: Performance comparison with different graph types and selector architectures on the Graph-SST2 dataset.                                                                      
+
+> Graph Type ACC AUROC AUPRC MLP 0.702 ±0.036 0.781 ±0.036 0.770 ±0.029
+> MLP (w/ Syn LP) 0.724 ±0.038 0.793 ±0.033 0.760 ±0.029
+> MLP (w/ Sem LP) 0.724 ±0.036 0.791 ±0.019 0.743 ±0.010
+> MLP (w/ Syn & Sem LP) 0.713 ±0.027 0.786 ±0.020 0.761 ±0.019
+> GNN (w/ Syn) 0.767 ±0.031 0.864 ±0.022 0.860 ±0.022
+> GNN (w/ Sem) 0.788 ±0.021 0.884 ±0.015 0.880 ±0.013
+> GNN (w/ Syn & Sem) 0.784 ±0.025 0.881 ±0.020 0.879 ±0.015
+> Oracle 0.842 0.926 0.928
+
+density, and (ii) include pivotal grammatical elements, as indicated by average node degree. 
+
+Why is the structural coherence so important? The pursuit of structural coherence in our explanations is not a byproduct but a central design choice aimed at improving comprehensibility [ 15 , 42 ]. This approach is motivated by the cognitive principle that humans process cohesive informational units more effectively than scattered individual words [ 44 ]. Our coherence metrics are designed as direct proxies for this goal. Specifically, a low subgraph count and high edge density indicate that selected words form cohesive "clusters" rather than isolated "islands". Additionally, a high average node degree anchors explanations around the sentence’s grammatical "hubs" (e.g., the main verb), thus preserving its core structure. As presented in Figure 3, our GCN-based approach consistently excels in these metrics when selecting approximately 10% of the words, confirming its ability to produce structurally coherent explanations. 
+
+External Knowledge. We also examine how different types of linguistic graphs, K ( x), used as external knowledge, influence per-formance. On the Graph-SST2 dataset, we compare our selector’s performance when guided by the dataset-provided semantic graphs versus conventional syntactic dependency graphs. As shown in Table 4, both graph types substantially outperform MLP baselines, highlighting the effectiveness of structured linguistic guidance. No-tably, the semantic graph yields a slight performance gain over the syntactic graph, suggesting that richer linguistic priors can further enhance the quality of the selected explanations. 
+
+Model Configurations. In this ablation study, we assess the model dependency of our framework by training selectors with various embedding models ( 𝑓 ) for a diverse set of target black-box DLMs ( 𝑔 ). As presented in Table 5, our approach demonstrates high flexibility, successfully producing robust selectors for a wide range of target architectures, including both encoder-based (e.g., DeBERTa) and decoder-based (e.g., GPT-2 [ 48 ]) models, using various types of 
+
+Table 5: Performance comparison with different encoder-selector combinations on the Graph-SST2 dataset.                                                                    
+
+> 𝑓 𝑔 ACC AUROC AUPRC BERT 0.767 ±0.031 0.864 ±0.022 0.860 ±0.022
+> DeBERTa-v3 DeBERTa-v3 0.840 ±0.006 0.930 ±0.006 0.925 ±0.009
+> RoBERTa 0.823 ±0.003 0.920 ±0.004 0.917 ±0.005
+> BERT 0.827 ±0.006 0.911 ±0.002 0.913 ±0.003
+> DeBERTa-v3 GPT-2 0.887 ±0.003 0.950 ±0.003 0.950 ±0.004
+> RoBERTa 0.869 ±0.007 0.940 ±0.004 0.941 ±0.005
+> Oracle DeBERTa-v3 0.842 0.926 0.928 GPT-2 0.819 0.907 0.913
+
+Table 6: Evaluating Transfer Performance from Movies to IMDb.                                         
+
+> 𝜋 𝜃 →𝑔 Movies →Movies IMDb →IMDb Movies →IMDb Metric AUROC AUPRC AUROC AUPRC AUROC AUPRC
+> 0.952 0.961 0.940 0.936 0.937 0.949
+> GLASS ±0.013 ±0.010 ±0.006 ±0.006 ±0.004 ±0.003
+> Oracle 0.942 0.944 0.987 0.996 0.987 0.996
+
+embedding models. This confirms that the observed performance gain stems not from architectural similarity between 𝑓 and 𝑔 , but from our proposed framework itself. Further results for different embedding model sizes are available in Table S.7. 
+
+5.5 Additional Experiments 
+
+Generalization. To evaluate the selector’s generalization ability and ensure it avoids overfitting to source dataset characteristics, we train the selector exclusively on the Movies dataset and apply it to the IMDb dataset [ 37 ] — which addresses the same movie review sentiment task but is 25 times larger — without any fine-tuning or adaptation. As shown in Table 6, the selector maintains a high performance. This result indicates that our selector learns robust, task-relevant features, functioning effectively as a task-level explainer that transfers across datasets with little performance loss. 
+
+API-Based Model Compatibility. To validate real-world applica-bility, we evaluate GLASS on keyword extraction using the Inspec dataset [ 23 ] with a Hugging Face API-based model [ 27 ], under strict input-output access only. As shown in Table 7, GLASS achieves an F1 score of 0.441 ± 0.004 using 30% of the input text, which is 90.2% of oracle performance (F1 score: 0.489), demonstrating full compatibility with production-level API-based models, as detailed in Appendix C.1. 
+
+Scalability to Larger DLMs. To evaluate GLASS on larger models, we conduct experiments using Llama 3.2 (3B) as the target black-box model ( 𝑔 ) while using the much smaller BERT-base (110M) as the embedding model ( 𝑓 ). GLASS achieves competitive performance across all metrics on the Movies dataset, even outperforming the full-text black-box model as shown in Table 8. Notably, our method achieves these results using only 10% of the original input words, demonstrating its robust performance for explaining larger DLMs. 
+
+Computational Efficiency. As shown in Table 9, GLASS gen-erates explanations via one-shot inference, taking only 0.08s per sample on average. To ensure a fair comparison with memoryless Explaining Black-Box Language Models: Learning to Optimize Linguistically-Structured Word Subsets KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea 
+
+Table 7: Keyword extraction performance on Inspec dataset using API-based model. 
+
+Method F1 Score GLASS 0.441 ± 0.004 Oracle (Full Text) 0.489 
+
+Table 8: GLASS performance on the Movies dataset using Llama 3.2 as the target black-box model.                
+
+> Model ACC AUROC AUPRC
+> GLASS 0.774 ±0.017 0.876 ±0.015 0.877 ±0.016
+> Llama3.2 (Oracle) 0.759 0.850 0.862
+
+Table 9: Efficiency evaluation in terms of inference time per sample and peak GPU memory usage.               
+
+> Type Method Time/Sample (s) Peak GPU Mem (GB) Memoryless
+> KernelSHAP 2.00 7.35 LIME 6.13 7.39 IG 0.67 28.25
+> Amortized MLP (RL) 0.08 6.23 GLASS 0.08 6.24
+
+methods, all experiments are conducted with a batch size of 1. For 199 samples using DeBERTa-v3. Importantly, while the query cost of LIME and KernelSHAP scales prohibitively with model size ( 𝑔 ), GLASS maintains high efficiency. As shown in Table 9, GLASS gen-erates explanations via one-shot inference, taking only 0.08s per sample—8–77 × faster than memoryless methods—while consuming less GPU memory (6.2 GB vs. 7.3–28.2 GB). All experiments use batch size 1 for fair comparison. 
+
+Human Evaluation. Since evaluating explanations can be inher-ently subjective, we complement our automatic metrics with a human evaluation involving 26 AI researchers. Participants rank explanations from GLASS, MLP (RL), and IG along two dimen-sions: (1) Rationale Quality — given the model’s prediction, which selected words are most essential? — and (2) Phrase Coherence —which selections form more natural, coherent phrases rather than scattered words? Method identities are anonymized and option or-dering is randomized to reduce potential bias. As shown in Table 10, GLASS receives the most Rank-1 preferences on both dimensions, with all differences statistically significant ( 𝑝 < 0.0001 , Wilcoxon signed-rank test with Bonferroni correction), providing strong evi-dence that GLASS produces explanations that are both more faithful and linguistically coherent from a human perspective. 
+
+Comparison with LLM-based Methods. We compare GLASS against recent LLM-based prompting methods [ 57 ] via three strate-gies: Direct Prompting (DP), Counterfactual-Parallel (CFP), and Coun-terfactual-Sequential (CFS). While self-explanation methods benefit from LLMs’ broad knowledge, they rely on the model to verbalize its own reasoning, which may not faithfully reflect its actual de-cision process [ 39 ]. As shown in Table 11, GLASS outperforms all LLM-based methods across all metrics despite using a substantially smaller embedding model (DeBERTa-v3 vs. Llama3 80B or GPT-4o). 
+
+Table 10: Human preference distribution (Rank 1 to 3) evaluating Rationale Quality and Phrase Coherence across different explana-tion models.                          
+
+> Method Rationale Quality Phrase Coherence
+> Rank-1 Rank-2 Rank-3 Rank-1 Rank-2 Rank-3
+> GLASS 275 147 98 395 86 39 MLP (RL) 135 251 134 83 345 92 IG 110 122 288 42 89 389
+
+Table 11: Comparison with LLM-based prompting methods on the Movies dataset.                                   
+
+> Model Method ACC AUROC AUPRC Annotation Precision
+> Llama3 80B DP 0.814 0.907 0.841 0.244 CFP 0.799 0.900 0.845 0.216 CFS 0.814 0.889 0.795 0.243 GPT-4o DP 0.749 0.916 0.896 0.245 CFP 0.533 0.809 0.705 0.224 CFS 0.764 0.913 0.864 0.236 DeBERTa-v3 GLASS 0.829 0.954 0.962 0.418
+
+6 Conclusion 
+
+We propose a novel method for explaining strict black-box DLMs that combines amortized optimization with linguistic structural knowledge. Our innovations — amortized optimization with policy gradient training for discrete selection without internal model ac-cess and the direct incorporation of linguistic structural knowledge — enable faithful and coherent word subset explanations. Empirical results confirm that our approach significantly surpasses existing methods, even those with privileged gradient access, in identify-ing discriminative and linguistically sound rationales. This work contributes a practical and effective solution for increasing the transparency and trustworthiness of DLMs in critical applications. 
+
+Limitations. While our method demonstrates strong performance and practical utility in strict black-box settings, some limitations remain. First, our framework assumes that external knowledge is provided in the form of structured linguistic graphs; incorporating other modalities (e.g., tabular metadata) would require additional architectural modifications to effectively represent and utilize such information. Second, if users wish to incorporate new forms of structural knowledge into the explanation process, our method requires retraining the selector to integrate this knowledge, posing a practical constraint in dynamic or user-driven applications. Third, our approach relies on the quality of the provided linguistic graph and may vary in domains with noisy text or specialized language where standard parsers generate less informative structures. 
+
+Acknowledgments 
+
+We thank the reviewers for their comments and suggestions. This work is supported by the National Research Foundation of Ko-rea (NRF) grant funded by the Korea government (MSIT) (No. RS-2024-00358602) and the Institute of Information & Communications KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea Minyoung Hwang, Seokhyun Lee, and Changhee Lee 
+
+Technology Planning & Evaluation (IITP) grant funded by the Ko-rea government (MSIT), Artificial Intelligence Graduate School Program (No. RS-2019-II190079, Korea University), the Artificial Intelligence Star Fellowship Support Program to nurture the best talents (No. RS-2025-02304828), and the AI Research Hub Project (No. RS-2024-00457882). 
+
+References 
+
+[1] Andrea Agiollo, Luciano Cavalcante Siebert, Pradeep K Murukannaiah, and An-drea Omicini. 2024. From large language models to small logic programs: building global explanations from disagreeing local post-hoc explainers. Autonomous Agents and Multi-Agent Systems 38, 2 (2024), 32. [2] Gabor Angeli, Melvin Jose Johnson Premkumar, and Christopher D. Manning. 2015. Leveraging Linguistic Structure For Open Domain Information Extraction. In Proceedings of the 53rd Annual Meeting of the Association for Computational Lin-guistics and the 7th International Joint Conference on Natural Language Processing (Volume 1: Long Papers) , Chengqing Zong and Michael Strube (Eds.). Association for Computational Linguistics, Beijing, China, 344–354. doi:10.3115/v1/P15-1034 [3] Timothy Baldwin, Paul Cook, Marco Lui, Andrew MacKinlay, and Li Wang. 2013. How Noisy Social Media Text, How Diffrnt Social Media Sources?. In Proceedings of the Sixth International Joint Conference on Natural Language Processing , Ruslan Mitkov and Jong C. Park (Eds.). Asian Federation of Natural Language Processing, Nagoya, Japan, 356–364. https://aclanthology.org/I13-1041/ [4] Oren Barkan, Yuval Asher, Amit Eshel, Yehonatan Elisha, and Noam Koenigstein. 2023. Learning to explain: A model-agnostic framework for explaining black box models. In 2023 IEEE International Conference on Data Mining (ICDM) . IEEE, 944–949. [5] Iz Beltagy, Kyle Lo, and Arman Cohan. 2019. SciBERT: A pretrained language model for scientific text. arXiv preprint arXiv:1903.10676 (2019). [6] Yoshua Bengio, Nicholas Léonard, and Aaron Courville. 2013. Estimating or propagating gradients through stochastic neurons for conditional computation. 
+
+arXiv preprint arXiv:1308.3432 (2013). [7] Alexander Binder, Grégoire Montavon, Sebastian Lapuschkin, Klaus-Robert Müller, and Wojciech Samek. 2016. Layer-wise relevance propagation for neural networks with local renormalization layers. In Artificial Neural Networks and Machine Learning–ICANN 2016: 25th International Conference on Artificial Neural Networks, Barcelona, Spain, September 6-9, 2016, Proceedings, Part II 25 . Springer, 63–71. [8] Samuel R. Bowman, Jon Gauthier, Abhinav Rastogi, Raghav Gupta, Christo-pher D. Manning, and Christopher Potts. 2016. A Fast Unified Model for Parsing and Sentence Understanding. In Proceedings of the 54th Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , Katrin Erk and Noah A. Smith (Eds.). Association for Computational Linguistics, Berlin, Germany, 1466–1477. doi:10.18653/v1/P16-1139 [9] Ilias Chalkidis, Manos Fergadiotis, Prodromos Malakasiotis, Nikolaos Aletras, and Ion Androutsopoulos. 2020. LEGAL-BERT: The Muppets straight out of Law School. In Findings of the Association for Computational Linguistics: EMNLP 2020 , Trevor Cohn, Yulan He, and Yang Liu (Eds.). Association for Computational Linguistics, Online, 2898–2904. doi:10.18653/v1/2020.findings-emnlp.261 [10] Jianbo Chen, Le Song, Martin Wainwright, and Michael Jordan. 2018. Learning to explain: An information-theoretic perspective on model interpretation. In 
+
+International conference on machine learning . PMLR, 883–892. [11] Thomas Davidson, Dana Warmsley, Michael Macy, and Ingmar Weber. 2017. Automated hate speech detection and the problem of offensive language. In 
+
+Proceedings of the international AAAI conference on web and social media , Vol. 11. 512–515. [12] Jacob Devlin, Ming-Wei Chang, Kenton Lee, and Kristina Toutanova. 2019. Bert: Pre-training of deep bidirectional transformers for language understanding. In 
+
+Proceedings of the 2019 conference of the North American chapter of the association for computational linguistics: human language technologies, volume 1 (long and short papers) . 4171–4186. [13] Timothy Dozat and Christopher D. Manning. 2017. Deep Biaffine Attention for Neural Dependency Parsing. In International Conference on Learning Representa-tions . https://openreview.net/forum?id=Hk95PK9le [14] Jacob Eisenstein. 2013. What to do about bad language on the internet. In Pro-ceedings of the 2013 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies , Lucy Vanderwende, Hal Daumé III, and Katrin Kirchhoff (Eds.). Association for Computational Lin-guistics, Atlanta, Georgia, 359–369. https://aclanthology.org/N13-1037/ [15] David Embick, Alec Marantz, Yasushi Miyashita, Wayne O’Neil, and Kuniyoshi L Sakai. 2000. A syntactic specialization for Broca’s area. Proceedings of the National Academy of Sciences 97, 11 (2000), 6150–6154. [16] Joseph Enguehard. 2023. Sequential integrated gradients: a simple but effective method for explaining language models. arXiv preprint arXiv:2305.15853 (2023). [17] Nils Feldhus, Robert Schwarzenberg, and Sebastian Möller. 2021. Thermostat: A large collection of NLP model explanations and analysis tools. arXiv preprint arXiv:2108.13961 (2021). [18] Xavier Glorot and Yoshua Bengio. 2010. Understanding the difficulty of training deep feedforward neural networks. In Proceedings of the thirteenth international conference on artificial intelligence and statistics . JMLR Workshop and Conference Proceedings, 249–256. [19] Will Hamilton, Zhitao Ying, and Jure Leskovec. 2017. Inductive representation learning on large graphs. Advances in neural information processing systems 30 (2017). [20] Peter Hase, Harry Xie, and Mohit Bansal. 2021. The out-of-distribution problem in explainability and search methods for feature importance explanations. Advances in neural information processing systems 34 (2021), 3650–3666. [21] Pengcheng He, Xiaodong Liu, Jianfeng Gao, and Weizhu Chen. 2021. {DEBERTA}: {DECODING}-{ENHANCED} {BERT} {WITH} {DISENTANGLED} {ATTENTION}. In International Conference on Learning Representations . https://openreview.net/ forum?id=XPZIaotutsD [22] Matthew Honnibal, Ines Montani, Sofie Van Landeghem, Adriane Boyd, et al .2020. spaCy: Industrial-strength natural language processing in python. (2020). [23] Anette Hulth. 2003. Improved automatic keyword extraction given more linguistic knowledge. In Proceedings of the 2003 conference on Empirical methods in natural language processing . 216–223. [24] Neil Jethani, Mukund Sudarshan, Yindalon Aphinyanaphongs, and Rajesh Ran-ganath. 2021. Have we learned to explain?: How interpretability methods can learn to encode predictions in their interpretations.. In International Conference on Artificial Intelligence and Statistics . PMLR, 1459–1467. [25] Diederik P Kingma and Jimmy Ba. 2014. Adam: A method for stochastic opti-mization. arXiv preprint arXiv:1412.6980 (2014). [26] Thomas N. Kipf and Max Welling. 2017. Semi-Supervised Classification with Graph Convolutional Networks. In International Conference on Learning Repre-sentations . https://openreview.net/forum?id=SJU4ayYgl [27] Mayank Kulkarni, Debanjan Mahata, Ravneet Arora, and Rajarshi Bhowmik. 2022. Learning rich representation of keyphrases from text. In Findings of the Association for Computational Linguistics: NAACL 2022 . 891–906. [28] Jinhyuk Lee, Wonjin Yoon, Sungdong Kim, Donghyeon Kim, Sunkyu Kim, Chan Ho So, and Jaewoo Kang. 2020. BioBERT: a pre-trained biomedical language representation model for biomedical text mining. Bioinformatics 36, 4 (2020), 1234–1240. [29] Mike Lewis, Yinhan Liu, Naman Goyal, Marjan Ghazvininejad, Abdelrahman Mohamed, Omer Levy, Veselin Stoyanov, and Luke Zettlemoyer. 2020. BART: Denoising Sequence-to-Sequence Pre-training for Natural Language Generation, Translation, and Comprehension. In Proceedings of the 58th Annual Meeting of the Association for Computational Linguistics , Dan Jurafsky, Joyce Chai, Natalie Schluter, and Joel Tetreault (Eds.). Association for Computational Linguistics, Online, 7871–7880. doi:10.18653/v1/2020.acl-main.703 [30] Zhongli Li, Qingyu Zhou, Chao Li, Ke Xu, and Yunbo Cao. 2021. Improving BERT with Syntax-aware Local Attention. In Findings of the Association for Computational Linguistics: ACL-IJCNLP 2021 , Chengqing Zong, Fei Xia, Wenjie Li, and Roberto Navigli (Eds.). Association for Computational Linguistics, Online, 645–653. doi:10.18653/v1/2021.findings-acl.57 [31] Faming Liang, Qizhai Li, and Lei Zhou. 2018. Bayesian neural networks for selection of drug sensitive genes. J. Amer. Statist. Assoc. 113, 523 (2018), 955–972. [32] Chin-Yew Lin. 2004. Rouge: A package for automatic evaluation of summaries. In Text summarization branches out . 74–81. [33] Yinhan Liu, Myle Ott, Naman Goyal, Jingfei Du, Mandar Joshi, Danqi Chen, Omer Levy, Mike Lewis, Luke Zettlemoyer, and Veselin Stoyanov. 2019. Roberta: A robustly optimized bert pretraining approach. arXiv preprint arXiv:1907.11692 
+
+(2019). [34] Christos Louizos, Max Welling, and Diederik P Kingma. 2017. Learning sparse neural networks through 𝐿 _0 regularization. arXiv preprint arXiv:1712.01312 
+
+(2017). [35] Tameem Adel Luisa M Zintgraf, Taco S Cohen and Max Welling. 2019. Visualizing Deep Neural Network Decisions: Prediction Difference Analysis. In In Proceedings of the 7th International Conference on Learning Representations (ICLR 2019) .[36] Scott M Lundberg and Su-In Lee. 2017. A unified approach to interpreting model predictions. Advances in neural information processing systems 30 (2017). [37] Andrew Maas, Raymond E Daly, Peter T Pham, Dan Huang, Andrew Y Ng, and Christopher Potts. 2011. Learning word vectors for sentiment analysis. In Proceedings of the 49th annual meeting of the association for computational linguistics: Human language technologies . 142–150. [38] Chris J. Maddison, Andriy Mnih, and Yee Whye Teh. 2017. The Concrete Distribu-tion: A Continuous Relaxation of Discrete Random Variables. In International Con-ference on Learning Representations . https://openreview.net/forum?id=S1jE5L5gl [39] Andreas Madsen, Sarath Chandar, and Siva Reddy. 2024. Are self-explanations from Large Language Models faithful?. In Findings of the Association for Compu-tational Linguistics: ACL 2024 . 295–337. [40] Binny Mathew, Punyajoy Saha, Seid Muhie Yimam, Chris Biemann, Pawan Goyal, and Animesh Mukherjee. 2021. HateXplain: A Benchmark Dataset for Explainable Explaining Black-Box Language Models: Learning to Optimize Linguistically-Structured Word Subsets KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea 
+
+Hate Speech Detection. (2021). [41] Toufik Mechouma, Ismail Biskri, and Serge Robert. 2025. VLG-BERT: Towards Better Interpretability in LLMs through Visual and Linguistic Grounding. In 
+
+Proceedings of the 5th International Conference on Natural Language Processing for Digital Humanities , Mika Hämäläinen, Emily Öhman, Yuri Bizzoni, So Miya-gawa, and Khalid Alnajjar (Eds.). Association for Computational Linguistics, Albuquerque, USA, 550–558. doi:10.18653/v1/2025.nlp4dh-1.47 [42] Ralph-Axel Müller, Natalia Kleinhans, and Eric Courchesne. 2003. Linguistic theory and neuroimaging evidence: an fMRI study of Broca’s area in lexical semantics. Neuropsychologia 41, 9 (2003), 1199–1207. doi:10.1016/S0028-3932(03) 00045-9 [43] Shashi Narayan, Shay B. Cohen, and Mirella Lapata. 2018. Don’t Give Me the Details, Just the Summary! Topic-Aware Convolutional Neural Networks for Ex-treme Summarization. In Proceedings of the 2018 Conference on Empirical Methods in Natural Language Processing , Ellen Riloff, David Chiang, Julia Hockenmaier, and Jun’ichi Tsujii (Eds.). Association for Computational Linguistics, Brussels, Belgium, 1797–1807. doi:10.18653/v1/D18-1206 [44] Matthew J. Nelson, Imen El Karoui, Kristof Giber, Xiaofang Yang, Lau-rent Cohen, Hilda Koopman, Sydney S. Cash, Lionel Naccache, John T. Hale, Christophe Pallier, and Stanislas Dehaene. 2017. Neurophysiologi-cal dynamics of phrase-structure building during sentence processing. Pro-ceedings of the National Academy of Sciences 114, 18 (2017), E3669–E3678. arXiv:https://www.pnas.org/doi/pdf/10.1073/pnas.1701590114 doi:10.1073/pnas. 1701590114 [45] Pranoy Panda, Sai Srinivas Kancheti, and Vineeth N Balasubramanian. 2021. Instance-wise causal feature selection for model interpretation. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition . 1756–1759. [46] Max Paulus, Dami Choi, Daniel Tarlow, Andreas Krause, and Chris J Maddison. 2020. Gradient estimation with stochastic softmax tricks. Advances in Neural Information Processing Systems 33 (2020), 5691–5704. [47] Jeffrey Pennington, Richard Socher, and Christopher Manning. 2014. GloVe: Global Vectors for Word Representation. In Proceedings of the 2014 Conference on Empirical Methods in Natural Language Processing (EMNLP) , Alessandro Moschitti, Bo Pang, and Walter Daelemans (Eds.). Association for Computational Linguistics, Doha, Qatar, 1532–1543. doi:10.3115/v1/D14-1162 [48] Alec Radford, Jeffrey Wu, Rewon Child, David Luan, Dario Amodei, Ilya Sutskever, et al . 2019. Language models are unsupervised multitask learners. OpenAI blog 
+
+1, 8 (2019), 9. [49] Marco Tulio Ribeiro, Sameer Singh, and Carlos Guestrin. 2016. " Why should i trust you?" Explaining the predictions of any classifier. In Proceedings of the 22nd ACM SIGKDD international conference on knowledge discovery and data mining .1135–1144. [50] Soumya Sanyal and Xiang Ren. 2021. Discretized integrated gradients for ex-plaining language models. arXiv preprint arXiv:2108.13654 (2021). [51] Laurent Sartran, Samuel Barrett, Adhiguna Kuncoro, Miloš Stanojević, Phil Blunsom, and Chris Dyer. 2022. Transformer Grammars: Augmenting Trans-former Language Models with Syntactic Inductive Biases at Scale. Trans-actions of the Association for Computational Linguistics 10 (2022), 1423–1439. doi:10.1162/tacl_a_00526 [52] Patrick Schwab and Walter Karlen. 2019. Cxplain: Causal explanations for model interpretation under uncertainty. Advances in neural information processing systems 32 (2019). [53] Avanti Shrikumar, Peyton Greenside, and Anshul Kundaje. 2017. Learning im-portant features through propagating activation differences. In International conference on machine learning . PMlR, 3145–3153. [54] Xuelin Situ, Ingrid Zukerman, Cecile Paris, Sameen Maruf, and Gholamreza Haf-fari. 2021. Learning to explain: Generating stable explanations fast. In Proceedings of the 59th Annual Meeting of the Association for Computational Linguistics and the 11th International Joint Conference on Natural Language Processing (Volume 1: Long Papers) . 5340–5355. [55] Richard Socher, Alex Perelygin, Jean Wu, Jason Chuang, Christopher D. Manning, Andrew Ng, and Christopher Potts. 2013. Recursive Deep Models for Semantic Compositionality Over a Sentiment Treebank. In Proceedings of the 2013 Con-ference on Empirical Methods in Natural Language Processing , David Yarowsky, Timothy Baldwin, Anna Korhonen, Karen Livescu, and Steven Bethard (Eds.). Association for Computational Linguistics, Seattle, Washington, USA, 1631–1642. https://aclanthology.org/D13-1170/ [56] Mukund Sundararajan, Ankur Taly, and Qiqi Yan. 2017. Axiomatic attribution for deep networks. In International conference on machine learning . PMLR, 3319– 3328. [57] Nelvin Tan, James Asikin Cheung, Yu-Ching Shih, Dong Yang, and Amol Salunkhe. 2025. Does Using Counterfactual Help LLMs Explain Textual Importance in Classification? arXiv preprint arXiv:2510.04031 (2025). [58] Kristina Toutanova, Danqi Chen, Patrick Pantel, Hoifung Poon, Pallavi Choud-hury, and Michael Gamon. 2015. Representing Text for Joint Embedding of Text and Knowledge Bases. In Proceedings of the 2015 Conference on Empirical Methods in Natural Language Processing , Lluís Màrquez, Chris Callison-Burch, and Jian Su (Eds.). Association for Computational Linguistics, Lisbon, Portugal, 1499–1509. doi:10.18653/v1/D15-1174 [59] Shikhar Vashishth, Manik Bhandari, Prateek Yadav, Piyush Rai, Chiranjib Bhat-tacharyya, and Partha Talukdar. 2018. Incorporating syntactic and semantic information in word embeddings using graph convolutional networks. arXiv preprint arXiv:1809.04283 (2018). [60] Ronald J Williams. 1992. Simple statistical gradient-following algorithms for connectionist reinforcement learning. Machine learning 8 (1992), 229–256. [61] Zhitao Ying, Dylan Bourgeois, Jiaxuan You, Marinka Zitnik, and Jure Leskovec. 2019. Gnnexplainer: Generating explanations for graph neural networks. Ad-vances in neural information processing systems 32 (2019). [62] Jinsung Yoon, James Jordon, and Mihaela van der Schaar. 2019. INVASE: Instance-wise Variable Selection using Neural Networks. In International Conference on Learning Representations . https://openreview.net/forum?id=BJg_roAcK7 [63] Hao Yuan, Haiyang Yu, Shurui Gui, and Shuiwang Ji. 2022. Explainability in graph neural networks: A taxonomic survey. IEEE transactions on pattern analysis and machine intelligence 45, 5 (2022), 5782–5799. [64] Omar Zaidan and Jason Eisner. 2008. Modeling annotators: A generative approach to learning from annotator rationales. In Proceedings of the 2008 conference on Empirical methods in natural language processing . 31–40. [65] Matthew D Zeiler and Rob Fergus. 2014. Visualizing and understanding con-volutional networks. In Computer Vision–ECCV 2014: 13th European Conference, Zurich, Switzerland, September 6-12, 2014, Proceedings, Part I 13 . Springer, 818–833. [66] Tianyi Zhang*, Varsha Kishore*, Felix Wu*, Kilian Q. Weinberger, and Yoav Artzi. 2020. BERTScore: Evaluating Text Generation with BERT. In International Confer-ence on Learning Representations . https://openreview.net/forum?id=SkeHuCVFDr 
+
+A Details about Formal Derivations A.1 Extension to Regression Tasks 
+
+To extend our framework to regression tasks, we modify the loss ℓ𝑦 
+
+to reflect the change in the prediction error based on the black-box DLM given an entire sentence and that given the selected word subsets as follows: 
+
+ℓ𝑦 (𝑔 (x), 𝑔 ( ˜x)) = − ∥ 𝑦 − 𝑔 (x)∥ 2 + ∥ 𝑦 − 𝑔 ( ˜x)∥ 2 (a.1) where 𝑦 ∈ R is a continuous target label and 𝑔 : X → R is a regressor based on the black-box DLM. 
+
+A.2 Derivation of (5) 
+
+Applying the policy gradient method, we can compute the gradient of our objective 𝐿 (𝜃 ) with respect to the selector parameters 𝜃 as follows, where we define the term 𝑅 (x, m) as: 
+
+𝑅 (x, m) = ℓ𝑦 
+
+ 𝑔 (x), 𝑔 ( ˜x) + 𝜆 || m|| 0. (a.2) The derivation proceeds as: 
+
+∇𝜃 L( 𝜃 ) = Ex,𝑦 ∼𝑝 𝑋 𝑌 
+
+∑︁ m∈ { 0,1}𝑇 
+
+∇𝜃 𝑝 𝜃 (m) · 𝑅 (x, m)
+
+
+
+= Ex,𝑦 ∼𝑝 𝑋 𝑌 
+
+∑︁ m∈ { 0,1}𝑇 
+
+𝑝 𝜃 (m) ∇𝜃 𝑝 𝜃 (m)
+
+𝑝 𝜃 (m) · 𝑅 (x, m)
+
+
+
+= Ex,𝑦 ∼𝑝 𝑋 𝑌 
+
+h
+
+Em∼Bern (𝜋 𝜃 (x) ) 
+
+h
+
+∇𝜃 log 𝑝 𝜃 (m) · 𝑅 (x, m)
+
+i i 
+
+(a.3) 
+
+A.3 Graph Laplacian 
+
+In the regularization-based approach, the linguistic structure of a knowledge graph can be directly utilized as a regularizer on the selector’s output. A common method involves applying graph Lapla-cian regularization, which encourages the assignment of similar selection probabilities to structurally connected words. Suppose we are given an adjacency matrix ( 𝐴 ∈ R𝑇 ×𝑇 
+
+≥0 ) based on linguistic KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea Minyoung Hwang, Seokhyun Lee, and Changhee Lee 
+
+structure, we can compute the graph Laplacian as follows: 
+
+Lreg (x, 𝐴 ) =∑︁  
+
+> 𝑡,𝑡 ′
+
+𝐴 𝑡𝑡 ′ (𝜋 𝜃 (x)𝑡 − 𝜋 𝜃 (x)𝑡 ′ )2 = 2 · 𝜋 𝜃 (x)⊤𝐿𝜋 𝜃 (x),
+
+(a.4) where 𝐿 = 𝐷 − 𝐴 represents the unnormalized graph Laplacian constructed based on the adjacency matrix 𝐴 and the degree matrix 
+
+𝐷 𝑡𝑡 = Í𝑡 ′ 𝐴 𝑡𝑡 ′ .While Laplacian regularization effectively smooths selector out-puts according to the linguistic structure of a given input sequence, it relies on a strong assumption that edge connectivity directly translates to functional similarity. However, as noted in prior works [ 26 ], graph edges often encode diverse relationships — such as contrastive, hierarchical, or task-specific dependencies — that do not inherently guarantee such similarity. Applying Laplacian reg-ularization to enforce similarity between syntactically linked but semantically contrasting factors would therefore obscure their dis-tinct impacts, diminishing the clarity and interpretability of the resulting explanations. 
+
+B Implementation Details 
+
+We perform a grid search to tune the hyperparameters for both 
+
+GLASS and all baselines. Due to the instability inherent in policy gradient methods, careful tuning is required for each dataset in-dividually. We follow the standard train/validation/test splits as provided by each dataset. For each task, we fine-tune a pretrained DLM with an added classification head to serve as the black-box predictor. After fine-tuning, this model is treated as a strictly black-box model (denoted as 𝑔 ), with no access to internal components such as gradients or embeddings. To initialize the selector network, we use contextual embeddings extracted from a pretrained DLM (denoted as 𝑓 ), which is not fine-tuned and remains fixed throughout. This word embedding model 𝑓 
+
+is deliberately kept separate from the target black-box model and is used solely as a fixed (frozen) feature extractor for the selector dur-ing its training. The choice of 𝑓 is guided by its capacity to represent rich inter-word relationships adequately, thereby enabling effective and efficient feature extraction without introducing new trainable parameters into our system. We use the same architecture as that of the black-box DLM 𝑔 as a baseline, but also experiment with various DLMs as 𝑓 to assess architectural influences. By default, these embeddings are extracted from the 10th layer of a 12-layer transformer, though we also evaluate embeddings from the initial, 5th, and final layers for comparison. Given that DLMs typically operate on subword tokens, we aggregate these into word-level representations via averaging. For enhanced training efficiency, all embeddings are precomputed and cached. Training GLASS takes approximately 3 hours on the Movies dataset [ 64 ] (40 epochs), 8 hours on Graph-SST2 [ 63 ] (40 epochs), 3 hours on IMDb [ 37 ] (5 epochs), and 2.5 hours on HateXplain [ 40 ] (30 epochs). All experiments are conducted on a single GPU machine 3.
+
+> 3CPU: Intel Xeon Gold 6526Y (16 cores, 32 threads); GPU: NVIDIA A6000 (48GB VRAM).
+
+B.1 GLASS 
+
+Training GLASS requires careful hyperparameter tuning due to the instability of policy gradient methods. Despite this, we consistently identified effective configurations across all datasets and encoder DLMs. These selected training coefficients for each setting are summarized in Table S.1. To further reduce variance during training, we move the ℓ0 reg-ularization term in our objective outside the inner expectation by replacing it with the ℓ1 norm of the selection probabilities. Hence, the gradient of our objective L( 𝜃 ) becomes: 
+
+∇𝜃 L( 𝜃 ) = Ex,𝑦 ∼𝑝 𝑋 𝑌 
+
+h
+
+Em∼Bern (𝜋 𝜃 (x) ) 
+
+∇𝜃 log 𝑝 𝜃 (m) ·  ℓ𝑦 
+
+ 𝑔 (x), 𝑔 ( ˜x)
+
++ 𝜆 || m|| 0
+
+ i
+
+= Ex,𝑦 ∼𝑝 𝑋 𝑌 
+
+Em∼Bern (𝜋 𝜃 (x) ) [∇ 𝜃 log 𝑝 𝜃 (m) · ℓ𝑦 
+
+ 𝑔 (x), 𝑔 ( ˜x)]+ ∇ 𝜃 𝜆 || 𝜋 𝜃 (x)|| 1
+
+
+
+(b.5) 
+
+B.2 Extension to multiple Knowledge integration 
+
+We provide an extension of our method that leverages multiple forms of external knowledge. To accommodate this, we design our selector to flexibly incorporate multiple structural graphs with-out requiring architectural modification. Specifically, we adopt a modular GNN architecture that processes each structural input inde-pendently and aggregates the resulting outputs. Let {K (𝑘 ) (x)} 𝐾 𝑘 =1
+
+denote a collection of graph-structured knowledge sources, where each K (𝑘 ) (x) encodes a distinct relational view over the input se-quence (e.g., syntactic or semantic dependencies). Given shared node features 𝑓 (x) ∈ R𝑇 ×𝑑 , we compute: 
+
+h(𝑘 ) = GNN (𝑘 ) (𝑓 (x), K (𝑘 ) (x)) , for 𝑘 = 1, . . . , 𝐾 (b.6) 
+
+h = MLP (h(1) , . . . , h(𝐾 ) ), h ∈ R𝑇 (b.7) A word-wise sigmoid is then applied to element ℎ𝑡 as similar to computing the selection probabilities: 
+
+𝜋 𝜃 (x, {K (𝑘 ) (x)}) 𝑡 = Sigmoid (ℎ𝑡 ) (b.8) We then sample a binary mask m ∼ Bern (𝜋 𝜃 (x, {K (𝑘 ) (x)})) to ob-tain the selected subset. The reduced input ˜x is formed by replacing unselected words with a neutral placeholder token. Since the Graph-SST2 dataset [ 63 ] readily provides semantic graph structures, we utilized it to evaluate our method with both syntactic and semantic graphs; these results are presented in Table S.5. 
+
+Graph-SST2 [ 63 ]: A graph-structured version of the SST2 dataset, where each sentence is augmented with a dependency parse graph constructed via the Biaffine parser [ 13 ]. Each node corresponds to a word with contextualized BERT embeddings [ 12 ] as features, and the task is binary sentiment classification. This dataset enables evaluation of structure-aware selectors under semantically rich graph input. 
+
+B.3 Benchmarks 
+
+Throughout our experiments, we compare GLASS against both memoryless explanation methods — such as LIME [ 49 ], KernelSHAP Explaining Black-Box Language Models: Learning to Optimize Linguistically-Structured Word Subsets KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea 
+
+Table S.1: Hyperparameters of GLASS Block Set of Hyperparameters 
+
+Initialization Xavier [18] Optimization Adam [25] Mini-batch size 128 (Graph-SST2, HateXplain), 32 (Movies, IMDb, XSum, Inspec) Non-linearity ReLU 
+
+Selector Training 
+
+Learning rate ( 𝜂 ) {0.0001, 0.00025, 0.0005, 0.001} No. of hidden units {10, 30, 50, 100} No. of GNN layers 2No. of encoder layers 10 (BERT [12], DeBERTa [21], RoBERTa [33], BART [29]), 4 (DistilBERT [27]) No. of sampling 1 (XSUM), 8 (Other) * Masking strategy Replace with “the” or remove unselected words Coeff. 𝜆 {0.00625 (Movies), 0.002 (IMDb), 0.01 (Graph-SST2), 0.02 (HateXplain), 0.1 (XSum, Inspec)} 
+
+Table S.2: Summary of datasets used in our experiments, including splits and task type. Dataset Train Valid Test Task Type 
+
+Movies * [64] 1,600 200 199 Document-level sentiment classification IMDb [37] 22,500 2,500 25,000 Document-level sentiment classification HateXplain * [40] 15,383 1,922 1,924 Multi-aspect hate speech classification (hate/offensive/normal) Graph-SST2 † [63] 67,348 872 1,821 Sentence-level sentiment classification XSum [63] 204,017 11,327 11,333 Abstractive Text Summarization Inspec [23] 1,000 500 500 Keyword extraction 
+
+> *
+
+Includes human-annotated rationales. †Includes semantic graph inputs. (which we denote as SHAP) [ 36 ], and Integrated Gradients (IG) [ 56 ]— and amortized approaches, including L2X [ 10 ], CXplain [ 52 ] and LTX [ 4]. We focus on these widely recognized baselines in the main manuscript to ensure clarity and reproducibility under strict black-box conditions. Additional comparisons with the recent state-of-the-art methods [ 4, 52 ] are provided in this supplementary material. For completeness, we also include INVASE [ 62 ], a representative earlier work on instance-wise feature selection, adapted for NLP tasks. In addition, we investigate two representative approaches for feature selection: the Hard Concrete (HC) distribution [ 34 ], and the Straight-Through Estimator (STE) [ 6]. To analyze soft selection via continuous relaxation, we adopt HC, which enables training through soft gates. In contrast, STE allows learning discrete gates in settings where gradient access is available. We implement both methods within our model structure, replacing the RL-based se-lection module, in order to isolate and compare the effect of soft versus discrete selection under different optimization strategies. For comparative analysis, we include baselines that typically op-erate under weak black-box or white-box conditions. To enable this, we grant these methods semi-oracle or oracle access to the target black-box DLM internals, specifically by allowing them to utilize token embeddings (for LIME, SHAP, and CXplain) or gradients (for IG, LTX, L2X, INVASE, Hard Concrete, and GLASS with STE) that are generally inaccessible in a practical black-box setting. More details about each method are provided below: 
+
+Memoryless Explanation Methods. 
+
+• LIME [ 49 ]: A perturbation-based method that fits a local linear model to approximate the decision boundary around the input by masking subsets of features. For text inputs, words are masked by replacing their constituent tokens with [PAD] , and cosine similarity weights the perturbed instances. We adhere to the standard Thermostat library implementation [ 17 ], using a 0.2 per-token masking probability and 256 samples per explanation. 
+
+• SHAP [36 ]: A game-theoretic attribution method that estimates Shapley values by computing the marginal contribution of each feature across all possible feature subsets. KernelSHAP is used to approximate such marginal contribution in a model-agnostic setting. For text inputs, tokens are masked by replacing their con-stituent tokens with [PAD] . We use the default 100 background samples via Thermostat for computationally tractable approxi-mation. 
+
+• Integrated Gradients (IG) [ 56 ]: A notable feature attribution technique involves integrating gradients along a linear path con-necting a baseline input to the target input. This process inher-ently requires access to the target model’s internal gradients across these input variations, thereby restricting its applicabil-ity to white-box settings. We use 25 interpolation steps and a sequence of the neutral tokens (i.e., [PAD] ) as the baseline input, consistent with the Thermostat library implementation [17]. For methods such as LIME, SHAP, and IG, which provide impor-tance scores for individual input features, we measured their dis-criminative performance based on these scores. To achieve this, we first defined a fixed selection rate (e.g., 10%, 30%) from the entire KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea Minyoung Hwang, Seokhyun Lee, and Changhee Lee 
+
+population of words across all samples. We then selected the top N% of words based on their calculated importance scores from this total population. For evaluation, only these selected words were re-tained, while the remaining words were masked using the model’s attention mask. This masking technique effectively reduced the influence of unselected words on the model’s output, allowing us to assess the discriminative power of the chosen subsets. 
+
+Amortization Explanation Methods. To ensure a fair compari-son, we initialize the word representations in all amortized baselines ([ 4, 10 , 62 ]) using the same pretrained DLM encoders (i.e., the word embedding model) as used in GLASS . This ensures that perfor-mance differences arise solely from the selector architectures and training strategies, not the underlying representations. We further unify the architectural and training setup across all amortized methods by (i) adapting each method to a label-centric 
+
+formulation to improve the discriminative power and (ii) replacing surrogate models by providing oracle access to gradients from the black-box predictor. All selectors are implemented using a two-layer MLP applied to frozen word embeddings. We refer to these enhanced versions as L2X and treat LTX as a sparsity-regularized variant of L2X. To enhance training efficiency for interpreting large, frozen black-box predictors, our method focuses on training only compact GNN or MLP modules as word selectors, crucially avoiding the construction of a surrogate model to approximate the predictor. This contrasts with a common strategy for enabling gradient-based optimization in discrete selection tasks: the use of continuous re-laxations (e.g., Gumbel-Softmax [ 46 ] or the Hard Concrete [ 34 ]tricks). Such relaxation methods produce soft mask vectors that average token embeddings, effectively generating synthetic, out-of-vocabulary word representations. These hybrid inputs are out-of-distribution (OOD) for our target black-box DLM that is not exposed to them during its training, which can result in degraded or unstable outputs. Critically, when such relaxations are used, any noisy or biased gradients arising from the black-box DLM’s OOD responses are then backpropagated directly to the selector. A compact selec-tor, due to its limited capacity, would be particularly vulnerable to these distorted signals, risking performance degradation. While the Straight-Through Estimator (STE) [ 6] allows optimization with hard masks and preserves discrete word selection, it introduces its own gradient bias, which can also lead to suboptimal training. In contrast, policy gradient methods preserve the discrete nature of word selection and provide unbiased gradient estimates, offering a more robust and principled optimization framework. We present experimental results comparing variants of our methods using Hard Concrete and STE against our proposed method, GLASS (trained using policy gradients). 
+
+• CXplain [52 ]: While CXPlain offers a general framework for model-agnostic feature importance estimation, its direct applica-tion at the word level introduces practical and conceptual chal-lenges, particularly in natural language processing (NLP) tasks. In the original implementation, CXPlain computes feature im-portance by individually removing each feature from the input and measuring the resulting change in model performance. This naive leave-one-feature-out approach scales linearly with input sequence length, rendering it computationally inefficient for long documents or large datasets. More importantly, in typically long text inputs, the contribution of each individual word tends to be marginal and often context-dependent. As such, removing a single word may result in a negligible change in the model’s output, leading to unreliable or noisy importance scores. Evaluating all possible word combina-tions or higher-order interactions would be theoretically more informative, but it is computationally intractable in practice due to the exponential number of combinations. For our benchmark, we implemented CXPlain following the baseline approach by masking one word at a time by replacing its constituent tokens with [PAD] .
+
+• L2X [ 10 ]: L2X selects informative subsets by maximizing a varia-tional lower bound on mutual information between the selected feature subset and the target black-box model. In our setup, we minimize cross-entropy loss on selected words (i.e., the corre-sponding tokens) using gradients from the black-box model. In the main paper, we have used a simplified version of L2X, im-plemented as a two-layer MLP selector on top of frozen DLM embeddings, to enable minimal and efficient comparison under space constraints. For baseline comparison, we used a sampling number 𝑘 = 10 . However, for the Movies dataset, this value was insufficient for adequate exploration due to its longer aver-age sentence lengths. Therefore, to ensure training stability, we increased the parameter to 𝑘 = 100 exclusively for this dataset. 
+
+• LTX [4]: A black-box explainer that learns soft selection masks via differentiable subset sampling. Although the original formu-lation includes inversion and smoothness regularization terms (i.e., Linv , Lsmooth in [ 4]), these components are omitted in our experiments following the original implementation. LTX is al-ready aligned with our experimental setting, as it minimizes cross-entropy loss with respect to the true label using gradients directly from the black-box model. As such, it inherently assumes oracle access. Conceptually, LTX can be viewed as a sparsity-regularized variant of OracleL2X , where the selection target is fixed to an all-zero mask. We set 𝑘 = 100 for the Movies dataset. Originally designed for vision tasks, LTX does not account for the discrete nature of textual inputs and employs the Gumbel-Softmax trick without additional constraints. In its original setup, the selector is initialized by copying the weights of the frozen black-box model, and an additional MLP layer for the selection is trained. For a fair and efficient comparison under our setting, we instead initialize the word embeddings using pre-trained DLM embeddings (i.e., the word embedding network) and only train a small selector consisting of a two-layer MLP. 
+
+• INVASE [ 62 ]: The original INVASE framework jointly trains three components: a selector (actor), a predictor on selected fea-tures (critic), and a baseline model that uses the full input. How-ever, this setup does not directly explain a fixed target model, since both the critic and baseline are learned from scratch. To adapt INVASE for our setting—where the goal is to explain an existing, fixed black-box model—we modify the framework so that the target black-box DLM itself is used for both the critic and the baseline. Specifically, we feed selected features into the target model to obtain the critic output, and use the same model on the full input as the baseline. Furthermore, as mentioned in the main text, we use a pre-trained DLM as the embedding model and process embeddings with shared MLPs, an architectural choice Explaining Black-Box Language Models: Learning to Optimize Linguistically-Structured Word Subsets KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea 
+
+Table S.3: Performance comparison across different neutral place-holder strategies on the Movies dataset. The same word selector is used across all variants. 
+
+Masking Strategy ACC AUROC AUPRC 
+
+Replace with “the” 0.900 0.966 0.968 
+
+Replace with “,” 0.779 0.856 0.842 Replace with “_” 0.573 0.628 0.569 Replace with “blank” 0.638 0.759 0.750 Replace with [UNK] 0.749 0.895 0.894 Replace with [PAD] 0.739 0.889 0.893 Replace with [MASK] 0.709 0.833 0.800 Remove word 0.754 0.814 0.743 Oracle attention masking 0.849 0.914 0.901 adapted from the model to ensure fair comparison, to ensure that the selector handles variable-length inputs robustly. 
+
+Cost Rating Criteria for Table 1. Training Cost refers to the cost of training a reusable model prior to inference. Methods that require no pre-trained explainer (IG, LRP, DeepLIFT, PDA, KernelSHAP, LIME) are rated None , even though some (e.g., LIME) fit a local surrogate at inference time — this cost is instead reflected in Infer-ence Cost . Methods training only a lightweight selector without a surrogate (LTX, Ours) are rated Low . Methods jointly training a selector and surrogate predictor (INVASE, L2X) are rated Moderate .CXPlain is rated High as it requires exhaustive feature ablation to construct supervised training labels. 
+
+Inference Cost reflects the computational burden at test time. Perturbation-based methods (KernelSHAP, LIME) are rated High as they require numerous model queries per input to estimate feature importance. IG is similarly rated High due to the repeated gradi-ent computations along the integration path. In contrast, LRP and DeepLIFT are rated Low as they compute attributions in a single for-ward/backward pass. All amortized methods including GLASS are rated Low , as the trained selector produces explanations in a single pass at test time without any additional model queries (see Table 9). 
+
+B.4 Ablation Study 
+
+Effect of Masking Strategy. Table S.3 compares the performance of different masking strategies applied to unselected words on the Movies dataset. All experiments use the same word selector to isolate the impact of the placeholder choice during explanation. Among the strategies, replacing unselected words with the word “the” results in the best overall performance, likely due to its high frequency and syntactic neutrality within English sentences. Oracle masking, which manipulates the attention mask directly, also per-forms strongly, reflecting the benefit of preserving word positions while hiding content. In contrast, using the visually neutral or struc-turally ambiguous token, such as underscores, leads to substantial performance degradation. Special tokens like [PAD] , [MASK] , and 
+
+[UNK] yield intermediate results, with [PAD] and [UNK] outper-forming [MASK] , suggesting that the model may treat masking-related tokens differently depending on their pretraining context. During training, we experimented with different masking to-kens and found an intriguing pattern. Validation revealed that STE ,
+
+L2X , and LTX achieve their highest scores when the placeholder word is “blank” , whereas the Hard-Concrete models— MLP(HC) 
+
+and GCN(HC) —perform best when the placeholder is the high-frequency article “the” . Interestingly, substituting the placeholder with “blank” does not help our GLASS model—in fact, it lowers every metric compared to using “the”. This contrast suggests that, beyond function words (articles, conjunctions, etc.), there exist content-bearing tokens whose embeddings align more favorably with specific selector–predictor pairs. The “blank” vector appears to strike a balance: it is neither too frequent (thus avoiding bias toward common co-occurrences) nor entirely out-of-distribution (remaining within the pre-trained embedding manifold), providing a “neutral yet well-formed” replacement that some soft or STE-based methods can exploit—though not universally. Overall, these findings highlight that the choice of placeholder is not trivial: certain tokens better preserve sentence structure or align more naturally with the model’s learned expectations, which in turn affects the faithfulness of the resulting explanations. Based on validation performance, we replace the masked word with ‘the’ in the Movies, HateXplain dataset and remove the word in the IMDb, Graph-SST2, XSum dataset. 
+
+Graph Type and Selector Architecture. We conduct ablation studies to evaluate the impact of graph type and selector architec-ture under varying selection rates (5%, 10%, and 15%). As shown in Table S.4, we compare MLP-based selectors with and without Laplacian regularization (LP), as well as GCN-based variants using either fully connected graphs, syntactic dependency graphs, or se-rial graphs, which simply connect words in their sentence order. These results demonstrate that incorporating syntactic structure via GCNs not only enhances the interpretability of selected words, as shown in the main paper, but also improves their discriminative quality for the downstream task. Notably, the GCN with syntac-tic graphs achieves strong performance across all selection rates, indicating that structural linguistic information is beneficial even under budget constraints. Moreover, the performance gap between syntactic and fully connected graphs confirms that the gains are not simply due to the GCN architecture itself, but rather arise from effective use of the language structure of the input. We further analyze the impact of incorporating syntactic and semantic edge types in the Graph-SST2 dataset (Table S.5). The se-mantic graphs, provided in the dataset, tend to be densely connected and potentially noisy. As GCNs often suffer from oversmoothing, reducing their discriminative capacity, we adopt GraphSAGE [ 19 ], which performs neighbor sampling and localized aggregation, en-abling robust learning on large or densely connected graphs. Graph-based models consistently outperform MLP-based selectors across all evaluation metrics and selection rates, highlighting the benefit of leveraging structural information. However, while both syntactic and semantic edges contribute positively when used individually, combining them does not lead to substantial performance gains beyond using either one alone. This trend is consistent across both MLP and GraphSAGE architectures, suggesting that the redundancy or overlap between syntactic and semantic signals may limit the additive benefit of combining them. 
+
+Word Embedding Model Architecture and Scale. We further analyze the effect of word embedding model choice on the selector performance. In Table S.6, we evaluate the performance of various KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea Minyoung Hwang, Seokhyun Lee, and Changhee Lee 
+
+Table S.4: Movies: ACC, AUROC, and AUPRC scores for each graph type across selection rates. 
+
+Graph Type 0.05 0.10 0.15 
+
+ACC AUROC AUPRC ACC AUROC AUPRC ACC AUROC AUPRC MLP 0.567 ± 0.029 0.761 ± 0.031 0.767 ± 0.030 0.733 ± 0.015 0.805 ± 0.016 0.797 ± 0.025 0.720 ± 0.027 0.816 ± 0.035 0.808 ± 0.038 MLP (w/ LP) 0.578 ± 0.019 0.789 ± 0.021 0.788 ± 0.018 0.733 ± 0.021 0.808 ± 0.019 0.797 ± 0.023 0.686 ± 0.01 0.782 ± 0.011 0.779 ± 0.014 GCN (w/ Fully) 0.547 ± 0.008 0.543 ± 0.007 0.595 ± 0.015 0.577 ± 0.011 0.572 ± 0.011 0.642 ± 0.023 0.616 ± 0.014 0.611 ± 0.016 0.693 ± 0.026 GCN (w/ Serial) 0.574 ± 0.041 0.613 ± 0.061 0.661 ± 0.048 0.663 ± 0.071 0.765 ± 0.125 0.785 ± 0.132 0.750 ± 0.089 0.611 ± 0.136 0.810 ± 0.145 GCN (w/ Syn) ( Ours ) 0.639 ± 0.029 0.900 ± 0.010 0.927 ± 0.008 0.829 ± 0.017 0.954 ± 0.012 0.962 ± 0.009 0.895 ± 0.006 0.951 ± 0.006 0.954 ± 0.006 
+
+Oracle 0.859 0.942 0.944 
+
+Table S.5: Graph SST-2: ACC, AUROC, and AUPRC scores for different graph types and selection rates. 
+
+Graph Type 0.05 0.10 0.15 
+
+ACC AUROC AUPRC ACC AUROC AUPRC ACC AUROC AUPRC MLP 0.623 ± 0.020 0.683 ± 0.023 0.686 ± 0.013 0.702 ± 0.036 0.781 ± 0.036 0.770 ± 0.029 0.737 ± 0.038 0.822 ± 0.032 0.814 ± 0.027 MLP (w/ Syn LP) 0.675 ± 0.030 0.738 ± 0.024 0.682 ± 0.039 0.724 ± 0.038 0.793 ± 0.033 0.760 ± 0.0293 0.746 ± 0.033 0.820 ± 0.024 0.798 ± 0.018 MLP (w/ Sem LP) 0.668 ± 0.019 0.724 ± 0.021 0.668 ± 0.036 0.724 ± 0.036 0.791 ± 0.019 0.743 ± 0.010 0.753 ± 0.035 0.826 ± 0.017 0.790 ± 0.009 MLP (w/ Syn & Sem LP) 0.655 ± 0.020 0.715 ± 0.039 0.690 ± 0.041 0.713 ± 0.027 0.786 ± 0.020 0.761 ± 0.019 0.733 ± 0.028 0.815 ± 0.020 0.805 ± 0.018 GraphSAGE (w/ Syn) 0.725 ± 0.019 0.824 ± 0.008 0.810 ± 0.010 0.767 ± 0.031 0.864 ± 0.022 0.860 ± 0.022 0.790 ± 0.024 0.880 ± 0.017 0.880 ± 0.015 GraphSAGE (w/ Sem) 0.738 ± 0.015 0.832 ± 0.007 0.819 ± 0.010 0.788 ± 0.021 0.884 ± 0.015 0.880 ± 0.013 0.798 ± 0.016 0.893 ± 0.009 0.891 ± 0.011 GraphSAGE (w/ Syn & Sem) 0.735 ± 0.018 0.834 ± 0.011 0.826 ± 0.010 0.784 ± 0.025 0.881 ± 0.020 0.879 ± 0.015 0.806 ± 0.025 0.806 ± 0.025 0.900 ± 0.017 
+
+Oracle 0.842 0.926 0.928 
+
+Table S.6: Graph-SST2: ACC, AUROC, and AUPRC scores across selection rates for different encoder-selector combinations. 
+
+𝑓 𝑔 0.05 0.10 0.15 
+
+ACC AUROC AUPRC ACC AUROC AUPRC ACC AUROC AUPRC BERT 0.725 ± 0.019 0.824 ± 0.008 0.810 ± 0.010 0.767 ± 0.031 0.864 ± 0.022 0.860 ± 0.022 0.790 ± 0.024 0.880 ± 0.017 0.880 ± 0.015 DeBERTa-v3 DeBERTa-v3 * 0.771 ± 0.007 0.868 ± 0.009 0.854 ± 0.016 0.840 ± 0.006 0.930 ± 0.006 0.925 ± 0.009 0.855 ± 0.007 0.936 ± 0.005 0.934 ± 0.007 RoBERTa 0.753 ± 0.017 0.865 ± 0.007 0.861 ± 0.004 0.823 ± 0.003 0.920 ± 0.004 0.917 ± 0.005 0.840 ± 0.006 0.924 ± 0.007 0.924 ± 0.005 BERT 0.779 ± 0.013 0.872 ± 0.016 0.876 ± 0.018 0.827 ± 0.006 0.911 ± 0.002 0.913 ± 0.003 0.847 ± 0.003 0.922 ± 0.001 0.926 ± 0.001 DeBERTa-v3 GPT-2 * 0.852 ± 0.005 0.925 ± 0.006 0.922 ± 0.008 0.887 ± 0.003 0.950 ± 0.003 0.950 ± 0.004 0.886 ± 0.001 0.952 ± 0.002 0.954 ± 0.002 RoBERTa 0.814 ± 0.017 0.912 ± 0.016 0.915 ± 0.017 0.869 ± 0.007 0.940 ± 0.004 0.941 ± 0.005 0.877 ± 0.004 0.942 ± 0.002 0.945 ± 0.002 Oracle DeBERTa-v3 0.842 0.926 0.928 GPT-2 0.819 0.907 0.913 
+
+> *
+
+The predictor is task-specific and fine-tuned on the full training set. 
+
+Table S.7: Movies: ACC, AUROC, and AUPRC scores for different DeBERTa encoder sizes. 
+
+𝑓 0.05 0.10 0.15 
+
+DeBERTa-v3 ACC AUROC AUPRC ACC AUROC AUPRC ACC AUROC AUPRC Small 0.580 ± 0.032 0.583 ± 0.084 0.667 ± 0.089 0.735 ± 0.017 0.818 ± 0.033 0.847 ± 0.025 0.756 ± 0.023 0.835 ± 0.022 0.840 ± 0.027 Base 0.639 ± 0.029 0.900 ± 0.010 0.927 ± 0.008 0.829 ± 0.017 0.954 ± 0.012 0.962 ± 0.009 0.895 ± 0.006 0.951 ± 0.006 0.954 ± 0.006 
+
+Large 0.592 ± 0.019 0.633 ± 0.032 0.721 ± 0.030 0.782 ± 0.033 0.866 ± 0.020 0.886 ± 0.023 0.797 ± 0.032 0.876 ± 0.026 0.880 ± 0.029 
+
+Oracle 0.824 0.936 0.940 
+
+combinations of selector embedding models and target black-box predictors. We initialize selectors with different word embedding models 𝑓 : X𝑇 → R𝑇 ×𝑑 , namely BERT, RoBERTa, and DeBERTa-v3, and test them against predictors based on both encoder (DeBERTa-v3) and decoder (GPT-2) architectures. This expanded setup allows us to analyze not only the effect of the selector’s representation space but also its compatibility across different predictor architec-tures. In this analysis, we restrict the selector’s embedding backbone to encoder-based models, as word selection fundamentally requires to-ken representations that reflect the full-sentence context. Encoder-based models employ bidirectional attention mechanisms, enabling each word representation to incorporate context from both preced-ing and following words. This capability is particularly critical for our embedding model, as determining the importance of a word requires understanding its role within the complete sentence struc-ture. In contrast, decoder-based models (e.g., GPT-2, LLaMA) utilize Explaining Black-Box Language Models: Learning to Optimize Linguistically-Structured Word Subsets KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea 
+
+causal (unidirectional) attention, restricting each token to attend only to preceding ones. This architectural constraint forces the reliance on token representations that reflect only the preceding context rather than the entire input text, thereby limiting their capacity to capture the full contextual information necessary for effective word selection. Table S.7 reports the performance of selectors, whose word em-bedding is initialized with different embedding model sizes — small ,
+
+base , and large — within the DeBERTa-v3 family. Across all selection rates, the base encoder achieves the best performance. Transition-ing from small to base leads to substantial gains, while further increasing to large offers no additional benefit and may even lead to diminished performance. One possible reason for the strong performance of the base word embedding model 𝑓 is that it possesses a similar model capacity to the black-box DLM, which is also based on the DeBERTa-v3 base .Although the predictor is fine-tuned on the task and thus differs in parameters and learned representations, using a version of 𝑓 with comparable capacity may help extract word embeddings that align more closely with the predictor’s decision boundaries. These results suggest that larger embedding models do not always yield better performance; rather, aligning the capacity of the embedding model 
+
+𝑓 with that of the predictor may be more critical. This highlights that representational compatibility—not model size alone—plays a key role in identifying informative input words. 
+
+Effect of Encoder Layer Depth. To assess how the depth of the encoder affects the quality of feature selection, we conduct an ablation study using embeddings extracted from various layers of the pre-trained DeBERTa-v3 base model. As shown in Table S.8, intermediate layers, particularly Layer 10, consistently yield the best performance across all evaluation metrics and selection rates. While it may seem intuitive to use the final encoder layer for downstream tasks, we find that it performs significantly worse than intermediate layers. We conjecture that this is due to the final layer being heavily specialized for the pretraining objectives — namely, masked language modeling (MLM) and replaced token detection (RTD). As our encoder is not fine-tuned during training, the representations from the final layer may not transfer well to the word selection task, leading to suboptimal results. In contrast, embeddings from the 10th layer appear to strike a better balance between general semantic information and task-agnostic structure, making them more suitable for word selection. 
+
+Linguistic Structure on the IMDb Dataset. To verify that our observations scale beyond the Movies dataset used in the main paper, we repeat the structural-coherence ablation on the full IMDb 
+
+corpus (25k reviews). Each selector is constrained to retain 10% of the input words, and we report three complementary graph-based metrics: (1) Average degree (higher ↑ is better) : In a graph composed of the words (nodes) in a rationale, the number of connected subgraphs measures the degree of token fragmentation. Ideally, this value should be close to one. A single subgraph signifies that all words in the rationale form a single connected component, implying the absence of semantically isolated "loner" tokens. From a structural perspective, this indicates that the model has identified a semantically complete phrase or clause centered around a unified theme or event, rather than simply listing scattered keywords. Therefore, a low number of subgraphs is directly linked to the rationale’s high semantic unity. (2) Number of connected subgraphs (fewer ↓ is better) : Edge density measures the strength of internal connectivity within a subgraph by comparing the actual number of edges to the max-imum possible. High edge density implies that the components of the rationale form a syntactically robust cluster with close, redundant interconnections, rather than a loose chain structure. This indicates that grammatical units with strong dependency relationships in the original sentence, such as subjects and their modifiers or verbs and their objects, have been selected together. A rationale with high edge density exhibits reduced ambigu-ity as words strongly support each other’s meaning, serving as evidence that the model has faithfully preserved the core syntactic relationship network of the sentence, moving beyond superficial connections. (3) Edge density (higher ↑ is better) : The average node degree, which represents the average number of edges connected to each node, is a metric for evaluating how well a rationale incor-porates the structural backbone of the sentence. In a dependency graph, nodes with a high degree typically act as grammatical "hubs," such as the main verbs or subjects. A high average de-gree in a rationale suggests that the model has constructed its explanation around these core hubs. This prevents the ratio-nale from consisting solely of peripheral modifiers and ensures the maintenance of the sentence’s core semantic framework. In effect, it forces the rationale to be firmly anchored to the core structure of the original sentence, minimizing semantic distortion and ensuring a grammatically stable form. 
+
+Results. Figure S.1 confirms, across all three structural metrics, that our GCN selector with syntactic edges ( GCN (w/ Syn) ) yields markedly more coherent rationales than either baseline: 
+
+• Average degree . The GCN distribution is centred well above the two baselines (median ≈ 1.2 compared with ≈ 0.7 for MLP w/LP 
+
+and ≈ 0.6 for MLP ). Higher per-word connectivity indicates that GCN tends to preserve words that are richly interlinked in the knowledge graph. 
+
+• Number of subgraphs . Fewer components are better. GCN ratio-nales typically form a single connected component (median ≈ 7
+
+subgraphs, upper whisker ≈ 20 ), whereas MLP w/LP and MLP 
+
+fragment the selection more severely (medians ≈ 13 and ≈ 14 ,maxima exceeding 30). The Laplacian penalty reduces fragmen-tation relative to vanilla MLP but still falls far short of GCN. 
+
+• Edge density . GCN retains the highest proportion of possible edges (median ≈ 0.05 , upper whisker > 0.10 ), almost doubling the density achieved by vanilla MLP and clearly surpassing MLP w/LP . Denser subgraphs signal a closer adherence to the under-lying syntactic relations. 
+
+Take-away. Even with a 15% selection budget on the large IMDb 
+
+corpus, only the graph-aware selector maintains high local con-nectivity, avoids fragmentation, and captures a greater share of syntactic edges. Post-hoc Laplacian regularisation helps the MLP baseline, but cannot match the structural faithfulness achieved by explicitly modelling linguistic graphs during selection. Results for the HateXplain dataset are in Figure S.2, respectively. KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea Minyoung Hwang, Seokhyun Lee, and Changhee Lee 
+
+Table S.8: Movies: Performance (Accuracy, AUROC, and AUPRC) across selection rates using different encoder output layers.                                                                                                                                                                                 
+
+> Encoder Layer (Depth) 0.05 0.10 0.15
+> ACC AUROC AUPRC ACC AUROC AUPRC ACC AUROC AUPRC Non-contextual Embedding 0.512 ±0.015 0.501 ±0.040 0.496 ±0.038 0.524 ±0.008 0.541 ±0.024 0.519 ±0.018 0.537 ±0.011 0.588 ±0.017 0.566 ±0.027 (+ Position Encoding) 0.516 ±0.016 0.560 ±0.022 0.543 ±0.044 0.527 ±0.020 0.561 ±0.027 0.554 ±0.026 0.560 ±0.025 0.590 ±0.019 0.562 ±0.027 Layer 1 (First) 0.546 ±0.010 0.610 ±0.044 0.583 ±0.042 0.521 ±0.011 0.489 ±0.045 0.478 ±0.033 0.528 ±0.021 0.484 ±0.048 0.482 ±0.032 Layer 5 (Middle) 0.612 ±0.038 0.717 ±0.040 0.670 ±0.053 0.530 ±0.014 0.416 ±0.042 0.428 ±0.021 0.522 ±0.008 0.360 ±0.034 0.394 ±0.017 Layer 10 (Used) 0.640 ±0.029 0.895 ±0.013 0.925 ±0.009 0.826 ±0.018 0.953 ±0.013 0.961 ±0.010 0.897 ±0.007 0.954 ±0.008 0.955 ±0.008
+> Layer 12 (Last) 0.580 ±0.039 0.694 ±0.033 0.664 ±0.036 0.544 ±0.015 0.526 ±0.046 0.502 ±0.030 0.558 ±0.006 0.475 ±0.023 0.447 ±0.013
+> Oracle 0.824 0.936 0.940
+
+Figure S.1: Comparison of linguistic coherence with respect to (left) average node degree (middle) the number of subgraphs (right) edge density in the IMDb dataset. 
+
+Figure S.2: Comparison of linguistic coherence with respect to (left) average node degree (middle) the number of subgraphs (right) edge density in the HateXplain dataset. 
+
+Note on Graph-SST2 . We omit Graph-SST2 from this analysis because its sentences are typically single clauses (avg. 10.2 nodes), leading every selector to produce a fully connected subgraph; the resulting distributions degenerate and offer little comparative in-sight. These additional results reinforce the main paper conclusion: lever-aging linguistic graph structure during selection — Rather than enforcing connectivity through post-hoc methods — is crucial for extracting rationales that faithfully preserve the syntactic relation-ships of the original text. 
+
+C Additional Experiments C.1 API-Based Model Evaluation: Keyword Extraction 
+
+To validate GLASS’s applicability in real-world API scenarios where only input-output access is available, we conduct experiments on the Inspec dataset for keyword extraction using a commercial API-based language model. 
+
+Dataset and Setup. The Inspec [ 23 ] dataset contains scientific abstracts from the computer science and information technology domains, each accompanied by human-annotated keywords that capture the core topics and concepts. The keywords are typically technical terms and domain-specific phrases that may not appear verbatim in the abstract, requiring models to identify semantically central content rather than simply extracting frequent words. This makes it an ideal benchmark for evaluating explanation methods in specialized domains where identifying salient technical concepts is crucial. We use a Hugging Face API-based model, DistilBERT-Inspec [ 27 ], where we only have access to input text queries and output pre-dictions — i.e., no gradients, embeddings, logits, or internal model Explaining Black-Box Language Models: Learning to Optimize Linguistically-Structured Word Subsets KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea 
+
+states are accessible. This simulates typical production API deploy-ment scenarios where users interact solely through input-output pairs. For the embedding model ( 𝑓 ), we extract representations from the penultimate layer, where the reward is defined as the F1 score measuring overlap between keywords extracted from the selected word subset and ground-truth annotations. This setup replicates typical production API scenarios where only input-output access is available. 
+
+Results. Table 7 shows that GLASS achieves an F1 score of 0.441 
+
+± 0.004 only using 30% of the input text, which is 90.2% of the oracle performance with full text (F1 score: 0.489). Here, the F1 score measures the overlap between the extracted keywords and the ground-truth annotations. This demonstrates that: (i) GLASS is fully compatible with strict API-based black-box settings, (ii) our method can effectively identify informative word subsets even with-out model internals, and (iii) the approach generalizes to diverse generation tasks beyond summarization. 
+
+C.2 Effect of Selection Rate on Summarization Performance 
+
+To investigate how selection rate impacts performance in a gen-erative setting, we analyze results on the XSUM dataset under varying selection rates. As shown in Figure S.3, all metrics—Rouge-1, Rouge-L, and BertScore—consistently decline as the selection rate decreases. This trend is expected, as reducing the number of available input tokens limits the information accessible to the sum-marization model. Notably, the performance drop appears roughly linear across the range of selection rates, suggesting that our model degrades gracefully even under strong sparsity constraints. The dual-axis visualization emphasizes the difference in absolute value ranges between the Rouge and BertScore metrics, while reinforcing the same downward trend across evaluation criteria. 
+
+Figure S.3: Performance Changes of Rouge-1, Rouge-L, and Bertscore Metrics According to Selection Rate. The left Y-axis rep-resents Rouge scores, while the right Y-axis represents Bertscore, visualizing their different value ranges. All metrics generally show a linear decrease in performance as the Selection Rate decreases. 
+
+Additional Qualitative Analysis – Explanations Based on Word Subsets. We compare explanations produced by our GCN selector ( GLASS ) and two baselines — an MLP and an MLP with Laplacian regularization ( MLP w/ LP ) — on two representative re-views from the Movies dataset, which contains human-annotated rationales. For fairness, every selector is constrained to keep 15 % of the input words. Sample 1 – Figure S.4 (a–c) 
+
+• “this is a marvelous confection — cocky, funny, thought provoking.” 
+
+GCN keeps the contiguous span “is a marvelous confection — cocky, funny, thought provoking” , reflecting the coordination of three adjectives and preserving the dash that signals an explana-tory aside. By contrast, MLP and MLP w/ LP shrink the clause to the fragment “is a marvelous confection thought.” , deleting both punctuation and two adjectives. The resulting phrase is ungrammatical and dilutes the strongly positive sentiment of the original sentence. 
+
+• “the film is something else, something original.” 
+
+GCN again retains the full coordinated structure “is something else, something original” . The two MLP baselines drop the first 
+
+something and the comma, yielding “, is something else original” ,a fragment that breaks the intended parallelism and can even be misread as negative when taken out of context. This illustrates how losing even a single connective can distort the rhetorical force of a sentence. Sample 2 – Figure S.4 (d–f) 
+
+• “The dialogue is sharp and well written, with many funny set pieces.” 
+
+GCN selects “is sharp and well written, with many funny set pieces” ,a fluent clause that includes the conjunction and and the adjunct prepositional phrase. The MLP baseline chooses “dialogue is sharp well, funny,” while MLP w/ LP yields “is sharp well, funny.” Both lose the coordination and misplace well , generating a disfluent fragment that weakens the positive tone. 
+
+• “Sevigny delivers an honest performance, and makes the audience feel for her character.” 
+
+GCN captures the graph-connected span “delivers an honest per-formance makes audience feel,” preserving both coordinated pred-icates and the sentiment-bearing object audience . The MLP base-line keeps only the first clause “delivers an honest performance,” 
+
+while MLP w/ LP retains the disfluent string “delivers an hon-est performance makes for,” omitting the key verb feel . Both fail to express the causal link that underpins the review’s positive judgment. Overall, Samples 1, 2 shows that post-hoc grammatical regular-ization alone cannot stop the MLP variants from producing frag-mented, sentiment-diluting rationales, whereas explicitly modeling graph edges enables GLASS to keep well-formed, label-aligned spans. Sample 3 – 20 % Selection (Figs. S.5) 
+
+• “I believe that Robert Duvall (who is the producer, director, writer, and main star of The Apostle) deserves an Oscar for his performance as Sonny the religious crusader — a performance which is so complex and realistic it ranks as one of the finest acting performances on film.” 
+
+GCN retains the core predicate chain ( believe . . . Duvall . . . de-serves . . . performance . . . is so complex and realistic it ranks as one of finest ), keeping both evaluative verbs deserves and ranks 
+
+as well as the sentiment-bearing adjectives complex and realistic .KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea Minyoung Hwang, Seokhyun Lee, and Changhee Lee 
+
+Although certain function words are omitted, the resulting span is fluent and clearly conveys the reviewer’s high praise. 
+
+MLP drops the head verb deserves , scrambles word order, and splits modifiers from their host noun, yielding the disfluent frag-ment “believe that Duvall for as performance is complex realistic ranks as one of finest.” The intended sentiment becomes opaque. 
+
+MLP w/ LP restores the intensifier phrase “so complex and real-istic” , but still omits deserves , misplaces for , and leaves the span without a grammatical subject, producing “believe Duvall for is so complex and realistic ranks as one of the finest.” Despite the Laplacian penalty, key syntactic links remain broken. 
+
+Observation. Increasing the word budget from 15 % to 20 % — a one-third expansion of the allowance — does not rescue the two MLP baselines: they still yield fragmented, partially misplaced words that blur the review’s positive stance. By contrast, our graph-aware selector ( GLASS ) continues to produce a contiguous, sentiment-aligned span that preserves the long-range dependencies among 
+
+deserves , performance , and ranks , confirming the robustness of in-corporating linguistic-graph structure into the selection process. 
+
+Additional Qualitative Analysis – HateXplain Case Study. We further analyze the explanations produced by our GCN-based selec-tor ( GLASS ) and the MLP baseline on two representative examples from the HateXplain dataset. For a fair comparison, both models are constrained to retain 30% of input tokens. Despite compara-ble annotation precision scores (0.750 vs. 0.800), we observe key differences in linguistic coherence and structural alignment. Sample 1 – Figure S.6 (a–c) 
+
+• “broke jews control the world woke ... russia is funding the alt right and jared taylor ... movement boomerlivesdont-matter” 
+
+The GCN-based selector ( GLASS ) selects semantically connected phrases such as “funding the movement” and “boomerlivesdont-matter” , preserving the structural relations that underpin the causal logic of the hate speech claim. Despite a slightly lower annotation precision (0.750), the selected tokens form a syntac-tically valid subgraph aligned with the underlying dependency structure. In contrast, the MLP selector shows fragmented selections, such as “funding,” “movement,” “foot,” “generation,” “control” , that are disconnected in the graph and fail to maintain grammatical relationships. The resulting explanation lacks cohesion and may distort the intended rhetorical flow, even though it achieves slightly higher annotation precision (0.800). Sample 2 – Figure S.6 (d-f) 
+
+• “the catholic church stopped being a bulwark against west-ern rot when the church became infested with homosexuals . . . ” 
+
+GLASS demonstrates perfect alignment with the human anno-tation (precision 1.000), capturing the coherent clause “church became infested with homosexuals” as a complete semantic unit. It also selects other structurally important spans such as “bul-wark against western rot” and “depraved gay orgies on sacred church ground” , which include sentiment-bearing terms and syn-tactic dependencies. These selections form tightly connected subgraphs in the dependency structure, preserving the original argument’s logic and emotional tone. Meanwhile, the MLP baseline fragments this structure, dropping the subject “church” and selecting disjointed tokens like “cor-rupted,” “bureaucracies,” “stories” , breaking the causal connection that drives the review’s central claim. The explanation becomes semantically ambiguous and less informative. 
+
+Observation. Even under identical selection budgets, our graph-aware selector produces linguistically fluent and semantically co-herent rationales that preserve key argumentative structures. In contrast, MLP-based methods generate fragmented outputs that dilute interpretability and disrupt grammatical flow. These exam-ples underscore the advantage of integrating syntactic structure for faithful and human-aligned explanation generation. 
+
+Additional Qualitative Analysis – XSum Case Study. We fur-ther analyze the important word subsets produced by our graph-based selector ( Graph-Selector ). The analysis focuses on how the selector preserves linguistic coherence and logical structure, mov-ing beyond simple keyword extraction to capture the underlying meaning of the text. Sample 1 – Figure S.7 
+
+• “...Wellington monument ... has been fenced off because of falling stone debris... using ground-penetrating radar... to build a computer model of the obelisk and help with a ’more effective repair approach’.” 
+
+The GLASSselects semantically connected phrases such as “voids and gaps in the stonework” and “build a computer model of the obelisk.” This approach preserves the structural relations that underpin the procedural logic of the article (Problem → Method 
+
+→ Goal). The selected tokens form a syntactically valid subgraph that captures the core technical narrative. Sample 2 – Figure S.7 
+
+• “...foreign investors have been blamed for driving up the cost of real estate... Harper’s Conservative Party said it was looking into restrictions on foreign homeownership...” 
+
+The GLASSdemonstrates a strong ability to identify and pre-serve complete semantic units. It captures the coherent clause 
+
+“Harper’s Conservative Party said it was looking into restrictions on foreign homeownership,” which forms the backbone of the final summary. It also selects other structurally important spans that provide context, such as “shut out of the market,” preserving the original argument’s logic regarding cause and effect. Explaining Black-Box Language Models: Learning to Optimize Linguistically-Structured Word Subsets KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea Legend: high + evidence high prob. evidence
+
+the idea at the center of the devil 's advocate , which is , thus far , one of the three or four best films of 1997 , is that no
+
+matter what decision is made , evil will triumph -- god is a trickster , satan is a humanist -- " the last humanist " . he appears
+
+in many guises , and seduces many men and women -- in his own words , " vanity -- by far my favorite sin " . al pacino plays
+
+this role with relish , and gets to chew some delectable lines ( " lemme givya a piece o ' inside wisdom on god . .. " , " i
+
+have a million names . .. " ) , as john milton -- the devil . the main idea -- that he can appear as anyone , in any form ( in
+
+this case , a buisness man ) , harkens mainly back to terry gilliam 's the time bandits . but the film , is something else ,
+
+something original . part of what makes it so very good , is that it never takes itself too seriously -- it dabbles with morality ,
+
+vanity , death , and child abuse , but does n't try to become any profound study of power . this is a marvelous confection -- cocky
+
+, funny , thought provoking . it is also entertaining . there is no way you could possibly predict the ending -- it pulls back upon
+
+itself , drawing purely out of the mind 's eye . the final shot is more creative , more daring , more challenging , then anything in
+
+cinema since the white sock in the coen 's fargo . the central themes are fascinating ( sometimes reminiscent of james ' the turn of
+
+the screw , and oates ' accursed inhabitants of the house of bly ) , and the product that is built around it really wows . its nice
+
+to know that things like this are still being made .
+
+(a) GCN w/ syntactic dependency graph-15% (Annotation Precision: 0.940) Legend: high + evidence high prob. evidence
+
+the idea at the center of the devil 's advocate , which is , thus far , one of the three or four best films of 1997 , is that no
+
+matter what decision is made , evil will triumph -- god is a trickster , satan is a humanist -- " the last humanist " . he appears
+
+in many guises , and seduces many men and women -- in his own words , " vanity -- by far my favorite sin " . al pacino plays
+
+this role with relish , and gets to chew some delectable lines ( " lemme givya a piece o ' inside wisdom on god . .. " , " i
+
+have a million names . .. " ) , as john milton -- the devil . the main idea -- that he can appear as anyone , in any form ( in
+
+this case , a buisness man ) , harkens mainly back to terry gilliam 's the time bandits . but the film , is something else ,
+
+something original . part of what makes it so very good , is that it never takes itself too seriously -- it dabbles with morality ,
+
+vanity , death , and child abuse , but does n't try to become any profound study of power . this is a marvelous confection -- cocky
+
+, funny , thought provoking . it is also entertaining . there is no way you could possibly predict the ending -- it pulls back upon
+
+itself , drawing purely out of the mind 's eye . the final shot is more creative , more daring , more challenging , then anything in
+
+cinema since the white sock in the coen 's fargo . the central themes are fascinating ( sometimes reminiscent of james ' the turn of
+
+the screw , and oates ' accursed inhabitants of the house of bly ) , and the product that is built around it really wows . its nice
+
+to know that things like this are still being made .
+
+(b) MLP-15% (Annotation Precision: 0.716) KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea Minyoung Hwang, Seokhyun Lee, and Changhee Lee Legend: high + evidence high prob. evidence
+
+the idea at the center of the devil 's advocate , which is , thus far , one of the three or four best films of 1997 , is that no
+
+matter what decision is made , evil will triumph -- god is a trickster , satan is a humanist -- " the last humanist " . he appears
+
+in many guises , and seduces many men and women -- in his own words , " vanity -- by far my favorite sin " . al pacino plays
+
+this role with relish , and gets to chew some delectable lines ( " lemme givya a piece o ' inside wisdom on god . .. " , " i
+
+have a million names . .. " ) , as john milton -- the devil . the main idea -- that he can appear as anyone , in any form ( in
+
+this case , a buisness man ) , harkens mainly back to terry gilliam 's the time bandits . but the film , is something else ,
+
+something original . part of what makes it so very good , is that it never takes itself too seriously -- it dabbles with morality ,
+
+vanity , death , and child abuse , but does n't try to become any profound study of power . this is a marvelous confection -- cocky
+
+, funny , thought provoking . it is also entertaining . there is no way you could possibly predict the ending -- it pulls back upon
+
+itself , drawing purely out of the mind 's eye . the final shot is more creative , more daring , more challenging , then anything in
+
+cinema since the white sock in the coen 's fargo . the central themes are fascinating ( sometimes reminiscent of james ' the turn of
+
+the screw , and oates ' accursed inhabitants of the house of bly ) , and the product that is built around it really wows . its nice
+
+to know that things like this are still being made .
+
+(c) MLP w/ graph Laplacian-15% (Annotation Precision: 0.760) Legend: high + evidence high prob. evidence
+
+an entertaining 2 hours awaits the audience in this film set in the early 80 's . sevigny and beckinsale play disco chicks alice and
+
+charlotte , who are on the lookout for love . alice is mousy , shy , intellectual , charlotte is bitchy , out - going and fun . we
+
+join their adventures as they go through a variety of adventures , and men , all to the background of the local disco . whit stillman
+
+has both written and directed an interesting and believable story . alice and charlotte are both well written characters , and the
+
+actresses who play them are n't bad aswell . sevigny delivers an honest performance , and makes the audience feel for her character
+
+. beckinsale plays extreme bitch personified , yet her character never becomes completely unlikeable . the huge supporting cast also play
+
+a part in making sure this movie is thoroughly entertaining . the dialogue is sharp and well written , with many funny set pieces .
+
+for example , there 's a great discussion about lady & the tramp by the main characters . the disco tunes playing in the background
+
+also make sure that this admittedly long film is good fun . the direction is good , bringing out the drama and comedy in the scenes
+
+. but their are slight flaws with the movie . firstly , although it is supposedly set in the 80 's , the characters are very , very 90
+
+'s . the way they dress and act have a very 90 's feel to them . although the male hairstyles look slightly 80 's , frankly the 80
+
+'s atmosphere just was n't conveyed , which is a shame . also , as mentioned above , the film is too long , and some parts do
+
+lag . the charm of the characters do help these moments , but generally the editing could of been a bit tighter . the plot also side
+
+- tracks into a silly cocaine dealing bust , which seemed out of place in this movie . finally , their are almost too many characters
+
+in the film , and despite the running time , the film never really spends enough time on them . some of the characters are very
+
+slight , which is a shame . the conclusion , while funny , is also surprisingly weak , and certainly not strong enough . but despite
+
+these qualms , the last days of disco is a funny , warm movie , which is certainly worth seeing , and is a fitting homage to the
+
+disco era of the 80 's . worth a look . overall rating= review by david wilcock ? 1998 " you know , for kids " - norville barnes
+
+(d) GCN w/ syntactic dependency graph-15% (Annotation Precision: 0.890) Explaining Black-Box Language Models: Learning to Optimize Linguistically-Structured Word Subsets KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea Legend: high + evidence high prob. evidence
+
+an entertaining 2 hours awaits the audience in this film set in the early 80 's . sevigny and beckinsale play disco chicks alice and
+
+charlotte , who are on the lookout for love . alice is mousy , shy , intellectual , charlotte is bitchy , out - going and fun . we
+
+join their adventures as they go through a variety of adventures , and men , all to the background of the local disco . whit stillman
+
+has both written and directed an interesting and believable story . alice and charlotte are both well written characters , and the
+
+actresses who play them are n't bad aswell . sevigny delivers an honest performance , and makes the audience feel for her character
+
+. beckinsale plays extreme bitch personified , yet her character never becomes completely unlikeable . the huge supporting cast also play
+
+a part in making sure this movie is thoroughly entertaining . the dialogue is sharp and well written , with many funny set pieces .
+
+for example , there 's a great discussion about lady & the tramp by the main characters . the disco tunes playing in the background
+
+also make sure that this admittedly long film is good fun . the direction is good , bringing out the drama and comedy in the scenes
+
+. but their are slight flaws with the movie . firstly , although it is supposedly set in the 80 's , the characters are very , very 90
+
+'s . the way they dress and act have a very 90 's feel to them . although the male hairstyles look slightly 80 's , frankly the 80
+
+'s atmosphere just was n't conveyed , which is a shame . also , as mentioned above , the film is too long , and some parts do
+
+lag . the charm of the characters do help these moments , but generally the editing could of been a bit tighter . the plot also side
+
+- tracks into a silly cocaine dealing bust , which seemed out of place in this movie . finally , their are almost too many characters
+
+in the film , and despite the running time , the film never really spends enough time on them . some of the characters are very
+
+slight , which is a shame . the conclusion , while funny , is also surprisingly weak , and certainly not strong enough . but despite
+
+these qualms , the last days of disco is a funny , warm movie , which is certainly worth seeing , and is a fitting homage to the
+
+disco era of the 80 's . worth a look . overall rating= review by david wilcock ? 1998 " you know , for kids " - norville barnes
+
+(e) MLP-15% (Annotation Precision: 0.708) Legend: high + evidence high prob. evidence
+
+an entertaining 2 hours awaits the audience in this film set in the early 80 's . sevigny and beckinsale play disco chicks alice and
+
+charlotte , who are on the lookout for love . alice is mousy , shy , intellectual , charlotte is bitchy , out - going and fun . we
+
+join their adventures as they go through a variety of adventures , and men , all to the background of the local disco . whit stillman
+
+has both written and directed an interesting and believable story . alice and charlotte are both well written characters , and the
+
+actresses who play them are n't bad aswell . sevigny delivers an honest performance , and makes the audience feel for her character
+
+. beckinsale plays extreme bitch personified , yet her character never becomes completely unlikeable . the huge supporting cast also play
+
+a part in making sure this movie is thoroughly entertaining . the dialogue is sharp and well written , with many funny set pieces .
+
+for example , there 's a great discussion about lady & the tramp by the main characters . the disco tunes playing in the background
+
+also make sure that this admittedly long film is good fun . the direction is good , bringing out the drama and comedy in the scenes
+
+. but their are slight flaws with the movie . firstly , although it is supposedly set in the 80 's , the characters are very , very 90
+
+'s . the way they dress and act have a very 90 's feel to them . although the male hairstyles look slightly 80 's , frankly the 80
+
+'s atmosphere just was n't conveyed , which is a shame . also , as mentioned above , the film is too long , and some parts do
+
+lag . the charm of the characters do help these moments , but generally the editing could of been a bit tighter . the plot also side
+
+- tracks into a silly cocaine dealing bust , which seemed out of place in this movie . finally , their are almost too many characters
+
+in the film , and despite the running time , the film never really spends enough time on them . some of the characters are very
+
+slight , which is a shame . the conclusion , while funny , is also surprisingly weak , and certainly not strong enough . but despite
+
+these qualms , the last days of disco is a funny , warm movie , which is certainly worth seeing , and is a fitting homage to the
+
+disco era of the 80 's . worth a look . overall rating= review by david wilcock ? 1998 " you know , for kids " - norville barnes
+
+(f) MLP w/ graph Laplacian-15% (Annotation Precision: 0.767) 
+
+Figure S.4: Examples of important word subsets identified by our proposed method on the Movies dataset. Based on the human rationales provided in the dataset, words highlighted in green correspond to selected human rationales, those in red represent unselected human rationales, and words highlighted in orange denote selected words that were not part of the human rationale. The accompanying subgraph illustrates the structural relationships among selected words, highlighting how well the explanation aligns with the underlying linguistic structure. We also report precision and recall scores relative to the human rationales to quantify alignment. KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea Minyoung Hwang, Seokhyun Lee, and Changhee Lee Legend: high + evidence high prob. evidence
+
+ingredients : down - on - his - luck evangelist , church synopsis : sonny dewey ( robert duvall ) is a tireless texas pentecostal
+
+preacher who unexpectedly catches his wife ( farrah fawcett ) in bed with another guy . in a regrettable crime of passion he takes a
+
+baseball bat to the guy 's head , and suddenly finds himself a fugitive for murder , and estranged from his wife and two kids . to
+
+atone for his sins , sonny flees to a rural bayou town in louisiana and baptizes himself as a new creature - - the apostle e. f. as
+
+the apostle e. f. sonny 's main mission is to revive an abandoned church community and preach the gospel at the local radio station
+
+. soon he sets about resurrecting the one way road to heaven holiness temple . but sonny knows his time is short ; one day the
+
+police will find him . opinion : this movie is a thought - provoking look at an evangelist in real life terms . i believe that robert
+
+duvall ( who is the producer , director , writer , and main star of the apostle ) deserves an oscar for his performance as sonny the
+
+religious crusader - - a performance which is so complex and realistic it ranks as one of the finest acting performances on film .
+
+duvall 's portrayal of a true believer is authentic , superb , and inspired ; it offers the audience a completely honest look at southern
+
+religion , as well as a portrait of a fallible , complicated man driven by his beliefs . incidentally , in real life duvall was just as '
+
+driven ' in getting the project underway . since no major hollywood studio wanted to risk financing a complex movie about an
+
+evangelist , the apostle as a project lay dormant for almost 13 years before duvall was able to get it done , paying for its
+
+production with his own money ( about five million dollars ) . in terms of hard - hitting realism and character portrayal the apostle
+
+would rank as one of the best movies of this decade , and i emphatically recommend the apostle for connoisseurs of stage and fine
+
+acting on film . similarly , those with a steep background in pentecostal christianity would find the apostle a thought - provoking
+
+experience . on the other hand , the apostle 's main strength - - duvall 's preaching - - is also what limits the apostle 's target
+
+audience . in terms of plot and pure entertainment value , the apostle is definitely not for everyone . teenagers , action fans ,
+
+comedy fans , and people who find church completely boring should stay far away from this movie , since three quarters of the film
+
+is watching sonny preach at church . in other words , the apostle is a four star performance , but with a very limited audience .
+
+(a) GCN w/ syntactic dependency graph-20% (Annotation Precision: 0.530) Legend: high + evidence high prob. evidence
+
+ingredients : down - on - his - luck evangelist , church synopsis : sonny dewey ( robert duvall ) is a tireless texas pentecostal
+
+preacher who unexpectedly catches his wife ( farrah fawcett ) in bed with another guy . in a regrettable crime of passion he takes a
+
+baseball bat to the guy 's head , and suddenly finds himself a fugitive for murder , and estranged from his wife and two kids . to
+
+atone for his sins , sonny flees to a rural bayou town in louisiana and baptizes himself as a new creature - - the apostle e. f. as
+
+the apostle e. f. sonny 's main mission is to revive an abandoned church community and preach the gospel at the local radio station
+
+. soon he sets about resurrecting the one way road to heaven holiness temple . but sonny knows his time is short ; one day the
+
+police will find him . opinion : this movie is a thought - provoking look at an evangelist in real life terms . i believe that robert
+
+duvall ( who is the producer , director , writer , and main star of the apostle ) deserves an oscar for his performance as sonny the
+
+religious crusader - - a performance which is so complex and realistic it ranks as one of the finest acting performances on film .
+
+duvall 's portrayal of a true believer is authentic , superb , and inspired ; it offers the audience a completely honest look at southern
+
+religion , as well as a portrait of a fallible , complicated man driven by his beliefs . incidentally , in real life duvall was just as '
+
+driven ' in getting the project underway . since no major hollywood studio wanted to risk financing a complex movie about an
+
+evangelist , the apostle as a project lay dormant for almost 13 years before duvall was able to get it done , paying for its
+
+production with his own money ( about five million dollars ) . in terms of hard - hitting realism and character portrayal the apostle
+
+would rank as one of the best movies of this decade , and i emphatically recommend the apostle for connoisseurs of stage and fine
+
+acting on film . similarly , those with a steep background in pentecostal christianity would find the apostle a thought - provoking
+
+experience . on the other hand , the apostle 's main strength - - duvall 's preaching - - is also what limits the apostle 's target
+
+audience . in terms of plot and pure entertainment value , the apostle is definitely not for everyone . teenagers , action fans ,
+
+comedy fans , and people who find church completely boring should stay far away from this movie , since three quarters of the film
+
+is watching sonny preach at church . in other words , the apostle is a four star performance , but with a very limited audience .
+
+(b) MLP-20% (Annotation Precision: 0.408) 
+
+Figure S.5: Additional experiments in 20% selections (Part 1) Explaining Black-Box Language Models: Learning to Optimize Linguistically-Structured Word Subsets KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea Legend: high + evidence high prob. evidence
+
+ingredients : down - on - his - luck evangelist , church synopsis : sonny dewey ( robert duvall ) is a tireless texas pentecostal
+
+preacher who unexpectedly catches his wife ( farrah fawcett ) in bed with another guy . in a regrettable crime of passion he takes a
+
+baseball bat to the guy 's head , and suddenly finds himself a fugitive for murder , and estranged from his wife and two kids . to
+
+atone for his sins , sonny flees to a rural bayou town in louisiana and baptizes himself as a new creature - - the apostle e. f. as
+
+the apostle e. f. sonny 's main mission is to revive an abandoned church community and preach the gospel at the local radio station
+
+. soon he sets about resurrecting the one way road to heaven holiness temple . but sonny knows his time is short ; one day the
+
+police will find him . opinion : this movie is a thought - provoking look at an evangelist in real life terms . i believe that robert
+
+duvall ( who is the producer , director , writer , and main star of the apostle ) deserves an oscar for his performance as sonny the
+
+religious crusader - - a performance which is so complex and realistic it ranks as one of the finest acting performances on film .
+
+duvall 's portrayal of a true believer is authentic , superb , and inspired ; it offers the audience a completely honest look at southern
+
+religion , as well as a portrait of a fallible , complicated man driven by his beliefs . incidentally , in real life duvall was just as '
+
+driven ' in getting the project underway . since no major hollywood studio wanted to risk financing a complex movie about an
+
+evangelist , the apostle as a project lay dormant for almost 13 years before duvall was able to get it done , paying for its
+
+production with his own money ( about five million dollars ) . in terms of hard - hitting realism and character portrayal the apostle
+
+would rank as one of the best movies of this decade , and i emphatically recommend the apostle for connoisseurs of stage and fine
+
+acting on film . similarly , those with a steep background in pentecostal christianity would find the apostle a thought - provoking
+
+experience . on the other hand , the apostle 's main strength - - duvall 's preaching - - is also what limits the apostle 's target
+
+audience . in terms of plot and pure entertainment value , the apostle is definitely not for everyone . teenagers , action fans ,
+
+comedy fans , and people who find church completely boring should stay far away from this movie , since three quarters of the film
+
+is watching sonny preach at church . in other words , the apostle is a four star performance , but with a very limited audience .
+
+(c) MLP w/ graph Laplacian-20% (Annotation Precision: 0.434) 
+
+Figure S.5: Additional experiments in 20% selections (Part 2) 
+
+(a) GCN w/ syntactic dependency graph-30% (Annotation Precision: 0.750) KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea Minyoung Hwang, Seokhyun Lee, and Changhee Lee 
+
+(b) MLP-30% (Annotation Precision: 0.80) 
+
+(c) MLP w/ graph Laplacian-30% (Annotation Precision: 0.600) Explaining Black-Box Language Models: Learning to Optimize Linguistically-Structured Word Subsets KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea 
+
+(d) GCN-30% (Annotation Precision: 1.000) 
+
+(e) MLP-30% (Annotation Precision: 0.830) 
+
+(f) MLP w/ graph Laplacian-30% (Annotation Precision: 0.667) 
+
+Figure S.6: Examples of important word subsets identified by our proposed method on the HateXplain dataset KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea Minyoung Hwang, Seokhyun Lee, and Changhee Lee Label (Summary) 
+
+A computer model of one of the world's tallest three-sided obelisks is being made to find out why it is falling apart. Wellington monument on the Blackdown Hills, in Somerset, was built in 1817 but since 2005 it has been fenced off because of falling stone debris. The National Trust is using ground-penetrating radar on the 174ft (53m) tower to see under its stone cladding. Ken Evans, from the trust, said the work was "crucial". Built on one of the highest points of the Blackdown Hills, the landmark was put up as a tribute to the Duke of Wellington's military achievements at the Battle of Waterloo. But according to the trust, it has been struck by lightning twice in its history and renovating the very tall landmark every 10 to 15 years has been "expensive and unsustainable". Mr Evans, the trust's building surveyor, said the radar study was one of several being carried out to "understand this unique and somewhat complex monument". "We have been using wind and movement sensors which have already surprised us by showing that it doesn't flex in the wind quite as much as we expected," he said. "The ground-penetrating radar seeks to identify voids and gaps in the stonework under the surface but should also tell us more about the materials which were used to build the obelisk." Data from the detailed survey will also be used to build a computer model of the obelisk and help with a "more effective repair approach". Label (Summary) 
+
+Canadian Prime Minister Stephen Harper has announced plans to track foreign homeownership and raised the possibility of eventually enacting limits on buying. Foreign investors have been blamed for driving up the cost of real estate in Toronto and Vancouver. Hurt by failing oil prices, Canada's ailing economy has become a major issue as the country elects new leadership. Mr Harper said that about 15% of condos in Vancouver aren't being lived in. "If such foreign, non-resident buyers are artificially driving up the cost of real estate and Canadian families are shut out of the market, that is amatter we can and should do something about," said Mr Harper said, who was campaigning in Vancouver on Wednesday. While home prices in the country's interior have fallen, prices have remained high in Toronto and Vancouver. The average price of a detached home in Vancouver - the country's most expensive market - is more than $1 million (Â£640,000). Harper's Conservative Party said it was looking into restrictions on foreign homeownership that have been put in place by other western countries. Australia limits the ability of foreign buyers to purchase existing homes for investment, and only allow foreign investment resulting in new home construction. If necessary, Mr Harper said the Conservative government will take action in coordination with the provinces to make sure foreign non-resident investment "supports the availability and affordability of homes for Canadians." His administration also announced that Canadians will now be permitted to withdraw $35,000 (Â£17,241) instead of $25,000 (Â£12,315) from retirement accounts to purchase their first homes. 
+
+Figure S.7: Examples of important word subsets identified by our proposed method on the XSum dataset. Words highlighted in green are those selected by our model for summary generation. Explaining Black-Box Language Models: Learning to Optimize Linguistically-Structured Word Subsets KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea Legend: high + evidence high prob. evidence 
+
+robert redford 's a river runs through it is not a film i watch often . it is a masterpiece -- one of the better films of recent years 
+
+. until 1994 , it was my second favorite film of all time . the acting and direction is top - notch -- never sappy , always touching 
+
+. a friend of mine once reported that he avoided it because " i was afraid it would just be really politically correct , and tick me 
+
+off . " all i could do was tell him to go in unbiased , and enjoy . it is one of the few movies that has completely reduced me 
+
+to tears . but certain memories should not often be rereleased -- in the last few shots , you have to cry . upon my first viewing i
+
+left bawling . it is not flawless -- but it is so very good , that you ca n't help but be effected . the opening is dangerously 
+
+nolstalgic and sentimental -- watching these shots of people who have been dead so long , gives you a feeling of perspective and 
+
+history observation that you will find in very few other films . martin scorsese once described the movies as a dream state -- like 
+
+taking dope , and immersing yourself in an alternative world . that is what a river runs through it does . it exploits the unique 
+
+power of cinema to engross you and help to forget your real self . both times i 've seen it , its been hard ( again to quote 
+
+scorsese ) waking up . but the dream is lovely .
+
+SHAP (Annotation Precision: 0.671) Legend: high + evidence high prob. evidence 
+
+robert redford 's a river runs through it is not a film i watch often . it is a masterpiece -- one of the better films of recent years 
+
+. until 1994 , it was my second favorite film of all time . the acting and direction is top - notch -- never sappy , always touching 
+
+. a friend of mine once reported that he avoided it because " i was afraid it would just be really politically correct , and tick me 
+
+off . " all i could do was tell him to go in unbiased , and enjoy . it is one of the few movies that has completely reduced me 
+
+to tears . but certain memories should not often be rereleased -- in the last few shots , you have to cry . upon my first viewing i
+
+left bawling . it is not flawless -- but it is so very good , that you ca n't help but be effected . the opening is dangerously 
+
+nolstalgic and sentimental -- watching these shots of people who have been dead so long , gives you a feeling of perspective and 
+
+history observation that you will find in very few other films . martin scorsese once described the movies as a dream state -- like 
+
+taking dope , and immersing yourself in an alternative world . that is what a river runs through it does . it exploits the unique 
+
+power of cinema to engross you and help to forget your real self . both times i 've seen it , its been hard ( again to quote 
+
+scorsese ) waking up . but the dream is lovely .
+
+LIME (Annotation Precision: 0.694) Legend: high + evidence high prob. evidence 
+
+robert redford 's a river runs through it is not a film i watch often . it is a masterpiece -- one of the better films of recent years 
+
+. until 1994 , it was my second favorite film of all time . the acting and direction is top - notch -- never sappy , always touching 
+
+. a friend of mine once reported that he avoided it because " i was afraid it would just be really politically correct , and tick me 
+
+off . " all i could do was tell him to go in unbiased , and enjoy . it is one of the few movies that has completely reduced me 
+
+to tears . but certain memories should not often be rereleased -- in the last few shots , you have to cry . upon my first viewing i
+
+left bawling . it is not flawless -- but it is so very good , that you ca n't help but be effected . the opening is dangerously 
+
+nolstalgic and sentimental -- watching these shots of people who have been dead so long , gives you a feeling of perspective and 
+
+history observation that you will find in very few other films . martin scorsese once described the movies as a dream state -- like 
+
+taking dope , and immersing yourself in an alternative world . that is what a river runs through it does . it exploits the unique 
+
+power of cinema to engross you and help to forget your real self . both times i 've seen it , its been hard ( again to quote 
+
+scorsese ) waking up . but the dream is lovely .
+
+IG (Annotation Precision: 0.649) KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea Minyoung Hwang, Seokhyun Lee, and Changhee Lee Legend: high + evidence high prob. evidence 
+
+robert redford 's a river runs through it is not a film i watch often . it is a masterpiece -- one of the better films of recent years 
+
+. until 1994 , it was my second favorite film of all time . the acting and direction is top - notch -- never sappy , always touching 
+
+. a friend of mine once reported that he avoided it because " i was afraid it would just be really politically correct , and tick me 
+
+off . " all i could do was tell him to go in unbiased , and enjoy . it is one of the few movies that has completely reduced me 
+
+to tears . but certain memories should not often be rereleased -- in the last few shots , you have to cry . upon my first viewing i
+
+left bawling . it is not flawless -- but it is so very good , that you ca n't help but be effected . the opening is dangerously 
+
+nolstalgic and sentimental -- watching these shots of people who have been dead so long , gives you a feeling of perspective and 
+
+history observation that you will find in very few other films . martin scorsese once described the movies as a dream state -- like 
+
+taking dope , and immersing yourself in an alternative world . that is what a river runs through it does . it exploits the unique 
+
+power of cinema to engross you and help to forget your real self . both times i 've seen it , its been hard ( again to quote 
+
+scorsese ) waking up . but the dream is lovely .
+
+L2X (Annotation Precision: 0.718) Legend: high + evidence high prob. evidence 
+
+robert redford 's a river runs through it is not a film i watch often . it is a masterpiece -- one of the better films of recent years 
+
+. until 1994 , it was my second favorite film of all time . the acting and direction is top - notch -- never sappy , always touching 
+
+. a friend of mine once reported that he avoided it because " i was afraid it would just be really politically correct , and tick me 
+
+off . " all i could do was tell him to go in unbiased , and enjoy . it is one of the few movies that has completely reduced me 
+
+to tears . but certain memories should not often be rereleased -- in the last few shots , you have to cry . upon my first viewing i
+
+left bawling . it is not flawless -- but it is so very good , that you ca n't help but be effected . the opening is dangerously 
+
+nolstalgic and sentimental -- watching these shots of people who have been dead so long , gives you a feeling of perspective and 
+
+history observation that you will find in very few other films . martin scorsese once described the movies as a dream state -- like 
+
+taking dope , and immersing yourself in an alternative world . that is what a river runs through it does . it exploits the unique 
+
+power of cinema to engross you and help to forget your real self . both times i 've seen it , its been hard ( again to quote 
+
+scorsese ) waking up . but the dream is lovely .
+
+LTX (Annotation Precision: 0.590) Legend: high + evidence high prob. evidence 
+
+robert redford 's a river runs through it is not a film i watch often . it is a masterpiece -- one of the better films of recent years 
+
+. until 1994 , it was my second favorite film of all time . the acting and direction is top - notch -- never sappy , always touching 
+
+. a friend of mine once reported that he avoided it because " i was afraid it would just be really politically correct , and tick me 
+
+off . " all i could do was tell him to go in unbiased , and enjoy . it is one of the few movies that has completely reduced me 
+
+to tears . but certain memories should not often be rereleased -- in the last few shots , you have to cry . upon my first viewing i
+
+left bawling . it is not flawless -- but it is so very good , that you ca n't help but be effected . the opening is dangerously 
+
+nolstalgic and sentimental -- watching these shots of people who have been dead so long , gives you a feeling of perspective and 
+
+history observation that you will find in very few other films . martin scorsese once described the movies as a dream state -- like 
+
+taking dope , and immersing yourself in an alternative world . that is what a river runs through it does . it exploits the unique 
+
+power of cinema to engross you and help to forget your real self . both times i 've seen it , its been hard ( again to quote 
+
+scorsese ) waking up . but the dream is lovely .
+
+CXPlain (Annotation Precision: 0.725) 
+
+Figure S.9: Baseline explanation methods on the same sample as Figure 2, showing fragmented word selections without structural coherence. Color coding follows Figure 2. Annotation precision scores indicate alignment with human rationales.

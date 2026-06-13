@@ -1,0 +1,818 @@
+Title: From Prompts to Tokens: Internalizing Causal Supervision in Vision-Language Model for Multi-Image Causal Reasoning
+
+URL Source: https://arxiv.org/pdf/2606.11745v1
+
+Published Time: Thu, 11 Jun 2026 00:39:35 GMT
+
+Number of Pages: 19
+
+Markdown Content:
+# From Prompts to Tokens: Internalizing Causal Supervision in Vision-Language Model for Multi-Image Causal Reasoning 
+
+Haoping Yu 1 Yuanxi Li 1 Jing Ma 1
+
+## Abstract 
+
+Visual causal reasoning is essential for under-standing and intervening in the physical world, requiring identification of causal variables from visual inputs and reasoning over intervention effects. Despite recent progress, large vision– language models (VLMs) remain brittle at such tasks, especially for interventional and counter-factual queries over multi-image inputs. Most existing explorations inject causal knowledge via textual prompts, leaving causal mechanisms ex-ternal to model execution and limiting reliable control during inference. To address this problem, we propose BridgeVLM , which internalizes vi-sual causal reasoning by inducing a causal graph from multi-image inputs and converting it into structured Causal Tokens executed by RAMP 
+
+layers injected into the LLM decoder for causal message passing. We further introduce a unified training interface M3S for fine-grained causal supervision from different granularities (local/-global level). BridgeVLM achieves 54.4% accu-racy on intervention tasks on CausalVLBench (vs. 
+
+33.2% with prompt-level supervision), improves results on Causal3D from 43.6% to 49.0% , and substantially improves causal structure learning on CausalVLBench ( F1: 33.4% → 75.1% ). 
+
+## 1. Introduction 
+
+Large Vision–Language Models (LVLMs) have emerged as powerful general-purpose assistants for multimodal in-struction following and open-ended generation. However, as observed in previous work (Liu et al., 2025), they remain brittle on visual causal reasoning tasks, especially those in-volving interventional target prediction and counterfactual 
+
+> 1
+
+Department of Computer & Data Sciences, Case Western University, Cleveland, OH, US. Correspondence to: Jing Ma 
+
+<jxm1384@case.edu >.
+
+Proceedings of the 43 rd International Conference on Machine Learning , Seoul, South Korea. PMLR 306, 2026. Copyright 2026 by the author(s). Same Causal Scene 
+
+> One Variable Changed
+
+# +
+
+# +      
+
+> or
+> or
+> Images (N >= 1)
+> 1. Robot Arm: The position of the robot arm.
+> 2. Blue Light: The intensity of the blue light...
+> N
+> These images show a robotic arm positioned over a
+> circular arc with three buttons (red, green, blue)...
+> G
+> C
+> From the first to the second image,
+> which variable changes first?
+> Intervention Target Task
+> Answer: robot arm
+> Intervention Target Task
+> If the blue light is changed from off to
+> on, what are the final values of all
+> variables?
+> Counterfactual Task
+> Optional Causal Supervisions
+> Red light: on; Green light: on...
+> Counterfactual Task
+> Causal Graph Supervision
+> Node Supervision
+> Global Supervision
+> Fact: Causal supervision is
+> often missing/partial, with
+> heterogeneous granularity! Arm
+> Blue
+> Green
+> Red
+
+Figure 1. Task and supervision overview . Given image pairs/se-quences from the same causal scene, the goal is to predict the manipulated variable or the resulting variable states. Optional causal supervision can aid prediction, but is typically imperfect. 
+
+queries (examples are shown in Figure 1). Interventional target prediction asks which variable was directly manipu-lated, given an original image and a post-intervention image in which intervening on one variable (e.g., a robot arm) may induce downstream changes in others (e.g., light colors). Counterfactual queries ask “what if” questions, such as how other variables would change if a variable (e.g., light color) were altered. Solving these tasks requires (i) pinpointing the intervened variable by comparing one or more images, and (ii) propagating the intervention’s effects through the scene’s causal relations to determine which other variables must change and how. This is challenging because current VLMs largely lack causal understanding, especially when images depict the same scene with only subtle, localized manipulations. (Komanduri et al., 2025; Liu et al., 2025). A natural attempt is to inject causal mechanisms via prompt-
+
+1
+
+> arXiv:2606.11745v1 [cs.CV] 10 Jun 2026
+
+Internalizing Causal Supervision in VLM for Multi-Image Causal Reasoning Traditional Method 
+
+> Our Method
+
++Task Query       
+
+> LVLM
+> Prompt Prompt
+> Images
+> Task Query
+> Images
+> All Available
+> Supervision
+> N
+> N
+> GC
+> C
+> (P1) Interface Gap
+> Prompt Text cannot
+> reliably grounded by
+> LVLM.
+> (P2) Supervision Gap
+> Varying granularity and
+> partial supervision often
+> cause inconsistencies.
+> (P2) Supervision Gap
+> M3S aligns different
+> supervision signals directly
+> to the component.
+> Accuracy
+> Scene
+> Pendulum
+> Flow
+> Circuit
+> Low
+> Performance
+> Induced DAG
+> Inferences
+> Message
+> Propagates
+> Variables
+> Node + Graph Tokens
+> (Causal Tokens)
+> Route
+> Guides
+> M3S
+> (P1) Interface Gap
+> Causal information
+> flows inside LVLM.
+
+# √
+
+# √
+
+> Accuracy
+> Scene
+> Pendulum
+> Flow
+> Circuit
+> G
+> Better
+> Performance
+> BridgeVLM
+
+Figure 2. Motivation of BridgeVLM. Compared to traditional VLMs that concatenate images, queries, and supervision as prompts, BridgeVLM closes the (P1) interface gap by routing causal information inside the model and closes the (P2) supervi-sion gap by aligning heterogeneous, imperfect supervision to the appropriate components via M3S, yielding better performance. 
+
+ing (Ma, 2025) (for example, appending text-form causal graphs, variable-relation descriptions, or explanation/ra-tionale traces that finetuned by the model) to supervise the model (Figure 2, top). However, this straightforward strat-egy suffers from two obstacles. (P1) Interface gap: without an explicit model-internal interface, this causal supervision remains confined to prompt text level and cannot be re-liably grounded in the internal representations that drive model decoding (Turpin et al., 2023; Paul et al., 2024). Es-pecially, for LVLMs, language-dominant behavior further encourages reliance on textual priors over visual evidence, making long reasoning-style prompts an unreliable control substrate (Zhao et al., 2025; Vo et al., 2025). (P2) Supervi-sion gap: in practice, causal supervision is often missing or partial , and frequently arrives at heterogeneous granularity (e.g., some data provide only global explanations, others include node/edge labels of causal graphs), since construct-ing high-quality causal graphs is also costly and error-prone (Komanduri et al., 2025; Chen et al., 2024; Liu et al., 2025). Our experimental results also substantiate these limitations: prompt-level causal supervision yields only marginal perfor-mance gains. For example, Phi-4-MMI-7B improves from 31.0% to 33.2% in intervention tasks on CausalVLBench and from 43.3% to 43.6% on Causal3D (Microsoft et al., 2025). 
+
+Motivation. Therefore, we argue that the bottleneck is not merely model scale or longer prompts, but the lack of an 
+
+internal interface to supervise causal reasoning. Without an explicit structural representation aligned to intervenable variables, causal supervision (e.g., causal graphs, node/edge descriptions, structured traces) remains at the prompt/rea-soning output-text level , which provides weak grounding and can even harm reasoning when prompts become long and distractive. With this motivation, we propose BridgeVLM , a novel framework that resolves the two obstacles above by turn-ing causal knowledge into operational, internal representa-tions (Figure 2, bottom). To close the interface gap (P1) ,BridgeVLM induces a directed acyclic graph (DAG) within the model, serving as a structural proxy for causal relation-ships among variables. The variables are captured in internal 
+
+variable features , and then we enforce the information to flow among variables via the DAG with a Route-Aware 
+
+Message Propagation (RAMP), producing Causal Tokens 
+
+that the decoder in LLM can attend to at every generation step. To close the supervision gap (P2) , we introduce 
+
+M3S (Multi-Source Signal Supervision), a unified interface that aligns heterogeneous supervision signals—including optional causal graph edges, node/edge/global descriptions, and structured traces—directly to the induced DAG and Causal Tokens. When ground-truth causal graphs are avail-able, M3S can further refine the induced DAG toward the true causal graph. We evaluate BridgeVLM on Causal3D and CausalVLBench benchmarks for interventional target prediction and coun-terfactual prediction (Liu et al., 2025; Komanduri et al., 2025). As shown in Table 1, BridgeVLM yields large gains over prompt-level mechanism supervision (e.g., 33.2% →
+
+54.4% on CausalVLBench intervention; 84.8% → 90.0% on CausalVLBench counterfactual), and it also improves Causal3D counterfactual accuracy to 92.3% (vs. 81.0%). Notably, despite using a 7B backbone, BridgeVLM out-performs the strongest reported open-source LVLM base-lines (up to 32B parameters) and is competitive with, and in these benchmarks slightly higher than, a strong closed-source commercial baseline (Komanduri et al., 2025; Google, 2024). Moreover, token-level supervision substan-tially improves causal graph recoverability on CausalVL-Bench (directed-edge F1: 33.4 → 75.1; Table 4), suggesting BridgeVLM learns a more faithful structural representation rather than merely a stronger end-task predictor. 
+
+Contributions. In this paper, we make the following pi-oneering contributions for multi-image interventional and counterfactual visual causal reasoning with LVLMs: • Internal interface for causal supervision. To the best of our knowledge, this is the first work to bridge 2Internalizing Causal Supervision in VLM for Multi-Image Causal Reasoning 
+
+the interface gap of causal supervision for LVLM in multi-image causal reasoning. To this aim, we induce a DAG from images and generate Causal Tokens for LLM decoder, while enforcing routing-aware message propagation (RAMP) along the DAG to support causal reasoning. • Unified supervision bridge for missing and multi-granularity causal signals. We are the first to tackle the practical supervision gap (missing/partial supervi-sion at heterogeneous granularity) for LVLM causal reasoning with M3S , to directly supervise the induced DAG and Causal Tokens using any available combina-tion of causal graph and node/edge/global descriptions. • Experimental validation that internal causal super-vision beats the prompt-level. On Causal3D and CausalVLBench benchmarks, our extensive experi-ments show that supervising internal Causal Tokens (rather than feeding the same information as prompts) yields large gains on both intervention and counterfac-tual tasks and improves causal graph recoverability. 
+
+## 2. Related Work 
+
+Benchmarks for interventional and counterfactual vi-sual causal reasoning. Recent benchmarks make inter-ventional and counterfactual visual causal reasoning explicit and consistently show that LVLMs remain brittle in these set-tings. CELLO evaluates LVLMs with explicit causal graphs (Chen et al., 2024), while CausalVLBench and Causal3D provide targeted evaluation for intervention-target and coun-terfactual prediction from visual inputs (Komanduri et al., 2025; Liu et al., 2025). Text-only benchmarks such as CLadder and CausalBench further highlight that even strong LLMs struggle to reliably execute formal causal inference rules (Jin et al., 2023; Wang, 2024). These benchmarks motivate methods that improve knowledge-grounded causal reasoning from evidence, beyond prompt-only heuristics. 
+
+Causal modeling inside vision–language systems. A line of work introduces causal formalisms into vision–language pipelines, often for robustness or hallucination mitigation rather than intervention/counterfactual reasoning. For exam-ple, CDC analyzes CLIP adaptation through an SCM lens (Zhang et al., 2024), CLIP-ICM studies invariant causal knowledge for OOD robustness (Song et al., 2025), and CausalMM performs causal interventions over attention to mitigate modality-prior hallucinations (Zhou et al., 2025). Relatedly, causal-graphical modeling has also been used to guide knowledge-driven vision–language generation, but without exposing an intervenable variable-level interface for causal reasoning (Parascandolo et al., 2025). Overall, these approaches do not provide an LVLM with an internal, tok-enized, variable-level causal-graph interface induced from images and directly consumed during decoding. 
+
+External causal knowledge: graph elicitation and prompting-level supervision. Another thread obtains causal knowledge externally (e.g., querying LLMs for edges and reconciling them with causal constraints) (Long et al., 2024; 2023; Jiralerspong et al., 2024; Darvariu et al., 2024; Kampani et al., 2024; Wan et al., 2025), or injects causal information through prompts and explanation-style super-vision (Zhang et al., 2025; Jiang et al., 2024). However, in both cases causal structure is either an external artifact 
+
+or represented purely as text , leaving a gap between de-scribed causal knowledge and operational internal compu-tation; moreover, generated rationales can be unfaithful to the actual decision process (Turpin et al., 2023; Paul et al., 2024). BridgeVLM addresses this gap by internalizing an induced DAG as a token-level interface and directly aligning heterogeneous supervision to the internal representation. 
+
+## 3. Method 
+
+In this section, we introduce our novel methods for multi-image visual causal reasoning, including BridgeVLM and M3S. BridgeVLM closes the interface gap (P1) by inter-nalizing prompt-level causal knowledge as a model-internal 
+
+interface. Specifically, it learns a routing DAG from images, with information flow constrained by the learned structure, and uses it to learn Causal Tokens that the decoder in LLM backbone can directly attend to. M3S closes the supervision gap (P2) by making the interface work even under missing 
+
+and multi-granularity supervision, adaptively leveraging any available causal signals directly to supervise the learning of induced DAG and Causal Tokens. Figure 3 summarizes the architecture and training signals. 
+
+3.1. BridgeVLM: Enabling an Internal Interface for Causal Supervision 
+
+BridgeVLM augments an LVLM with a model-internal in-terface for causal supervision by introducing a set of inter-nal causal components. These components can be learned from visual inputs even when explicit causal supervision is unavailable. Specifically, BridgeVLM (i) extracts latent vari-able features from images and induces a routing DAG over features, (ii) enforces DAG-based routing-aware message propagation (RAMP) to produce Node Tokens , (iii) Gen-erate Graph Tokens, and update Node Tokens to produce 
+
+Causal Tokens . These components enable a shift from frag-ile prompt-based supervision to model-internal supervision on representations that directly influence decoding. Given inputs: images {Im}Mm=1 (with M ≥ 1) and a text query x; BridgeVLM generates Causal Tokens Tc, and injecting them into the decoder in LLM for knowledge-grounded prediction. Let H be the decoder hidden size. 3Internalizing Causal Supervision in VLM for Multi-Image Causal Reasoning RAMP Layer        
+
+> RAMP
+> Layer
+> RAMP Layer
+> ...
+> Images
+> Image
+> Features Causal Tokens
+> Graph
+> Tokens
+> Variable Query
+> Graph Query Node Tokens
+> Variable Features
+> queries
+> updates
+> queries
+> Induced DAG
+> N1. Robot Arm: The position of the robot arm.
+> 2. Blue Light: The intensity of the blue light...
+> C
+> Cause
+> Stream
+> FFN
+> Effect
+> Stream
+> Node Tokens
+> LLM Backbone
+> Answer:
+> robot arm
+> Which variable
+> changes first?
+> G
+> These images show a robotic arm
+> positioned over a circular arc with three
+> buttons (red, green, blue)...
+> (1) Inducing Variables & DAG (2) Generate Node Tokens (3) Update Graph/Node Tokens
+> (4) M3S for Heterogeneous
+> Granularity Causal Supervision
+
+Figure 3. Method overview. BridgeVLM contains three stages: (1) Inducing latent variable features and DAG; (2) generate node tokens; and (3) generate and update causal tokens. M3S (4) further provides causal supervision at heterogeneous granularity. 
+
+We use D as the maximum number of latent variable fea-tures and G as the number of global Graph Tokens. Token sequences are represented as matrices in R(·)×H . Attn( ·)
+
+denotes standard multi-head attention/cross-attention. 3.1.1. M ULTI -I MAGE ENCODING AND VARIABLE 
+
+FEATURES 
+
+Each image Im is encoded by a vision encoder Evis into visual tokens Vm = Evis (Im) ∈ RLm×H , where Lm is the number of visual tokens for image m. We concatenate 
+
+V = [ V1; . . . ; VM ] ∈ RL×H with L = PMm=1 Lm.To obtain variable-level representations shared across im-ages, we introduce learnable variable queries Q0 ∈ RD×H
+
+and extract variable features by cross-attending to the con-catenated visual tokens: 
+
+Q = Attn( Q0, V, V) ∈ RD×H . (1) Here Q serves as the initial variable features (one per po-tential intervenable variable). When a sample contains fewer than D variables, we use a binary variable mask 
+
+m ∈ { 0, 1}D to ignore invalid variables in losses and fur-ther operations. 
+
+Intuition. Variable feature extraction compresses visual evidence (single or multi-image) into a small set of variable-aligned representations, providing a clean interface for downstream structural reasoning and supervision. 3.1.2. I NDUCING A DAG AS THE ROUTING BACKBONE 
+
+We induce a routing DAG over variables to serve as an ex-plicit scaffold for route-conditioned information flow . The induced DAG is a kind of latent knowledge for internal rea-soning (not a standalone causal graph recovery objective). From variable features Q, we predict directed adjacency logits with a low-rank parameterization: 
+
+˜A = fL(Q) fR(Q)⊤, P = σ( ˜A) ∈ [0 , 1] D×D, (2) where fL, f R are MLPs producing D × r features (small rank r), and σ(·) is sigmoid. In practice, we (i) mask invalid variables using m and (ii) drop self-loops. 
+
+Intuition. P makes “who can influence whom” an ex-plicit, differentiable object. It allows the model to condi-tion computation on these relations and allows supervision (when available) to constrain the causal relations directly. 3.1.3. R OUTE -A WARE MESSAGE PROPAGATION 
+
+(RAMP) RAMP enforces DAG-conditioned propagation between variable features, producing route-consistent Node Tokens. Unlike global self-attention that mixes tokens indiscrimi-nately, RAMP shapes information flow using the induced routing DAG, enabling variable-to-variable effect propaga-tion required by interventions and counterfactuals. We initialize node states with variable features H(0) =
+
+Q ∈ RD×H . For stability, we use a row-normalized matrix 
+
+¯P = RowNorm( P) during propagation. Each RAMP layer 4Internalizing Causal Supervision in VLM for Multi-Image Causal Reasoning 
+
+aggregates effect stream (along edges) and cause stream 
+
+(reverse-direction) context with separate transforms: 
+
+M(↓) = ¯P H (ℓ−1) W(ℓ) 
+
+> ↓
+
+, (3) 
+
+M(↑) = ¯P⊤H(ℓ−1) W(ℓ) 
+
+> ↑
+
+, (4) 
+
+H′(ℓ) = LN 
+
+
+
+H(ℓ−1) + M(↓) + M(↑)
+
+, (5) 
+
+H(ℓ) = LN 
+
+
+
+H′(ℓ) + FFN (ℓ)(H′(ℓ))
+
+
+
+, (6) where W(ℓ) 
+
+> ↓
+
+, W(ℓ) 
+
+> ↑
+
+∈ RH×H are learnable parameters. Af-ter Lp layers we obtain Node Tokens Tn = H(Lp) ∈
+
+RD×H .
+
+Clarification. Although the routing DAG is directed (cause → effect), inference can still benefit from bidirec-tional information flow when identifying intervention tar-gets and answering counterfactual queries, since these tasks often require the model to infer causes from observed ef-fects. RAMP therefore performs direction-aware inference message passing : it keeps the directionality explicit via sep-arate transforms, while allowing information to flow in both directions to build better variable representations. 3.1.4. G RAPH TOKENS , C AUSAL TOKENS , AND 
+
+DECODER INJECTION 
+
+Node Tokens encode variable-local states; Graph Tokens summarize global causal context. Together they form 
+
+Causal Tokens , a compact token interface that the decoder can directly consult for knowledge-grounded generation. We maintain G learnable graph queries G0 ∈ RG×H .Graph Tokens aggregate whole-graph context from Node Tokens and feed it back to nodes: 
+
+Tg = Attn( G0, Tn, Tn), Tn ← Attn( Tn, Tg , Tg ).
+
+(7) We define Causal Tokens as Tc = [Tn; Tg ] ∈
+
+R(D+G)×H .Let X ∈ RLx×H be the embedding sequence of the input query x. We form the decoder input sequence by concatena-tion: 
+
+Z0 = [ V; Tc; X]. (8) The decoder then generates the prediction autoregressively. 
+
+Intuition. Causal reasoning about any node is rarely local: it depends on global graph context such as shared causes and effect pathways. We therefore implement a node →
+
+graph → node cycle, where Graph Tokens aggregate whole-graph information from Node Tokens and then feed it back to update each node. This yields node representations that are both variable-aligned and globally context-aware, im-proving knowledge-grounded inference for interventions and counterfactuals. This node → graph → node design is related to inducing/global-token mechanisms in set and graph models (Lee et al., 2019; Cai et al., 2023), but here the global tokens summarize the induced routing DAG and feed global causal context back to variable-level tokens. 3.1.5. B ASE AUTOREGRESSIVE OBJECTIVE 
+
+Since all models are finetuned for the downstream tasks, our base objective is standard teacher-forced autoregressive learning. Let y be the target output sequence (answer-only or an optional structured trace plus answer). We optimize: 
+
+LLM = −
+
+> |y|
+
+X
+
+> t=1
+
+log pθ (yt | y<t , I1: M , x ). (9) 
+
+Optional structured trace. When training with structured reasoning traces, we optionally apply a lightweight schema-conditioned attention routing; we omit details here and pro-vide them in Appendix A.2–A.4. 
+
+3.2. M3S: Multi-Source Signal Supervision under Missing and Heterogeneous Labels 
+
+M3S closes the supervision gap (P2) by translating any available causal knowledge signals into direct supervision on the induced routing DAG and Causal Tokens. It supports missing labels and heterogeneous granularity (partial edges, node/edge/global descriptions), and can optionally refine the induced DAG toward a ground-truth causal graph when causal-graph supervision is provided. M3S adds optional auxiliary losses on top of LLM . Each loss is activated only when its corresponding supervision is available. 3.2.1. (O PTIONAL ) CAUSAL -GRAPH EDGE SUPERVISION 
+
+If a ground-truth causal graph adjacency A⋆ ∈ { 0, 1}D×D
+
+is provided (possibly partially observed), we supervise the induced edge probabilities using Binary Cross-Entropy Loss( BCE ): 
+
+LA = BCE  P, A⋆, (10) that computed only on observed entries (and valid variables). Importantly, edge supervision assumes that the induced vari-able features have a stable correspondence to the ground-truth node ordering. Therefore, graph-level supervision is most effective when variable identities are grounded by node-level alignment; otherwise, the oracle graph may be applied to mismatched latent variables. 5Internalizing Causal Supervision in VLM for Multi-Image Causal Reasoning 
+
+3.2.2. (O PTIONAL ) T OKEN SEMANTICS ALIGNMENT VIA DESCRIPTIONS 
+
+When node/edge/global descriptions are available, we align (i) variable features and Node Tokens to node descriptions (Lnode ), and (ii) pooled Graph Tokens to graph-level descrip-tions ( Lgraph ) using a symmetric contrastive objective LNCE 
+
+(full formula in Appendix A.1). Because latent variable features are permutation-invariant, we first match predicted features to described node ids via Hungarian assignment (as in set prediction) and compute alignment losses after reordering (Carion et al., 2020; Kuhn, 1955). 
+
+Causal DAG refinement. If A⋆ is not available, we en-courage acyclicity using a NOTEARS-style regularizer 
+
+Ldag to refine P toward a causal DAG with augmented-Lagrangian updates and schedule (Appendix A.5). 3.2.3. M3S O BJECTIVE 
+
+We define the M3S auxiliary loss as LM3S = λA I[A⋆]LA +
+
+λdag Ldag + λdesc I[desc ]Ldesc ; where Ldesc = Lnode + Lgraph 
+
+denotes the description-alignment terms, λ are scalar hy-perparameters controlling the corresponding weights, and 
+
+I[·] is an indicator function that activates the corresponding term only when the required supervision is available. The overall training objective is LLM + LM3S .
+
+Intuition. M3S makes supervision land on the same in-ternal interface the model uses for prediction: whenever partial causal knowledge signals are available, they directly shape the induced DAG and Causal Tokens rather than being relegated to prompt text. 
+
+## 4. Experiments 
+
+We organize our experiments around six questions: (RQ1) 
+
+How does BridgeVLM compare to strong baselines (both SOTA and our backbone)? (RQ2) Which architectural com-ponents of BridgeVLM contribute most, and are generic structured tokens sufficient? (RQ3) Are internal causal knowledge signals more effective than external (prompt-level) signals? (RQ4) Within M3S, which supervision sources are most useful? (RQ5) How well does the induced routing DAG align with the ground-truth causal graph? 
+
+(RQ6) Does BridgeVLM transfer/adapt to a different vi-sual causal reasoning scenario? Each question is answered in Sections 4.3–4.7. 
+
+4.1. Benchmarks and Tasks 
+
+We evaluate BridgeVLM on two visual causal reasoning benchmarks, Causal3D (Liu et al., 2025) and CausalVL-Bench (Komanduri et al., 2025), covering both intervention-target prediction and counterfactual prediction . Causal3D consists of synthetic 3D scenes with explicitly specified causal knowledge (i.e., rule-based structural relations), while CausalVLBench contains physically simulated sce-narios (P ENDULUM , F LOW , C IRCUIT ). We follow the standard evaluation protocols and use an 8:1:1 train/vali-dation/test split for all datasets (details in Appendix C). We report accuracy for downstream tasks and additionally re-port directed-edge F1 between the induced DAG and the ground-truth causal graph for CausalVLBench intervention (Appendix F). 
+
+4.2. Experimental Setup Backbone and variants. We use Phi-4-MMI-7B as the backbone LVLM (Microsoft et al., 2025). BridgeVLM adds latent variable features, an induced routing DAG , RAMP, and Causal Tokens , trained with M3S . We report parameter, FLOP, and latency overhead in Appendix B.1. 
+
+Baseline. We use strong open-source LVLMs, including LLaVA-OneVision-7B (Li et al., 2024), DeepSeek-VL2-S-16B (Wu et al., 2024), and Qwen2.5-VL-32B (Bai et al., 2025). We also include the closed-source commercial VLM Gemini-2.0-Flash (Google, 2024). Some results are taken from the best results reported in the CausalVLBench paper (Komanduri et al., 2025). Note that their settings differs from our zero-shot evaluation, as it incorporates additional few-shot learning information that could enhance perfor-mance; we include these results alongside ours for refer-ence. 
+
+Fine-tuning protocol and supervision usage. Unless marked No Finetuning , models under our backbone are jointly fine-tuned across all tasks/scenarios within each benchmark. We compare two ways of using the same causal supervision (global and per-node explanations; edge super-vision when available): • Prompt-level (baseline): append causal knowledge to the input prompt, optionally supervising generated explanations. • Internal-level (BridgeVLM): use causal knowledge to directly supervise the internal Causal Tokens via M3S. Unless explicitly stated, BridgeVLM does not use the decoding-time routing mechanism (Appendix A.2). All evaluations are performed without few-shot in-context ex-emplars. 
+
+4.3. Downstream Task Prediction: Main Results RQ1 (overall performance). We compare BridgeVLM with (i) strong open-source and closed-source commercial 6Internalizing Causal Supervision in VLM for Multi-Image Causal Reasoning 
+
+Table 1. Main results on Causal3D (C3D) and CausalVLBench. P/F/C denote P ENDULUM /F LOW /C IRCUIT for CausalVLBench. For rows marked with “*”, numbers are taken from CausalVLBench (Komanduri et al., 2025). Bold marks the best result including commercial (CM) models; underline marks the best result excluding CM models. 
+
+INTERVENTION -TARGET COUNTERFACTUAL 
+
+C3D CAUSAL VLB ENCH C3D CAUSAL VLB ENCH 
+
+METHOD / S ETTING AVG P F C AVG AVG P F C AVG 
+
+LL AVA-O NE VISION -7B (L I ET AL ., 2024) 39.8 27.1* 32.7* 35.9* 31.9* 60.1 83.5* 85.0* 96.9* 88.5* DEEP SEEK -VL2-S-16B (W U ET AL ., 2024) 33.8 24.4* 34.4* 28.1* 29.0* 53.0 77.9* 51.4* 41.6* 57.0* QWEN 2.5-VL-32B (B AI ET AL ., 2025) – 27.4* 37.3* 32.0* 32.2* – 87.4* 86.7* 98.4* 90.8 *GEMINI -2.0-F LASH (CM) (G OOGLE , 2024) 33.5 47.4 * 55.7 * 66.1* 56.4 * 65.0 86.5* 88.3 * 97.4* 90.7* PHI -4-MMI-7B (N O-FT, CAUSAL -PROMPT ) 38.7 26.4 23.7 26.3 25.4 77.6 63.0 73.3 94.0 76.8 PHI -4-MMI-7B ( ANSWER ) 43.3 31.2 22.1 39.8 31.0 81.6 76.2 80.9 95.6 84.2 PHI -4-MMI-7B ( CAUSAL -TRACE ) 43.6 29.2 26.2 44.3 33.2 81.0 76.5 83.1 94.9 84.8 BRIDGE VLM-7B ( OURS ) 49.0 36.0 43.6 83.7 54.4 92.3 87.7 83.7 98.5 90.0 
+
+LVLM baselines and (ii) controlled Phi-4 backbone variants under our fine-tuning protocol. Table 1 compares the perfor-mance of intervention target prediction and counterfactual prediction on both benchmarks. The Phi-4-MMI-7B base-line consists of three variants: (i) a non-finetuned model prompted with causal knowledge; (ii) a finetuned model trained directly using the answer as the objective; and (iii) a fine-tuned model trained with prompt-level causal-trace supervision. BridgeVLM-7B uses answer directly as the training objective, and causal knowledge as M3S supervi-sion. 
+
+Intervention: BridgeVLM makes the same causal knowl-edge substantially more useful when applied at the internal Causal-Token/DAG interface: it improves over prompt-level causal injection (33.2 → 54.4 Avg on CausalVLBench), with the largest gain on C IRCUIT (44.3 → 83.7), consistent with scenarios requiring longer-range dependency propa-gation. BridgeVLM also surpasses the strongest reported open-source baselines (up to 32B) under the same bench-mark, and is competitive with the commercial baseline (54.4 vs. 56.4 Avg; Table 1). 
+
+Counterfactual: BridgeVLM yields consistent improve-ments on both benchmarks (e.g., 84.8 → 90.0 Avg on CausalVLBench; 81.0 → 92.3 on Causal3D), achieving the best results on P ENDULUM and C IRCUIT and remaining close to the strongest overall baseline (which has a 32B model size vs. 7B) on Avg. 
+
+4.4. Ablation: Which parts of BridgeVLM matter most? RQ2 (component importance). We ablate one compo-nent at a time (Table 2) of Routing DAG (DAG), Node Token (N ODE ) and Graph Token (G RAPH ), using the same training setup, to identify which parts drive intervention gains. All variants in Table 2 are evaluated with decoding-time routing enabled to maximize utilization of token be-
+
+Table 2. Component ablations on CausalVLBench intervention (accuracy %). Numbers in parentheses are absolute drops relative to the full model (N ONE ). MASK PENDULUM FLOW CIRCUIT AVG 
+
+NONE 39.6 53.4 86.4 59.8 DAG 22.7(-16.9) 41.6(-11.8) 67.9(-18.5) 44.0(-15.8) NODE 34.6(-5.0) 29.2(-24.2) 78.6(-7.8) 47.5(-12.3) GRAPH 25.0(-14.6) 44.3(-9.1) 69.6(-16.8) 46.3(-13.5) 
+
+haviors. (implementation details in Appendix A.2&D). We further add a Slot-Attention baseline (Locatello et al., 2020) that preserves structured intermediate tokens but re-moves the routing DAG, RAMP, and Graph Tokens. It reaches 38.3 Avg on CausalVLBench intervention, above Phi-4 causal-trace (33.2) but far below BridgeVLM (54.4), indicating that generic slot tokens help but DAG-conditioned routing is the main source of the gain. The detailed re-sult is illustrated in Appendix E. These results suggest that BridgeVLM’s gain is not merely due to adding extra inter-mediate tokens. Rather, the benefit comes from coupling variable-level tokens with an induced routing DAG and global Graph Tokens, which jointly provide both local vari-able grounding and global causal context. 
+
+Takeaway. All three components matter, but removing the routing DAG consistently hurts performance across all scenarios (59.8 → 44.0), confirming that directed routing is a primary source of gains. Graph Tokens are especially important on C IRCUIT and P ENDULUM , where removing graph tokens causes a severe collapse in accuracy, consistent with the need for long-range/global dependency aggregation. Node Tokens are most critical on F LOW , where removing node-level tokens leads to the largest drop (53.4 → 29.2), suggesting that fine-grained variable representations are necessary for node-sensitive intervention reasoning. 7Internalizing Causal Supervision in VLM for Multi-Image Causal Reasoning 
+
+Table 3. Supervision ablation on CausalVLBench intervention (accuracy %). Answer : Base model, trained directly using the answer. 
+
+GraphPrompt : ground-truth causal graph as prompt. NodePrompt : node/global descriptions as prompt. GraphAlign : supervise DAG with ground-truth causal graph adjacency (M3S causal graph supervision) . NodeAlign : align Causal Tokens to node/global descriptions (M3S token alignment). AttBias : Decoding time attention routing is applied. VARIANT (C AUSAL VLB ENCH INTERVENTION ) PENDULUM FLOW CIRCUIT AVG 
+
+PHI -4 (FT, A NSWER ) 31.2 22.1 39.8 31.0 BRIDGE (A NSWER ) 32.9 34.4 39.4 35.6 
+
+External (prompt-level) signals for RQ3 
+
+BRIDGE (+G RAPH PROMPT ) 25.4 44.6 38.3 36.1 BRIDGE (+N ODE PROMPT ) 24.5 22.0 38.3 28.3 BRIDGE (+G RAPH PROMPT +N ODE PROMPT ) 25.4 22.0 38.3 28.5 
+
+Internal (M3S) signals for RQ3/RQ4 
+
+BRIDGE (+G RAPH ALIGN ) 28.2 28.7 36.1 31.0 BRIDGE (+N ODE ALIGN ) 36.0 43.6 83.7 54.4 BRIDGE (+N ODE ALIGN +A TT BIAS ) 39.6 53.4 86.4 59.8 BRIDGE (+N ODE ALIGN +A TT BIAS +G RAPH ALIGN ) 39.3 55.0 86.4 60.2 
+
+4.5. Ablation: Which supervision signals matter? RQ3 (external vs. internal) & RQ4 (which M3S signals). 
+
+We compare prompt-level causal injection with internal-level supervision on the same causal knowledge, then ablate which internal supervision sources contribute most. Ta-ble 3 highlights a clear separation between external (prompt-level) and internal level supervision; and toggles M3S super-vision channels while keeping BridgeVLM’s architecture fixed, to isolate the contribution of each supervision channel. 
+
+Takeaway. The result indicates causal graph or textual descriptions as prompts (GraphPrompt /NodePrompt ) pro-vides little gain and can even be unstable relative to answer-only training compare to internal alignments , indicating that prompt-level causal information is not reliably utilized 
+
+(RQ3) . In contrast, NodeAlign (aligning internal Causal Tokens) is the main driver of gains, showing that causal supervision becomes effective when it directly shapes the model’s internal variable-level representations (RQ4) .Also, GraphAlign (supervising the routing DAG with the ground-truth causal graph) alone yields no improvement, or even worse for some tasks. We infer that it is caused by node-graph misalignment: without grounded node semantics (via 
+
+NodeAlign ), edge supervision provides a graph whose end-points are not consistently tied to the variable features, so this supervision itself cannot induce the intended informa-tion flow. When combined with NodeAlign , GraphAlign 
+
+only brings a marginal gain, suggesting that BridgeVLM can benefit from learning a reasonably plausible routing DAG; once node tokens are semantically grounded, enforcing an exactly matched causal graph offers diminishing returns for the downstream task. A post-hoc slot-node matching diagnostic in Appendix F.1 further supports this explanation: without NodeAlign, variable-to-node correspondence remains unstable even when GraphAlign is applied. This does not imply that causal prompts are universally harmful; rather, in our multi-image setting, long structured prompts appear difficult for the LVLM to ground consis-tently in visual evidence. Internal supervision avoids this issue by applying the same causal knowledge directly to the representations that participate in decoding. Note that AttBias yields only a very small extra boost and is treated as an optional trick; therefore, we do not include it in the default BridgeVLM results except Section 4.4. 
+
+4.6. Graph Recovery on CausalVLBench: Does BridgeVLM learn a more faithful structure? 
+
+Figure 4. Visualization examples of induced DAG for C IRCUIT 
+
+scenario on CausalVLBench. 
+
+RQ5 (structure diagnostic). We use causal graph recov-ery on CausalVLBench interventions as a diagnostic for whether internal supervision – none (A NS -ONLY ), node explanations (N ODE ALIGN ) or supervising the routing DAG with the ground-truth causal graph as oracle adja-cency (G RAPH ALIGN ) – makes the induced routing DAG more aligned with the ground-truth causal graph. We re-port directed-edge F1 after binarization (Table 4 and Ap-pendix F). Figure 4 shows an example induced DAG. 8Internalizing Causal Supervision in VLM for Multi-Image Causal Reasoning                                   
+
+> Table 4. Graph recovery on CausalVLBench intervention. We report F1 score for directed edge recovery by comparing the in-duced DAG with the ground-truth causal graph after binarization. GRAPH RECOVERY (DIRECTED -EDGE F1, %) OVERALL
+> BRIDGE VLM (A NS -ONLY )33.4 BRIDGE VLM (+G RAPH ALIGN )100.0 BRIDGE VLM (+N ODE ALIGN )75.1
+> Table 5. CELLO intervention accuracy (%). BridgeVLM does not claim zero-shot OOD generalization, but improves over the adapted backbone after CELLO adaptation. CELLO : Already fine-tuned for CELLO dataset. CVLB : Finetuned on CausalVLBench dataset only. METHOD COIBAS CDE AVG
+> PHI -4 (N O-FT, 0-SHOT )60.0 60.0 78.5 66.2 PHI -4 (CELLO) 80.0 76.0 95.2 83.7 BRIDGE (CVLB, 0-SHOT )58.6 48.6 82.2 63.1 BRIDGE (CELLO) 94.3 80.0 96.6 90.3
+
+Takeaway. Although the model is trained jointly across multiple scenarios, the oracle adjacency head reaches 100% by construction, indicating the model can reliably distin-guish different causal graphs across scenarios. Token-level description alignment substantially improves graph recovery, and higher recovery is consistently associated with stronger intervention accuracy, suggesting that better structural align-ment supports downstream interventional reasoning. 
+
+4.7. Can BridgeVLM handle out-of-distribution and single-image reasoning scenarios? RQ6 (transfer/adaptation). Although our work primar-ily targets the already challenging setting of multi-image visual causal reasoning within a fixed scene family , we fur-ther evaluate whether BridgeVLM remains useful beyond this main in-distribution setup. Specifically, we test on the CELLO intervention task (Chen et al., 2024), a single-image causal reasoning benchmark with explicit causal graphs. As shown in Table 5, BridgeVLM trained only on CausalVL-Bench does not solve zero-shot cross-benchmark transfer (63.1% Avg vs. 66.2% for Phi-4-MMI No-FT), indicating that unseen out-of-distribution causal scenarios remain chal-lenging. However, after CELLO fine-tuning, BridgeVLM reaches 90.3% average accuracy, outperforming the adapted Phi-4 baseline (83.7%). This suggests that the Causal-Token interface remains beneficial when adapted to a new causal benchmark, even in a single-image setting that emphasizes scene-level causal understanding rather than causal relations inferred from multi-image differences. 
+
+## 5. Conclusion 
+
+Our paper argues that a central obstacle for visual causal reasoning in LVLMs is the absence of a model-internal inter-face, as causal supervision purely from a prompt is difficult to take effect. We propose BridgeVLM , which induces a 
+
+DAG from (single- or) multi-image inputs and internalizes it as Causal Tokens for decoding, with RAMP enabling DAG-conditioned message propagation over latent variables. With M3S , BridgeVLM can leverage missing, partial, and heterogeneous supervision signals to improve both end-task performance and the recoverability of the induced DAG, and can optionally refine this graph toward a causal DAG when causal graph supervision is available. Empirically, BridgeVLM achieves strong results with a comparatively small 7B backbone, surpassing larger open-source LVLMs and remaining competitive with a strong closed-source com-mercial model under the same benchmark protocols. Over-all, our findings highlight that where supervision is applied (prompt- vs. internal-level) is critical for translating causal information into grounded reasoning. 
+
+Limitations. The induced DAG is a latent structure de-signed for internal reasoning rather than a guaranteed recov-ery of the true underlying causal graph without additional assumptions. In addition, our evaluation primarily assumes that test instances come from scenarios seen during training; generalization to entirely unseen causal scenarios (e.g., new variable sets or causal knowledge) remains a direction for future work. 
+
+## Impact Statement 
+
+This work aims to bridge vision–language modeling and causal learning by introducing a model-internal causal su-pervision interface for visual causal reasoning. By moving beyond prompt-level supervision and internalizing causal structure into learnable representations, our approach opens new opportunities for integrating causal reasoning directly into large multimodal foundation models. We hope this work encourages broader collaboration between the vision, causal inference, and foundation model communities, foster-ing shared benchmarks, interfaces, and learning principles for causal supervision in high-capacity models. Such cross-disciplinary efforts are essential for advancing models that can reason reliably about interventions, counterfactuals, and structured word dynamics rather than relying on surface correlations. More broadly, this direction holds promise for real-world applications where causal reasoning is critical, including robotics, embodied AI, scientific discovery, health-care, and decision-support systems. By enabling foundation models to better represent and reason about causal structure, this work contributes toward more interpretable, robust, and trustworthy multimodal AI systems, and highlights several open challenges, such as generalization to unseen causal scenarios, that motivate future research. Our work does not raise any ethical concerns that need disclosure. 9Internalizing Causal Supervision in VLM for Multi-Image Causal Reasoning 
+
+## References 
+
+Bai, S., Chen, K., Liu, X., Wang, J., Ge, W., Song, S., Dang, K., Wang, P., Wang, S., Tang, J., Zhong, H., Zhu, Y., Yang, M., Li, Z., Wan, J., Wang, P., Ding, W., Fu, Z., Xu, Y., Ye, J., Zhang, X., Xie, T., Cheng, Z., Zhang, H., Yang, Z., Xu, H., and Lin, J. Qwen2.5-vl technical report. arXiv preprint arXiv:2502.13923 , 2025. Cai, C., Hy, T. S., Yu, R., and Wang, Y. On the con-nection between MPNN and graph transformer. In Krause, A., Brunskill, E., Cho, K., Engelhardt, B., Sabato, S., and Scarlett, J. (eds.), Proceedings of the 40th International Conference on Machine Learn-ing , volume 202 of Proceedings of Machine Learn-ing Research , pp. 3408–3430. PMLR, 23–29 Jul 2023. URL https://proceedings.mlr.press/ v202/cai23b.html .Carion, N., Massa, F., Synnaeve, G., Usunier, N., Kir-illov, A., and Zagoruyko, S. End-to-end object detec-tion with transformers, 2020. URL https://arxiv. org/abs/2005.12872 .Chen, M., Peng, B., Zhang, Y., and Lu, C. CELLO: Causal evaluation of large vision-language models. In Al-Onaizan, Y., Bansal, M., and Chen, Y.-N. (eds.), Pro-ceedings of the 2024 Conference on Empirical Methods in Natural Language Processing , pp. 22353–22374, Miami, Florida, USA, November 2024. Association for Compu-tational Linguistics. doi: 10.18653/v1/2024.emnlp-main. 1247. URL https://aclanthology.org/2024. emnlp-main.1247/ .Darvariu, V.-A., Hailes, S., and Musolesi, M. Large lan-guage models are effective priors for causal graph discov-ery, 2024. URL https://arxiv.org/abs/2405. 13551 .Google. Gemini 2.0 flash (model documenta-tion). https://docs.cloud.google.com/ vertex-ai/generative-ai/docs/models/ gemini/2-0-flash , 2024. Jiang, H., Ge, L., Gao, Y., Wang, J., and Song, R. LLM4causal: Democratized causal tools for everyone via large language model. In First Conference on Lan-guage Modeling , 2024. URL https://openreview. net/forum?id=H1Edd5d2JP .Jin, Z., Chen, Y., Leeb, F., Gresele, L., Kamal, O., Lyu, Z., Blin, K., Gonzalez, F., Kleiman-Weiner, M., Sachan, M., and Sch ¨olkopf, B. Cladder: assessing causal reasoning in language models. In Proceedings of the 37th Inter-national Conference on Neural Information Processing Systems , NIPS ’23, Red Hook, NY, USA, 2023. Curran Associates Inc. Jiralerspong, T., Chen, X., More, Y., Shah, V., and Ben-gio, Y. Efficient causal graph discovery using large lan-guage models, 2024. URL https://arxiv.org/ abs/2402.01207 .Kampani, S., Hidary, D., van der Poel, C., Ganahl, M., and Miao, B. Llm-initialized differentiable causal discov-ery, 2024. URL https://arxiv.org/abs/2410. 21141 .Komanduri, A., Bhaila, K., and Wu, X. CausalVL-Bench: Benchmarking visual causal reasoning in large vision-language models. In Christodoulopou-los, C., Chakraborty, T., Rose, C., and Peng, V. (eds.), Proceedings of the 2025 Conference on Em-pirical Methods in Natural Language Processing , pp. 30660–30680, Suzhou, China, November 2025. As-sociation for Computational Linguistics. ISBN 979-8-89176-332-6. doi: 10.18653/v1/2025.emnlp-main. 1561. URL https://aclanthology.org/2025. emnlp-main.1561/ .Kuhn, H. W. The hungarian method for the assignment problem. Naval Research Logistics Quarterly , 2(1-2):83– 97, 1955. doi: https://doi.org/10.1002/nav.3800020109. URL https://onlinelibrary.wiley.com/ doi/abs/10.1002/nav.3800020109 .Lee, J., Lee, Y., Kim, J., Kosiorek, A., Choi, S., and Teh, Y. W. Set transformer: A framework for attention-based permutation-invariant neural networks. In Chaud-huri, K. and Salakhutdinov, R. (eds.), Proceedings of the 36th International Conference on Machine Learn-ing , volume 97 of Proceedings of Machine Learning Research , pp. 3744–3753. PMLR, 09–15 Jun 2019. URL https://proceedings.mlr.press/v97/ lee19d.html .Li, B., Zhang, Y., Guo, D., Zhang, R., Li, F., Zhang, H., Zhang, K., Zhang, P., Li, Y., Liu, Z., and Li, C. Llava-onevision: Easy visual task transfer, 2024. URL https: //arxiv.org/abs/2408.03326 .Liu, D., Qiao, Y., Liu, W., Lu, Y., Zhou, Y., Liang, T., Yin, Y., and Ma, J. Causal3d: A comprehensive benchmark for causal learning from visual data, 2025. URL https: //arxiv.org/abs/2503.04852 .Locatello, F., Weissenborn, D., Unterthiner, T., Ma-hendran, A., Heigold, G., Uszkoreit, J., Dosovitskiy, A., and Kipf, T. Object-centric learning with slot attention. In Larochelle, H., Ranzato, M., Had-sell, R., Balcan, M., and Lin, H. (eds.), Advances in Neural Information Processing Systems , vol-ume 33, pp. 11525–11538. Curran Associates, Inc., 2020. URL https://proceedings.neurips. cc/paper_files/paper/2020/file/ 
+
+10 Internalizing Causal Supervision in VLM for Multi-Image Causal Reasoning 
+
+8511df98c02ab60aea1b2356c013bc0f-Paper. pdf .Long, S., Pich ´e, A., Zantedeschi, V., Schuster, T., and Drouin, A. Causal discovery with language models as im-perfect experts, 2023. URL https://arxiv.org/ abs/2307.02390 .Long, S., Schuster, T., and Pich ´e, A. Can large language models build causal graphs?, 2024. URL https:// arxiv.org/abs/2303.05279 .Ma, J. Causal inference with large language model: A survey. Findings of the Association for Computational Linguistics: NAACL 2025 , pp. 5886–5898, 2025. Microsoft, :, Abouelenin, A., Ashfaq, A., Atkinson, A., Awadalla, H., Bach, N., Bao, J., Benhaim, A., Cai, M., Chaudhary, V., Chen, C., Chen, D., Chen, D., Chen, J., Chen, W., Chen, Y.-C., ling Chen, Y., Dai, Q., Dai, X., Fan, R., Gao, M., Gao, M., Garg, A., Goswami, A., Hao, J., Hendy, A., Hu, Y., Jin, X., Khademi, M., Kim, D., Kim, Y. J., Lee, G., Li, J., Li, Y., Liang, C., Lin, X., Lin, Z., Liu, M., Liu, Y., Lopez, G., Luo, C., Madan, P., Mazalov, V., Mitra, A., Mousavi, A., Nguyen, A., Pan, J., Perez-Becker, D., Platin, J., Portet, T., Qiu, K., Ren, B., Ren, L., Roy, S., Shang, N., Shen, Y., Singhal, S., Som, S., Song, X., Sych, T., Vaddamanu, P., Wang, S., Wang, Y., Wang, Z., Wu, H., Xu, H., Xu, W., Yang, Y., Yang, Z., Yu, D., Zabir, I., Zhang, J., Zhang, L. L., Zhang, Y., and Zhou, X. Phi-4-mini technical report: Compact yet powerful multimodal language models via mixture-of-loras, 2025. URL https://arxiv.org/abs/2503.01743 .Parascandolo, F., Moratelli, N., Sangineto, E., Baraldi, L., and Cucchiara, R. Causal graphical models for vision-language compositional understanding. In The Thirteenth International Conference on Learning Representations ,2025. URL https://openreview.net/forum? id=haJHr4UsQX .Paul, D., West, R., Bosselut, A., and Faltings, B. Making reasoning matter: Measuring and improving faithfulness of chain-of-thought reasoning, 2024. URL https:// arxiv.org/abs/2402.13950 .Song, Z., Zhao, S., Zhang, X., Li, J., Zheng, C., and Qiang, W. Learning invariant causal mechanism from vision-language models. In Forty-second International Conference on Machine Learning , 2025. URL https: //openreview.net/forum?id=GB9XiKIwfp .Turpin, M., Michael, J., Perez, E., and Bowman, S. R. Lan-guage models don’t always say what they think: Un-faithful explanations in chain-of-thought prompting. In 
+
+Thirty-seventh Conference on Neural Information Pro-cessing Systems , 2023. URL https://openreview. net/forum?id=bzs4uPLXvi .Vo, A., Nguyen, K.-N., Taesiri, M. R., Dang, V. T., Nguyen, A. T., and Kim, D. Vision language models are biased, 2025. URL https://openreview.net/forum? id=4GWfYyo6FS .Wan, G., Lu, Y., Wu, Y., Hu, M., and Li, S. Large language models for causal discovery: Current landscape and fu-ture directions, 2025. URL https://arxiv.org/ abs/2402.11068 .Wang, Z. CausalBench: A comprehensive benchmark for evaluating causal reasoning capabilities of large language models. In Wong, K.-F., Zhang, M., Xu, R., Li, J., Wei, Z., Gui, L., Liang, B., and Zhao, R. (eds.), Proceedings of the 10th SIGHAN Workshop on Chinese Language Pro-cessing (SIGHAN-10) , pp. 143–151, Bangkok, Thailand, August 2024. Association for Computational Linguis-tics. URL https://aclanthology.org/2024. sighan-1.17/ .Wu, Z., Chen, X., Pan, Z., Liu, X., Liu, W., Dai, D., Gao, H., Ma, Y., Wu, C., Wang, B., Xie, Z., Wu, Y., Hu, K., Wang, J., Sun, Y., Li, Y., Piao, Y., Guan, K., Liu, A., Xie, X., You, Y., Dong, K., Yu, X., Zhang, H., Zhao, L., Wang, Y., and Ruan, C. Deepseek-vl2: Mixture-of-experts vision-language models for advanced multimodal understanding, 2024. URL https://arxiv.org/ abs/2412.10302 .Zhang, C., Zhang, L., Wu, J., He, Y., and Zhou, D. Causal prompting: debiasing large language model prompt-ing based on front-door adjustment. In Proceedings of the Thirty-Ninth AAAI Conference on Artificial Intelli-gence and Thirty-Seventh Conference on Innovative Ap-plications of Artificial Intelligence and Fifteenth Sym-posium on Educational Advances in Artificial Intelli-gence , AAAI’25/IAAI’25/EAAI’25. AAAI Press, 2025. ISBN 978-1-57735-897-8. doi: 10.1609/aaai.v39i24. 34777. URL https://doi.org/10.1609/aaai. v39i24.34777 .Zhang, Y., Li, J., Liu, L., and Qiang, W. Rethinking mis-alignment in vision-language model adaptation from a causal perspective. In Globerson, A., Mackey, L., Bel-grave, D., Fan, A., Paquet, U., Tomczak, J., and Zhang, C. (eds.), Advances in Neural Information Processing Sys-tems , volume 37, pp. 39224–39248. Curran Associates, Inc., 2024. doi: 10.52202/079017-1238. Zhao, H., Si, S., Chen, L., Zhang, Y., Sun, M., Chang, B., and Zhang, M. Looking beyond text: Reducing language bias in large vision-language models via mul-timodal dual-attention and soft-image guidance. In Christodoulopoulos, C., Chakraborty, T., Rose, C., and Peng, V. (eds.), Proceedings of the 2025 Conference on Empirical Methods in Natural Language Process-ing , pp. 19666–19690, Suzhou, China, November 2025. 11 Internalizing Causal Supervision in VLM for Multi-Image Causal Reasoning 
+
+Association for Computational Linguistics. ISBN 979-8-89176-332-6. doi: 10.18653/v1/2025.emnlp-main. 995. URL https://aclanthology.org/2025. emnlp-main.995/ .Zhou, G., Yan, Y., Zou, X., Wang, K., Liu, A., and Hu, X. Mitigating modality prior-induced hallucinations in multimodal large language models via deciphering atten-tion causality. In The Thirteenth International Confer-ence on Learning Representations , 2025. URL https: //openreview.net/forum?id=AV7OXVlAyi .12 Internalizing Causal Supervision in VLM for Multi-Image Causal Reasoning 
+
+## A. Additional Implementation Details 
+
+A.1. Symmetric InfoNCE for Node/Graph Description Alignment 
+
+We use a symmetric InfoNCE objective to align visual-derived representations (variable features / Node Tokens / Graph Tokens) with text-derived description embeddings. When textual descriptions exist, we align (i) variable features Q and (ii) Node Tokens Tn to node-description embeddings, and align pooled Graph Tokens to graph-level description embeddings using a symmetric contrastive objective to get Ldesc :
+
+Lnode = βq LNCE ( ˜Q, Un) + βn LNCE ( ˜Tn, Un), (11) 
+
+Lgraph = LNCE (MeanPool( Tg ), MeanPool( Ug )) , (12) where Un stacks node-description embeddings and Ug is the stacks of global and edge description embeddings. Here ˜Q
+
+and ˜Tn denote variable features and Node Tokens permuted to match the ground-truth node order. 
+
+Symmetric InfoNCE (node-level, within-sample negatives). For a sample b with nb valid nodes, let g(b) 
+
+> i
+
+denote the visual-side representation for node i (either q(b) 
+
+> i
+
+or tn, (b) 
+
+> i
+
+), and let u(b) 
+
+> i
+
+denote the corresponding node-description embedding. We apply learned projections and ℓ2 normalization: 
+
+ˆg(b) 
+
+> i
+
+= norm  fg (g(b) 
+
+> i
+
+), ˆu(b) 
+
+> i
+
+= norm  fu(u(b) 
+
+> i
+
+). (13) We define pairwise similarities with temperature τ :
+
+s(b) 
+
+> ij
+
+= ˆg(b)⊤ 
+
+> i
+
+ˆu(b)
+
+> j
+
+τ . (14) The symmetric InfoNCE loss for sample b is: 
+
+L(b)
+
+> NCE
+
+(g, u) = 12
+
+
+
+− 1
+
+nbnbX
+
+> i=1
+
+log exp( s(b) 
+
+> ii
+
+)
+
+Pnb 
+
+> j=1
+
+exp( s(b) 
+
+> ij
+
+) − 1
+
+nbnbX
+
+> i=1
+
+log exp( s(b) 
+
+> ii
+
+)
+
+Pnb 
+
+> j=1
+
+exp( s(b) 
+
+> ji
+
+)
+
+
+
+. (15) We average L(b) 
+
+> NCE
+
+over batch samples that provide node descriptions, and apply the same form to graph-level alignment by treating each sample as one “instance” (with negatives from other batch samples). 
+
+Symmetric InfoNCE (graph-level, across-batch negatives). Let ¯tg, (b) be a pooled representation of Graph Tokens for sample b (e.g., mean pooling over G tokens), and let ug, (b) be the graph-level description embedding. We treat each sample as one instance and use other batch elements as negatives via a symmetric contrastive objective (equivalently, symmetric cross-entropy on the B × B similarity matrix). 
+
+Hungarian bipartite matching for variable identity alignment. Let Tpred, (b) ∈ RDp×H be predicted node represen-tations used for matching (we use variable features Q by default, and fall back to Node Tokens when needed), and let 
+
+U(b) ∈ RDg ×H be node-description embeddings in a fixed ground-truth order. Let m(b) ∈ { 0, 1}Dg denote the valid-node mask and define the valid index set J (b) = {j | m(b) 
+
+> j
+
+= 1 }.We compute a similarity matrix: 
+
+S(b) 
+
+> i,j
+
+= norm( Tpred, (b) 
+
+> i
+
+)⊤norm( U(b) 
+
+> j
+
+), i ∈ { 1, . . . , D p}, j ∈ J (b). (16) We then solve a one-to-one assignment from valid described nodes to predicted variables: 
+
+π(b) = arg max 
+
+> π
+
+X 
+
+> j∈J (b)
+
+S(b) 
+
+> π(j),j
+
+s.t. π(j) ∈ { 1, . . . , D p} and π(j)̸ = π(j′) ∀j̸ = j′. (17) Equivalently, we minimize the cost C(b) 
+
+> i,j
+
+= −S(b) 
+
+> i,j
+
+and solve it with the Hungarian algorithm (Kuhn, 1955) (as commonly done for set prediction in DETR (Carion et al., 2020)). 13 Internalizing Causal Supervision in VLM for Multi-Image Causal Reasoning 
+
+Permutation and aligned losses. After obtaining π(b), we reorder predicted node tokens to match the ground-truth node order: ˜Tn, (b) 
+
+> j
+
+= Tn, (b)
+
+> π(b)(j)
+
+, ∀j ∈ J (b). (18) If we also supervise the latent DAG, we apply the same permutation to both rows and columns: 
+
+˜A(b) 
+
+> j,k
+
+= A(b)
+
+> π(b)(j), π (b)(k)
+
+, ∀j, k ∈ J (b). (19) All node-/graph-alignment and DAG supervision losses are then computed on these aligned (permuted) predictions, with masks applied to ignore invalid nodes/edges. 
+
+Implementation notes. (i) We apply the node-presence mask so that only valid nodes contribute. (ii) We optionally use cross-batch negatives via a memory queue; in our default implementation we use in-batch negatives for simplicity and reproducibility. 
+
+A.2. Optional Schema-Conditioned Decoding-Time Routing for Structured Reasoning Schema-conditioned routing is an optional decoding-time mechanism for structured reasoning traces. It biases attention based on the current schema field (e.g., node-specific, edge-specific, global explanation, answer), so each field preferentially consults the most relevant subset of Causal Tokens—improving precision without changing the base model architecture. 
+
+A.2.1. S CHEMA STATE AND STRUCTURED OUTPUTS 
+
+When BridgeVLM is asked to produce a reasoning trace, it uses a simple schema with sentinel tokens (or function-calling style arguments) to delimit fields. A lightweight state machine parses the generated token and outputs a schema state ϕt at decoding step t:
+
+ϕt ∈ { Node (k), Edge (k, ℓ ), Explain , Answer , Other }. (20) The concrete sentinel design and parsing rules are provided in Appendix A.3. A.2.2. A TTENTION WITH ROUTING BIAS 
+
+For a transformer layer, the pre-softmax attention logit from query position t to key position j is: 
+
+at,j = q⊤ 
+
+> t
+
+kj
+
+√H + Mt,j + η Ft,j , (21) where Mt,j is the standard causal mask, η is a scalar routing strength, and Ft,j is a schema-conditioned routing bias. Intuitively, Ft,j upweights the Causal Tokens relevant to the current schema state (e.g., the Node Token for Node (k))and optionally downweights irrelevant Node Tokens. The precise definition of Ft,j via focus/downweight sets is given in Appendix A.4. 
+
+Practical note. When routing is disabled, we set η = 0 , recovering standard decoding. 
+
+A.3. Schema State Machine and Sentinel Design 
+
+We recommend using explicit sentinel tokens to delimit structured fields. One concrete Phi-4-instruct style format is: 
+
+<|Node|> (k) ... <|Edge|> (k -> l) ... <|Explain|> ... <|Assistant|> Answer: ... 
+
+A lightweight state machine scans the generated token and outputs ϕt:• If the latest special token is <|Node|> (k) , set ϕt = Node (k) until next special token. 14 Internalizing Causal Supervision in VLM for Multi-Image Causal Reasoning 
+
+Table 6. Hyperparameter for reproducibility. 
+
+CATEGORY HYPERPARAMETERS 
+
+VISION ENCODER Evis : F ROM PHI -4-MM-I NSTRUCT , FINETUNED FOR LAST 4 LAYERS .VARIABLE FEATURES D: 10 GRAPH INDUCTION r: 10 RAMP Lp : 4, DROPOUT : 0.1 GRAPH TOKENS Tn : 10, Tg : 10 LOSS WEIGHTS λTEXT : 0 .5, λ A : 0 .5, λ NODE : 0 .2, λ GRAPH : 0 .2, λ DAG : 0.2 OPTIMIZATION LEARNING RATE : 1 E-4, BATCH SIZE : 8, WEIGHT DECAY : 0.01 TRAINING EPOCHS : 5, E ARLY STOPPING : Y ES 
+
+• If the latest special token is <|Edge|> (k -> l) , set ϕt = Edge (k, ℓ ) until next special token. • If the latest special token is <S EXPLAIN> , set ϕt = Explain .• If the latest special token is <|Assistant|> Answer , set ϕt = Answer .• Otherwise, ϕt = Other .
+
+Design recommendations. (i) Use special tokens from tokenizer that are unique and unlikely to appear in natural text. (ii) Always include explicit node ids / edge endpoints to enable id-aware routing. (iii) For safety, if malformed patterns occur, fall back to Other .
+
+A.4. Precise Routing Bias Definition via Focus/Downweight Sets 
+
+Let Ink be the position index of the injected Node Token for node k, and let Ig be the set of injected Graph Token indices (size G). Define In = ∪Dk=1 Ink and Ic = In ∪ I g . We define a focus set F(ϕt) and a downweight set D(ϕt):
+
+F(Node (k)) = Ink , D(Node (k)) = In \ I nk , (22) 
+
+F(Edge (k, ℓ )) = Ig ∪ I nk ∪ I nℓ , D(Edge (k, ℓ )) = In \ (Ink ∪ I nℓ ), (23) 
+
+F(Explain ) = Ic, D(Explain ) = ∅, (24) 
+
+F(Answer ) = ∅, D(Answer ) = ∅, (25) 
+
+F(Other ) = ∅, D(Other ) = ∅. (26) Then the routing bias is: 
+
+Ft,j = Ij ∈ F (ϕt) − γ Ij ∈ D (ϕt), (27) where γ > 0 controls how strongly we downweight irrelevant Node Tokens for node-/edge-specific fields. 
+
+A.5. Augmented Lagrangian Optimization for NOTEARS-style Acyclicity 
+
+We use the NOTEARS acyclicity measure h(P) = tr(exp( P ⊙ P)) − D and optimize an augmented Lagrangian: 
+
+Ldag = α h (P) + ρ
+
+2 h(P)2. (28) We update the Lagrange multiplier α and penalty ρ as: 
+
+α ← α + ρ h (P), ρ ← min( ρmax , c ρρ), (29) where cρ > 1. In our default schedule, we (i) warm up without Ldag for Twarm steps to stabilize variable/graph induction, then (ii) enable Ldag and update (α, ρ ) every Tupdate steps. We clip gradients on ˜A for stability and optionally stop increasing 
+
+ρ once h(P) plateaus. 
+
+## B. Hyperparameter Table 
+
+Table 6 provides a default hyperparameters we used for training & finetuning. 15 Internalizing Causal Supervision in VLM for Multi-Image Causal Reasoning                                
+
+> Table 7. Efficiency comparison. Latencies are measured per batch under our implementation. PHI -4-MMI-7B BRIDGE VLM TOTAL PARAMS 5.574B 6.359B BACKBONE PARAMS (INCL . L ORA) –5.714B VARIABLE FEATURE ENCODER –226.68M RAMP MODULE –188.80M CAUSAL TOKEN ENCODER –230.15M FLOP S/FORWARD 11.713T 13.009T INFERENCE LATENCY /BATCH 128.26 MS 228.97 MS
+> TRAINING LATENCY /BATCH 186.22 MS 288.54 MS
+
+B.1. Efficiency Analysis 
+
+We measure efficiency under the same setting as Appendix B using 2 NVIDIA A100 GPUs. Table 7 reports parameter count, per-forward FLOPs, and latency. BridgeVLM introduces a moderate efficiency–performance tradeoff: it adds causal modules on top of the same Phi-4 backbone, resulting in additional parameters and latency but substantial gains in visual causal reasoning. The current latency likely overestimates the intrinsic overhead, since the Phi-4 backbone benefits from optimized kernels whereas our causal branch is implemented with standard PyTorch operators and is not yet kernel-optimized. 
+
+## C. Dataset Preparation 
+
+Dataset statistics is shown in table 8. 
+
+C.1. Causal3D 
+
+For each scenario in Causal3D, we construct 3,000 samples for intervention target prediction, with balanced labels (1,000 samples per label for the 3 candidate variables); and 1,000 samples for counterfactual prediction, with balanced labels (250 samples per variable change for the 4 candidate variables) We use a stratified 8:1:1 train/val/test split within each label to ensure label balance across splits. That is, 9,000 samples in total. For all Causal3D tasks, each example includes 3 input images. In intervention-target prediction , two images are non-intervened references and the third image reflects the intervention; in counterfactual prediction , the three images correspond to the scenario-specific counterfactual setup. 
+
+C.2. CausalVLBench 
+
+We use the original CausalVLBench data, consisting of 17,744 P ENDULUM samples, 10,890 F LOW samples, and 2,871 CIRCUIT samples. We apply the same stratified 8:1:1 split within each label for each scenario. For CausalVLBench, intervention-target prediction task contains 2 images, where one is non-intervened and the other is intervened; counterfactual prediction task contains only 1 image, which corresponding to the scenario-specific setup. 
+
+C.3. Overall Metric Under Scenario Imbalance 
+
+CausalVLBench scenarios are highly imbalanced for each scenario. Therefore, when reporting average accuracy in the main tables, we compute an unweighted mean of per-scenario accuracies (macro-average over P ENDULUM /F LOW /C IRCUIT ), rather than computing total correct predictions divided by total number of samples. 
+
+## D. Component Ablations of BridgeVLM 
+
+We evaluate the importance of BridgeVLM components by ablating one component at a time and re-evaluating intervention accuracy on CausalVLBench (Table 2). All ablations keep the remaining architecture and training setup unchanged; only the specified component is removed or masked. 16 Internalizing Causal Supervision in VLM for Multi-Image Causal Reasoning 
+
+Table 8. Dataset sizes and stratified 8:1:1 train/val/test splits. Splits are stratified by label within each scenario. DATASET SCENARIO #L ABELS TOTAL TRAIN VAL TEST 
+
+CAUSAL 3D-I NTERVENTION (PER SCENARIO ) 3 3,000 2,400 300 300 CAUSAL 3D-I NTERVENTION ALL (3 SCENARIOS ) 3 9,000 7,200 900 900 CAUSAL 3D-C OUNTERFACTUAL (PERSCENARIO ) 4 1,000 800 100 100 CAUSAL 3D-C OUNTERFACTUAL ALL (3 SCENARIOS ) 4 3,000 2,400 300 300 CAUSAL VLB ENCH PENDULUM 4 17,744 14,196 1,774 1,774 CAUSAL VLB ENCH FLOW 4 10,890 8,712 1,089 1,089 CAUSAL VLB ENCH CIRCUIT 4 2,871 2,297 287 287 CAUSAL VLB ENCH ALL (3 SCENARIOS ) 4 31,505 25,205 3,150 3,150 
+
+Table 9. Structured-token baseline on CausalVLBench intervention. Slot-Attention preserves structured intermediate representations but removes the routing DAG, RAMP, and Graph Tokens. METHOD PENDULUM FLOW CIRCUIT AVG 
+
+PHI -4-MMI-7B ( CAUSAL -TRACE ) 29.2 26.2 44.3 33.2 SLOT -A TTENTION BASELINE 34.5 43.3 37.0 38.3 BRIDGE VLM-7B 36.0 43.6 83.7 54.4 
+
+Ablation definitions. 
+
+1. DAG To remove the effect of the induced DAG structure, we replace the learned DAG with an all-ones adjacency before normalization, yielding a fully connected and uniform routing pattern for message passing (i.e., the model can no longer exploit directed structure). 2. Node (remove RAMP and node-token injection). To test the contribution of node-level structural tokens and RAMP propagation, we bypass RAMP and do not inject Node Tokens into the decoder. We still compute Graph Tokens from the variable features to preserve a global summary pathway. 3. Graph (remove global tokens and local–global fusion). To test the contribution of global structural context, we mask Graph Tokens and disable the graph-to-node update, so the decoder receives only Node Tokens without global fusion. 
+
+## E. Slot-Attention Baseline Comparison 
+
+To determine whether the gains come merely from using structured intermediate representations or specifically from our DAG-conditioned routing design, we introduce a closer structured baseline based on Slot Attention. This baseline replaces BridgeVLM’s latent variable queries, routing DAG, RAMP layers, and Graph Tokens with Slot Attention, and injects the resulting slot tokens directly into the decoder. Thus, it preserves structured intermediate tokens while removing causal routing. As shown in Table 9, this baseline improves over the Phi-4 backbone with causal-trace supervision (33.2 Avg), but remains far below BridgeVLM (54.4 Avg). This indicates that structured tokens are helpful, but insufficient to explain the full gain. DAG-conditioned routing is a key contributor: it not only introduces structure, but also organizes causal information into Node Tokens for variable-specific reasoning and Graph Tokens for global causal context. 
+
+## F. Causal Graph Recovery on CausalVLBench 
+
+We evaluate graph recovery on CausalVLBench intervention by comparing the induced DAG P ∈ [0 , 1] D×D with the ground-truth causal graph A⋆ ∈ { 0, 1}D×D. We binarize predictions with a fixed threshold of 0.5 (i.e., predict an edge if Pij ≥ 0.5). We then compute directed-edge precision/recall/F1 and accuracy from the aggregated TP /FP /FN /TN 
+
+counts. We ignore the diagonal (self-edges are excluded). All confusion counts are micro-aggregated over the entire test set and reported as a single overall score across the three scenarios (P ENDULUM , F LOW , C IRCUIT ). Table 10 shows that graph recovery quality is positively associated with downstream intervention performance across scenarios: higher recovery F1 tends to coincide with higher intervention and counterfactual accuracy. Figure 5 provides visualization examples of induced DAG for the BridgeVLM with token-alignment supervision variant. The predicted edges are mostly consistent with the ground-truth structure. 17 Internalizing Causal Supervision in VLM for Multi-Image Causal Reasoning 
+
+Table 10. Causal Graph recovery (directed-edge F1) versus downstream task performance on CausalVLBench. SCENARIO RECOVERY F1(%) INTERVENTION (%) COUNTERFACTUAL 
+
+PENDULUM 57.1 39.6 87.7 FLOW 75.0 53.4 83.7 CIRCUIT 93.3 86.4 98.5 OVERALL 75.1 59.8 90.0 
+
+Table 11. Variable-to-node matching frequency under GraphAlign-only training. Without node-level alignment, variable identity remains unstable. 
+
+Un 
+
+> 1
+
+Un 
+
+> 2
+
+Un
+
+> 3
+
+Q1 0.27 0.43 0.30 
+
+Q2 0.38 0.31 0.31 
+
+Q3 0.06 0.35 0.59 
+
+F.1. Post-hoc Diagnostic for GraphAlign 
+
+To diagnose why GraphAlign alone can hurt downstream performance, we train BridgeVLM (+GraphAlign) and match each learned variable feature Qi to node-description embeddings Unj using Hungarian assignment on the test set. Table 11 reports normalized matching frequency. The matching distribution is diffuse for Q1 and Q2, indicating that GraphAlign constrains edges but does not reliably ground variable identity. This supports our explanation that oracle graph supervision can be misapplied when latent variables are not aligned to node semantics. 18 Internalizing Causal Supervision in VLM for Multi-Image Causal Reasoning 
+
+Figure 5. Visualization examples of induced DAG on CausalVLBench. 
+
+19
