@@ -6,46 +6,61 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-06-15
-- 运行时间：2026-06-15 21:49:17 UTC
+- 最新运行日期：2026-06-16
+- 运行时间：2026-06-16 23:08:09 UTC
 - 运行状态：成功
-- 本次总论文数：8
-- 精读区：3
-- 速读区：5
+- 本次总论文数：13
+- 精读区：6
+- 速读区：7
 
 ### 今日简报（AI）
-今日聚焦神经符号学习与语言引导抓取，精读EM-NeSy（10/10）和Bounding Boxes as Goals（9/10），速读世界模型、量子计算与音频可解释性。  
-最值得关注的是EM-NeSy的期望最大化方法在神经符号学习中的突破，以及将边界框作为目标的语言条件抓取规划。  
-建议优先精读这两篇高分论文，并速读ARC世界模型，以拓展组合式世界建模与可解释性的实践思路。
-- 详情：[/202606/15/README](/202606/15/README)
+1) 今日精读两篇高分论文：标准化Prolog工具接口与时空图动作识别，速读聚焦LLM可解释性与个性化评估。
+2) 最值关注：PrologMCP为LLM代理提供标准逻辑编程接口，时空图模型实现上下文内自我中心动作识别，均为高影响力方向。
+3) 建议优先阅读精读论文，速读三类论文可助理解LLM内部机制、法律推理及个性化约束校验，按需选读。
+- 详情：[/202606/16/README](/202606/16/README)
 
 ### 精读区论文标签
-1. [EM-NeSy: Expectation Maximization for Neurosymbolic Learning](/202606/15/2606.14463v1-em-nesy-expectation-maximization-for-neurosymbolic-learning)  
-   标签：评分：10.0/10、query:ns-xai
-   evidence：用于概率神经符号学习的期望最大化算法
-2. [Bounding Boxes as Goals: Language-Conditioned Grasping via Neuro-Symbolic Planning](/202606/15/2606.12910v1-bounding-boxes-as-goals-language-conditioned-grasping-via-neuro-symbolic-planning)  
+1. [PrologMCP: A Standardized Prolog Tool Interface for LLM Agents](/202606/16/2606.14935v1-prologmcp-a-standardized-prolog-tool-interface-for-llm-agents)  
    标签：评分：9.0/10、query:ns-xai
-   evidence：神经符号规划框架实现语言条件抓取
-3. [Bounding Boxes as Goals: Language-Conditioned Grasping via Neuro-Symbolic Planning](/202606/15/2606.12910v2-bounding-boxes-as-goals-language-conditioned-grasping-via-neuro-symbolic-planning)  
+   evidence：符号推理（Prolog）与神经大语言模型代理的结合
+2. [From Frames to Temporal Graphs: In-Context Egocentric Action Recognition with Vision-Language Models](/202606/16/2606.15417v1-from-frames-to-temporal-graphs-in-context-egocentric-action-recognition-with-vision-language-models)  
    标签：评分：9.0/10、query:ns-xai
-   evidence：从VLM生成神经符号目标状态用于机器人任务和运动规划
+   evidence：通过时序动作图进行符号推理与视觉语言模型结合
+3. [NeRD: Neuro-Symbolic Rule Distillation for Efficient Ontology-Grounded Chain-of-Thought in Medical Image Diagnosis](/202606/16/2606.15617v1-nerd-neuro-symbolic-rule-distillation-for-efficient-ontology-grounded-chain-of-thought-in-medical-image-diagnosis)  
+   标签：评分：9.0/10、query:ns-xai
+   evidence：神经符号规则蒸馏用于本体引导的可解释推理
+4. [Assessing Reliability of Symbol Detection in Concept Bottleneck Models](/202606/16/2606.16535v1-assessing-reliability-of-symbol-detection-in-concept-bottleneck-models)  
+   标签：评分：9.0/10、query:ns-xai
+   evidence：评估概念瓶颈模型中符号检测的可靠性
+5. [Frame-Conditioned Moral Computation in LLaMA 3.1-8B-Instruct: A Mechanistic Interpretability Audit of Ethical Reasoning](/202606/16/2606.15507v1-frame-conditioned-moral-computation-in-llama-31-8b-instruct-a-mechanistic-interpretability-audit-of-ethical-reasoning)  
+   标签：评分：8.0/10、query:ns-xai
+   evidence：对LLM道德推理的机制可解释性审计
+6. [Theorem-Grounded Execution Ontologies for Interpretable Machine Reasoning](/202606/16/2606.16010v1-theorem-grounded-execution-ontologies-for-interpretable-machine-reasoning)  
+   标签：评分：8.0/10、query:ns-xai
+   evidence：提出具有显式执行语义的可解释机器学习推理框架
 
 ### 速读区论文标签
-1. [Slots, Transitions, Loops: Learning Composable World Models for ARC](/202606/15/2606.12316v1-slots-transitions-loops-learning-composable-world-models-for-arc)  
+1. [Scalable Circuit Learning for Interpreting Large Language Models](/202606/16/2606.16939v1-scalable-circuit-learning-for-interpreting-large-language-models)  
+   标签：评分：8.0/10、query:ns-xai
+   evidence：可扩展的电路学习用于解释大语言模型
+2. [Neuron Level Analysis of Large Language Model in Legal Domain Reasoning](/202606/16/2606.15884v1-neuron-level-analysis-of-large-language-model-in-legal-domain-reasoning)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：通过对象中心表示学习视觉符号规则的可组合世界模型
-2. [Aligning Quantum Operators with Large Language Models](/202606/15/2606.13811v1-aligning-quantum-operators-with-large-language-models)  
+   evidence：基于神经元层级的大语言模型法律推理可解释性分析
+3. [Evaluating LLM Personalization via Semantic Constraint Verification](/202606/16/2606.16368v1-evaluating-llm-personalization-via-semantic-constraint-verification)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：将量子操作符与LLM对齐，结合符号操作与神经网络
-3. [Listening with Attention: Entropy-Guided Explainability for Transformer-Based Audio Models](/202606/15/2606.14647v1-listening-with-attention-entropy-guided-explainability-for-transformer-based-audio-models)  
+   evidence：使用语义约束进行可解释的LLM行为评估
+4. [Exploring Extrinsic and Intrinsic Properties for Effective Reasoning with Code Interpreter](/202606/16/2606.16934v1-exploring-extrinsic-and-intrinsic-properties-for-effective-reasoning-with-code-interpreter)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：针对Transformer模型的熵引导可解释性框架
-4. [Learning to Reason by Analogy via Retrieval-Augmented Reinforcement Fine-Tuning](/202606/15/2606.13680v1-learning-to-reason-by-analogy-via-retrieval-augmented-reinforcement-fine-tuning)  
+   evidence：代码解释器增强LLM推理，分析推理行为属性
+5. [Learning High Coverage Discriminative Parsimonious Rulesets](/202606/16/2606.14156v1-learning-high-coverage-discriminative-parsimonious-rulesets)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：通过检索增强的强化学习微调提升LLM类比推理能力
-5. [CORA: Analyzing and bridging thinking-answer gap in Multimodal RLVR via Consistency-Oriented Reasoning Alignment](/202606/15/2606.14691v1-cora-analyzing-and-bridging-thinking-answer-gap-in-multimodal-rlvr-via-consistency-oriented-reasoning-alignment)  
+   evidence：高覆盖率判别性规则集用于可解释性，可作为神经符号推理的符号组件
+6. [Vernier: Probing Representational Misalignment Behind Lexical Gaps in Causal Reasoning](/202606/16/2606.15733v1-vernier-probing-representational-misalignment-behind-lexical-gaps-in-causal-reasoning)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：多模态RLVR中思维-答案一致性对齐
+   evidence：探测大语言模型中的因果推理表征以增强可解释性
+7. [Scaling LLM Reasoning from Minimal Labels: A Semi-Supervised Framework with a Lightweight Verifier](/202606/16/2606.16811v1-scaling-llm-reasoning-from-minimal-labels-a-semi-supervised-framework-with-a-lightweight-verifier)  
+   标签：评分：6.0/10、query:ns-xai
+   evidence：半监督框架用于LLM推理，使用轻量级验证器
 
 
 <div class="dpr-home-promo-card">
