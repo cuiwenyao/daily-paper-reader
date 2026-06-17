@@ -1,0 +1,475 @@
+Title: DLWM: Diverse Latent World Models for Efficient Multimodal Reasoning
+
+URL Source: https://arxiv.org/pdf/2606.15160v1
+
+Published Time: Tue, 16 Jun 2026 00:30:55 GMT
+
+Number of Pages: 15
+
+Markdown Content:
+# DLWM: Diverse Latent World Models for Efficient Multimodal Reasoning 
+
+David Huang 
+
+University of Toronto 
+
+dawae.huang@mail.utoronto.ca 
+
+Lianlei Shan 
+
+Tsinghua University 
+
+shanlianlei18@ucas.edu.cn 
+
+# Abstract 
+
+Reasoning capabilities of multimodal large language models (MLLMs) have im-proved considerably in recent years. Existing approaches typically rely on explicit chain-of-thought or continuous latent-space trajectories to enhance multi-step rea-soning. However, these methods generally assume that an input admits a single latent interpretation and unfold reasoning along a fixed path or under a uniform computation budget. In real-world multimodal settings, visual observations are often subject to occlusion, blur, viewpoint variation, or semantic ambiguity, giving rise to multiple plausible interpretations. A uniform reasoning strategy not only limits the model’s ability to explore multiple hypotheses but also incurs high mem-ory usage and rollout cost. We present DLWM (Diverse Latent World Models), a multimodal reasoning framework that combines latent-space reasoning with re-inforcement learning. First, we construct a set of diverse latent world hypotheses 
+
+in continuous latent space, each capturing a different plausible interpretation of the visual input, and unfold latent reasoning independently on each hypothesis. An orthogonality-based diversity regularizer explicitly prevents hypothesis col-lapse. Second, we formulate the latent reasoning process as a resource-constrained sequential decision problem and introduce a resource-aware reinforcement learn-ing policy that adaptively allocates computation across hypotheses, dynamically deciding whether to expand, terminate, or merge reasoning paths, thereby substan-tially reducing memory footprint and improving rollout efficiency. Experiments on multiple multimodal reasoning benchmarks demonstrate that DLWM outperforms existing methods by 2–5 points in accuracy while reducing memory usage by 24%. 
+
+# 1 Introduction 
+
+Multimodal large language models have advanced rapidly in visual question answering, visual reasoning, and complex decision-making tasks. Compared with pure text reasoning, however, multimodal reasoning faces a more fundamental challenge: perceptual uncertainty . In the real world, visual inputs are frequently affected by occlusion, blur, viewpoint changes, and semantic ambiguity, so that a single observation may correspond to multiple plausible interpretations. Most existing methods compress multimodal inputs into a single semantic representation and reason over it—implicitly assuming a unique ground-truth world. This assumption often breaks down in complex visual scenes, limiting robustness and generalization under uncertainty. Explicitly modeling multiple latent interpretations during reasoning, and effectively exploring among them, is therefore a key question for advancing multimodal reasoning. At the same time, as the number of reasoning paths grows, computation and memory costs escalate rapidly, making the trade-off between performance and efficiency an equally pressing concern. Existing multimodal reasoning methods fall into two broad categories: explicit chain-of-thought (CoT) methods and continuous latent-space reasoning methods. CoT methods improve multi-step reasoning by generating intermediate textual steps [ 1, 2], but the reasoning process operates in 
+
+> Preprint.
+> arXiv:2606.15160v1 [cs.CV] 13 Jun 2026
+
+Figure 1: Comparison of prior multimodal reasoning methods and our proposed DLWM framework. Explicit chain-of-thought methods reason through a single textual path, while existing latent reasoning methods typically rely on a single latent state or fixed rollout process. In contrast, DLWM constructs multiple diverse latent world hypotheses and uses a resource-aware RL controller to adaptively expand, stop, merge, or answer across reasoning paths. discrete token space and consumes substantial computation to maintain linguistic coherence [ 3]. Continuous latent-space methods such as Coconut [ 4 ] and CoLaR [ 5] shift reasoning into hidden states, improving efficiency, yet their multi-path capability exists only in superposition and lacks an explicit, controllable multi-hypothesis structure. In the multimodal domain, LVR [ 6], LaRe [ 7], and Heima [ 8] extend latent reasoning to vision-language tasks but still rely on single-path reasoning or fixed-structure iterative processes with no mechanism for dynamic selection among paths. Methods that explore dynamic control of reasoning, such as Soft Thinking [ 9] and Overclocking [ 10 ], modulate latent representations continuously but lack discrete structural operations—expansion, termination, or merging—across different paths. Across both categories, existing methods unfold reasoning along a single path or under a uniform computation budget, preventing effective multi-hypothesis reasoning under perceptual uncertainty and precluding adaptive resource allocation. In summary, current methods exhibit two key shortcomings in multimodal reasoning: (i) the lack of explicit modeling of multiple latent interpretations, which prevents effective multi-hypothesis reasoning under perceptual uncertainty; and (ii) the absence of dynamic computation allocation, which prevents the model from adaptively adjusting resources according to path importance and task complexity. These two limitations jointly constrain both the expressiveness and the efficiency of multimodal reasoning models. To address these problems, we present DLWM (Diverse Latent World Models), a multimodal reasoning framework that unifies multi-hypothesis latent modeling with resource-aware reinforcement learning. The core idea is to explicitly construct multiple latent world hypotheses in continuous latent space, each corresponding to one possible interpretation of the input, thereby enabling the model to unfold reasoning along multiple semantic paths in parallel. To prevent semantic collapse among hypotheses, we introduce an orthogonality-based diversity regularizer that ensures sufficient representational differences. Building on this, we further formulate the latent reasoning process as a budget-constrained sequential decision problem and introduce a resource-aware RL policy that dynamically allocates computation across latent worlds. The policy adaptively decides whether to expand, terminate, or merge reasoning paths, or to directly output an answer, thereby preserving accuracy while reducing redundant computation. Our main contributions are as follows: • We introduce an explicit diverse latent world hypothesis mechanism that constructs multiple latent interpretations of the visual input in continuous space, with orthogonal regularization to prevent representational collapse. 2• We propose a resource-aware reinforcement learning compute allocation mechanism that formal-izes latent reasoning as a resource-constrained sequential decision problem, enabling dynamic scheduling of reasoning computation while reducing overhead. • We unify multi-hypothesis modeling and efficient reasoning within a single framework, alleviating the tension between expressiveness and computational cost in multi-path reasoning. • Experiments on multiple multimodal reasoning benchmarks demonstrate that our method outper-forms existing approaches in accuracy, computational efficiency, and memory usage. 
+
+# 2 Related Work 
+
+2.1 Latent-Space Reasoning 
+
+Chain-of-thought (CoT) methods have significantly improved multi-step reasoning in large language models [ 1, 2], but their reliance on discrete token generation consumes substantial computation to maintain linguistic coherence, limiting reasoning efficiency [ 3]. To mitigate this bottleneck, recent work shifts reasoning from explicit text space into continuous latent space, completing intermediate “thinking” in hidden states to reduce redundant text generation and improve efficiency. In the text domain, Coconut [ 4] and CoLaR [ 5] have shown that latent-space reasoning can compress intermediate processes while preserving reasoning capability; Soft Thinking [ 9], SEAL [ 11 ], and Overclocking [ 10 ] further explore continuous control over latent reasoning and reasoning-depth modulation. These methods demonstrate that continuous latent space offers more flexible reasoning representations and control than discrete CoT. However, most existing methods still operate along a single reasoning path—even when some implicitly encode multiple possible trajectories in the latent space, they lack explicit modeling and structured comparison of different hypotheses. In the multimodal setting, LVR [ 6], LaRe [ 7], and Heima [ 8] extend latent reasoning to vision-language tasks, making progress in perceptual modeling and reasoning efficiency. Yet these methods still primarily rely on single latent representations or single-path rollouts, lacking explicit modeling of multiple plausible interpretations under the same visual input, and thus tend to prematurely converge to a single (possibly incorrect) interpretation in the presence of visual ambiguity or perceptual uncertainty. Unlike prior work, DLWM explicitly constructs multiple latent world hypotheses in continuous space and enforces semantic diversity among hypotheses via orthogonal regularization, enhancing the model’s ability to express and explore multiple candidate interpretations. This allows the model not only to reason in latent space but also to perform parallel modeling and subsequent selection across multiple candidate interpretations. 
+
+2.2 Reinforcement Learning and Adaptive Computation 
+
+Early applications of RL to language models focused on alignment via human feedback [ 12 ], opti-mizing output-level preference rather than modeling intermediate reasoning decisions, making them unsuitable for fine-grained control of reasoning paths or computation allocation. Recent work treats the reasoning process itself as a sequential decision problem. CoLaR [ 5] uses RL to optimize latent chain length, learning shorter yet correct paths, but addresses only single-path compression without multi-path allocation. Methods for reasoning speed control and representation manipulation [ 11 , 10 ]attempt to modulate reasoning depth through continuous signals in latent space. These approaches show that RL and reasoning control can improve efficiency, but most target single-path reasoning, addressing “how long to reason” rather than “how to allocate computation across multiple paths.” A related line of work on adaptive computation time [ 13 ] and dynamic computation allocation shows that different samples should receive different reasoning budgets for a better performance– efficiency trade-off. However, these methods still operate along single trajectories without explicit multi-path modeling, and cannot support path-level operations such as expansion, termination, or merging of reasoning branches. In contrast, DLWM formulates multimodal latent reasoning as a resource-constrained sequential decision problem, where a resource-aware RL policy dynamically allocates computation across multiple latent worlds. The policy controls not only reasoning depth along individual paths but also executes structural decisions (expand, stop, merge) across hypotheses, unifying multi-hypothesis exploration with computation efficiency optimization. 3Figure 2: Overview of DLWM . Given a multimodal input, the encoder produces a joint representation 
+
+z, from which the Latent World Generator creates K diverse world hypotheses. Each world initializes an independent reasoning trajectory updated by a shared reasoning module. An RL controller dynamically allocates computation by selecting E XPAND , S TOP , M ERGE , or A NSWER actions under a budget constraint. Active worlds are aggregated via learned weighted fusion to produce the final prediction. 
+
+# 3 Method 
+
+In multimodal reasoning, visual inputs are often ambiguous due to occlusion, viewpoint changes, or low resolution, so a single observation may admit multiple plausible interpretations. Existing multi-modal latent reasoning methods typically compress the input into a single latent representation and reason along a fixed path under a static computation budget, limiting both robustness and efficiency. To address this, we propose DLWM (Diverse Latent World Models), which explicitly constructs multiple latent world hypotheses in continuous space and dynamically allocates computation across them via a resource-aware RL policy. DLWM consists of (1) a Diverse Latent World Hypothesis Generator that produces K semantically distinct representations of the input, and (2) a Resource-Aware RL Controller that adaptively schedules computation across their reasoning trajectories under a budget constraint. An overview is shown in Figure 2. 
+
+3.1 Diverse Latent World Hypotheses 
+
+The first key component of DLWM is the diverse latent world modeling module, which explicitly represents multiple possible interpretations of the same input in continuous latent space. In real-world multimodal scenarios, visual observations rarely correspond to a single definitive semantics— especially when images are incomplete, object relationships are complex, or the question requires multi-step combinatorial reasoning. A single latent representation often cannot cover all plausible interpretations. By retaining a set of mutually distinct but input-compatible hypotheses from the start, the model can progressively compare, filter, and integrate them during subsequent computation, reducing the risk of early single-path misjudgment. 
+
+Multimodal Encoding. Given image I and question q, a vision-language encoder produces a joint representation: 
+
+z = Enc( I, q ), z ∈ Rd. (1) The encoder can be any pretrained multimodal backbone ( e.g. , the vision-language tower of an MLLM). We keep it frozen throughout training. 
+
+Latent World Generation. We introduce a latent world generator Gϕ that produces K world representations from the shared encoding. Each world is conditioned on a learnable world embedding 
+
+4ei ∈ Rd, which serves as a hypothesis identifier guiding the model to interpret the same input from different perspectives: 
+
+wi = Gϕ(z, ei), i = 1 , . . . , K. (2) The resulting world representations are not simple perturbations of a single representation but seman-tically distinct candidate interpretations, all grounded in the same input z. Different worlds share the same latent reasoning module (Section 3.2), ensuring that reasoning trajectories are comparable while avoiding parameter proliferation. 
+
+Latent Reasoning. Each world representation initializes an independent reasoning trajectory: 
+
+h(i)0 = wi, h(i) 
+
+> t+1
+
+= fθ
+
+
+
+h(i)
+
+> t
+
+
+
+, (3) where fθ is a shared latent reasoning module implemented as a single Transformer block with tied weights across worlds and time steps. This weight-sharing provides an inductive bias toward iterative refinement [14] while keeping parameter count independent of K.
+
+World Diversity Regularization. Without explicit encouragement, the generator may collapse all world representations to the same point, making the K trajectories redundant. We prevent this with an orthogonality loss that penalizes directional similarity between world representations: 
+
+Lorth = X
+
+> i̸=j
+
+ w⊤ 
+
+> i
+
+wj
+
+∥wi∥ ∥ wj ∥
+
+2
+
+. (4) By suppressing directional similarity between different worlds, this loss encourages the model to learn a more dispersed set of hypotheses in latent space, mitigating representational collapse, and improving the effectiveness of multi-hypothesis reasoning. 
+
+Multi-World Aggregation. After reasoning terminates (see Section 3.2), each active world i ∈ A 
+
+produces a task prediction: 
+
+pi(y) = p(y | h(i) 
+
+> T
+
+). (5) The final output is a weighted mixture: 
+
+p(y | I, q ) = X
+
+> i∈A
+
+αi pi(y), αi = softmax 
+
+
+
+sψ (h(i) 
+
+> T
+
+)
+
+
+
+, (6) where sψ is a lightweight scoring network that evaluates the final reasoning state of each world. 
+
+3.2 Resource-Aware RL for Compute Allocation 
+
+Multi-world modeling enhances the model’s ability to represent perceptual uncertainty, but it also introduces additional reasoning overhead. If all latent worlds execute fixed-length rollouts, total computation grows linearly with the number of worlds and reasoning depth, undermining the practical viability of multi-world reasoning. DLWM therefore needs to not only generate multiple hypotheses but also learn how to dynamically allocate a limited compute budget among them—determining which paths are worth expanding, which should be terminated early, which similar paths can be merged, and when the current information suffices to output an answer. To this end, we frame the reasoning process as a budget-constrained Markov decision process and train an RL controller to allocate compute dynamically. 
+
+MDP Formulation. At each step t, the state consists of the active world representations and the remaining budget: 
+
+st =
+
+n
+
+h(i)
+
+> t
+
+o
+
+> i∈A t
+
+, B t
+
+
+
+, (7) where At is the set of active worlds and Bt ∈ R≥0 is the remaining compute budget. For the controller’s input, we encode the state as ¯st = [ MeanPool( {h(i) 
+
+> t
+
+}i∈A t ); Bt/B 0 ], concatenating the mean-pooled world states with the normalized remaining budget. The controller πω (a | st) selects an action from: 
+
+at ∈ Expand (i), Stop (i), Merge (i, j ), Answer , (8) with the following effects and costs: 5Algorithm 1 Resource-Aware Dynamic Reasoning Training of DLWM 
+
+Require: Training set D, encoder Enc (frozen), world generator Gϕ, reasoning module fθ , scoring head sψ , RL controller πω , worlds K, max depth Tmax , budget B
+
+Ensure: Trained parameters {ϕ, θ, ψ, ω } 
+
+> 1:
+
+Initialize parameters ϕ, θ, ψ, ω  
+
+> 2:
+
+for each training iteration do  
+
+> 3:
+
+Sample minibatch {(I, q, y )} ∼ D  
+
+> 4:
+
+for each (I, q, y ) do  
+
+> 5:
+
+z ← Enc( I, q ) 
+
+> 6:
+
+{wi}Ki=1 ← { Gϕ(z, ei)}Ki=1 {Generate diverse worlds}  
+
+> 7:
+
+h(i)0 ← wi, A ← { 1, . . . , K }, t ← 0, Bt ← B 
+
+> 8:
+
+while t < T max and Bt > 0 and A̸ = ∅ do  
+
+> 9:
+
+at ∼ πω (· | st) {RL controller selects action}  
+
+> 10:
+
+if at = Expand (i) then  
+
+> 11:
+
+h(i) 
+
+> t+1
+
+← fθ (h(i) 
+
+> t
+
+); Bt ← Bt − cexp  
+
+> 12:
+
+else if at = Stop (i) then  
+
+> 13:
+
+A ← A \ { i}; Bt ← Bt − cstop  
+
+> 14:
+
+else if at = Merge (i, j ) then  
+
+> 15:
+
+˜ht ← β h(i) 
+
+> t
+
++ (1 −β) h(j) 
+
+> t
+
+; replace i, j in A; Bt ← Bt − cmerge  
+
+> 16:
+
+else if at = Answer then  
+
+> 17:
+
+break  
+
+> 18:
+
+end if  
+
+> 19:
+
+t ← t + 1  
+
+> 20:
+
+end while  
+
+> 21:
+
+Compute p(y | I, q ) via Eq. (6) {Aggregate active worlds}  
+
+> 22:
+
+Ltask ← − log p(y | I, q ) {Supervised objective}  
+
+> 23:
+
+Lorth ← P
+
+> i̸=j
+
+ w⊤ 
+
+> i
+
+wj /(∥wi∥∥ wj ∥)2 
+
+> 24:
+
+R ← Racc − λT T − λK ¯K {Reward signal}  
+
+> 25:
+
+end for  
+
+> 26:
+
+Update ϕ, θ, ψ on Ltask + λorth Lorth {Two-stage update}  
+
+> 27:
+
+Update ω via policy gradient on LRL  
+
+> 28:
+
+end for  
+
+> 29:
+
+return {ϕ, θ, ψ, ω }
+
+• Expand (i): advance world i by one reasoning step, h(i) 
+
+> t+1
+
+= fθ (h(i) 
+
+> t
+
+). Cost: cexp .• Stop (i): remove world i from the active set A. Cost: cstop .• Merge (i, j ): combine two semantically similar worlds into one: 
+
+˜ht = β h(i) 
+
+> t
+
++ (1 − β) h(j) 
+
+> t
+
+, (9) thereby reducing the number of parallel reasoning paths. The merged world replaces both parents in A. Cost: cmerge .• Answer : terminate reasoning and produce the final prediction via Eq. (6). Cost: 0.Reasoning also terminates if Bt ≤ 0 or At = ∅ or t exceeds a maximum depth Tmax .
+
+Reward Design. The reward jointly encourages task accuracy and computational efficiency: 
+
+R = Racc − λT T − λK ¯K, (10) where Racc is a rule-based correctness reward ( e.g. , exact match), T is the total number of reasoning steps taken, and ¯K is the average number of active worlds across steps. This design incentivizes the controller to terminate early on easy instances while preserving multiple worlds for ambiguous ones. 
+
+Policy Optimization. The policy network πω (a | s) is optimized via policy gradient. The optimiza-tion objective is: 
+
+J(ω) = Eπω [R], (11) 6with gradient estimated as: 
+
+∇ω J(ω) ≈ E[∇ω log πω (at | st) · R] . (12) A moving-average baseline is used to reduce gradient variance. 
+
+Training Pipeline. The overall training flow follows a “first dynamic reasoning, then aggregated decision” sequence: the controller decides which worlds to retain and how much computation to allocate, and the prediction module then produces the final answer by integrating the retained worlds. This design naturally connects multi-hypothesis modeling with dynamic path selection, avoiding the noise and redundancy of distributing decision authority uniformly across all worlds. We train the generator Gϕ, reasoning module fθ , and scoring head sψ jointly on Ltask + λorth Lorth ,where Ltask = − log p(y | I, q ), and update the controller πω separately via policy gradient on 
+
+LRL = −Eπω [R]. This decoupling prevents RL gradient noise from destabilizing representation learning. Since RL training from scratch is often unstable, we adopt a two-stage strategy: (i) super-vised pretraining at fixed rollout length to learn stable representations and base reasoning, followed by (ii) RL fine-tuning to optimize compute allocation. The full procedure is given in Algorithm 1. 
+
+# 4 Experiments 
+
+4.1 Experimental Setup Datasets. We evaluate DLWM on four multimodal reasoning benchmarks covering perception-intensive, compositional, open-domain, and cross-modal reasoning tasks, following recent latent reasoning protocols [ 6, 7 ]. MMVP emphasizes fine-grained visual perception and spatial reasoning under visual ambiguity. GQA focuses on compositional and multi-hop relational reasoning over real images. VQAv2 contains diverse everyday scenes with strong language priors, testing robust vision-language fusion. ScienceQA combines visual, textual, and scientific knowledge, requiring multi-step cross-modal reasoning. 
+
+Implementation Details. DLWM is built on a pretrained vision-language backbone with a frozen ViT-L/14 visual encoder and a Transformer decoder with cross-attention for multimodal fusion. The Latent World Generator is a two-layer MLP with approximately orthogonal learnable world embed-dings, using K=4 worlds by default. The latent reasoning module contains 6 shared Transformer blocks with hidden size 4096, Pre-LN, and GELU activations. A single-layer MLP is used for world scoring, and a two-layer Transformer encoder serves as the RL policy network. We set the initial budget to B=10 and maximum reasoning depth to Tmax =8 . Training follows a two-stage strategy: supervised pretraining with fixed rollout length, followed by RL fine-tuning using REINFORCE with a moving-average baseline. We use AdamW with learning rate 2 × 10 −5, batch size 64, mixed precision, and 8 A100 GPUs. At inference, we use greedy action selection with at most 4 parallel worlds. 
+
+Baselines and Evaluation Metrics. We compare with explicit CoT [1 ], latent reasoning meth-ods Coconut [ 4] and CoLaR [5], multimodal latent reasoning methods LVR [6], LaRe [7], and 
+
+Heima [8], as well as the inference-time latent method Soft Thinking [ 9 ]. All baselines use the same backbone and are evaluated under the same maximum compute budget. We report task accuracy for reasoning performance, using standard accuracy for GQA, ScienceQA, and MMVP, and consensus-based accuracy for VQAv2. For efficiency, we report average rollout steps, average number of active worlds, GPU memory usage, and inference throughput. 
+
+4.2 Main Results 
+
+DLWM achieves the highest accuracy on all four benchmarks (Table 1a). Over the strongest multimodal latent reasoning baselines (LVR and LaRe), DLWM gains 2.4–2.9 points on GQA and 2.6–3.1 on ScienceQA—tasks that require multi-step reasoning and cross-modal integration— indicating that explicit multi-hypothesis modeling enables more thorough exploration across semantic interpretations and reduces error accumulation from single-path commitment. 7(a) Main results (Acc. %). Method GQA VQAv2 ScienceQA MMVP CoT [1] 61.2 72.5 68.1 54.3 Coconut [4] 63.5 73.6 70.0 57.2 CoLaR [5] 64.1 74.0 70.8 57.9 LVR [6] 66.4 74.8 72.1 60.9 LaRe [7] 66.9 75.0 72.6 61.7 Heima [8] 65.2 74.3 71.5 59.8 Soft Thinking [9] 66.0 74.7 72.0 60.5 DLWM (Ours) 69.3 76.0 75.2 66.1                                     
+
+> (b) Efficiency comparison. Method Steps ↓Worlds ↓Mem. ↓Thrpt. ↑
+> CoT [1] 8.0 1.0 18.5 6.2 Coconut [4] 8.0 1.0 16.0 7.0 CoLaR [5] 5.8 1.0 15.5 8.2 LVR [6] 8.0 1.0 19.0 6.1 LaRe [7] 8.0 1.0 19.5 5.9 Heima [8] 4.5 1.0 13.8 9.2
+> Soft Thinking [9] 6.9 1.0 16.8 7.4 DLWM (Ours) 5.0 2.2 14.5 8.9
+
+Table 1: Main benchmark results and efficiency comparison. Best results are in bold .The largest gains appear on MMVP (+5.2 over LVR, +4.4 over LaRe), the benchmark most dominated by visual ambiguity. This confirms the value of multi-hypothesis modeling: by maintaining multiple latent interpretations simultaneously, the model avoids premature convergence to an incorrect hypoth-esis and can dynamically filter and fuse worlds during reasoning. In contrast, Soft Thinking implicitly encodes multi-path information in latent space but lacks explicit structure, limiting its performance in high-uncertainty settings. Compared with Coconut, DLWM’s advantage extends beyond accuracy to stability on complex problems, confirming that a single latent trajectory cannot cover all plausible semantic interpretations and that multi-hypothesis structure provides stronger robustness. Relative to CoLaR, which uses RL to compress a single path, DLWM allocates computation across multiple paths, achieving a better performance–efficiency balance. Despite maintaining multiple latent worlds, DLWM averages only 5.0 rollout steps and 2.2 active worlds (Table 1b), as the RL controller dynamically reduces active paths and avoids redundant steps. Fixed-rollout methods (Coconut, LVR, LaRe) always execute 8 steps regardless of instance difficulty. Heima achieves the fewest steps (4.5) and lowest memory (13.8 GB) by aggressively compressing reasoning into single tokens, but at the cost of accuracy (Table 1a). DLWM provides a better accuracy–efficiency trade-off: it matches Heima-level efficiency while achieving the highest accuracy across all benchmarks. Merging similar worlds and terminating low-value paths keeps memory at 14.5 GB and throughput at 8.9 samples/s. 
+
+4.3 Ablation Studies 
+
+Table 2: Ablation study of DLWM components.                                      
+
+> Variant GQA ScienceQA MMVP Steps ↓Mem (GB) ↓
+> Full DLWM 69.3 75.2 66.1 5.0 14.5
+> w/o Multi-World ( K=1 )66.8 72.9 60.7 4.6 13.6 w/o Orthogonal Reg. 68.1 73.8 63.4 5.1 14.7 w/o RL Allocation 67.9 74.1 64.0 8.0 18.2 w/o Merge Action 68.7 74.6 65.1 5.6 16.4 w/o Stop Action 68.9 74.8 65.3 6.8 15.8
+
+Component Ablation. Table 2 shows that removing multi-world modeling ( K=1 ) causes the largest accuracy drop—over 5 points on MMVP—confirming that explicitly modeling multiple latent interpretations is the core advantage of DLWM for handling visual ambiguity. Removing orthogonal regularization still permits multiple worlds but leads to consistent degradation, showing that the diversity constraint effectively prevents representational collapse. Removing RL allocation increases average steps from 5.0 to 8.0 and memory from 14.5 to 18.2 GB while also decreasing accuracy, demonstrating that dynamic allocation improves both efficiency and reasoning quality. Removing merge or stop actions each causes partial degradation: merge primarily affects memory efficiency, while stop primarily affects step count control. Together, these actions provide complementary path compression and redundancy pruning. 8(a) Effect of the number of latent worlds ( K).                                                                   
+
+> KGQA ScienceQA MMVP Steps ↓Mem. ↓
+> 166.8 72.9 60.7 4.6 13.6 268.1 73.8 63.5 4.8 14.0 469.3 75.2 66.1 5.0 14.5 669.4 75.4 66.3 5.8 16.1 869.2 75.3 66.0 6.5 17.8 (b) Effect of compute budget ( B).
+> BGQA ScienceQA MMVP Steps ↓Worlds ↓Thrpt. ↑
+> 467.5 73.0 62.8 3.2 1.7 10.3
+> 668.4 74.1 64.5 4.1 1.9 9.7 869.0 74.8 65.5 4.7 2.1 9.2 10 69.3 75.2 66.1 5.0 2.2 8.9 12 69.4 75.3 66.2 5.5 2.4 8.5
+
+Table 3: Ablation results on the number of latent worlds and compute budget. 
+
+Number of Worlds. Table 3a shows that accuracy increases substantially from K=1 to K=4 , with the largest gains on MMVP where visual ambiguity is strongest. Beyond K=4 , accuracy plateaus while steps and memory continue to grow. We therefore use K=4 as the default, providing the best performance–efficiency balance. This trend also suggests that the benefit of additional worlds mainly comes from covering distinct plausible interpretations in the early regime, rather than indefinitely increasing path diversity. Once the major ambiguous modes are already captured, adding more worlds yields diminishing returns while introducing extra reasoning overhead. 
+
+Compute Budget. Table 3b demonstrates that DLWM maintains a strong performance–efficiency trade-off across different budgets. With a small budget ( B=4 ), the model achieves fewer steps and higher throughput, though accuracy on complex tasks is somewhat limited. As the budget increases, the model can retain more worlds and perform deeper reasoning, yielding accuracy improvements. Beyond B=10 , accuracy saturates while throughput continues to decline, indicating that additional computation does not proportionally improve performance. This confirms that the resource-aware RL policy learns a genuinely efficient allocation strategy rather than simply “using more compute.” Notably, the relatively small gap between B=10 and B=12 further indicates that the controller already learns to use the available budget effectively at moderate settings. This supports our default choice of B=10 as a practical operating point that balances accuracy, reasoning depth, and efficiency. Table 4: Ablation of the RL action space.                                 
+
+> Policy Variant GQA ScienceQA MMVP Steps ↓Mem (GB) ↓
+> Full Action Space 69.3 75.2 66.1 5.0 14.5
+> Expand + Answer only 67.6 73.6 63.2 6.9 17.4 Expand + Stop + Answer 68.9 74.7 65.3 5.8 15.8 Expand + Merge + Answer 68.5 74.3 64.8 6.1 15.2 Stop + Merge + Answer 66.9 72.8 61.9 4.3 14.1
+
+Action Space Design. Table 4 shows that the complete action space is critical. With only expand and answer, the model cannot prune redundant paths, leading to high step counts and memory. Adding stop enables earlier termination of low-value paths. Adding merge compresses similar worlds, better controlling memory. The three actions—expand, stop, and merge—serve complementary roles: depth extension, redundancy pruning, and path compression. Their combination is therefore essential for achieving both robust multi-hypothesis exploration and efficient path-level computation control. 
+
+# 5 Conclusion 
+
+We presented DLWM (Diverse Latent World Models), a multimodal reasoning framework that combines explicit multi-hypothesis latent modeling with resource-aware RL-based computation allocation. By maintaining multiple plausible latent interpretations and dynamically controlling path expansion, termination, and merging, DLWM improves both reasoning robustness and computational efficiency. Experiments on four multimodal reasoning benchmarks validate the effectiveness of this design. Taken together, these results show that explicit multi-hypothesis latent modeling and adaptive resource allocation are not competing design choices, but mutually reinforcing components of effective multimodal reasoning. Future work includes richer world representations, more stable RL optimization, and extension to larger-scale and more complex multimodal reasoning tasks. 9References 
+
+[1] Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten Bosma, Fei Xia, Ed Chi, Quoc V Le, Denny Zhou, et al. Chain-of-thought prompting elicits reasoning in large language models. 
+
+Advances in neural information processing systems , 35:24824–24837, 2022. [2] Takeshi Kojima, Shixiang Shane Gu, Machel Reid, Yutaka Matsuo, and Yusuke Iwasawa. Large language models are zero-shot reasoners. Advances in neural information processing systems ,35:22199–22213, 2022. [3] Aman Madaan and Amir Yazdanbakhsh. Text and patterns: For effective chain of thought, it takes two to tango. arXiv preprint arXiv:2209.07686 , 2022. [4] Shibo Hao, Sainbayar Sukhbaatar, DiJia Su, Xian Li, Zhiting Hu, Jason Weston, and Yuandong Tian. Training large language models to reason in a continuous latent space. arXiv preprint arXiv:2412.06769 , 2024. [5] Wenhui Tan, Jiaze Li, Jianzhong Ju, Zhenbo Luo, Ruihua Song, and Jian Luan. Think silently, think fast: Dynamic latent compression of llm reasoning chains. arXiv preprint arXiv:2505.16552 , 2025. [6] Bangzheng Li, Ximeng Sun, Jiang Liu, Ze Wang, Jialian Wu, Xiaodong Yu, Hao Chen, Emad Barsoum, Muhao Chen, and Zicheng Liu. Latent visual reasoning. arXiv preprint arXiv:2509.24251 , 2025. [7] Jizheng Ma, Xiaofei Zhou, Geyuan Zhang, Yanlong Song, and Han Yan. Multimodal reasoning via latent refocusing. arXiv preprint arXiv:2511.02360 , 2025. [8] Xuan Shen, Yizhou Wang, Xiangxi Shi, Yanzhi Wang, Pu Zhao, and Jiuxiang Gu. Efficient reasoning with hidden thinking. arXiv preprint arXiv:2501.19201 , 2025. [9] Zhen Zhang, Xuehai He, Weixiang Yan, Ao Shen, Chenyang Zhao, Shuohang Wang, Yelong Shen, and Xin Eric Wang. Soft thinking: Unlocking the reasoning potential of llms in continuous concept space. arXiv preprint arXiv:2505.15778 , 2025. [10] Roy Eisenstadt, Itamar Zimerman, and Lior Wolf. Overclocking llm reasoning: Monitoring and controlling thinking path lengths in llms. arXiv preprint arXiv:2506.07240 , 2025. [11] Runjin Chen, Zhenyu Zhang, Junyuan Hong, Souvik Kundu, and Zhangyang Wang. Seal: Steer-able reasoning calibration of large language models for free. arXiv preprint arXiv:2504.07986 ,2025. [12] Long Ouyang, Jeffrey Wu, Xu Jiang, Diogo Almeida, Carroll Wainwright, Pamela Mishkin, Chong Zhang, Sandhini Agarwal, Katarina Slama, Alex Ray, et al. Training language models to follow instructions with human feedback. Advances in neural information processing systems ,35:27730–27744, 2022. [13] Alex Graves. Adaptive computation time for recurrent neural networks. arXiv preprint arXiv:1603.08983 , 2016. [14] Nikunj Saunshi, Nishanth Dikkala, Zhiyuan Li, Sanjiv Kumar, and Sashank J Reddi. Reasoning with latent thoughts: On the power of looped transformers. arXiv preprint arXiv:2502.17416 ,2025. 10 A Appendix 
+
+Table 5: Comparison of training strategies.                      
+
+> Training Strategy GQA ScienceQA MMVP Steps ↓
+> Joint Training from Scratch 67.9 73.8 63.9 5.7 Supervised Pretraining Only 68.4 74.1 64.4 8.0 RL Fine-tuning Only 67.2 73.0 62.6 5.1 Two-Stage (Ours) 69.3 75.2 66.1 5.0
+
+Training Strategy. Table 5 confirms that the two-stage training strategy yields the best results. Joint training from scratch suffers from policy instability and insufficient representation learning in early stages. Supervised pretraining alone incurs fixed-length rollouts (8.0 steps) due to the lack of dynamic control. RL fine-tuning alone fails to learn stable latent representations. The two-stage approach first establishes stable multi-world representations, then optimizes compute allocation via RL. Table 6: Comparison of world aggregation methods (left) and diversity regularization (right).                               
+
+> Aggregation GQA SciQA MMVP Mean Pooling 67.8 73.9 63.7 Max Pooling 68.1 74.2 64.0 Last-World Only 66.9 72.7 61.8 Learned Fusion (Ours) 69.3 75.2 66.1
+> Diversity Reg. GQA SciQA MMVP None 68.1 73.8 63.4 Cosine Sep. 68.6 74.4 64.8 Contrastive 68.9 74.7 65.4 Orthogonal (Ours) 69.3 75.2 66.1
+
+Aggregation Method and Diversity Regularization. Table 6 (left) shows that learned weighted fusion outperforms all fixed aggregation strategies, as the scoring network adaptively assigns higher weight to more informative worlds. Table 6 (right) confirms the importance of diversity regularization. Without any constraint, worlds converge to similar representations. Orthogonal regularization achieves the strongest results by more directly separating representational directions in latent space. 
+
+# B Implementation Details 
+
+We provide additional implementation details beyond those in the main text. DLWM is built on a pretrained vision-language model. The visual encoder uses ViT-L/14 and the text encoder uses a Transformer decoder, with cross-attention for multimodal fusion. The visual encoder is frozen to stabilize training, and only subsequent modules are optimized. The Latent World Generator consists of a two-layer MLP combined with learnable world embeddings to produce multiple latent world representations. The default number of worlds is 4. The latent reasoning module comprises 6 Transformer blocks with a hidden size of 4096, Pre-LN normalization, and GELU activations. Different worlds share the same parameters and are computed in parallel. The RL policy network uses a two-layer Transformer encoder that aggregates multi-world states and the remaining budget to output action decisions. Training uses the AdamW optimizer with a learning rate of 2 × 10 −5, batch size of 64, on 8 A100 GPUs with mixed precision to reduce memory overhead. 
+
+B.1 Experimental Reproducibility and Fair Comparison Settings 
+
+To ensure the reproducibility of our experimental results and the fairness of comparisons across different methods, we adopt unified dataset splits, preprocessing pipelines, evaluation scripts, training budgets, and inference budgets throughout all experiments. This section provides additional details that complement the experimental setup in the main paper. 
+
+B.1.1 Dataset Splits and Preprocessing 
+
+All datasets are used with their official splits, and no test set is used for hyperparameter selection. Specifically, for GQA, we train on the official balanced training split, select hyperparameters on the balanced validation split, and report final results on the balanced test-dev split. For VQAv2, we 11 train on the official train2017 split and evaluate on val2017. For ScienceQA, we follow the official train/validation/test split. For MMVP, we use it only as a zero-shot evaluation benchmark and do not use any of its image-question pairs for training or hyperparameter tuning. All images are processed using the same preprocessing pipeline as the frozen visual encoder. All methods share the same tokenizer, maximum input length, answer space, and answer normalization rules. For open-ended VQA tasks, we uniformly lowercase answers, remove punctuation and articles, and normalize number expressions before evaluation, so as to reduce errors caused by superficial formatting differences. 
+
+B.1.2 Evaluation Scripts 
+
+Each dataset is evaluated using its official or standard evaluation script. GQA is evaluated with the official evaluator using standard accuracy. VQAv2 is evaluated with the official VQA evaluation API using human-consensus-based soft accuracy. ScienceQA is evaluated by exact-match accuracy between the predicted option and the ground-truth option. MMVP is evaluated using its official annotation file and evaluation protocol after answer normalization. All methods use deterministic inference during evaluation, with temperature set to 0 and greedy decoding applied, to reduce the influence of stochastic decoding. 
+
+B.1.3 Random Seeds and Statistical Reporting 
+
+The main experiments are repeated with multiple random seeds. These seeds control model initializa-tion, data shuffling, dropout, action sampling during RL training, and CUDA-related randomness. We report the mean and standard deviation across different seeds, denoted as mean ± std. For efficiency metrics, including GPU memory usage, throughput, average rollout steps, and average number of active worlds, we compute averages over the full evaluation set and repeat measurements under the same hardware environment to reduce system-level variance. 
+
+B.1.4 Baseline Reproduction Protocol 
+
+To ensure fair baseline comparisons, all baselines use the same frozen vision-language backbone, image resolution, tokenizer, and answer normalization pipeline as DLWM. For methods that require additional trainable modules, we retrain them using the same training data, optimizer, batch size, and number of training steps. For methods with public implementations, we first reproduce their original settings and only make necessary adaptations to the backbone interface, while keeping method-specific hyperparameters unchanged whenever possible. 
+
+B.1.5 Inference Budget and Parameter Control 
+
+All methods are evaluated under the same maximum inference budget. For latent reasoning methods, the maximum rollout depth is set to Tmax = 8 . For adaptive reasoning methods, the maximum computation budget is set to B = 10 . For explicit CoT methods, the maximum number of generated tokens is restricted so that their average inference computation is comparable to that of latent rollout methods. We also report the number of trainable parameters for each method. Parameters of the frozen backbone are not counted as trainable parameters; only additional modules introduced and optimized by each method are included. For parameter-sensitive comparisons, we keep the trainable parameter scale of different methods as close as possible. 
+
+B.1.6 Training Budget 
+
+All trainable methods are optimized using the same optimizer and global batch size. DLWM follows a two-stage training strategy: it first performs supervised pretraining with a fixed rollout length to learn stable latent world representations and basic reasoning ability, and then conducts RL fine-tuning to optimize the computation allocation policy. For baselines without RL, we use the same total number of training steps as DLWM. For baselines with RL or adaptive computation mechanisms, we use the same number of supervised warm-up steps and RL fine-tuning steps as DLWM. 12 B.1.7 Efficiency Measurement 
+
+All efficiency metrics are measured under the same hardware environment and inference configuration. During inference, gradient computation is disabled and the same mixed-precision setting is used. Throughput is measured after several warm-up batches to avoid bias from GPU initialization and caching. GPU memory usage is measured by CUDA peak memory statistics, with memory counters reset before each run. The reported memory includes the frozen backbone, latent reasoning module, world generator, RL controller, scoring head, intermediate latent states, and output head. Average rollout steps and average active worlds are computed over the full evaluation set, excluding padding. 
+
+# C Training Details and Hyperparameters 
+
+We employ a two-stage training strategy. The first stage is supervised pretraining, which optimizes the model’s base reasoning capability and latent representations at a fixed rollout length. The second stage introduces the RL controller for dynamic optimization of reasoning paths. The RL component uses the REINFORCE algorithm with a moving-average baseline to reduce gradient variance. The default compute budget is set to B=10 , the maximum reasoning depth to Tmax =8 , and different actions carry different computational costs ( cexp = 1 .0, cstop = 0 .1, cmerge = 0 .5). The loss function comprises the task loss, diversity regularization term, and RL objective, with individual weights tuned on a validation set ( λorth = 0 .1, λRL = 0 .01 , λT = 0 .05 , λK = 0 .1). The backbone model is not further fine-tuned, to ensure fairness and stability. 
+
+# D Additional Ablation Studies 
+
+We further analyze the impact of individual components on model performance. First, regarding the number of latent worlds, performance improves significantly from K=1 to K=4 but plateaus with further increases while computational cost rises markedly. Second, regarding compute budgets, DLWM maintains high performance even under tight budgets, confirming the effectiveness of the resource-aware policy. Third, fine-grained analysis of policy actions shows that expand, stop, and merge each play critical and complementary roles in depth extension, redundancy pruning, and path compression, respectively, and that the absence of any one action leads to measurable degradation. 
+
+# E Efficiency Analysis 
+
+We analyze rollout steps, memory usage, and throughput across methods. DLWM reduces average reasoning steps while maintaining high accuracy and controlling active path count, lowering overall memory consumption. Compared with fixed-rollout methods, DLWM adjusts compute based on problem complexity—terminating early on simple samples and retaining more paths for complex ones. On average, DLWM reduces memory by approximately 24% relative to LVR while achieving 3–5% higher accuracy. 
+
+# F Qualitative Analysis 
+
+We provide qualitative case studies to illustrate DLWM’s reasoning behavior. On samples with strong visual ambiguity, the model generates multiple latent world representations and reasons along each independently. Different worlds gradually develop semantically distinct reasoning trajectories, and the policy network preferentially retains higher-information paths while suppressing redundant branches. The final answer is obtained through weighted fusion of the remaining active worlds. In contrast, single-path methods often commit to an incorrect interpretation early on and propagate the error throughout subsequent reasoning. On simpler questions, we observe that the model proactively reduces reasoning steps and outputs an answer early, whereas on complex questions it retains more paths and performs deeper reasoning—directly reflecting the effectiveness of the RL allocation strategy. 13 G Limitations 
+
+Despite the strong performance of DLWM on multimodal reasoning tasks, several limitations remain. First, multi-world modeling introduces additional computational overhead; although the RL controller mitigates this, further optimization may be needed for extremely large-scale models or real-time systems. Second, our method has been validated primarily on static image tasks; its performance on video understanding or interactive reasoning scenarios remains to be explored. Third, RL training still exhibits some instability and sensitivity to hyperparameters. Addressing these issues through more stable optimization algorithms and adaptive hyperparameter schedules is an important direction for future work. 
+
+# H Broader Impact 
+
+The multi-hypothesis latent reasoning framework proposed in this work has the potential to improve multimodal models’ decision-making capabilities in complex environments, with applications in areas such as autonomous driving and medical image analysis. However, caution is warranted when deploying such models in high-stakes scenarios, especially in the presence of uncertainty; reliability assessment and safety mechanisms should be integrated. Furthermore, the RL-based policy may introduce opaque decision-making behavior, and further research into interpretability and controllability is necessary. 
+
+# I Visualization of Multi-World Reasoning Trajectories 
+
+To intuitively illustrate DLWM’s reasoning process, we describe the multi-world reasoning trajectories observed during inference. Given an input image and question, the model first generates multiple latent world representations, each corresponding to a possible semantic interpretation. During reasoning, different worlds evolve independently along their respective paths. At key decision points, the RL policy dynamically determines whether to expand a path, terminate it early, or merge it with a similar path. On samples with visual ambiguity, different worlds gradually diverge into semantically distinct reasoning trajectories, and the policy network preferentially retains paths with higher informational value while suppressing redundant branches. Compared with single-path methods, DLWM avoids committing to an incorrect hypothesis early on and improves final prediction reliability through multi-path exploration and late-stage fusion. 
+
+# J Algorithm Explanation (Step-by-Step) 
+
+We provide a step-by-step explanation of Algorithm 1 to clarify DLWM’s overall optimization process. At each training iteration, the model samples a mini-batch and encodes each input image–question pair into a joint representation using the vision-language encoder. The Latent World Generator then produces multiple latent worlds from this representation, each serving as the initial state of an independent reasoning path. The model initializes the reasoning state set and available compute budget, then enters the iterative reasoning loop. At each reasoning step, the policy network examines the current states of all active worlds along with the remaining budget and outputs an action decision. If expand is selected, the corresponding world’s state is updated by the reasoning module. If stop is selected, that path is removed from the active set. If merge is selected, two semantically similar worlds are combined into a single new state. If answer is selected, reasoning terminates early. All intermediate states and actions are recorded for subsequent RL optimization. After reasoning ends, the model produces answer predictions for all remaining active worlds and aggregates them via weighted fusion for the final output. The supervised task loss and diversity regularization term are computed to optimize the generator, reasoning module, and scoring head. The RL component uses the reward signal (combining accuracy and computational cost) to update the policy network via policy gradient. Through joint optimization of the supervised and RL objectives, the model progressively learns to balance multi-hypothesis reasoning with efficient compute allocation. 14 K Complexity Analysis 
+
+Theoretical Complexity. Let K denote the number of latent worlds, T the maximum reasoning depth, and C the cost of a single reasoning module forward pass. In standard single-path latent reasoning, the total complexity is O(T · C). In DLWM without the RL controller, the worst-case complexity is O(K · T · C). However, with the resource-aware RL policy, the model dynamically terminates low-value paths and merges similar ones during reasoning, so the effective number of active worlds is ¯K < K on average. The actual complexity is therefore O( ¯K · T · C), where ¯K is typically much smaller than K. This mechanism preserves multi-path expressiveness while avoiding linear growth in computational cost. 
+
+Empirical Complexity. In practice, although the model initially generates K latent worlds, the RL policy rapidly reduces the number of active paths during reasoning, stabilizing the average path count at a low level (approximately 2.2 for K=4 ). Average reasoning steps (5.0) are also significantly lower than the fixed-rollout maximum (8.0). This makes DLWM’s actual compute cost comparable to or even lower than some single-path methods, while achieving substantially higher performance. On easy samples, the model terminates reasoning early, significantly reducing cost; on hard samples, it retains more paths and reasons deeper. This input-adaptive allocation mechanism ensures good efficiency across varying task difficulty. Overall, DLWM introduces multi-path structure in theory but achieves effective computational compression through RL, yielding a superior performance–efficiency balance in practice. 15

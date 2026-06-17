@@ -6,61 +6,68 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-06-16
-- 运行时间：2026-06-16 23:08:09 UTC
+- 最新运行日期：2026-06-17
+- 运行时间：2026-06-17 22:20:24 UTC
 - 运行状态：成功
-- 本次总论文数：13
-- 精读区：6
-- 速读区：7
+- 本次总论文数：16
+- 精读区：5
+- 速读区：11
 
 ### 今日简报（AI）
-1) 今日精读两篇高分论文：标准化Prolog工具接口与时空图动作识别，速读聚焦LLM可解释性与个性化评估。
-2) 最值关注：PrologMCP为LLM代理提供标准逻辑编程接口，时空图模型实现上下文内自我中心动作识别，均为高影响力方向。
-3) 建议优先阅读精读论文，速读三类论文可助理解LLM内部机制、法律推理及个性化约束校验，按需选读。
-- 详情：[/202606/16/README](/202606/16/README)
+今日共处理16篇论文，精读5篇、速读11篇。最值得关注的是运动预测的神经符号引导方法和生成式视觉思维链推理两篇高分论文。建议优先精读这两篇9.0分论文，探索跨模态推理的实用技巧。
+- 详情：[/202606/17/README](/202606/17/README)
 
 ### 精读区论文标签
-1. [PrologMCP: A Standardized Prolog Tool Interface for LLM Agents](/202606/16/2606.14935v1-prologmcp-a-standardized-prolog-tool-interface-for-llm-agents)  
+1. [Driving, Fast or Slow? Neuro-Symbolic Guidance for Motion Prediction in Multi-Modal Ground Mobility](/202606/17/2606.15251v1-driving-fast-or-slow-neuro-symbolic-guidance-for-motion-prediction-in-multi-modal-ground-mobility)  
    标签：评分：9.0/10、query:ns-xai
-   evidence：符号推理（Prolog）与神经大语言模型代理的结合
-2. [From Frames to Temporal Graphs: In-Context Egocentric Action Recognition with Vision-Language Models](/202606/16/2606.15417v1-from-frames-to-temporal-graphs-in-context-egocentric-action-recognition-with-vision-language-models)  
+   evidence：神经符号框架结合一阶逻辑实现可解释运动预测
+2. [Gen-VCoT: Generative Visual Chain-of-Thought Reasoning via Diffusion-Based RGB Intermediate Representations](/202606/17/2606.16783v1-gen-vcot-generative-visual-chain-of-thought-reasoning-via-diffusion-based-rgb-intermediate-representations)  
    标签：评分：9.0/10、query:ns-xai
-   evidence：通过时序动作图进行符号推理与视觉语言模型结合
-3. [NeRD: Neuro-Symbolic Rule Distillation for Efficient Ontology-Grounded Chain-of-Thought in Medical Image Diagnosis](/202606/16/2606.15617v1-nerd-neuro-symbolic-rule-distillation-for-efficient-ontology-grounded-chain-of-thought-in-medical-image-diagnosis)  
+   evidence：在多模态大模型中生成可解释的RGB中间图像用于视觉思维链
+3. [A Neuro-Symbolic Approach to Strategy Synthesis for Strategic Logics](/202606/17/2606.17962v1-a-neuro-symbolic-approach-to-strategy-synthesis-for-strategic-logics)  
    标签：评分：9.0/10、query:ns-xai
-   evidence：神经符号规则蒸馏用于本体引导的可解释推理
-4. [Assessing Reliability of Symbol Detection in Concept Bottleneck Models](/202606/16/2606.16535v1-assessing-reliability-of-symbol-detection-in-concept-bottleneck-models)  
+   evidence：结合LLM和模型检验器的神经符号策略综合
+4. [Agentic AI-based Framework for Mitigating Premature Diagnostic Handoff and Silent Hallucination in Healthcare Applications](/202606/17/2606.18068v1-agentic-ai-based-framework-for-mitigating-premature-diagnostic-handoff-and-silent-hallucination-in-healthcare-applications)  
    标签：评分：9.0/10、query:ns-xai
-   evidence：评估概念瓶颈模型中符号检测的可靠性
-5. [Frame-Conditioned Moral Computation in LLaMA 3.1-8B-Instruct: A Mechanistic Interpretability Audit of Ethical Reasoning](/202606/16/2606.15507v1-frame-conditioned-moral-computation-in-llama-31-8b-instruct-a-mechanistic-interpretability-audit-of-ethical-reasoning)  
+   evidence：医疗中的神经符号状态跟踪门控
+5. [Learning to Refine Hidden States for Reliable LLM Reasoning](/202606/17/2606.17524v1-learning-to-refine-hidden-states-for-reliable-llm-reasoning)  
    标签：评分：8.0/10、query:ns-xai
-   evidence：对LLM道德推理的机制可解释性审计
-6. [Theorem-Grounded Execution Ontologies for Interpretable Machine Reasoning](/202606/16/2606.16010v1-theorem-grounded-execution-ontologies-for-interpretable-machine-reasoning)  
-   标签：评分：8.0/10、query:ns-xai
-   evidence：提出具有显式执行语义的可解释机器学习推理框架
+   evidence：通过强化引导的隐状态细化提升LLM推理可靠性
 
 ### 速读区论文标签
-1. [Scalable Circuit Learning for Interpreting Large Language Models](/202606/16/2606.16939v1-scalable-circuit-learning-for-interpreting-large-language-models)  
-   标签：评分：8.0/10、query:ns-xai
-   evidence：可扩展的电路学习用于解释大语言模型
-2. [Neuron Level Analysis of Large Language Model in Legal Domain Reasoning](/202606/16/2606.15884v1-neuron-level-analysis-of-large-language-model-in-legal-domain-reasoning)  
+1. [DLWM: Diverse Latent World Models for Efficient Multimodal Reasoning](/202606/17/2606.15160v1-dlwm-diverse-latent-world-models-for-efficient-multimodal-reasoning)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：基于神经元层级的大语言模型法律推理可解释性分析
-3. [Evaluating LLM Personalization via Semantic Constraint Verification](/202606/16/2606.16368v1-evaluating-llm-personalization-via-semantic-constraint-verification)  
+   evidence：多模态大语言模型推理，提出多样化潜世界模型
+2. [Latent Thought Flow: Efficient Latent Reasoning in Large Language Models](/202606/17/2606.16222v1-latent-thought-flow-efficient-latent-reasoning-in-large-language-models)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：使用语义约束进行可解释的LLM行为评估
-4. [Exploring Extrinsic and Intrinsic Properties for Effective Reasoning with Code Interpreter](/202606/16/2606.16934v1-exploring-extrinsic-and-intrinsic-properties-for-effective-reasoning-with-code-interpreter)  
+   evidence：基于概率轨迹分配的潜在推理方法
+3. [Tyler: Typed Latent Reasoning for Language Models -- When to Think, What to Compute, and How Much to Allocate](/202606/17/2606.16360v1-tyler-typed-latent-reasoning-for-language-models----when-to-think-what-to-compute-and-how-much-to-allocate)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：代码解释器增强LLM推理，分析推理行为属性
-5. [Learning High Coverage Discriminative Parsimonious Rulesets](/202606/16/2606.14156v1-learning-high-coverage-discriminative-parsimonious-rulesets)  
+   evidence：大语言模型的类型化潜在推理框架
+4. [Revisiting the Systematicity in Negation in the Era of In-Context Learning](/202606/17/2606.16867v1-revisiting-the-systematicity-in-negation-in-the-era-of-in-context-learning)  
+   标签：评分：7.0/10、query:ns-xai
+   evidence：从行为和表征系统性角度分析LLM对否定的理解
+5. [Quantifying Consistency in LLM Logical Reasoning via Structural Uncertainty](/202606/17/2606.17312v1-quantifying-consistency-in-llm-logical-reasoning-via-structural-uncertainty)  
+   标签：评分：7.0/10、query:ns-xai
+   evidence：通过结构不确定性量化LLM逻辑推理的一致性
+6. [Decoding Hidden Deception in Reasoning LLMs: Activation Explainers for Deception Auditing](/202606/17/2606.17478v1-decoding-hidden-deception-in-reasoning-llms-activation-explainers-for-deception-auditing)  
+   标签：评分：7.0/10、query:ns-xai
+   evidence：面向推理LLM欺骗审计的激活可解释器
+7. [From Brewing to Resolution: Tracing the Internal Lifecycle of Code Reasoning in LLMs](/202606/17/2606.17648v1-from-brewing-to-resolution-tracing-the-internal-lifecycle-of-code-reasoning-in-llms)  
+   标签：评分：7.0/10、query:ns-xai
+   evidence：LLM代码推理内部生命周期分析用于可解释性
+8. [Language-Guided Abstraction for Visual Reasoning](/202606/17/2606.12847v1-language-guided-abstraction-for-visual-reasoning)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：高覆盖率判别性规则集用于可解释性，可作为神经符号推理的符号组件
-6. [Vernier: Probing Representational Misalignment Behind Lexical Gaps in Causal Reasoning](/202606/16/2606.15733v1-vernier-probing-representational-misalignment-behind-lexical-gaps-in-causal-reasoning)  
+   evidence：语言引导的视觉抽象推理，结合LLM语义压缩
+9. [Learning High Coverage Discriminative Parsimonious Rulesets](/202606/17/2606.14156v1-learning-high-coverage-discriminative-parsimonious-rulesets)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：探测大语言模型中的因果推理表征以增强可解释性
-7. [Scaling LLM Reasoning from Minimal Labels: A Semi-Supervised Framework with a Lightweight Verifier](/202606/16/2606.16811v1-scaling-llm-reasoning-from-minimal-labels-a-semi-supervised-framework-with-a-lightweight-verifier)  
+   evidence：学习高覆盖、简洁的可解释规则集（符号推理用于可解释性）
+10. [Context Compression Is Not One Thing: Readable Symbolic Re-expression vs. Coherent Summary at Matched Budget](/202606/17/2606.14875v1-context-compression-is-not-one-thing-readable-symbolic-re-expression-vs-coherent-summary-at-matched-budget)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：半监督框架用于LLM推理，使用轻量级验证器
+   evidence：面向小语言模型多跳推理的符号式上下文压缩（电报英语）
+11. [Relational Structural Causal Models](/202606/17/2606.14892v1-relational-structural-causal-models)  
+   标签：评分：6.0/10、query:ns-xai
+   evidence：关系因果模型结合符号推理实现组合泛化
 
 
 <div class="dpr-home-promo-card">
