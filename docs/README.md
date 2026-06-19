@@ -6,59 +6,55 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-06-18
-- 运行时间：2026-06-18 22:27:41 UTC
+- 最新运行日期：2026-06-19
+- 运行时间：2026-06-19 21:54:05 UTC
 - 运行状态：成功
-- 本次总论文数：13
+- 本次总论文数：11
 - 精读区：5
-- 速读区：8
+- 速读区：6
 
 ### 今日简报（AI）
-今日精读5篇、速读8篇，重点关注神经符号规则蒸馏提升医学图像推理与语言模型组合泛化机制。最值得看《NeRD》的医学诊断链式推理可解释性，以及《From Reasoning Traces》的模块化推理泛化方法。建议优先精读这两篇，关注如何将领域知识融入推理过程。
-- 详情：[/202606/18/README](/202606/18/README)
+1. 今日推荐11篇，精读5篇，聚焦可解释AI与推理增强两大方向。  
+2. 最值得关注：GLARE以自然语言接口查询全局解释（9.0/10），DeepSWIP利用反事实推理增强神经概率逻辑程序（9.0/10）。  
+3. 建议优先精读这两篇高分论文，并留意速读中结合推理与摘要的ReSum方法。
+- 详情：[/202606/19/README](/202606/19/README)
 
 ### 精读区论文标签
-1. [NeRD: Neuro-Symbolic Rule Distillation for Efficient Ontology-Grounded Chain-of-Thought in Medical Image Diagnosis](/202606/18/2606.15617v2-nerd-neuro-symbolic-rule-distillation-for-efficient-ontology-grounded-chain-of-thought-in-medical-image-diagnosis)  
-   标签：评分：10.0/10、query:ns-xai
-   evidence：神经符号规则蒸馏用于可解释推理
-2. [From Reasoning Traces to Reusable Modules: Understanding Compositional Generalization in Language Model Reasoning](/202606/18/2606.18089v1-from-reasoning-traces-to-reusable-modules-understanding-compositional-generalization-in-language-model-reasoning)  
+1. [GLARE: A Natural Language Interface for Querying Global Explanations](/202606/19/2606.19735v1-glare-a-natural-language-interface-for-querying-global-explanations)  
    标签：评分：9.0/10、query:ns-xai
-   evidence：将推理迹建模为可重用模块的组合泛化框架，增强可解释性
-3. [NeSyCat Torch: A Differentiable Tensor Implementation of Categorical Semantics for Neurosymbolic Learning](/202606/18/2606.19279v1-nesycat-torch-a-differentiable-tensor-implementation-of-categorical-semantics-for-neurosymbolic-learning)  
+   evidence：基于LLM的全局解释查询接口，增强可解释推理
+2. [DeepSWIP: Quotient-WMC Counterfactuals for Neural Probabilistic Logic Programs](/202606/19/2606.20526v1-deepswip-quotient-wmc-counterfactuals-for-neural-probabilistic-logic-programs)  
    标签：评分：9.0/10、query:ns-xai
-   evidence：NeSyCat Torch 提供了神经符号学习的可微张量框架，直接集成符号语义与神经网络用于可解释推理
-4. [Structural Preservation and the Logical Expressiveness of Graph Neural Networks](/202606/18/2606.17882v1-structural-preservation-and-the-logical-expressiveness-of-graph-neural-networks)  
+   evidence：神经符号系统反事实推理用于可解释性
+3. [Is Code Better Than Language for Algorithmic Reasoning](/202606/19/2606.15589v1-is-code-better-than-language-for-algorithmic-reasoning)  
    标签：评分：8.0/10、query:ns-xai
-   evidence：建立了图神经网络与逻辑形式主义之间的对应关系，桥接了符号推理与神经网络
-5. [Explaining Attention with Program Synthesis](/202606/18/2606.19317v1-explaining-attention-with-program-synthesis)  
+   evidence：比较代码与语言对LLM算法推理的影响，揭示推理表示机制
+4. [DreamReasoner-8B: Block-Size Curriculum Learning for Diffusion Reasoning Models](/202606/19/2606.19257v1-dreamreasoner-8b-block-size-curriculum-learning-for-diffusion-reasoning-models)  
    标签：评分：8.0/10、query:ns-xai
-   evidence：用程序合成解释注意力头
+   evidence：用于长链式推理的块扩散推理模型
+5. [Clusters are All You Need: Pre-Training the Tsetlin Machine with Semantic Clusters from Language Models for Interpretability](/202606/19/2606.19815v1-clusters-are-all-you-need-pre-training-the-tsetlin-machine-with-semantic-clusters-from-language-models-for-interpretability)  
+   标签：评分：8.0/10、query:ns-xai
+   evidence：使用语言模型聚类预训练Tsetlin Machine以增强可解释性，体现神经符号协同
 
 ### 速读区论文标签
-1. [High-Dimensional Random Projection for Activation Steering in Language Models](/202606/18/2606.15092v1-high-dimensional-random-projection-for-activation-steering-in-language-models)  
+1. [ReSum: Synergizing LLM Reasoning and Summarization with Reinforcement Learning](/202606/19/2606.13316v1-resum-synergizing-llm-reasoning-and-summarization-with-reinforcement-learning)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：HiDRA 改进了大语言模型的激活控制，更好地捕获判别信号以增强可解释性
-2. [Formalizing and Mitigating Structural Distortion in LLM Attention for Graph Reasoning](/202606/18/2606.15633v2-formalizing-and-mitigating-structural-distortion-in-llm-attention-for-graph-reasoning)  
+   evidence：通过自摘要和强化学习改进LLM推理
+2. [Implicit Reasoning for Large Language Model-based Generative Recommendation](/202606/19/2606.14142v1-implicit-reasoning-for-large-language-model-based-generative-recommendation)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：形式化了图推理中大语言模型注意力的结构失真，为可解释推理机制提供见解
-3. [From Sparse Features to Trustworthy Proxies: Certifying SAE-Based Interpretability](/202606/18/2606.18383v1-from-sparse-features-to-trustworthy-proxies-certifying-sae-based-interpretability)  
+   evidence：研究基于大语言模型的生成式推荐中的隐式推理
+3. [Implicit Reasoning for Large Language Model-based Generative Recommendation](/202606/19/2606.14142v2-implicit-reasoning-for-large-language-model-based-generative-recommendation)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：认证基于SAE的语言模型可解释性
-4. [PragReST: Self-Reinforcing Counterfactual Reasoning for Pragmatic Language Understanding](/202606/18/2606.18624v1-pragrest-self-reinforcing-counterfactual-reasoning-for-pragmatic-language-understanding)  
+   evidence：研究基于大语言模型的生成式推荐中的隐式推理
+4. [QMFOL: Benchmarking Large Language Model Reasoning via Quantifiable Monadic First-Order Logic Test Case Generation](/202606/19/2606.20227v1-qmfol-benchmarking-large-language-model-reasoning-via-quantifiable-monadic-first-order-logic-test-case-generation)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：通过自监督反事实推理提升LLM语用理解
-5. [Seeing Before Reasoning: Decoupling Perception and Reasoning for Shortcut-Resilient Multimodal On-Policy Self-Distillation](/202606/18/2606.19120v1-seeing-before-reasoning-decoupling-perception-and-reasoning-for-shortcut-resilient-multimodal-on-policy-self-distillation)  
-   标签：评分：7.0/10、query:ns-xai
-   evidence：在多模态大模型中解耦感知与推理以实现抗捷径推理
-6. [The Art of Interrogation: Consistency Amplifies Factuality in Spatial Reasoning](/202606/18/2606.11918v2-the-art-of-interrogation-consistency-amplifies-factuality-in-spatial-reasoning)  
+   evidence：面向LLM推理的一阶逻辑复杂度可控基准
+5. [Stop When Further Reasoning Won't Help: Attention-State Adaptive Generation in Reasoning Models](/202606/19/2606.15070v1-stop-when-further-reasoning-wont-help-attention-state-adaptive-generation-in-reasoning-models)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：一致性验证器用于推理对齐
-7. [Integrating Reasoning and Generalization in Text-to-SQL via Self-Enhanced Fine-Tuning](/202606/18/2606.15598v1-integrating-reasoning-and-generalization-in-text-to-sql-via-self-enhanced-fine-tuning)  
+   evidence：基于注意力的早停方法减少LLM推理过度思考
+6. [SuCo: Sufficiency-guided Continuous Adaptive Reasoning](/202606/19/2606.17687v1-suco-sufficiency-guided-continuous-adaptive-reasoning)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：自我增强的推理链用于大模型文本转SQL推理
-8. [Free Energy Heuristics: Fast-And-Frugal Cognition as Active Inference Under Uncertain Precision](/202606/18/2606.15877v1-free-energy-heuristics-fast-and-frugal-cognition-as-active-inference-under-uncertain-precision)  
-   标签：评分：6.0/10、query:ns-xai
-   evidence：基于自由能原理对LLM推理质量的理论分析
+   evidence：大推理模型中的自适应推理效率
 
 
 <div class="dpr-home-promo-card">
