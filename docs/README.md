@@ -6,55 +6,29 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-06-19
-- 运行时间：2026-06-19 21:54:05 UTC
+- 最新运行日期：2026-06-20
+- 运行时间：2026-06-20 21:30:32 UTC
 - 运行状态：成功
-- 本次总论文数：11
-- 精读区：5
-- 速读区：6
+- 本次总论文数：3
+- 精读区：1
+- 速读区：2
 
 ### 今日简报（AI）
-1. 今日推荐11篇，精读5篇，聚焦可解释AI与推理增强两大方向。  
-2. 最值得关注：GLARE以自然语言接口查询全局解释（9.0/10），DeepSWIP利用反事实推理增强神经概率逻辑程序（9.0/10）。  
-3. 建议优先精读这两篇高分论文，并留意速读中结合推理与摘要的ReSum方法。
-- 详情：[/202606/19/README](/202606/19/README)
+今日精读1篇、速读2篇，重点聚焦可验证数据分析代理与可靠思维链推理。最值得看的是《VeriGraph》提出的可验证数据分析代理框架（9.0分），以及《CoRA》与《Concept Flow Models》分别从置信度对齐和层级瓶颈提升推理可靠性。建议优先研读精读论文，掌握可验证系统构建思路，并跟进推理可靠性增强方法。
+- 详情：[/202606/20/README](/202606/20/README)
 
 ### 精读区论文标签
-1. [GLARE: A Natural Language Interface for Querying Global Explanations](/202606/19/2606.19735v1-glare-a-natural-language-interface-for-querying-global-explanations)  
+1. [VeriGraph: Towards Verifiable Data-Analytic Agents](/202606/20/2606.16603v1-verigraph-towards-verifiable-data-analytic-agents)  
    标签：评分：9.0/10、query:ns-xai
-   evidence：基于LLM的全局解释查询接口，增强可解释推理
-2. [DeepSWIP: Quotient-WMC Counterfactuals for Neural Probabilistic Logic Programs](/202606/19/2606.20526v1-deepswip-quotient-wmc-counterfactuals-for-neural-probabilistic-logic-programs)  
-   标签：评分：9.0/10、query:ns-xai
-   evidence：神经符号系统反事实推理用于可解释性
-3. [Is Code Better Than Language for Algorithmic Reasoning](/202606/19/2606.15589v1-is-code-better-than-language-for-algorithmic-reasoning)  
-   标签：评分：8.0/10、query:ns-xai
-   evidence：比较代码与语言对LLM算法推理的影响，揭示推理表示机制
-4. [DreamReasoner-8B: Block-Size Curriculum Learning for Diffusion Reasoning Models](/202606/19/2606.19257v1-dreamreasoner-8b-block-size-curriculum-learning-for-diffusion-reasoning-models)  
-   标签：评分：8.0/10、query:ns-xai
-   evidence：用于长链式推理的块扩散推理模型
-5. [Clusters are All You Need: Pre-Training the Tsetlin Machine with Semantic Clusters from Language Models for Interpretability](/202606/19/2606.19815v1-clusters-are-all-you-need-pre-training-the-tsetlin-machine-with-semantic-clusters-from-language-models-for-interpretability)  
-   标签：评分：8.0/10、query:ns-xai
-   evidence：使用语言模型聚类预训练Tsetlin Machine以增强可解释性，体现神经符号协同
+   evidence：可追踪的神经符号推理框架，构建证据有向无环图
 
 ### 速读区论文标签
-1. [ReSum: Synergizing LLM Reasoning and Summarization with Reinforcement Learning](/202606/19/2606.13316v1-resum-synergizing-llm-reasoning-and-summarization-with-reinforcement-learning)  
+1. [CoRA: Confidence-Rationale Alignment for Reliable Chain-of-Thought Reasoning](/202606/20/2606.14961v1-cora-confidence-rationale-alignment-for-reliable-chain-of-thought-reasoning)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：通过自摘要和强化学习改进LLM推理
-2. [Implicit Reasoning for Large Language Model-based Generative Recommendation](/202606/19/2606.14142v1-implicit-reasoning-for-large-language-model-based-generative-recommendation)  
+   evidence：对齐信心与推理依据以实现可靠思维链推理
+2. [Concept Flow Models: Anchoring Concept-Based Reasoning with Hierarchical Bottlenecks](/202606/20/2606.19489v1-concept-flow-models-anchoring-concept-based-reasoning-with-hierarchical-bottlenecks)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：研究基于大语言模型的生成式推荐中的隐式推理
-3. [Implicit Reasoning for Large Language Model-based Generative Recommendation](/202606/19/2606.14142v2-implicit-reasoning-for-large-language-model-based-generative-recommendation)  
-   标签：评分：7.0/10、query:ns-xai
-   evidence：研究基于大语言模型的生成式推荐中的隐式推理
-4. [QMFOL: Benchmarking Large Language Model Reasoning via Quantifiable Monadic First-Order Logic Test Case Generation](/202606/19/2606.20227v1-qmfol-benchmarking-large-language-model-reasoning-via-quantifiable-monadic-first-order-logic-test-case-generation)  
-   标签：评分：7.0/10、query:ns-xai
-   evidence：面向LLM推理的一阶逻辑复杂度可控基准
-5. [Stop When Further Reasoning Won't Help: Attention-State Adaptive Generation in Reasoning Models](/202606/19/2606.15070v1-stop-when-further-reasoning-wont-help-attention-state-adaptive-generation-in-reasoning-models)  
-   标签：评分：6.0/10、query:ns-xai
-   evidence：基于注意力的早停方法减少LLM推理过度思考
-6. [SuCo: Sufficiency-guided Continuous Adaptive Reasoning](/202606/19/2606.17687v1-suco-sufficiency-guided-continuous-adaptive-reasoning)  
-   标签：评分：6.0/10、query:ns-xai
-   evidence：大推理模型中的自适应推理效率
+   evidence：层次概念瓶颈模型用于可解释推理
 
 
 <div class="dpr-home-promo-card">
