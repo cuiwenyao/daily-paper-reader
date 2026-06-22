@@ -6,41 +6,35 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-06-21
-- 运行时间：2026-06-21 21:08:09 UTC
+- 最新运行日期：2026-06-22
+- 运行时间：2026-06-22 22:21:41 UTC
 - 运行状态：成功
-- 本次总论文数：7
-- 精读区：2
-- 速读区：5
+- 本次总论文数：5
+- 精读区：1
+- 速读区：4
 
 ### 今日简报（AI）
-今日聚焦多模态大模型视觉概念学习与神经符号验证两大方向，均获9分高分。值得优先精读级联稀疏自编码器如何揭示多模态大模型的多级视觉概念，以及借助符号推理扩展局部语言模型的验证能力。建议普通读者从这两篇入手，快速把握神经符号系统与多模态推理的前沿进展。
-- 详情：[/202606/21/README](/202606/21/README)
+今日精读1篇高分论文《Structured Inference with Large Language Gibbs》，并速读4篇涵盖语音伪造检测、推理可信度及多语言参数研究。最推荐关注结构化推理与LLM结合的方法（8.0分），以及训练自由的多模态模型在语音检测中的可解释性（7.0分）。建议优先精读Gibbs推理论文，感受如何用结构化采样提升LLM推断质量。
+- 详情：[/202606/22/README](/202606/22/README)
 
 ### 精读区论文标签
-1. [Cascaded Sparse Autoencoders Learn Multi-Level Visual Concepts in Multimodal LLMs](/202606/21/2606.16193v1-cascaded-sparse-autoencoders-learn-multi-level-visual-concepts-in-multimodal-llms)  
-   标签：评分：9.0/10、query:ns-xai
-   evidence：通过级联稀疏自编码器实现多模态大模型可解释特征学习
-2. [Neuro-Symbolic Software Verification: Hyper-charging Local Language Models with Symbolic Reasoning at Scale](/202606/21/2606.16886v1-neuro-symbolic-software-verification-hyper-charging-local-language-models-with-symbolic-reasoning-at-scale)  
-   标签：评分：9.0/10、query:ns-xai
-   evidence：结合符号不变量生成与LLM细化的神经符号流水线
+1. [Structured Inference with Large Language Gibbs](/202606/22/2606.19264v1-structured-inference-with-large-language-gibbs)  
+   标签：评分：8.0/10、query:ns-xai
+   evidence：利用LLM条件分布进行结构化概率推理的迭代重采样方法
 
 ### 速读区论文标签
-1. [Robust Dual-Signal Fusion: Hybrid Neuro-Symbolic Gating with Compressed Chain-of-Thought Refinement for Irony Detection in Social Media Texts](/202606/21/2606.16845v1-robust-dual-signal-fusion-hybrid-neuro-symbolic-gating-with-compressed-chain-of-thought-refinement-for-irony-detection-in-social-media-texts)  
+1. [XAI-Grounded Explanation Generation for Speech Deepfake Detection with Training-Free Multimodal Large Language Models](/202606/22/2606.16137v1-xai-grounded-explanation-generation-for-speech-deepfake-detection-with-training-free-multimodal-large-language-models)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：混合神经符号架构结合压缩链式推理实现讽刺检测中的可解释性
-2. [Safety, Security, and Cognitive Risks in Neuro-Symbolic AI](/202606/21/2606.17223v1-safety-security-and-cognitive-risks-in-neuro-symbolic-ai)  
-   标签：评分：7.0/10、query:ns-xai
-   evidence：神经符号AI系统可解释性的风险分析
-3. [ChLogic: Evaluating Robustness of Logical Reasoning in Chinese Expressions](/202606/21/2606.17905v1-chlogic-evaluating-robustness-of-logical-reasoning-in-chinese-expressions)  
-   标签：评分：7.0/10、query:ns-xai
-   evidence：LLM逻辑推理鲁棒性基准
-4. [FlowRAG: Synergizing Explicit Reasoning via Frequency-Aware Multi-Granularity Graph Flow](/202606/21/2606.17856v1-flowrag-synergizing-explicit-reasoning-via-frequency-aware-multi-granularity-graph-flow)  
+   evidence：大模型中的可解释推理，基于XAI的解释生成
+2. [GRACE: Step-Level Benchmark for Faithful Reasoning over Context](/202606/22/2606.16151v1-grace-step-level-benchmark-for-faithful-reasoning-over-context)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：通过频感知多粒度图流增强GraphRAG中的显式推理
-5. [Learning from Your Own Mistakes: Constructing Learnable Micro-Reflective Trajectories for Self-Distillation](/202606/21/2606.18844v1-learning-from-your-own-mistakes-constructing-learnable-micro-reflective-trajectories-for-self-distillation)  
+   evidence：提供链式推理步骤级忠实性基准
+3. [LLM Parameters for Math Across Languages: Shared or Separate?](/202606/22/2606.18453v1-llm-parameters-for-math-across-languages-shared-or-separate)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：通过自蒸馏改进大模型推理
+   evidence：大神经模型中的可解释性与推理，跨语言机制分析
+4. [Beyond Entropy: Learning from Token-Level Distributional Deviations for LLM Reasoning](/202606/22/2606.19771v1-beyond-entropy-learning-from-token-level-distributional-deviations-for-llm-reasoning)  
+   标签：评分：6.0/10、query:ns-xai
+   evidence：大模型推理优化，令牌级分布分析
 
 
 <div class="dpr-home-promo-card">
