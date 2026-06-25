@@ -6,56 +6,37 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-06-24
-- 运行时间：2026-06-24 22:07:50 UTC
+- 最新运行日期：2026-06-25
+- 运行时间：2026-06-25 21:59:17 UTC
 - 运行状态：成功
-- 本次总论文数：12
-- 精读区：4
-- 速读区：8
+- 本次总论文数：5
+- 精读区：3
+- 速读区：2
 
 ### 今日简报（AI）
-今日精读聚焦形式验证与高阶逻辑推理，速读关注LLM推理机制与记忆动态。最值看：循环一致解释验证证书的方法（9.0分）以及评估LLM高阶逻辑的HOLMES基准（8.0分）。建议深入阅读精读论文，探索形式验证与LLM推理能力的结合点。
-- 详情：[/202606/24/README](/202606/24/README)
+今日精读两篇神经符号推理高分论文，并速读LLM表征几何与不对称Shapley值计算。
+最值得关注的是神经符号方法在临床试验匹配与自适应推理工作流中的应用，均获9.0高分。
+建议优先了解神经符号推理如何结合逻辑验证提升LLM可靠性，后续可关注高效贡献分配算法。
+- 详情：[/202606/25/README](/202606/25/README)
 
 ### 精读区论文标签
-1. [Cycle-Consistent Neural Explanation of Formal Verification Certificates](/202606/24/2606.24414v1-cycle-consistent-neural-explanation-of-formal-verification-certificates)  
+1. [Neurosymbolic Clinical Trial Matching via LLM-Driven Abduction and Logical Verification](/202606/25/2606.20895v1-neurosymbolic-clinical-trial-matching-via-llm-driven-abduction-and-logical-verification)  
    标签：评分：9.0/10、query:ns-xai
-   evidence：结合神经网络与符号验证器，为验证证书生成可解释推理
-2. [HOLMES: Evaluating Higher-Order Logical Reasoning in LLMs](/202606/24/2606.23238v2-holmes-evaluating-higher-order-logical-reasoning-in-llms)  
-   标签：评分：8.0/10、query:ns-xai
-   evidence：LLM中的高阶符号推理基准
-3. [Can Language Model Agents be Helpful Circuit Explainers in Mechanistic Interpretability?](/202606/24/2606.24026v1-can-language-model-agents-be-helpful-circuit-explainers-in-mechanistic-interpretability)  
-   标签：评分：8.0/10、query:ns-xai
-   evidence：利用语言模型智能体解释电路机理，涉及可解释推理
-4. [VeryTrace: Verifying Reasoning Traces through Compilable Formalism and Structured Verification](/202606/24/2606.24124v1-verytrace-verifying-reasoning-traces-through-compilable-formalism-and-structured-verification)  
-   标签：评分：8.0/10、query:ns-xai
-   evidence：验证和修复链式推理轨迹
+   evidence：神经符号CTM框架，结合LLM溯因和逻辑验证
+2. [VADAOrchestra: Neurosymbolic Orchestration of Adaptive Reasoning Workflows](/202606/25/2606.22485v2-vadaorchestra-neurosymbolic-orchestration-of-adaptive-reasoning-workflows)  
+   标签：评分：9.0/10、query:ns-xai
+   evidence：神经符号协同编排自适应推理工作流
+3. [Neuro-Symbolic Drive: Rule-Grounded Faithful Reasoning for Driving VLAs](/202606/25/2606.23938v1-neuro-symbolic-drive-rule-grounded-faithful-reasoning-for-driving-vlas)  
+   标签：评分：9.0/10、query:ns-xai
+   evidence：神经符号框架实现驾驶推理的忠实性
 
 ### 速读区论文标签
-1. [Fixed-Point Reasoners: Stable and Adaptive Deep Looped Transformers](/202606/24/2606.18206v1-fixed-point-reasoners-stable-and-adaptive-deep-looped-transformers)  
-   标签：评分：7.0/10、query:ns-xai
-   evidence：基于不动点收敛的循环Transformer推理模型
-2. [Factual Retrieval in LLMs Is a Redundant, Distributed and Non-Contiguous Process](/202606/24/2606.21345v1-factual-retrieval-in-llms-is-a-redundant-distributed-and-non-contiguous-process)  
-   标签：评分：7.0/10、query:ns-xai
-   evidence：分析LLM内部事实检索的推理路径，为LLM推理可解释性提供见解
-3. [Reasoning as Attractor Dynamics: Latent Memory Retrieval via Gibbs-Weighted Energy Minimization](/202606/24/2606.24543v1-reasoning-as-attractor-dynamics-latent-memory-retrieval-via-gibbs-weighted-energy-minimization)  
-   标签：评分：7.0/10、query:ns-xai
-   evidence：基于能量景观的LLM推理动态解释
-4. [Deeper is Not Always Better: Mitigating the Alignment Tax via Confident Layer Decoding](/202606/24/2606.21906v1-deeper-is-not-always-better-mitigating-the-alignment-tax-via-confident-layer-decoding)  
+1. [Abstract representational geometry supports inference in large language models](/202606/25/2606.23345v1-abstract-representational-geometry-supports-inference-in-large-language-models)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：中间层精炼与推理相关的语义；熵引导的层选择提升推理可靠性
-5. [Beyond Penalizing Mistakes: Stabilizing Efficiency Training in Large Reasoning Models via Adaptive Correct-Only Rewards](/202606/24/2606.22716v1-beyond-penalizing-mistakes-stabilizing-efficiency-training-in-large-reasoning-models-via-adaptive-correct-only-rewards)  
+   evidence：研究大语言模型中的抽象表示及其对推理的支持
+2. [Beyond Shapley: Efficient Computation of Asymmetric Shapley Values](/202606/25/2606.25103v1-beyond-shapley-efficient-computation-of-asymmetric-shapley-values)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：稳定大语言模型推理训练的仅正确奖励
-6. [Provable Benefits of RLVR over SFT for Reasoning Models: Learning to Backtrack Efficiently](/202606/24/2606.22938v1-provable-benefits-of-rlvr-over-sft-for-reasoning-models-learning-to-backtrack-efficiently)  
-   标签：评分：6.0/10、query:ns-xai
-   evidence：理论分析RLVR如何提升推理回溯能力
-7. [SPIRAL: Learning to Search and Aggregate](/202606/24/2606.23595v1-spiral-learning-to-search-and-aggregate)  
-   标签：评分：6.0/10、query:ns-xai
-   evidence：多轨迹强化学习增强LLM推理
-8. [Randomized YaRN Improves Length Generalization for Long-Context Reasoning](/202606/24/2606.23687v1-randomized-yarn-improves-length-generalization-for-long-context-reasoning)  
-   标签：评分：6.0/10、query:ns-xai
-   evidence：随机位置编码提升大语言模型长度泛化
+   evidence：计算不对称Shapley值用于可解释特征归因
 
 
 <div class="dpr-home-promo-card">
