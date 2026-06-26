@@ -1,0 +1,10519 @@
+Title: LMs as Task-Specific Knowledge Bases: An Interpretability Analysis
+
+URL Source: https://arxiv.org/pdf/2606.27237v1
+
+Published Time: Fri, 26 Jun 2026 01:25:50 GMT
+
+Number of Pages: 33
+
+Markdown Content:
+## LMs as Task-Specific Knowledge Bases: An Interpretability Analysis 
+
+Amit Elhelo 1 Amir Globerson 1,2, ∗ Mor Geva 1, ∗
+
+1Blavatnik School of Computer Science and AI, Tel Aviv University 
+
+2Google Research 
+
+{amitelhelw@mail,gamir@tauex,morg@tauex}.tau.ac.il 
+
+Abstract 
+
+Language models (LMs) capture large amounts of factual knowledge applicable to a wide range of tasks, motivating the view of their parame-ters as a knowledge base. An important prop-erty of knowledge bases is that different queries for the same fact return consistent results, draw-ing on a single source of truth. We investigate whether LMs satisfy this property through be-havioral and mechanistic analyses. Our results suggest that they encode knowledge in a task-specific manner. Behaviorally, facts acquired on one task frequently fail to co-emerge on others during training. Parameter localization experiments suggest a mechanistic explanation, revealing distinct parameter subsets underly-ing different tasks for the same fact. Finally, we show that chain-of-thought reasoning draws part of its effectiveness from engaging task-specific parameters beyond those tied to the evaluation task. Our findings suggest that what the model knows and how it is asked are in-tertwined in parameter space, undermining the “knowledge base” analogy and carrying impli-cations for the reliability and controllability of factual knowledge in LMs. 
+
+1 Introduction 
+
+Language models (LMs) encode vast amounts of knowledge in their parameters which is utilized for various tasks, such as dialogue, summarization, and reasoning (Hendrycks et al., 2020). As such, LMs are often viewed as information systems whose parameters act as a knowledge base (Petroni et al., 2019; Roberts et al., 2020). In a well-designed knowledge base, different queries for the same fact draw on a single source of truth, guaranteeing consistent results. For example, a knowledge base should retrieve Paris for both 
+
+“What is the capital of France?” and “The capital of France is ___” . Violating this introduces risks 
+
+> *
+
+Equal senior authorship. What is the capital of France?                  
+
+> France’s capital is: 1) Vienna 2) Paris
+> Traditional knowledge base
+> Language model
+> Task-invariance property satisfied via a single source of truth
+> Shared store
+> (France, capital-of, Paris)
+> Paris
+> Task-invariance property violated
+> Multiple sources of truth
+> OpenQA
+> KB
+> MCQA
+> KB
+> Verif.
+> KB
+> Paris Vienna Berlin
+> Is Paris the capital of France?
+> ✓✓✗
+> Shared KB
+> Paris 2) Paris True
+> What is the capital of France?
+> France’s capital is: 1) Vienna 2) Paris
+> Language model
+> Task-invariance property violated by multiple sources of truth
+> Is Paris the capital of France?
+> Paris 1) Vienna True
+> OpenQA KB MCQA KB Verification KB
+> ✓✓✓
+> ✓✓✗
+
+Figure 1: Language models and task-invariance. A tra-ditional knowledge base (top) draws on a single source of truth regardless of query format. Here we show that LMs are better described by a scheme where each task has its own KB (bottom), so the same question can be answered differently, as in the multiple-choice case. 
+
+to system reliability, consistency, and updateability (Codd, 1970; Abiteboul et al., 1995). In this work, we ask whether LMs satisfy this property. We investigate this through two experiments. First, a behavioral analysis where we track across training checkpoints of OLMo-3-7B IT (Olmo et al., 2025) how knowledge of individual facts, drawn from datasets of (subject, relation, object) triplets, co-emerges across tasks. If facts were stored in a task-invariant manner, a model that ac-quires a fact for one task should simultaneously acquire it for other tasks it is already competent at. We find that co-emergence is limited, with substan-tial variation across tasks, suggesting that knowl-edge acquisition in LMs is task dependent. Next, we analyze how task-specific knowledge encodings are manifested in model parameters. If knowledge is stored independently of task format, it should not be possible to isolate parameters that 1
+
+> arXiv:2606.27237v1 [cs.CL] 25 Jun 2026
+
+are specific to individual (fact, task) pairs. We study this through a mechanistic analysis, adapting the lo-calization framework of Bayazit et al. (2024). For each (fact, task) pair we identify a sparse subset of parameters whose removal degrades model perfor-mance on that pair with little effect on other facts on the same task or the same fact on other tasks. Across three models and five relational datasets, we consistently find such subsets. Together with the behavioral results, this suggests that LMs maintain task-dependent parametric encodings of individ-ual facts, instead of drawing from a shared, task-invariant store. Figure 1 illustrates this. We find that the degree of this separation is not uniform, as some (fact, task) encodings can be well isolated from other pairs while others show partial overlap. This raises the question of which tasks tend to have separate versus shared encodings (Zamir et al., 2018). To quantify this overlap, we develop metrics that measure how separable each (fact, task) encoding is from other pairs, and find that discrimination tasks (e.g., M ULTIPLE CHOICE 
+
+QA) are consistently more entangled than genera-tion tasks (e.g., F ILL -IN -THE -B LANK ). Moreover, facts acquired through generation tasks generally co-emerge on other tasks, but not vice versa. Finally, we hypothesize that part of the effective-ness of chain-of-thought (CoT) reasoning in recov-ering knowledge inaccessible to direct answering (without intermediate reasoning; Gekhman et al. 2026) comes from engaging parametric encodings beyond those tied to the evaluation task. We con-firm this by removing the localized (fact, task) en-codings. CoT largely recovers performance lost when a task’s own encoding is ablated, yet drops more than direct answering when other tasks’ en-codings are removed, suggesting it relies on them more than direct answering does. Together, these findings show that knowledge in LMs is not cleanly separated from task structure, as what the model knows and how it is asked are in-tertwined in parameter space. This undermines the “knowledge base” analogy, whose guarantees of reliability and controllability rest on knowledge be-ing task-invariant. For instance, knowledge editing or unlearning interventions targeting a single task format may leave other formats intact, and single-task evaluation may provide only a partial view of what the model encodes. We release our code and data at https://github.com/amitelhelo/ TaskInvariance .
+
+2 Task-specific knowledge encodings 
+
+In a well-designed knowledge base, querying a given fact in different ways should return the same result, drawing on the same internal source of truth. We call this property task-invariance , and inves-tigate it in LMs through a behavioral experiment (detailed in this section), tracking how acquisition of individual facts co-emerges across tasks during training, and a mechanistic experiment (§3), asking whether the parameters that support a fact differ across tasks. Our analysis shows that knowledge is fragmented across task-specific encodings; facts acquired on one task often fail to transfer to other tasks, and it is possible to localize distinct parame-ters that encode the same fact for different tasks. 
+
+2.1 Experimental Setup 
+
+We track factual knowledge in LMs using rela-tional datasets (Vrandeˇ ci´ c and Krötzsch, 2014; Hernandez et al., 2024), where facts are formulated as (subject, relation, object) triplets. For example, the fact that Paris is the capital of France can be represented as the triplet (France, capital-of, Paris) . Specifically, we use datasets of five relations: (country, capital-of, city) ,
+
+(country, official language, language) ,
+
+(landmark, in-country, country) ,
+
+(company, HQ-in-city, city) , and (person, plays-instrument, instrument) . Each fact is probed via six tasks: next-token completion (C OMPLETION ), fill-in-the-blank (F ITB), open-ended question answering (O PEN QA), four-way multiple-choice QA (MCQA), negative MCQA (N EG MCQA; select the incorrect answer), and binary statement verification (V ERIFICATION ). For each dataset-task pair we composed 10 prompt paraphrases, which we use to evaluate the model’s knowledge of the facts for the task. For discrimination tasks, each paraphrase is further ex-panded by rotating the correct answer through all positions (4 for MCQA, 2 for N EG MCQA) or by pairing it with both a true and a false statement (V ERIFICATION ). For additional dataset details see §A. Representative prompts for the different tasks are provided in Appendix Figure 6. All datasets are down-sampled to 46 facts each (matching the size of the smallest dataset), yielding 230 facts. 
+
+2.2 Co-emergence hypothesis 
+
+The task-invariance property entails predictions about training. Specifically, it implies that facts 2Testing co-emergence across tasks t and t for fact f                        
+
+> f emerges on task t E(f, t̄ )
+> tbecomes competent E( ·,t )
+> f emerged on tasks t and t
+> simultaneously
+> Training checkpoints
+> f emerges on t and tE(f,t )=E(f,t )
+> consistent with the
+> co-emergence hypothesis
+> 12
+> 12
+> 1
+> 2
+> 22
+> 22
+> f emerges on t E(f,t )
+> tbecomes competent E( ·,t )
+> f emerged on task t and t is
+> competent, yet f has not already
+> emerged on t
+> Training checkpoints
+> f emerges on t E(f,t )
+> inconsistent with the
+> co-emergence hypothesis
+> 12
+> 1
+> 222
+> 2
+> 22
+> tbecomes competent E( ·,t )1
+> 11
+> 2
+> ✓
+> ✗
+
+Figure 2: Examples of consistent (top) and inconsistent (bottom) observations with the co-emergence hypothe-sis. 
+
+should co-emerge across tasks, a hypothesis which we formalize as follows: if different tasks retrieve a given fact from the same task-invariant parametric store, then once the model can retrieve a fact for some task (e.g., correctly answer an open question about the capital of France), then it should retrieve that fact for other tasks it is competent on (e.g., correctly answer a multiple choice question about the capital of France). Formally, let T denote a set of tasks. We write 
+
+E(f, t ) for the emergence step of fact f on task 
+
+t, defined as the first checkpoint at which the model reliably retrieves f on t (operationalized below), or ∞ if this never occurs. We write E(·, t )
+
+for the emergence step of task t, defined as the first checkpoint in which a substantial fraction of facts are reliably retrieved on t. Finally, we write E(f, ¯t) for the earliest checkpoint at which 
+
+f emerges on any task other than t, defined as 
+
+E(f, ¯t) = min t′∈T \{ t} E(f, t ′). See Figure 2 for illustration. Under the co-emergence hypothesis, once both prerequisites are met (the fact is retrieved on some task and the target task is competent), the fact should be retrieved on the target task as well. That is, for all facts f and tasks t:
+
+E(f, t ) ≤ max  E(f, ¯t), E (·, t ) (1) 
+
+Testing the co-emergence hypothesis We use OLMo-3-7B IT (Olmo et al., 2025), since its inter-mediate training checkpoints are publicly available. We track the model’s performance for each (fact, task) pair across training. Concretely, we exam-ine 105 checkpoints covering the pretraining stage (100 checkpoints), midtraining and long context (2 checkpoints), and post-training (3 checkpoints). To determine emergence of a (fact,task) pair, we take the model’s probability of the first token of the correct answer per paraphrase, normalize it by the task’s chance level, and consider the fact re-liably retrieved when the mean probability over paraphrases exceeds θ = 0 .6. This threshold en-sures a meaningful preference for the correct an-swer while allowing for imperfect performance at intermediate training stages. 1 The emergence step 
+
+E(f, t ) is then the first checkpoint at which this cri-terion is met. Similarly, we set task t’s emergence step E(·, t ) to the first checkpoint where at least 25% of facts are reliably retrieved on t. We retain only facts that the final Instruct model retrieves cor-rectly on at least one task, and exclude (fact, task) pairs that cannot meaningfully test the prediction. These include pairs where t is the task on which the fact first emerged (no prior source to “co-emerge” with) and pairs where, at the expected step (RHS of Eq. 1), the fact is no longer retrieved on other tasks or task t is no longer competent. We apply this second condition only to pairs that fail to co-emerge, to avoid counting a lapsed prerequisite as evidence against the hypothesis. This yields 1,031 (fact-task) pairs. See §B for additional details. When co-emergence occurs by the predicted step (Eq. 1), we say the observation is consistent with the hypothesis, and otherwise inconsistent . Fig-ure 2 illustrates both cases. Notably, consistent ob-servations on their own do not support the hypothe-sis, since a fact may emerge for reasons unrelated to shared storage; but inconsistent observations pro-vide direct evidence against it. 
+
+Results We find that the co-emergence hypothe-sis is frequently violated. In 47.9% of (fact, task) pairs, the fact does not emerge on the target task by the expected step, suggesting that factual knowl-edge does not transfer reliably across tasks during training. This finding is stable across thresholds (50 .9% at θ=0 .4, 49 .2% at θ=0 .8). In §4 we an-alyze these results at the task-pair level, asking which pairings show reliable co-emergence and which do not. 
+
+2.3 Testing for (fact,task) interaction 
+
+The above results suggest that the data does not agree with a single, task-invariant store of factual knowledge. To test the task-invariant store hypoth-esis statistically, we formalize it as conditional in-
+
+> 1
+
+We repeated the analysis with θ = 0 .4 and θ = 0 .8 and observed similar trends. 
+
+3dependence between facts and tasks: 
+
+P (correct | f, t ) = P (correct | f ) · P (correct | t)
+
+(2) This is the expected behavior in a model where re-trieving a particular fact does not depend on the task for which it is retrieved. The above corresponds to an additive model in log-probability space, and specifically, a two-way ANOVA with no interaction term. We test the hypothesis that the interaction is zero. We run the test on the chance-normalized log-probabilities, using prompt paraphrases as replica-tions within each (fact, task) cell. Results show that the null hypothesis is rejected at every checkpoint (p ≈ 0). The interaction also grows across training, explaining 23% of the variance in the final model. Thus we conclude that the data does not support a task-invariant model (see §C for additional details and full results). 
+
+3 Mechanistic analysis 
+
+Having established that knowledge acquisition is task-dependent at the behavioral level, we turn to investigate how this manifests in the model weights. Specifically, we ask whether the same fact relies on different parameters for different tasks. We search for small subsets of model components (attention heads and MLP neurons) that are necessary , suffi-cient , and specific for individual (fact, task) pairs. Existence of subsets satisfying all three criteria would support the hypothesis that LMs maintain task-dependent parametric encodings of individual facts. We show that such subsets can be found. 
+
+3.1 Experimental setup 
+
+We examine three models: OLMo-2-7B IT, OLMo-2-13B IT (OLMo et al., 2024), and Gemma-2-9B IT (Riviere et al., 2024). We use the datasets and tasks from §2 (without the downsampling to 46 facts), dropping C OMPLETION , which is incompat-ible with Instruct models, and adding two multi-hop reasoning tasks where the fact’s relation is part of a two-step chain. 2 In first-hop (M ULTI -H OP -1) the target relation is the first step, and in second-hop (M ULTI -H OP -2) it is the second. For example,   
+
+> 2The downsampling in §2 was needed for cross-dataset aggregation; here we analyze each dataset separately. C OM -
+> PLETION evaluates next-token prediction on plain sentences (e.g., The capital city of France is ), incompatible with Instruct models’ chat-template format. Multi-hop tasks are excluded from the behavioral experiment since their bridging entities complicate co-emergence tracking.
+
+the prompt “What is the capital city of the coun-try containing the landmark called The Bourg-la-Reine?” follows the reasoning path landmark →
+
+country → capital . It can serve as a M ULTI -HOP -1 prompt for the (landmark, in-country, country) dataset, and as a M ULTI -H OP -2 prompt for the (country, capital-of, city) dataset. The exact task set varies by dataset, depending on the availability of intermediate relations for multi-hop tasks, and facts below a baseline performance threshold in any task are filtered out (see §D). 
+
+Localization via learned binary masks We adapt the framework of Bayazit et al. (2024), who trained binary masks over model parameters to find 
+
+knowledge-critical subnetworks , and extend it to localize subsets of parameters that are necessary, sufficient, and specific for (fact, task) pairs. Con-cretely, for a target pair (f ∗, t ∗), we learn a binary mask m ∈ { 0, 1}|N |+|H| over the sets of MLP neurons N and attention heads H in the model. We parameterize m as continuous logits passed through a sigmoid, binarized at threshold 0.5 via a straight-through estimator (Bengio et al., 2013). Each mask is optimized to minimize:     
+
+> L(m) = Lnec (m) + Lsuff (m) + Lspec (m) + βLspar (m)
+
+(3) where Lnec , Lsuff , and Lspec encourage the iden-tified parameters to be necessary, sufficient, and specific for (f ∗, t ∗), respectively, and Lspar encour-ages sparsity. We define each term below. 
+
+Necessity. The necessity loss ensures that re-moving the localized parameters hurts performance on the target pair, establishing that they are neces-sary for it. Let p(f, t, θ ◦ m) denote the probability of the first token of the correct answer for task t
+
+on fact f when the model parameters θ are masked by m. Let p(f, t, θ ) denote the unmasked model’s probability. Masking zeros out the activations of the selected MLP neurons. For attention heads, it zeros the output vectors before the output projec-tion. Both are equivalent to zeroing the parameters themselves. The loss drives this probability toward chance level τ (τ =0 for generation tasks, 0.25 for MCQA, 0.5 for binary tasks): 
+
+Lnec (m) = MSE  p(f ∗, t ∗, θ ◦ m), τ  (4) For discrimination tasks, an additional MSE term encourages the aggregate probability of the distrac-tors to rise to 1 − τ , so that ablating the identified parameters changes the model’s answer rather than 4disrupting its ability to perform the task (see §D for details). For evaluation, we measure the relative change in accuracy under masking, where predic-tions that differ from the target only in formatting are not penalized (see §D.4). 
+
+Sufficiency. The necessity loss ensures that the localized components are needed to retrieve the fact on the target task. The sufficiency loss en-sures that they are also sufficient, requiring that they carry enough information to retrieve the fact even when the prompt is corrupted. Following the approach of Yona et al. (2026), we corrupt the prompt by replacing the subject entity with unin-formative placeholder tokens (e.g., France → xx ), removing the part that identifies the fact. We then run two forward passes: (i) a pass on the original prompt, caching the activations of the localized components; (ii) a pass on the corrupted prompt, in which the cached activations replace the corrupted ones at the localized components. As in necessity, this intervention targets the activations of MLP neu-rons and the output vectors of attention heads be-fore the output projection. The loss encourages the patched model’s probability of the correct answer on the corrupted prompt to match the unintervened model’s probability on the original prompt: 
+
+Lsuff (m) = MSE  ˜p(f ∗, t ∗, θ ◦ m), p (f ∗, t ∗, θ )
+
+(5) where ˜p(f ∗, t ∗, θ ◦ m) denotes the patched model’s probability on the corrupted prompt. For evalua-tion, we report the reconstruction rate : the fraction of the accuracy lost to corruption that is recovered by patching the localized components’ activations (see §D for the formal definition). 
+
+Specificity. Intervening on the localized param-eters should not affect the model’s performance on the same fact under other tasks, or on other facts un-der the same task. To this end, we add a specificity term to the necessity loss, penalizing interference with non-target pairs: 
+
+Lnec spec (m) = Ef ′̸ =f ∗
+
+h
+
+MSE  p(f ′, t ∗, θ ◦ m), p (f ′, t ∗, θ )i| {z }
+
+> other facts, same task
+
++ X 
+
+> t′̸=t∗
+
+MSE  p(f ∗, t ′, θ ◦ m), p (f ∗, t ′, θ )| {z }
+
+> same fact, other tasks
+
+(6) The same specificity constraint also applies to suf-ficiency, requiring that patching the identified com-ponents’ activations into corrupted prompts for non-target pairs will not recover performance. See §D What is the capital of France?      
+
+> Is Paris the capital of France?
+> What is the capital of Germany?
+> What is the capital of XX ?
+> Is XX the capital of France?
+> What is the capital of XX ?
+> P(Paris)
+> disrupted
+> (a) Necessity
+> (b) Sufficiency
+> P(Paris)
+> recovered
+> Zero-ablating the localized components
+> 1. Collecting localized components’ activations from a clean run
+> 2. Patching the activations in a corrupted run
+> P(True)
+> intact
+> P(Berlin)
+> intact
+> P(True)
+> not recovered
+> P(Berlin)
+> not recovered
+> What is the capital of France?
+> Is Paris the capital of France?
+> What is the capital of Germany?
+> (c) Specificity
+> Neither intervention should affect the same fact on other tasks , or
+> other facts on the same task
+> Localizing and evaluating the parametric encoding of (France, capital-of, Paris) for OpenQA
+
+Figure 3: The criteria used to localize and evaluate (fact, task) specific parametric encodings, illustrated for the encoding of ( France, capital-of, Paris ) on OPEN QA. 
+
+for the full loss term. Multi-hop tasks extend the target relation with an additional hop (e.g., land-mark → country becomes landmark → country →
+
+language ). To ensure the mask does not target the added hop, we add a control chain sharing it (e.g., 
+
+capital → country → language ) to the retention pool. Figure 3 illustrates the necessity, sufficiency and specificity criteria for an example fact. 
+
+Sparsity. The mask should be as sparse as possi-ble. We apply an L1 penalty to 1−m (the indicator of selected components), normalized by the total number of components, weighted by β = 10 .0.See §D for implementation details. 
+
+Mask training and evaluation For each fact, masks for its different tasks are trained sequentially in a random order. Components selected by earlier masks are excluded from subsequent masks, pro-ducing fully disjoint masks across tasks. Since each (fact,task) pair has multiple prompt paraphrases (see §2), all loss terms average over them. We eval-uate the learned masks on necessity, sufficiency and specificity using held-out prompt paraphrases (5 training, 2 evaluation per task). Additionally, the pool of other facts used to evaluate same-task specificity is split into 75%/25% train/evaluation, resampled for each target fact. We average over prompt paraphrases to obtain a per-fact accuracy score, then report the mean and std across facts. 
+
+Results Across all datasets and models, we ob-serve that individual (fact, task) pairs are sup-ported by distinct, task-specific parameter sub-sets. Figure 4 presents representative results for the (country, official language, language) 
+
+dataset on OLMo-2-7B IT (for full results see 5Baseline 0.98±0.10 0.98±0.10 1.00±0.00 1.00±0.00 0.95±0.14 0.99±0.05                                                          
+
+> All tasks, same fact
+> OpenQA FiTB Multi-Hop-2 MCQA Verification Neg
+> MCQA
+> Evaluation Task
+> OpenQA
+> FiTB
+> Multi-Hop-2
+> MCQA
+> Verification
+> Neg
+> MCQA
+> Ablated Task
+> 0.36±0.46
+> (63%)
+> 1.00±0.00
+> (2%)
+> 0.98±0.10
+> (2%)
+> 1.00±0.00
+> (0%)
+> 0.98±0.07
+> (1%)
+> 0.98±0.07
+> (1%)
+> 1.00±0.00
+> (2%)
+> 0.30±0.42
+> (70%)
+> 1.00±0.00
+> (0%)
+> 0.99±0.05
+> (1%)
+> 0.99±0.05
+> (2%)
+> 0.98±0.10
+> (1%)
+> 1.00±0.00
+> (2%)
+> 1.00±0.00
+> (2%)
+> 0.11±0.30
+> (89%)
+> 0.98±0.08
+> (2%)
+> 0.99±0.05
+> (2%)
+> 0.98±0.07
+> (1%)
+> 1.00±0.00
+> (2%)
+> 1.00±0.00
+> (2%)
+> 1.00±0.00
+> (0%)
+> 0.55±0.28
+> (45%)
+> 0.95±0.12
+> (1%)
+> 0.95±0.12
+> (3%)
+> 1.00±0.00
+> (2%)
+> 1.00±0.00
+> (2%)
+> 1.00±0.00
+> (0%)
+> 1.00±0.00
+> (0%)
+> 0.41±0.39
+> (57%)
+> 0.93±0.15
+> (6%)
+> 1.00±0.00
+> (2%)
+> 1.00±0.00
+> (2%)
+> 1.00±0.00
+> (0%)
+> 1.00±0.00
+> (0%)
+> 1.00±0.00
+> (4%)
+> 0.70±0.26
+> (29%)
+> OpenQA FiTB Multi-Hop-2 MCQA Verification Neg
+> MCQA
+> Baseline
+> After ablation
+> 0.98±0.03 0.97±0.04 1.00±0.00 1.00±0.00 0.96±0.03 1.00±0.01
+> 0.98±0.04
+> (0%)
+> 0.93±0.13
+> (4%)
+> 0.92±0.10
+> (8%)
+> 1.00±0.00
+> (0%)
+> 0.98±0.04
+> (1%)
+> 0.98±0.04
+> (1%)
+> Same task, other facts
+> 100
+> 80
+> 60
+> 40
+> 20
+> 0
+> Relative Change (%)
+
+Figure 4: Necessity results for (country, official language, language) on OLMo-2-7B IT. For each fact, we localize a subset of attention heads and MLP neurons for the target task (row). Columns show the effect of ablating that subset on each evaluation task. Values are averaged over facts. Cell color reflects the relative change from baseline (baseline row pinned to green for reference). Large diagonal drops confirm necessity; near baseline off-diagonal and bottom-row values confirm specificity. 
+
+§D.5). Zero-ablating the identified components causes a large performance drop on the targeted (fact, task) pair (diagonal cells: 29%–89% relative decrease), while performance on the same fact eval-uated on other tasks (off-diagonal columns) and on other facts evaluated on the same task (bottom row) remains largely unaffected (all cells ≤8%). This confirms that the identified subsets are both neces-sary for and specific to individual (fact, task) pairs. In terms of sufficiency , for the same dataset and model, patching the identified components’ activa-tions into a corrupted prompt achieves high recov-ery on the targeted pair (69%–102% reconstruction rate); recovery rates for both the same fact on other tasks and other facts on the same task remain small or slightly negative. The pattern is consistent across other combinations. 
+
+Together with the behavioral results, these find-ings suggest that LMs maintain task-specific para-metric encodings of individual facts, instead of drawing from a shared, task-invariant store. 
+
+4 Quantifying cross-task entanglement 
+
+Our previous results show that factual knowledge is often encoded in a task-specific manner. Yet, cer-tain tasks show some degree of overlap; ablating the encoding for one task causes collateral damage on some tasks but not on others, and pairwise co-emergence rates differ between task pairs. For ex-ample, facts acquired via F ITB reliably co-emerge in O PEN QA, but facts acquired via MCQA show late or absent acquisition on C OMPLETION . We refer to this overlap as cross-task entanglement ,and introduce metrics that quantify it from both the behavioral and parametric perspectives. Our results show that task format is a dominant predictor of such entanglement, with discrimination tasks being consistently more entangled than generation tasks. 
+
+4.1 Methodology Behavioral analysis We break down the co-emergence rates from the behavioral experiment (§2) into directional task pairwise co-emergence rates . For each ordered pair of tasks (source s,target t), we measure what fraction of facts that emerged on s co-emerge on t by the expected step. This reveals asymmetries in co-emergence between task pairs. Implementation details are in §B. 
+
+Parameter-level entanglement metric Our para-metric experiment (§3) localizes for each (fact, task) pair a sparse parametric encoding necessary and sufficient for the model’s performance on that pair. As Figure 4 shows, ablating one (fact, task) en-coding can degrade other pairs as well. The speci-ficity penalty (Eq. 6) limits this collateral damage, but for some (fact, task) pairs, it constrains how fully the mask can suppress its target (Eq. 4). We define an entanglement score Ent( f, t ) that measures, for a single (fact, task) encoding, how cleanly it can be ablated without affecting other (fact, task) pairs. This metric collapses each row of the necessity heatmap into a single number. Con-cretely, for each pair (f, t ), we ablate its identi-fied parameters and measure three quantities: (a) 
+
+target drop ∆target (f, t ): how much the ablation degrades performance on the targeted pair, (b) col-lateral change ∆coll (f ′, t ): the effect on other facts 
+
+f ′̸ = f on the same task, and (c) collateral change 
+
+∆coll (f, t ′): the effect on the same fact under other tasks t′̸ = t. The score Ent( f, t ) averages these: 
+
+13
+
+"  1 − ∆target (f, t ) + 1
+
+|F| − 1
+
+X
+
+f ′̸ =f
+
+∆coll (f ′, t )
+
++ 1
+
+|T | − 1
+
+X
+
+t′̸ =t
+
+∆coll (f, t ′)
+
+#
+
+(7) 6Ent( f, t ) = 0 is achieved when the target drop is maximal and collateral damage is zero on both axes. This means that the encoding is fully nec-essary and specific for the targeted pair. Higher values indicate greater entanglement. Averag-ing this score over facts yields a per-task score 
+
+Ent task (t) = 1
+
+> |F|
+
+P 
+
+> f
+
+Ent( f, t ), which we report for all three models and five datasets. Formal defi-nitions are provided in §E. 
+
+Pairwise task entanglement To test whether cer-tain task pairs are more entangled than others, we train a separate mask for each directed pair of tasks 
+
+(tA, t B ). We use the same objective as in §3, ex-cept that the specificity loss penalizes interference only with tB (rather than with all other tasks). 
+
+4.2 Findings 
+
+We report the key results for the two analyses below, with full per-task tables and heatmaps provided in §B (behavioral) and §E (parametric). Pairwise en-tanglement results are consistent with the aggrega-tive Ent task scores, thus we report them in §E. 
+
+Generation tasks are less entangled, discrimi-nation tasks are more entangled The paramet-ric results show that discrimination tasks (MCQA, VERIFICATION , N EG MCQA) are markedly more entangled than generation tasks (O PEN QA, F ITB, MULTI -H OP ). Aggregated over 15 model-dataset combinations, the mean Ent task is 0.21 for discrim-ination versus 0.11 for generation. V ERIFICATION 
+
+and N EG MCQA are the most entangled tasks (0.25 and 0.24 , respectively), while M ULTI -H OP -2 is the least ( 0.08 ). 
+
+Discrimination tasks are weak sources of cross-task co-emergence Among facts that have emerged on a discrimination task before or along-side a given target task, co-emergence rates are 3%-42% on non-V ERIFICATION targets, compared to 40%-90% for facts that have emerged on a gen-eration task. VERIFICATION shows higher co-emergence rates overall, which we hypothesize is due to its late emergence in training, but even there discrimination tasks are the weakest sources of co-emergence (63%-70%, versus 76%-94% for generation sources). 
+
+5 The role of task-specific encodings in chain-of-thought reasoning 
+
+In this section, we expand our analysis to examine how task-specific encodings are utilized during gen-eration, focusing on chain-of-thought (CoT) reason-ing (Wei et al., 2022). The mechanistic experiment (§3) established that under direct answering , where the model produces an answer without intermediate reasoning, different tasks rely on distinct param-eter subsets to retrieve the same fact. Given that reasoning has been shown to unlock factual knowl-edge inaccessible to direct answering (Gekhman et al., 2026; Ma and Hewitt, 2026; Calderon et al., 2026), a natural hypothesis is that reasoning draws part of its power from engaging parametric encod-ings beyond those tied to the evaluation format. If this holds, then CoT should help the model recover performance lost when a task’s localized parame-ters are ablated, by rerouting through alternative encodings. Moreover, if CoT draws on encodings of other tasks, cross-task collateral damages should be larger than under direct answering. The ablation framework from §3 lets us test both predictions. 
+
+Experiment We apply the zero-ablations from §3, but now compare model accuracy under both direct answering and CoT. We exclude the multi-hop tasks, whose two-step chains contain bridging knowledge that may confound cross-task attribu-tion, and use facts that meet a baseline CoT per-formance threshold on all tasks. We report accu-racy averaged across facts before and after ablation, under each setting. To measure cross-task collat-eral damage, we average the worst-case cross-task drops across facts resulting from encoding abla-tions. Additional details are in §F. 
+
+Results Figure 5 presents results for (landmark, in-country, country) on Gemma-2-9B IT; other models and datasets show similar patterns (see §F). Zero-ablating the localized parameters re-duces direct accuracy by 20%–72% (varying across tasks), whereas CoT loses only 12%–30%, staying closer to the unablated baseline (Figure 5a), con-firming the predicted recovery under CoT. When we ablate, per fact, the other task whose encod-ing most damages each condition, direct accuracy falls by at most 8% while CoT drops by 11%–31% (Figure 5b), confirming the predicted increase in cross-task collateral damage under CoT. Together, these results support the hypothesis that CoT routes through multiple task-specific encodings. 
+
+6 Related work 
+
+LMs as knowledge bases LM parameters en-code vast relational knowledge (Petroni et al., 2019; 7OpenQA     
+
+> FiTB
+> MCQA
+> Verification
+> Neg MCQA
+> 0.0
+> 0.5
+> 1.0
+> Accuracy
+> Direct, no ablation Direct, zero-ablated CoT, zero-ablated (a) Same-task ablation OpenQA
+> FiTB
+> MCQA
+> Verification
+> Neg MCQA
+> 0.0
+> 0.5
+> 1.0
+> Accuracy
+> Direct, no ablation Direct, zero-ablated CoT, zero-ablated
+> (b) Cross-task ablation
+
+Figure 5: CoT versus direct answering under zero-ablation on (landmark, in-country) for Gemma-2-9B IT, reported as accuracy. (a) Ablating each (fact, task) pair’s own encoding. (b) For each pair, ablating the other task’s encoding causing the largest drop. 
+
+Roberts et al., 2020), motivating their view as knowledge bases. Several works have revealed that factual recall is sensitive to query form; para-phrased prompts yield inconsistent predictions for the same facts (Elazar et al., 2021), models trained on “A is B” fail to infer “B is A” (Berglund et al., 2024), and knowledge editing methods often fail to generalize to related queries (Cohen et al., 2024). We provide evidence that the same fact is supported by different parameters under different tasks, sug-gesting that such inconsistencies originate in how knowledge is stored rather than accessed. 
+
+Redundancy in factual encodings Recent work has suggested that factual knowledge in LMs is not stored in a single location. Bayazit et al. (2024); Chen et al. (2024) suggested that different sub-sets of parameters can encode the same knowledge, and Chen et al. (2025) showed that such redundan-cies contribute to robustness under input perturba-tions. Pham et al. (2026) localized conflicting para-metric encodings of the same facts arising from inconsistent pretraining data. Feng et al. (2025) demonstrated that facts learned during finetuning are stored redundantly across layers, supporting dif-ferent multi-hop reasoning tasks. We find that task-specific storage is not limited to finetuned multi-hop knowledge but applies broadly to pretrained facts across diverse task formats. 
+
+Cross-lingual transfer Language is another di-mension along which the same fact can be queried in different surface forms. Blum et al. (2025) showed that models can develop either unified or separate representations of the same facts across languages; Liu et al. (2025) traced cross-lingual factual recall across OLMo-7B checkpoints, find-ing it largely predicted by fact frequency rather than transfer from other languages; Bandarkar et al. (2026) leveraged cross-lingual inconsistency to identify knowledge-critical experts in MoE mod-els. Overall, whether facts are stored in shared or language-specific parameters remains largely unanswered. Our work addresses the analogous question along the task dimension, showing that storage is organized, at least in part, by task format. 
+
+Cognitive parallels Findings in cognitive sci-ence show that access to memory depends on the relationship between how information is encoded at study and how it is later probed (Tulving and Thom-son, 1973; Morris et al., 1977). Our work echoes this principle in LMs, showing that what the model knows and how it is asked are intertwined in the parameters. Whether this arises from the format in which facts are encountered during training is an interesting direction for future work. 
+
+7 Conclusion and discussion 
+
+We investigate the task-invariance property ex-pected of knowledge bases in LMs, and find that it is largely violated. Behaviorally, facts acquired on one task frequently fail to co-emerge on others dur-ing training. Our mechanistic analysis offers an ex-planation, revealing distinct parameters underlying different tasks for the same facts. Moreover, this separation varies by task format, with encodings for discrimination tasks consistently more entangled with other (fact, task) pairs than those for gener-ation tasks. Our experiments further suggest that CoT reasoning draws on encodings beyond those tied to the evaluation task, offering a mechanis-tic account for how reasoning unlocks knowledge inaccessible to direct answering. Our findings have implications for how models are developed and evaluated. Knowledge editing and unlearning methods that target a single task format may leave the fact intact on others, as re-cently observed by Ye et al. (2025), and evalua-8tions that probe only one format provide an incom-plete picture of what the model encodes. More fundamentally, building trustworthy and control-lable language models may be advanced by train-ing schemes that encourage task-invariant factual encodings. For instance, our finding that CoT rea-soning already bridges across task-specific encod-ings suggests that incorporating intermediate rea-soning during training could encourage more task-invariant parametric storage. Exploring training methods that directly promote such mechanisms is an interesting direction for future work. 
+
+Limitations 
+
+In the behavioral experiment (§2), we observe train-ing at periodic checkpoints, so the exact step at which a fact emerges on a given task is only ap-proximate. That said, our analysis relies on the relative ordering of when facts emerge across tasks rather than on exact step counts, so this approxima-tion is unlikely to affect our conclusions. All of our experiments focus on relational knowledge expressible as (subject, relation, object) triplets, and the mechanistic (§3) and CoT (§5) ex-periments further restrict to facts that meet a high baseline performance threshold on all tasks. Our findings therefore primarily describe well-known relational knowledge. However, these are the facts for which the “knowledge base” analogy is most expected to hold, making them a strong test case for our claims. It is important to distinguish our localized task-specific encodings from simple redundant encod-ings, where the same fact is stored in multiple inter-changeable locations. Our work reveals that factual storage is organized, at least in part, by task for-mat, but does not characterize how many parameter subsets encode a given fact within or across tasks. Relatedly, our sufficiency results (§3) show that patching a localized subset recovers performance on a (fact,task) pair, but this does not mean the subset “fully” encodes the fact, as other parameters may contribute in ways our masks do not capture. We leave the characterization of this redundancy structure for further study. Finally, our use of three models (7B–13B) across two model families and five datasets provides evi-dence that the patterns we observe are not model-or dataset-specific. However, it is unclear how these patterns interact with scale. If greater capac-ity enables models to allocate increasingly disjoint parameter subsets to different tasks, then larger and more capable models may in fact satisfy the task-invariance property even less. This makes extend-ing the analysis across model scales an important direction for future work. 
+
+8 Acknowledgments 
+
+We thank Yoav Gur-Arieh for providing valuable feedback. This research was supported in part by grants 1083/24 and 2247/23 from The Israel Sci-ence Foundation. 
+
+References            
+
+> Serge Abiteboul, Richard Hull, and Victor Vianu. 1995.
+> Foundations of Databases . Addison-Wesley. Lucas Bandarkar, Alan Ansell, and Trevor Cohn. 2026. Knowledge localization in mixture-of-experts llms using cross-lingual inconsistency. arXiv preprint arXiv:2603.17102 .Deniz Bayazit, Negar Foroutan, Zeming Chen, Gail Weiss, and Antoine Bosselut. 2024. Discovering knowledge-critical subnetworks in pretrained lan-guage models. In Proceedings of the 2024 Confer-ence on Empirical Methods in Natural Language Processing , pages 6549–6583. Yoshua Bengio, Nicholas Léonard, and Aaron Courville. 2013. Estimating or propagating gradients through stochastic neurons for conditional computation.
+> arXiv preprint arXiv:1308.3432 .Lukas Berglund, Meg Tong, Maximilian Kaufmann, Mikita Balesni, Asa Stickland, Tomek Korbak, and Owain Evans. 2024. The reversal curse: Llms trained on “a is b” fail to learn “b is a”. In International Conference on Learning Representations , volume 2024, pages 18623–18642. Carter Blum, Katja Filippova, Ann Yuan, Asma Ghan-deharioun, Julian Zimmert, Fred Zhang, Jessica Hoff-mann, Tal Linzen, Martin Wattenberg, Lucas Dixon, and 1 others. 2025. Beyond the rosetta stone: Uni-fication forces in generalization dynamics. arXiv preprint arXiv:2508.11017 .Nitay Calderon, Eyal Ben-David, Zorik Gekhman, Eran Ofek, and Gal Yona. 2026. Empty shelves or lost keys? recall is the bottleneck for parametric factuality.
+> arXiv preprint arXiv:2602.14080 .Yuheng Chen, Pengfei Cao, Yubo Chen, Kang Liu, and Jun Zhao. 2024. Journey to the center of the knowl-edge neurons: Discoveries of language-independent knowledge neurons and degenerate knowledge neu-rons. In Proceedings of the AAAI Conference on Ar-tificial Intelligence , volume 38, pages 17817–17825.
+
+9Yuheng Chen, Pengfei Cao, Yubo Chen, Yining Wang, Shengping Liu, Kang Liu, and Jun Zhao. 2025. Cracking factual knowledge: A comprehensive anal-ysis of degenerate knowledge neurons in large lan-guage models. In Proceedings of the 63rd Annual Meeting of the Association for Computational Lin-guistics (Volume 1: Long Papers) , pages 10240– 10261, Vienna, Austria. Association for Computa-tional Linguistics. E. F. Codd. 1970. A relational model of data for large shared data banks. Commun. ACM , 13(6):377–387. Roi Cohen, Eden Biran, Ori Yoran, Amir Globerson, and Mor Geva. 2024. Evaluating the ripple effects of knowledge editing in language models. Transac-tions of the Association for Computational Linguis-tics , 12:283–298. Yanai Elazar, Nora Kassner, Shauli Ravfogel, Abhi-lasha Ravichander, Eduard Hovy, Hinrich Schütze, and Yoav Goldberg. 2021. Measuring and improving consistency in pretrained language models. Transac-tions of the Association for Computational Linguis-tics , 9:1012–1031. Jiahai Feng, Stuart Russell, and Jacob Steinhardt. 2025. Extractive structures learned in pretraining enable generalization on finetuned facts. In Forty-second International Conference on Machine Learning .Zorik Gekhman, Roee Aharoni, Eran Ofek, Mor Geva, Roi Reichart, and Jonathan Herzig. 2026. Thinking to recall: How reasoning unlocks parametric knowl-edge in llms. arXiv preprint arXiv:2603.09906 .Dan Hendrycks, Collin Burns, Steven Basart, Andy Zou, Mantas Mazeika, Dawn Xiaodong Song, and Jacob Steinhardt. 2020. Measuring massive multitask language understanding. ArXiv , abs/2009.03300. Evan Hernandez, Arnab Sen Sharma, Tal Haklay, Kevin Meng, Martin Wattenberg, Jacob Andreas, Yonatan Belinkov, and David Bau. 2024. Linearity of rela-tion decoding in transformer language models. In 
+
+The Twelfth International Conference on Learning Representations .Gemma Team Aishwarya Kamath, Johan Ferret, Shreya Pathak, Nino Vieillard, Ramona Merhej, Sarah Perrin, Tatiana Matejovicova, Alexandre Ram’e, Morgane Rivière, Louis Rouillard, Thomas Mesnard, Geoffrey Cideron, Jean-Bastien Grill, Sabela Ramos, Edouard Yvinec, Michelle Casbon, Etienne Pot, Ivo Penchev, Gael Liu, and 191 others. 2025. Gemma 3 technical report. ArXiv , abs/2503.19786. Yihong Liu, Mingyang Wang, Amir Hossein Kargaran, Felicia Körner, Ercong Nie, Barbara Plank, François Yvon, and Hinrich Schuetze. 2025. Tracing multilin-gual factual knowledge acquisition in pretraining. In 
+
+Findings of the Association for Computational Lin-guistics: EMNLP 2025 , pages 2121–2146, Suzhou, China. Association for Computational Linguistics. Melody Ma and John Hewitt. 2026. Improving paramet-ric knowledge access in reasoning language models. 
+
+arXiv preprint arXiv:2602.22193 .C. Donald Morris, John D. Bransford, and Jeffery J. Franks. 1977. Levels of processing versus transfer appropriate processing. Journal of Verbal Learning and Verbal Behavior , 16(5):519–533. Team Olmo, Allyson Ettinger, Amanda Bertsch, Bailey Kuehl, David Graham, David Heineman, Dirk Groen-eveld, Faeze Brahman, Finbarr Timbers, Hamish Ivi-son, and 1 others. 2025. Olmo 3. arXiv preprint arXiv:2512.13961 .Team OLMo, Pete Walsh, Luca Soldaini, Dirk Groen-eveld, Kyle Lo, Shane Arora, Akshita Bhagia, Yuling Gu, Shengyi Huang, Matt Jordan, Nathan Lambert, Dustin Schwenk, Oyvind Tafjord, Taira Anderson, David Atkinson, Faeze Brahman, Christopher Clark, Pradeep Dasigi, Nouha Dziri, and 21 others. 2024. 2 olmo 2 furious. ArXiv , abs/2501.00656. Adam Paszke, Sam Gross, Francisco Massa, Adam Lerer, James Bradbury, Gregory Chanan, Trevor Killeen, Zeming Lin, Natalia Gimelshein, Luca Antiga, and 1 others. 2019. Pytorch: An impera-tive style, high-performance deep learning library. 
+
+Advances in neural information processing systems ,32. Fabio Petroni, Tim Rocktäschel, Sebastian Riedel, Patrick Lewis, Anton Bakhtin, Yuxiang Wu, and Alexander Miller. 2019. Language models as knowl-edge bases? In Proceedings of the 2019 conference on empirical methods in natural language processing and the 9th international joint conference on natu-ral language processing (EMNLP-IJCNLP) , pages 2463–2473. Minh Vu Pham, Hsuvas Borkakoty, and Yufang Hou. 2026. Where knowledge collides: A mechanistic study of intra-memory knowledge conflict in lan-guage models. arXiv preprint arXiv:2601.09445 .Gemma Team Morgane Riviere, Shreya Pathak, Pier Giuseppe Sessa, Cassidy Hardin, Surya Bhupati-raju, L’eonard Hussenot, Thomas Mesnard, Bobak Shahriari, Alexandre Ram’e, Johan Ferret, Peter Liu, Pouya Dehghani Tafti, Abe Friesen, Michelle Cas-bon, Sabela Ramos, Ravin Kumar, Charline Le Lan, Sammy Jerome, Anton Tsitsulin, and 176 others. 2024. Gemma 2: Improving open language mod-els at a practical size. ArXiv , abs/2408.00118. Adam Roberts, Colin Raffel, and Noam Shazeer. 2020. How much knowledge can you pack into the param-eters of a language model? In Proceedings of the 2020 Conference on Empirical Methods in Natural Language Processing (EMNLP) , pages 5418–5426, Online. Association for Computational Linguistics. Noam Shazeer. 2020. Glu variants improve transformer. 
+
+arXiv preprint arXiv:2002.05202 .
+
+10 Endel Tulving and Donald Thomson. 1973. Encoding specificity and retrieval processes in episodic mem-ory. Psychological Review , 80:352–373. Pauli Virtanen, Ralf Gommers, Travis E. Oliphant, Matt Haberland, Tyler Reddy, David Cournapeau, Ev-geni Burovski, Pearu Peterson, Warren Weckesser, Jonathan Bright, Stéfan J. van der Walt, Matthew Brett, Joshua Wilson, K. Jarrod Millman, Nikolay Mayorov, Andrew R. J. Nelson, Eric Jones, Robert Kern, Eric Larson, and 16 others. 2020. SciPy 1.0: Fundamental Algorithms for Scientific Computing in Python. Nature Methods , 17:261–272. Denny Vrandeˇ ci´ c and Markus Krötzsch. 2014. Wiki-data: a free collaborative knowledgebase. Commun. ACM , 57(10):78–85. Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten Bosma, Fei Xia, Ed Chi, Quoc V Le, Denny Zhou, and 1 others. 2022. Chain-of-thought prompting elic-its reasoning in large language models. Advances in neural information processing systems , 35:24824– 24837. Thomas Wolf, Lysandre Debut, Victor Sanh, Julien Chaumond, Clement Delangue, Anthony Moi, Pier-ric Cistac, Tim Rault, Remi Louf, Morgan Funtowicz, Joe Davison, Sam Shleifer, Patrick von Platen, Clara Ma, Yacine Jernite, Julien Plu, Canwen Xu, Teven Le Scao, Sylvain Gugger, and 3 others. 2020. Trans-formers: State-of-the-art natural language processing. In Proceedings of the 2020 Conference on Empirical Methods in Natural Language Processing: System Demonstrations , pages 38–45, Online. Association for Computational Linguistics. Xiaotian Ye, Mengqi Zhang, and Shu Wu. 2025. Llm unlearning should be form-independent. ArXiv ,abs/2506.07795. Itay Yona, Dan Barzilay, Michael Karasik, and Mor Geva. 2026. Friends and grandmothers in silico: Localizing entity cells in language models. arXiv preprint arXiv:2604.01404 .Amir R Zamir, Alexander Sax, William Shen, Leonidas J Guibas, Jitendra Malik, and Silvio Savarese. 2018. Taskonomy: Disentangling task transfer learning. In Proceedings of the IEEE con-ference on computer vision and pattern recognition ,pages 3712–3722. 
+
+A Datasets and prompt construction 
+
+Our experiments rely on five relational datasets (§2). Here we provide additional details on dataset sources, fact filtering criteria, prompt templates, and distractor selection. 
+
+Relational datasets We use five relational datasets, each consisting of (subject, relation, object) triplets. (landmark, in-country, country) and (company, HQ-in-city, city) 
+
+are sourced from Hernandez et al. (2024); 
+
+(country, capital-of, city) and (country, official language, language) were obtained using Wikidata SPARQL queries (Vrandeˇ ci´ c and Krötzsch, 2014). Countries with more than one official language in the (country, official language, language) dataset were filtered out. All the datasets are in English. Three of the datasets include multi-hop reason-ing tasks, each paired with a control task that shares one hop of the multi-hop chain with the target rela-tion. The control is used in the specificity loss to ensure the mask targets the relation rather than the shared hop. Table 1 presents the multi-hop relations and their controls. For OLMo-2-7B IT, we use a variant of the (person, plays-instrument, instrument) dataset with uncapitalized object names (e.g., guitar rather than Guitar ), since the baseline unintervened performance of the model is substantially better on the uncapitalized version. 
+
+Multi-hop intermediate entities selection The multi-hop chains we use have (landmark, in-country, country) as the first hop. Since multiple landmarks exist per country in the dataset, we selected one for each country using a model-based procedure with Gemma-3-1B IT (Kamath et al., 2025). For the (landmark, in-country, country) dataset, we evaluated each candidate landmark on the M ULTI -H OP -1 prompt para-phrases and selected the landmark with highest mean probability assigned by the model to the cor-rect answer. For datasets with M ULTI -H OP -2 tasks ((country, capital-of, city) , (country, official language, language) ), we evaluated each candidate landmark on both the main and control M ULTI -H OP -2 paraphrases and selected the landmark with the highest average probability across the two. 
+
+Prompt templates For each (dataset, task) pair, we curated 10 prompt paraphrases, using LLM sug-gestions as a starting point. The same base para-phrases are shared between MCQA and O PEN QA, and between F ITB and C OMPLETION . The prompts of all tasks aside from C OMPLETION be-gin with a task instruction (e.g., “Answer the fol-lowing question.” ), include a formatting guideline (“Your response should be formatted as: ‘Answer: {your answer}’ ” ), and end with the task-specific query. The C OMPLETION task does not include instructions or guidelines, since it evaluates next-token prediction on plain sentences. Figure 6 shows 11 Table 1: Multi-hop chains and their corresponding control chains.                                 
+
+> Dataset Multi-hop relation Control relation
+> (landmark, in-country, country) landmark →country →language capital →country →language
+> (country, capital-of, city) landmark →country →capital landmark →country →language
+> (country, official language, language) landmark →country →language landmark →country →capital
+
+representative prompts for different tasks, all for the fact (France, capital-of, Paris) from the 
+
+(country, capital-of, city) dataset. 
+
+Distractors selection Distractor answers for MCQA (3 incorrect choices), N EG MCQA (1 in-correct choice), and V ERIFICATION (the object in the false statement) are sampled uniformly from the full set of objects in the dataset before any filtering. 
+
+B Behavioral experiment: additional details 
+
+In §2 we tested the co-emergence hypothesis by tracking facts acquisition across tasks over training checkpoints. Here, we provide additional imple-mentation details and the full co-emergence rates. 
+
+B.1 Additional implementation details Checkpoints The 105 checkpoints span three pretraining stages and three post-training models: 100 stage 1 (pretraining) checkpoints, selected at approximately uniform intervals (every ∼14 k train-ing steps); the final checkpoints of stage 2 (mid-training) and stage 3 (long context); the “main” checkpoints of three post-training models: SFT, DPO and Instruct. 
+
+Prompt formatting For all tasks except C OM - 
+
+> PLETION
+
+we append an answer prefix. The pre-fix is “Answer: ” (with trailing space) for the multiple-choice tasks (MCQA, N EG MCQA) and 
+
+“Answer:” (without trailing space) for all others. On pretraining checkpoints the prefix is appended to the prompt after a newline. On post-training check-points the prompt is first wrapped in the model’s default chat template, and the prefix is appended directly afterward. 
+
+Directional co-emergence rates: implementa-tion details The analysis in §2 attributes each fact to its earliest source across all tasks other than t, through E(f, ¯t). To study task pairwise co-emergence rates, we fix an ordered pair of tasks (source s, target t) and replace E(f, ¯t) with 
+
+E(f, s ). We observe every fact that emerges on s no later than on t (E(f, s ) ≤ E(f, t )), 
+
+Table 2: Per-task co-emergence rates. N is the number of facts tested per task.                  
+
+> Task Nco-emergence rate (%)
+> MCQA 148 72.3 VERIFICATION 219 65.3 OPEN QA 163 49.7 FITB 175 47.4 NEG MCQA 191 41.9 COMPLETION 135 31.9
+> Overall 230 52.1
+
+and count the observation as consistent when 
+
+E(f, t ) ≤ max  E(f, s ), E (·, t ). The directional co-emergence rate of (s, t ) is the fraction of these that are consistent, with the same liveness exclu-sions as in §2. 
+
+B.2 Results Task emergence Figure 7 shows per-task his-tograms of fact emergence steps across training. Generation tasks become competent early in train-ing, with C OMPLETION and F ITB emerging at 70k steps, and O PEN QA at 85k steps. Discrimination tasks emerge later. MCQA emerges at 99k steps, while N EG MCQA and V ERIFICATION emerge much later, at 868k steps and at the long-context checkpoint (pretraining stage 3), respectively. 
+
+Skipped pairs Of the 1,380 (fact, task) pairs, 349 are excluded, leaving 1,031 evaluated. Of the ex-cluded pairs, 174 were dropped because t was the task on which the fact first emerged, 113 because the target task was no longer competent at the ex-pected step (RHS of Eq. 1), and 62 because the fact was no longer retrieved on any other task. 
+
+Per-task co-emergence rates Table 2 breaks the co-emergence rates down by task (for each target task t, the fraction of evaluated facts that co-emerge on t by the expected step). Generation tasks gener-ally have lower rates, with C OMPLETION at 31 .9% ,FITB at 47 .4% , and O PEN QA at 49 .7% . Dis-crimination tasks generally have higher rates, with MCQA at 72 .3% and V ERIFICATION at 65 .3% .NEG MCQA is the exception at 41 .9% .12 Example Prompts                   
+
+> All examples are for the fact (France, capital-of, Paris) . Target completion is evaluated at the position following the answer prefix (or at the sentence end for COMPLETION ).
+> OPEN QA Target: Paris
+> Answer the following question. Your response should be formatted as: ‘Answer: {your answer}’. Question: What is the capital city of France?
+> FITB Target: Paris
+> Complete the missing word. Your response should be formatted as: ‘Answer: {your answer}’. Sentence: The capital city of France is __.
+> COMPLETION Target: Paris
+> The capital city of France is (no answer prefix)
+> MCQA Target: 1)
+> Answer the following question. . . . Question: What is the capital city of France? Choices: 1) Paris 2) Hanoi 3) Brasília 4) Sofia
+> NEG MCQA Target: 1)
+> Answer the following question. . . . Question: What is NOT the capital city of France? Choices: 1) Dublin 2) Paris
+> VERIFICATION Target: True
+> Determine whether the following statement is True or False. . . . Statement: The capital city of France is Paris.
+> MULTI -H OP -2 Target: Paris
+> Answer the following question. . . . Question: What is the name of the capital city of the country containing the landmark called The Bourg-la-Reine?
+
+Figure 6: Example prompts for each task, shown for the fact (France, capital-of, Paris). 
+
+Directional co-emergence rates Figure 8presents the full directional pairwise co-emergence rates. Generation tasks are reliable sources of co-emergence, with facts emerging on C OMPLETION 
+
+co-emerging on other tasks at rates of 62% -94% ,and O PEN QA and F ITB showing similar patterns (45% -84% and 40% -76% , respectively). Dis-crimination tasks are weaker sources, with facts acquired via MCQA or N EG MCQA co-emerging on tasks other than V ERIFICATION only 3% -42% 
+
+of the time. The exception is V ERIFICATION 
+
+as a target, which shows high co-emergence rates regardless of the source task. Generally similar directional structure holds under looser and stricter thresholds. Figure 9 shows the directional co-emergence rates at θ = 0 .4 and θ = 0 .8.
+
+C Fact-task interaction test: additional details 
+
+In §2 we tested the task-invariant store hypothesis by formalizing it as conditional independence be-tween facts and tasks, and found that the interaction is significant. Here we give additional implementa-tion details and results. 
+
+Hypothesis and model Task-invariance predicts that P (correct | f, t ) = P (correct | f ) P (correct |
+
+t), which corresponds to an additive model in log-probability space. For each (fact, task) cell we take the log-probability of the correct answer’s first token, yf,t,p , and fit a two-way ANOVA 
+
+yf,t,p = μ + αf + βt + γf,t + εf,t,p , (8) where p denotes prompt paraphrases, that serve as replications within each cell, and μ is the grand mean (the average log-probability across all cells). Task-invariance corresponds to γf,t = 0 (the no-interaction model). We test γf,t with an F -test against the within-cell (paraphrase) variance, and report each term’s effect size as its share of the total variance, η2 = SS /SS total .
+
+Data and filtering We use the same facts, tasks, checkpoints, and filtering as the behavioral experi-ment (§2): 230 facts (46 per dataset), six tasks on the base-model checkpoints and five on the post-training checkpoints (C OMPLETION dropped, as it does not fit naturally within chat templates), 10 paraphrases per (fact, task) cell, across the 105 checkpoints. For MCQA and N EG MCQA we average over the rotations of the correct answer’s position, and for V ERIFICATION we average over the true and false statements, so each paraphrase contributes one observation. 
+
+Experimental setting We run the same ANOVA and F -test in three settings. 1. Per-checkpoint, unnormalized , on the raw correct-answer probability, where different chance levels across tasks are absorbed by 
+
+βt.2. Per-checkpoint, normalized , on the chance-normalized probability (subtract the task’s chance level and rescale to [0 , 1] , as in §2). 3. Global (stage 1) , a single ANOVA on the chance-normalized probability, pooled over all 100 pretraining stage-1 checkpoints (be-fore midtraining and long-context), with the 13 stage1-step0 
+
+> stage1-step198k
+> stage1-step413k
+> stage1-step626k
+> stage1-step840k
+> stage1-step1055k
+> stage1-step1270k
+> Olmo-3-7B-Instruct
+> 0
+> 20
+> 40
+> 60
+> # facts
+> T=stage1-step70k
+> Completion (128 facts)
+> stage1-step0
+> stage1-step198k
+> stage1-step413k
+> stage1-step626k
+> stage1-step840k
+> stage1-step1055k
+> stage1-step1270k
+> Olmo-3-7B-Instruct
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> # facts
+> T=stage1-step70k
+> FiTB (181 facts)
+> stage1-step0
+> stage1-step198k
+> stage1-step413k
+> stage1-step626k
+> stage1-step840k
+> stage1-step1055k
+> stage1-step1270k
+> Olmo-3-7B-Instruct
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> # facts
+> T=stage1-step85k
+> OpenQA (164 facts)
+> stage1-step0
+> stage1-step198k
+> stage1-step413k
+> stage1-step626k
+> stage1-step840k
+> stage1-step1055k
+> stage1-step1270k
+> Olmo-3-7B-Instruct
+> 0
+> 25
+> 50
+> 75
+> 100
+> # facts
+> T=stage1-step99k
+> MCQA (215 facts)
+> stage1-step0
+> stage1-step198k
+> stage1-step413k
+> stage1-step626k
+> stage1-step840k
+> stage1-step1055k
+> stage1-step1270k
+> Olmo-3-7B-Instruct
+> 0
+> 25
+> 50
+> 75
+> 100
+> 125
+> # facts
+> T=stage1-step868k
+> Neg MCQA (218 facts)
+> stage1-step0
+> stage1-step198k
+> stage1-step413k
+> stage1-step626k
+> stage1-step840k
+> stage1-step1055k
+> stage1-step1270k
+> Olmo-3-7B-Instruct
+> 0
+> 50
+> 100
+> 150
+> # facts
+> T=stage3-step11921
+> Verification (156 facts)
+> Checkpoint
+
+Figure 7: Distribution of fact emergence steps per task. Red dashed lines mark task emergence ( ≥25% of facts known). 
+
+noise estimated within each (checkpoint, fact, task) cell and γf,t is the checkpoint-averaged interaction. This asks whether a consistent interaction persists across pretraining. We add a small constant ( ϵ = 1 e − 7) to every probability before taking the log. 
+
+Results The (fact,task) interaction is significant at every checkpoint ( p ≈ 0); Table 3 gives the nor-malized decomposition across training. Early in pretraining the variance is dominated by the task main effect ( 0.84 at step ∼14 k), but as facts are learned and performance across tasks improves, this term drops (to 0.03 in the final model) while the fact, interaction, and noise shares rise; the in-teraction climbs (unevenly) from ≈0.04 to 0.10 
+
+across stage 1 and reaches 0.21 -0.23 in the post-training models. On unnormalized probabilities the interaction also accounts for a large share of the variance ( 0.41 in the final model). In the global (stage-1) test, the interaction is again significant (p ≈ 0) with η2 = 0 .023 of the pooled total. Over-all, these results confirm that the data does not support a task-invariant model. 
+
+D Mechanistic analysis: additional details 
+
+In §3 we presented the localization framework used to identify parametric encodings of (fact,task) pairs. Here we provide additional details on filtering, mask optimization, and evaluation metrics, as well as the complete necessity and sufficiency results for all models and datasets. 
+
+Table 3: Variance decomposition of the (fact, task) ANOVA test at different checkpoints. Columns are the share of total variance ( η2) attributed to the task main effect, fact main effect, (fact, task) interaction, and within-cell paraphrase noise. Every checkpoint rejects the no-interaction model ( p ≈ 0). 
+
+Checkpoint Task Fact Inter. Noise 
+
+Stage 1 (early, ∼14k) 0.84 0.03 0.04 0.09 Stage 1 (final) 0.60 0.10 0.10 0.19 Stage 2 (midtraining) 0.36 0.13 0.12 0.39 Stage 3 (long context) 0.12 0.22 0.18 0.48 SFT 0.01 0.32 0.21 0.46 DPO 0.04 0.35 0.22 0.40 Instruct (final) 0.03 0.35 0.23 0.39 
+
+D.1 Fact filtering and paraphrase selection Paraphrase filtering and splitting Before train-ing masks, we evaluate the model’s performance across all 10 paraphrases for every (dataset, task) pair and discard the 3 templates for which the model’s performance is the lowest. The remaining 7 paraphrases are split into 5 training and 2 evalu-ation templates. This split is per (model, dataset) pair and is fixed across all facts for this pair. 
+
+Fact filtering To ensure we target facts the model can retrieve for all tasks, we filtered out facts for which the model’s performance is below a task-specific threshold in any task. The thresholds are: 0.85 for MCQA, N EG MCQA, and V ERIFICA -
+
+TION ; 0.75 for O PEN QA, F ITB, and M ULTI -H OP 
+
+tasks. Table 4 lists the tasks and the number of facts retained per dataset and model after filtering. 14 Completion      
+
+> FiTB
+> OpenQA
+> MCQA
+> Neg MCQA
+> Verification
+> Target task
+> Completion
+> FiTB
+> OpenQA
+> MCQA
+> Neg MCQA
+> Verification
+> Source task
+> 78%
+> n=83
+> 73%
+> n=85
+> 90%
+> n=101
+> 62%
+> n=124
+> 94%
+> n=127
+> 40%
+> n=97
+> 64%
+> n=132
+> 75%
+> n=121
+> 48%
+> n=163
+> 76%
+> n=178
+> 45%
+> n=66
+> 84%
+> n=85
+> 82%
+> n=103
+> 54%
+> n=146
+> 81%
+> n=154
+> 6%
+> n=86
+> 15%
+> n=86
+> 15%
+> n=72
+> 42%
+> n=190
+> 70%
+> n=204
+> n<10 3%
+> n=37
+> 6%
+> n=51
+> 7%
+> n=14
+> 63%
+> n=190
+> n<10 n<10 n<10 n<10 22%
+> n=37
+> -
+> -
+> -
+> -
+> -
+> -
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Co-emergence rate
+
+Figure 8: Directional co-emergence rates on OLMo-3-7B IT. Each cell reports the co-emergence rate, with pair count n.Table 4: Tasks available per dataset in the mechanistic analysis. All datasets include O PEN QA, F ITB, MCQA, NEG MCQA, and V ERIFICATION . Multi-hop tasks depend on the availability of intermediate entities. Cell entries are formatted as #trained / #filter-passing facts. †Due to compute budget, masks are trained on a random subset of the filter-passing pool; the subset is taken as a contiguous prefix of the dataset, whose fact ordering is a deterministic random permutation set at dataset construction. 
+
+# Target facts / # Total facts Dataset Gemma-2-9B IT OLMo-2-7B IT OLMo-2-13B IT Multi- Multi-Hop-1 Hop-2 
+
+(landmark, in-country, country) 38/38 17/17 23/23 ✓ —
+
+(country, capital-of, city) 32/32 23/23 28/28 — ✓
+
+(country, official language, language) 33/33 22/22 29/29 — ✓
+
+(company, HQ-in-city, city) † 51/317 34/92 32/172 — —
+
+(person, plays-instrument, instrument) † 25/133 25/50 25/70 — —
+
+D.2 Mask optimization details Hook placements Our masks target attention heads and MLP neurons. Interventions are im-plemented via PyTorch forward hooks (Paszke et al., 2019) on HuggingFace Transformers models (Wolf et al., 2020). To mask individual attention heads , we register a forward pre-hook on the out-put projection WO that multiplies each head’s dhead -dimensional slice by the corresponding scalar mask value ( 0 or 1). Recall that gated MLPs (Shazeer, 2020) use three weight matrices. Given input x, the MLP computes an intermediate representation h =
+
+act (Wgate x) ⊙ Wup x ∈ Rdmlp , then projects back via Wdown ∈ Rdmodel ×dmlp : MLP (x) = Wdown h.To mask individual MLP neurons , we register a forward pre-hook on Wdown that multiplies each en-try of h independently by its corresponding mask value. Since zeroing a factor zeros the product, this is equivalent to zeroing act (Wgate x) at the corre-sponding entries, which is the formulation we use at evaluation. 
+
+Sparsity objective In practice, we optimize sepa-rate sub-masks for attention heads ( mH ) and MLP neurons ( mN ), each with its own normalized L1 penalty term. This is because the number of neu-rons |N | is roughly two orders of magnitude larger than the number of attention heads |H|. The full sparsity term in Equation (3) is therefore: 
+
+Lspar (m) = 1
+
+|H| ∥1 − mH ∥1 + 1
+
+|N | ∥1 − mN ∥1
+
+(9) 
+
+Necessity loss for discrimination tasks For dis-crimination tasks (MCQA, N EG MCQA, V ERIFI -
+
+CATION ), Equation (4) includes an additional MSE term that drives the aggregated probability of the 15 distractors up to 1 − τ , so that the ablation changes the model’s answer rather than disrupting its ability to perform the task. 
+
+Sufficiency specificity The specificity loss con-tains a sufficiency term that mirrors the necessity specificity term of Equation (6). Let ˜p(f, t, θ )
+
+denote the model’s probability on the corrupted prompt without any intervention. Patching the ac-tivations of the localized components should not 
+
+restore performance on the corrupted prompt for non-target pairs:                     
+
+> Lsuff spec (m) = Ef′̸=f∗
+> h
+> MSE  ˜p(f′, t ∗, θ ◦m),˜p(f′, t ∗, θ )i|{z }
+> other facts, same task
+> +X
+> t′̸=t∗
+> MSE  ˜p(f∗, t ′, θ ◦m),˜p(f∗, t ′, θ )|{z }
+> same fact, other tasks
+
+(10) 
+
+Optimization hyperparameters All logits are initialized to 0 (sigmoid value 0.5). Masks are trained for 2,500 steps using Adam with a learning rate of 0.1, a mini-batch size of 8, and an L1 penalty weight of β = 10 .0.
+
+Per-step sampling For the necessity specificity term on non-target facts on the target task, at every step we sample a mini-batch of those facts’ para-phrases without replacement. For the sufficiency terms, we sample paraphrases with replacement, corrupting each sampled prompt with a randomly drawn placeholder. 
+
+D.3 Experimental Protocol Verification task handling From each verifica-tion template, we generated both a true-statement and a false-statement prompt. When V ERIFI - 
+
+> CATION
+
+is the targeted task, we filter out false-statement prompts for the targeted fact, so that the mask is optimized and evaluated solely on true statements. When V ERIFICATION serves as a re-tention task (i.e., not the targeted task), both true and false prompts are used. When the baseline performance of the two modes (true statements vs true and false statements) differs by at least 0.02 ,we mention both numbers in the necessity or suffi-ciency heatmaps. 
+
+Sufficiency patching protocol The MULTI -HOP -2 task, and the Multi-Hop-1 Control task are excluded from the sufficiency evaluation because the subject entity of the targeted fact does not ap-pear in the prompt, making the subject-replacement corruption procedure inapplicable. 
+
+Subject corruption We replace the subject string of every prompt with repeated copies of a place-holder token. The placeholders pool contains 16 strings: four base characters ( x, y, z, w), their up-percase variants, and space-prefixed variants of all eight. The number of repetitions is adjusted so that the tokenized length of the replacement ex-actly matches that of the original subject. During training, a fresh placeholder is sampled per prompt before each mini-batch forward. At evaluation, we sample one placeholder per prompt. 
+
+D.4 Evaluation Metric definitions For each prompt paraphrase, the model scores 1 if its top-1 token matches the first token of the correct answer and 0 otherwise, subject to formatting variants described below. We then average across paraphrases per fact and report the mean and std across facts. 
+
+Tolerance to formatting variants of the target 
+
+A strict exact-match criterion would penalize cor-rect answers produced in a slightly different form (e.g., a leading space, different capitalization, or a multi-token split). We therefore apply two post-hoc checks; if either passes, we count the model’s prediction as correct. 
+
+Top-1 token variant. We compare the decoded top-1 token p to the decoded first token of the target 
+
+t0, accepting the prediction under whitespace-only, case-only, or combined normalization, as well as when one is a prefix of the other (length ≥ 2), which handles multi-token answers. 
+
+Short continuation. We further extract a 3-token continuation (via greedy decoding) and compare each cumulative generated prefix to the full target completion t using the same normalization proce-dures described above, plus substring containment (catching outputs like “Hmm, Paris” ). For MCQA and N EG MCQA, where the target completion in-cludes a closing parenthesis (e.g., “3)” ), we ad-ditionally accept the bare digit alone (e.g., “3” ). These checks validate that measured drops in the model’s performance on a (fact,task) pair reflect genuine failures rather than tokenization artifacts. 
+
+Sufficiency metric We measure the model’s ac-curacy under three conditions: clean (unmodified prompt), corrupted (subject replaced with place-holder tokens), and patched (corrupted prompt with 16 the encoding’s clean activations stitched in). The reconstruction rate is: acc patched − acc corrupted 
+
+acc clean − acc corrupted 
+
+× 100% . (11) A value of 100% indicates full recovery to clean accuracy, 0% indicates no improvement over the corrupted baseline, and negative values indicate that patching further degrades accuracy. 
+
+Cross-experiment aggregation in the sufficiency heatmaps Reconstruction rates are computed against a clean and a corrupted baseline. The cor-rupted prompts are resampled in each patching ex-periment, so for a fixed evaluation task the cor-rupted accuracy varies slightly depending on which task was patched. To keep reconstruction rates com-parable, we pool the clean and corrupted accuracies across all patched tasks that share an evaluation task and use that as the common baseline for that evaluation task. V ERIFICATION is handled sepa-rately: when V ERIFICATION is itself the patched task it is scored on true statements only, and when it is the evaluation task for another patched task it is scored on the full true+false set, so we pool and normalize the two cases separately. 
+
+D.5 Additional results Full necessity results The pattern from Figure 4 holds across all models and all datasets (Figures 10 to 12). Ablating the (fact, task) parametric en-coding reduces the model’s performance on the targeted pair (diagonal), while off-diagonal cells (describing the model’s performance on the same fact for other tasks) and the bottom row (describing the model’s performance on other facts on the tar-geted task) stay near the baseline. The magnitude of the drops varies by task, with generative tasks (O PEN QA, F ITB, M ULTI -H OP ) generally show-ing the largest drops, while N EG MCQA drops are typically the smallest yet still notable. In §4 we analyze this further. 
+
+Full sufficiency results Sufficiency results demonstrate the same task-specific pattern across all three models and five datasets (Figures 13 to 15). Patching the localized (fact,task) components’ acti-vations into the model’s run on a corrupted prompt recovers performance primarily on the (fact, task) diagonal, with small recovery for the target fact on other tasks, or other facts on the target task. 
+
+E Entanglement analysis: additional details 
+
+In §4 we quantified the degree of cross-task entan-glement between parametric encodings of differ-ent (fact,task) pairs. Here, we provide the formal metric definitions, complete per-task entanglement scores, and task pairwise entanglement heatmaps. 
+
+Entanglement metric details The model perfor-mance on a (fact,task) pair is measured via variant-tolerant accuracy (§D.4), chance-normalized as 
+
+a′ = ( a − c)/(1 − c) with chance levels c = 0 .25 
+
+for MCQA, c = 0.5 for V ERIFICATION and NEG MCQA, and c = 0 for all other tasks. We define two types of relative change. The target drop ∆target (f, t ) measures how much ablation of the (fact,task) parametric encoding degrades the performance on the targeted pair, clamped so that performance increases receive no credit and drops beyond the baseline are capped: 
+
+min 
+
+
+
+max 
+
+ |a′
+
+> before
+
+| − | a′
+
+> after
+
+||a′
+
+> before
+
+| , 0
+
+
+
+, 1
+
+
+
+(12) The collateral change ∆coll (f, t ) captures any per-turbation to a non-targeted pair, capped at 1:
+
+min 
+
+ |a′ 
+
+> after
+
+− a′
+
+> before
+
+||a′
+
+> before
+
+| , 1
+
+
+
+(13) The sum over other facts on the same task in Equa-tion (7) ranges over the held-out evaluation split (see §3). The resulting per-task scores Ent task for all (model,dataset) pairs are reported in Table 5. 
+
+Pairwise entanglement To examine whether specific task pairs are more entangled than oth-ers, we train separate masks for each directed pair of tasks (tA, t B ) and compute a pairwise entanglement score Ent( tA → tB ), averaged across facts. This is Equation (7) with the cross-task sum reduced to the single term t′ = tB .Since this requires training |T | 2 masks per fact, compared to |T | masks in §3, we limit this analysis to OLMo-2-7B IT on the (country, official language, language) and (country, capital-of, city) datasets. Figure 16 presents the resulting heatmaps. Row means demonstrate another instance of the generation-discrimination split: ablating generation-task encodings causes modest collateral damage across evaluated tasks (μ = 0 .06 –0.12 ), while ablating discrimination-task encodings produces broader collateral damage (μ = 0 .11 –0.25 ). 17 Table 5: Per-task entanglement scores Ent task . The rightmost column shows the per-dataset mean across tasks; the bottom row shows the per-task mean across datasets. Dashes mark cells where the dataset does not contain the task.                                                                                                                           
+
+> Model Dataset OPEN QA FITB M-H OP MCQA VERIF .NEG MCQA Mean
+> Gemma-2-9B IT (landmark, in-country) 0.10 0.17 0.15 10.14 0.25 0.23 0.17
+> (country, capital-of) 0.12 0.10 0.05 20.15 0.24 0.27 0.15
+> (company, HQ-in-city) 0.08 0.13 —0.15 0.23 0.27 0.17
+> (country, language-of) 0.16 0.12 0.06 20.15 0.18 0.25 0.15
+> (person, plays-instr.) 0.16 0.24 —0.23 0.30 0.32 0.25
+> OLMo-2-7B IT (landmark, in-country) 0.20 0.10 0.06 10.10 0.27 0.19 0.15
+> (country, capital-of) 0.10 0.08 0.16 20.10 0.27 0.24 0.16
+> (company, HQ-in-city) 0.03 0.07 —0.14 0.24 0.22 0.14
+> (country, language-of) 0.15 0.15 0.09 20.17 0.30 0.20 0.18
+> (person, plays-instr.) 0.10 0.12 —0.16 0.21 0.23 0.16
+> OLMo-2-13B IT (landmark, in-country) 0.07 0.09 0.13 10.23 0.28 0.24 0.17
+> (country, capital-of) 0.10 0.07 0.07 20.12 0.20 0.25 0.13
+> (company, HQ-in-city) 0.06 0.09 —0.17 0.26 0.22 0.16
+> (country, language-of) 0.12 0.12 0.08 20.16 0.22 0.19 0.15
+> (person, plays-instr.) 0.23 0.24 —0.15 0.30 0.22 0.23 Overall Mean 0.12 0.13 0.09 0.15 0.25 0.24 0.17
+> 1Multi-Hop-1; 2Multi-Hop-2.
+
+F The role of task-specific encodings in CoT reasoning: additional details 
+
+In §5 we tested whether chain-of-thought (CoT) reasoning engages task-specific encodings beyond those tied to the evaluation task. Here, we provide the prompt construction procedure, filtering criteria, and results for all models and datasets. 
+
+F.1 Additional implementation details CoT prompt construction For the prompts in the mechanistic analysis (§3), we use an instruction that ends with “Your response should be formatted as: ‘Answer: {your answer}’.” For the CoT evalua-tion, we replace this with “Before answering, think step by step. Your response should be formatted as: ‘Reasoning: {your reasoning}. Answer: {your final answer}’.” After applying the model’s chat template to the prompt, we augment the prompt with the string “Reasoning:” .
+
+Reasoning generation For each prompt we gen-erate a reasoning trace by greedy decoding with at most 200 new tokens, truncated at the first gen-erated “Answer:” marker. We place the resulting trace in the assistant turn and append the answer prefix. We then score the probability of the first token of the target answer at the end of the prefix, as in the direct-answering condition. This also al-lows evaluating generations that never produce an answer marker. 
+
+Ablations For each (fact, task) pair, we reuse its localized mask and zero-ablate the identified components, as described in §3. 
+
+Fact filtering We use facts whose post-CoT ac-curacy meets or exceeds the per-task threshold from §A on every task, namely 0.85 for MCQA, NEG MCQA, and V ERIFICATION , and 0.75 for OPEN QA and F ITB. Table 6 reports the counts. 
+
+Evaluation From each ablation we read two quantities, both reported as mean accuracy across facts (using the formatting tolerance from §D.4), under direct answering and CoT: (i) the accuracy drop on the ablated task itself (same-task effect), which is meant to test whether CoT recovers what direct answering loses; and (ii) for each fact, the accuracy drop caused by the other task’s encoding that most damages each condition (measured via accuracy drop; cross-task effect), testing whether CoT suffers more collateral damage than direct answering. In the cross-task panels, since CoT accuracy without ablation exceeds 0.99 for every model and dataset, a separate CoT no-ablation bar is not shown. 
+
+F.2 Additional results 
+
+Figures 17 to 19 present the direct-versus-CoT re-sults across all datasets for OLMo-2-7B IT, OLMo-2-13B IT, and Gemma-2-9B IT, and Figures 20 to 22 present the corresponding per-task ablation heatmaps. The pattern holds throughout. Direct answering drops significantly when the evaluation 18 Table 6: Facts retained by the CoT filter, as k/n where n is the number of facts used in the mechanistic analysis (Table 4) and k is how many facts also clear the per-task CoT threshold on every task. 
+
+Dataset OLMo-2-7B IT OLMo-2-13B IT Gemma-2-9B IT (country, official language, language) 18/22 20/29 32/33 (landmark, in-country, country) 17/17 19/23 37/38 (country, capital-of, city) 22/23 23/28 31/32 (company, HQ-in-city, city) 26/34 15/32 41/51 (person, plays-instrument, instrument) 15/25 14/25 16/25 
+
+task’s own parameters are ablated while CoT stays close to the unablated baseline, and direct answer-ing is less affected than CoT by another task’s ab-lation. 
+
+G Resources and packages 
+
+Our experiments use models and code from Hug-gingFace Transformers (Wolf et al., 2020). In the (fact, task) interaction analysis (§C) we used SciPy (Virtanen et al., 2020) for the F -test. All experi-ments requiring GPU were run on a single 256GB AMD MI325X GPU. In the mechanistic experi-ment (§3), we trained masks for different facts in parallel (up to two facts at a time on a single GPU). Training masks for one fact takes approximately 10 hours, yielding an effective rate of ≈5 hours per fact. Across all 437 target facts, we estimate a total of ≈2,200 GPU hours. The remaining experiments are negligible in comparison. 19 Completion 
+
+FiTB 
+
+OpenQA 
+
+MCQA 
+
+Neg MCQA 
+
+Verification 
+
+Target task 
+
+Completion 
+
+FiTB 
+
+OpenQA 
+
+MCQA 
+
+Neg MCQA 
+
+Verification  
+
+> Source task
+> 63%
+> n=115
+> 61%
+> n=117
+> 71%
+> n=127
+> 48%
+> n=143
+> 97%
+> n=154
+> 46%
+> n=93
+> 60%
+> n=124
+> 64%
+> n=131
+> 45%
+> n=161
+> 93%
+> n=172
+> 51%
+> n=86
+> 78%
+> n=109
+> 71%
+> n=112
+> 45%
+> n=152
+> 95%
+> n=162
+> 4%
+> n=72
+> 22%
+> n=87
+> 14%
+> n=79
+> 44%
+> n=171
+> 86%
+> n=196
+> 0%
+> n=33
+> 9%
+> n=45
+> 0%
+> n=45
+> 21%
+> n=28
+> 87%
+> n=204
+> n<10 3%
+> n=64
+> 2%
+> n=59
+> 9%
+> n=35
+> 43%
+> n=47
+> -
+> -
+> -
+> -
+> -
+> -
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+> Co-emergence rate
+
+(a) θ = 0 .4FiTB 
+
+OpenQA 
+
+MCQA 
+
+Neg MCQA 
+
+Verification 
+
+Target task 
+
+FiTB 
+
+OpenQA 
+
+MCQA 
+
+Neg MCQA 
+
+Verification 
+
+> Source task
+
+74% 
+
+n=140 
+
+64% 
+
+n=64 
+
+41% 
+
+n=152 
+
+50% 
+
+n=155 
+
+86% 
+
+n=51 
+
+79% 
+
+n=43 
+
+46% 
+
+n=122 
+
+60% 
+
+n=124 
+
+61% 
+
+n=28 
+
+56% 
+
+n=131 
+
+37% 
+
+n=171 
+
+46% 
+
+n=171 
+
+17% 
+
+n=29 
+
+19% 
+
+n=53 n<10 53% 
+
+n=118 
+
+45% 
+
+n=11 
+
+45% 
+
+n=29 n<10 34% 
+
+n=65 
+
+-
+
+-
+
+-
+
+-
+
+-
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+> Co-emergence rate
+
+(b) θ = 0 .8
+
+Figure 9: Directional co-emergence rates on OLMo-3-7B IT under a looser ( θ = 0 .4) and stricter ( θ = 0 .8)threshold, complementing the θ = 0 .6 rates in Figure 8. Each cell reports the co-emergence rate, with pair count n.At θ = 0 .8, C OMPLETION does not reach task emergence and is omitted. 
+
+20 Baseline 0.98±0.10 0.98±0.10 1.00±0.00 1.00±0.00 0.95±0.14 0.99±0.05 
+
+All tasks, same fact 
+
+OpenQA FiTB Multi-Hop-2 MCQA Verification Neg 
+
+MCQA 
+
+Evaluation Task 
+
+OpenQA 
+
+FiTB 
+
+Multi-Hop-2 
+
+MCQA 
+
+Verification 
+
+Neg 
+
+MCQA 
+
+> Ablated Task
+
+0.36±0.46 
+
+( 63%) 
+
+1.00±0.00 
+
+( 2%) 
+
+0.98±0.10 
+
+( 2%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.98±0.07 
+
+( 1%) 
+
+0.98±0.07 
+
+( 1%) 
+
+1.00±0.00 
+
+( 2%) 
+
+0.30±0.42 
+
+( 70%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.99±0.05 
+
+( 1%) 
+
+0.99±0.05 
+
+( 2%) 
+
+0.98±0.10 
+
+( 1%) 
+
+1.00±0.00 
+
+( 2%) 
+
+1.00±0.00 
+
+( 2%) 
+
+0.11±0.30 
+
+( 89%) 
+
+0.98±0.08 
+
+( 2%) 
+
+0.99±0.05 
+
+( 2%) 
+
+0.98±0.07 
+
+( 1%) 
+
+1.00±0.00 
+
+( 2%) 
+
+1.00±0.00 
+
+( 2%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.55±0.28 
+
+( 45%) 
+
+0.95±0.12 
+
+( 1%) 
+
+0.95±0.12 
+
+( 3%) 
+
+1.00±0.00 
+
+( 2%) 
+
+1.00±0.00 
+
+( 2%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.41±0.39 
+
+( 57%) 
+
+0.93±0.15 
+
+( 6%) 
+
+1.00±0.00 
+
+( 2%) 
+
+1.00±0.00 
+
+( 2%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 4%) 
+
+0.70±0.26 
+
+( 29%) 
+
+OpenQA FiTB Multi-Hop-2 MCQA Verification Neg 
+
+MCQA 
+
+Baseline 
+
+After ablation 
+
+0.98±0.03 0.97±0.04 1.00±0.00 1.00±0.00 0.96±0.03 1.00±0.01 
+
+0.98±0.04 
+
+( 0%) 
+
+0.93±0.13 
+
+( 4%) 
+
+0.92±0.10 
+
+( 8%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.98±0.04 
+
+( 1%) 
+
+0.98±0.04 
+
+( 1%) 
+
+Same task, other facts 
+
+100 
+
+80 
+
+60 
+
+40 
+
+20 
+
+0
+
+> Relative Change (%)
+
+(a) (country, official language, language) Baseline 1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 0.97±0.12 1.00±0.00 
+
+All tasks, same fact 
+
+OpenQA FiTB Multi-Hop-1 MCQA Verification Neg 
+
+MCQA 
+
+Evaluation Task 
+
+OpenQA 
+
+FiTB 
+
+Multi-Hop-1 
+
+MCQA 
+
+Verification 
+
+Neg 
+
+MCQA 
+
+> Ablated Task
+
+0.41±0.46 
+
+( 59%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.99±0.04 
+
+( 1%) 
+
+0.99±0.06 
+
+( 0%) 
+
+0.93±0.11 
+
+( 7%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.26±0.42 
+
+( 74%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.99±0.03 
+
+( 1%) 
+
+0.99±0.06 
+
+( 0%) 
+
+0.99±0.06 
+
+( 1%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.06±0.24 
+
+( 94%) 
+
+0.99±0.04 
+
+( 1%) 
+
+1.00±0.00 
+
+( 1%) 
+
+0.97±0.08 
+
+( 3%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.24±0.15 
+
+( 76%) 
+
+0.99±0.06 
+
+( 0%) 
+
+0.96±0.13 
+
+( 4%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.99±0.03 
+
+( 1%) 
+
+0.50±0.42 
+
+( 48%) 
+
+0.97±0.08 
+
+( 3%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.98±0.05 
+
+( 2%) 
+
+0.99±0.06 
+
+( 0%) 
+
+0.63±0.23 
+
+( 37%) 
+
+OpenQA FiTB Multi-Hop-1 MCQA Verification Neg 
+
+MCQA 
+
+Baseline 
+
+After ablation 
+
+1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 0.99±0.03 1.00±0.00 
+
+0.88±0.18 
+
+( 12%) 
+
+0.98±0.06 
+
+( 2%) 
+
+0.90±0.17 
+
+( 10%) 
+
+0.92±0.18 
+
+( 8%) 
+
+0.99±0.02 
+
+( 1%) 
+
+0.86±0.18 
+
+( 14%) 
+
+Same task, other facts 
+
+100 
+
+80 
+
+60 
+
+40 
+
+20 
+
+0
+
+> Relative Change (%)
+
+(b) (landmark, in-country, country) Baseline 1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 
+
+All tasks, same fact 
+
+OpenQA FiTB Multi-Hop-2 MCQA Verification Neg 
+
+MCQA 
+
+Evaluation Task 
+
+OpenQA 
+
+FiTB 
+
+Multi-Hop-2 
+
+MCQA 
+
+Verification 
+
+Neg 
+
+MCQA 
+
+> Ablated Task
+
+0.20±0.32 
+
+( 80%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.96±0.20 
+
+( 4%) 
+
+0.96±0.10 
+
+( 4%) 
+
+0.99±0.05 
+
+( 1%) 
+
+0.93±0.17 
+
+( 7%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.13±0.30 
+
+( 87%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.99±0.04 
+
+( 1%) 
+
+0.99±0.05 
+
+( 1%) 
+
+0.92±0.17 
+
+( 8%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.28±0.44 
+
+( 72%) 
+
+0.98±0.06 
+
+( 2%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.95±0.13 
+
+( 5%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.39±0.25 
+
+( 61%) 
+
+0.99±0.05 
+
+( 1%) 
+
+0.99±0.05 
+
+( 1%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.99±0.03 
+
+( 1%) 
+
+0.63±0.42 
+
+( 37%) 
+
+0.96±0.12 
+
+( 4%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.96±0.15 
+
+( 4%) 
+
+0.97±0.11 
+
+( 3%) 
+
+0.79±0.25 
+
+( 21%) 
+
+OpenQA FiTB Multi-Hop-2 MCQA Verification Neg 
+
+MCQA 
+
+Baseline 
+
+After ablation 
+
+1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 
+
+0.95±0.08 
+
+( 5%) 
+
+0.94±0.09 
+
+( 6%) 
+
+0.84±0.20 
+
+( 16%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.01 
+
+( 0%) 
+
+0.99±0.05 
+
+( 1%) 
+
+Same task, other facts 
+
+100 
+
+80 
+
+60 
+
+40 
+
+20 
+
+0
+
+> Relative Change (%)
+
+(c) (country, capital-of, city) Baseline 1.00±0.00 0.98±0.10 0.99±0.03 0.98±0.10 0.97±0.08 
+
+All tasks, same fact 
+
+OpenQA FiTB MCQA Verification Neg 
+
+MCQA 
+
+Evaluation Task 
+
+OpenQA 
+
+FiTB 
+
+MCQA 
+
+Verification 
+
+Neg 
+
+MCQA 
+
+> Ablated Task
+
+0.16±0.34 
+
+( 84%) 
+
+0.88±0.21 
+
+( 10%) 
+
+0.95±0.08 
+
+( 4%) 
+
+0.94±0.13 
+
+( 5%) 
+
+0.95±0.10 
+
+( 2%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.28±0.38 
+
+( 71%) 
+
+0.97±0.08 
+
+( 2%) 
+
+0.99±0.05 
+
+( 0%) 
+
+0.95±0.12 
+
+( 2%) 
+
+0.96±0.20 
+
+( 4%) 
+
+0.96±0.20 
+
+( 2%) 
+
+0.41±0.24 
+
+( 58%) 
+
+0.92±0.12 
+
+( 7%) 
+
+0.90±0.17 
+
+( 7%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.98±0.10 
+
+( 0%) 
+
+0.97±0.06 
+
+( 2%) 
+
+0.52±0.30 
+
+( 47%) 
+
+0.97±0.08 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.96±0.14 
+
+( 2%) 
+
+0.98±0.05 
+
+( 1%) 
+
+0.96±0.09 
+
+( 3%) 
+
+0.69±0.28 
+
+( 29%) 
+
+OpenQA FiTB MCQA Verification Neg 
+
+MCQA 
+
+Baseline 
+
+After ablation 
+
+1.00±0.00 0.99±0.02 0.99±0.01 0.98±0.01 0.99±0.01 
+
+0.95±0.08 
+
+( 5%) 
+
+0.95±0.05 
+
+( 4%) 
+
+0.97±0.04 
+
+( 2%) 
+
+0.91±0.08 
+
+( 7%) 
+
+0.97±0.05 
+
+( 2%) 
+
+Same task, other facts 
+
+100 
+
+80 
+
+60 
+
+40 
+
+20 
+
+0
+
+> Relative Change (%)
+
+(d) (person, plays-instrument, instrument) Baseline 0.97±0.12 1.00±0.00 1.00±0.00 0.98±0.09 1.00±0.00 
+
+All tasks, same fact 
+
+OpenQA FiTB MCQA Verification Neg 
+
+MCQA 
+
+Evaluation Task 
+
+OpenQA 
+
+FiTB 
+
+MCQA 
+
+Verification 
+
+Neg 
+
+MCQA 
+
+> Ablated Task
+
+0.01±0.08 
+
+( 98%) 
+
+0.99±0.08 
+
+( 1%) 
+
+0.99±0.05 
+
+( 1%) 
+
+0.98±0.07 
+
+( 1%) 
+
+0.98±0.09 
+
+( 2%) 
+
+1.00±0.00 
+
+( 3%) 
+
+0.09±0.26 
+
+( 91%) 
+
+0.97±0.07 
+
+( 3%) 
+
+0.98±0.09 
+
+( 1%) 
+
+0.95±0.12 
+
+( 5%) 
+
+0.97±0.17 
+
+( 0%) 
+
+0.97±0.17 
+
+( 3%) 
+
+0.40±0.23 
+
+( 60%) 
+
+0.97±0.08 
+
+( 2%) 
+
+0.94±0.12 
+
+( 6%) 
+
+1.00±0.00 
+
+( 2%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.97±0.10 
+
+( 3%) 
+
+0.48±0.40 
+
+( 51%) 
+
+0.96±0.09 
+
+( 4%) 
+
+1.00±0.00 
+
+( 3%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.96±0.09 
+
+( 4%) 
+
+0.99±0.04 
+
+( 0%) 
+
+0.66±0.29 
+
+( 34%) 
+
+OpenQA FiTB MCQA Verification Neg 
+
+MCQA 
+
+Baseline 
+
+After ablation 
+
+0.99±0.01 1.00±0.00 0.99±0.01 0.99±0.01 0.99±0.01 
+
+0.95±0.09 
+
+( 4%) 
+
+0.95±0.13 
+
+( 5%) 
+
+0.97±0.05 
+
+( 2%) 
+
+0.98±0.02 
+
+( 1%) 
+
+0.98±0.03 
+
+( 1%) 
+
+Same task, other facts 
+
+100 
+
+80 
+
+60 
+
+40 
+
+20 
+
+0
+
+> Relative Change (%)
+
+(e) (company, HQ-in-city, city) 
+
+Figure 10: Necessity results on OLMo-2-7B IT. Same layout as Figure 4. 
+
+21 Baseline 1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 
+
+All tasks, same fact 
+
+OpenQA FiTB Multi-Hop-2 MCQA Verification Neg 
+
+MCQA 
+
+Evaluation Task 
+
+OpenQA 
+
+FiTB 
+
+Multi-Hop-2 
+
+MCQA 
+
+Verification 
+
+Neg 
+
+MCQA 
+
+> Ablated Task
+
+0.29±0.36 
+
+( 71%) 
+
+0.98±0.09 
+
+( 2%) 
+
+0.97±0.13 
+
+( 3%) 
+
+0.98±0.07 
+
+( 2%) 
+
+0.99±0.05 
+
+( 1%) 
+
+0.99±0.05 
+
+( 1%) 
+
+0.97±0.13 
+
+( 3%) 
+
+0.31±0.38 
+
+( 69%) 
+
+0.98±0.09 
+
+( 2%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.96±0.19 
+
+( 4%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.14±0.32 
+
+( 86%) 
+
+0.98±0.06 
+
+( 2%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.96±0.19 
+
+( 4%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.98±0.09 
+
+( 2%) 
+
+0.56±0.24 
+
+( 44%) 
+
+0.97±0.10 
+
+( 3%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.99±0.05 
+
+( 1%) 
+
+0.62±0.39 
+
+( 38%) 
+
+0.99±0.05 
+
+( 1%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.98±0.09 
+
+( 2%) 
+
+0.98±0.07 
+
+( 2%) 
+
+0.98±0.06 
+
+( 2%) 
+
+0.66±0.28 
+
+( 34%) 
+
+OpenQA FiTB Multi-Hop-2 MCQA Verification Neg 
+
+MCQA 
+
+Baseline 
+
+After ablation 
+
+1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 
+
+0.95±0.08 
+
+( 5%) 
+
+0.98±0.04 
+
+( 2%) 
+
+0.91±0.14 
+
+( 9%) 
+
+0.99±0.02 
+
+( 1%) 
+
+1.00±0.01 
+
+( 0%) 
+
+0.98±0.03 
+
+( 2%) 
+
+Same task, other facts 
+
+100 
+
+80 
+
+60 
+
+40 
+
+20 
+
+0
+
+> Relative Change (%)
+
+(a) (country, official language, language) Baseline 1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 
+
+Truth: 
+
+0.93±0.22 
+
+Both: 
+
+0.97±0.11 
+
+0.99±0.05 
+
+All tasks, same fact 
+
+OpenQA FiTB Multi-Hop-1 MCQA Verification Neg 
+
+MCQA 
+
+Evaluation Task 
+
+OpenQA 
+
+FiTB 
+
+Multi-Hop-1 
+
+MCQA 
+
+Verification 
+
+Neg 
+
+MCQA 
+
+> Ablated Task
+
+0.09±0.28 
+
+( 91%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.93±0.22 
+
+( 7%) 
+
+0.94±0.12 
+
+( 6%) 
+
+0.97±0.08 
+
+( 0%) 
+
+0.92±0.14 
+
+( 7%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.22±0.39 
+
+( 78%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.99±0.03 
+
+( 1%) 
+
+1.00±0.00 
+
+( 3%) 
+
+1.00±0.00 
+
+( 1%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.30±0.44 
+
+( 70%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.99±0.05 
+
+( 2%) 
+
+0.99±0.05 
+
+( 0%) 
+
+0.96±0.20 
+
+( 4%) 
+
+0.96±0.20 
+
+( 4%) 
+
+0.93±0.22 
+
+( 7%) 
+
+0.54±0.33 
+
+( 46%) 
+
+0.96±0.12 
+
+( 1%) 
+
+0.96±0.09 
+
+( 3%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.98±0.10 
+
+( 2%) 
+
+0.57±0.40 
+
+( 40%) 
+
+0.98±0.07 
+
+( 1%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.98±0.10 
+
+( 2%) 
+
+0.99±0.05 
+
+( 1%) 
+
+0.98±0.07 
+
+( 1%) 
+
+0.64±0.31 
+
+( 35%) 
+
+OpenQA FiTB Multi-Hop-1 MCQA Verification Neg 
+
+MCQA 
+
+Baseline 
+
+After ablation 
+
+1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 0.96±0.04 0.98±0.02 
+
+0.95±0.08 
+
+( 5%) 
+
+0.97±0.05 
+
+( 3%) 
+
+0.94±0.09 
+
+( 6%) 
+
+0.90±0.25 
+
+( 10%) 
+
+0.93±0.11 
+
+( 3%) 
+
+0.97±0.04 
+
+( 1%) 
+
+Same task, other facts 
+
+100 
+
+80 
+
+60 
+
+40 
+
+20 
+
+0
+
+> Relative Change (%)
+
+(b) (landmark, in-country, country) Baseline 1.00±0.00 1.00±0.00 0.98±0.09 1.00±0.00 1.00±0.00 1.00±0.00 
+
+All tasks, same fact 
+
+OpenQA FiTB Multi-Hop-2 MCQA Verification Neg 
+
+MCQA 
+
+Evaluation Task 
+
+OpenQA 
+
+FiTB 
+
+Multi-Hop-2 
+
+MCQA 
+
+Verification 
+
+Neg 
+
+MCQA 
+
+> Ablated Task
+
+0.27±0.39 
+
+( 73%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.95±0.15 
+
+( 4%) 
+
+1.00±0.02 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.98±0.09 
+
+( 2%) 
+
+0.98±0.09 
+
+( 2%) 
+
+0.16±0.30 
+
+( 84%) 
+
+1.00±0.00 
+
+( 2%) 
+
+0.98±0.07 
+
+( 2%) 
+
+0.98±0.09 
+
+( 2%) 
+
+0.98±0.06 
+
+( 2%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.09±0.19 
+
+( 91%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.99±0.05 
+
+( 1%) 
+
+0.94±0.18 
+
+( 6%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 2%) 
+
+0.41±0.30 
+
+( 59%) 
+
+0.97±0.10 
+
+( 3%) 
+
+0.98±0.06 
+
+( 2%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.98±0.09 
+
+( 0%) 
+
+0.98±0.08 
+
+( 2%) 
+
+0.66±0.33 
+
+( 34%) 
+
+0.98±0.06 
+
+( 2%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 2%) 
+
+0.99±0.07 
+
+( 1%) 
+
+0.94±0.20 
+
+( 6%) 
+
+0.70±0.32 
+
+( 30%) 
+
+OpenQA FiTB Multi-Hop-2 MCQA Verification Neg 
+
+MCQA 
+
+Baseline 
+
+After ablation 
+
+1.00±0.00 1.00±0.00 0.98±0.03 1.00±0.00 1.00±0.00 1.00±0.00 
+
+0.98±0.08 
+
+( 2%) 
+
+0.99±0.02 
+
+( 1%) 
+
+0.91±0.11 
+
+( 8%) 
+
+1.00±0.01 
+
+( 0%) 
+
+0.99±0.02 
+
+( 1%) 
+
+0.98±0.04 
+
+( 2%) 
+
+Same task, other facts 
+
+100 
+
+80 
+
+60 
+
+40 
+
+20 
+
+0
+
+> Relative Change (%)
+
+(c) (country, capital-of, city) Baseline 0.98±0.10 0.98±0.10 1.00±0.00 
+
+Truth: 
+
+0.98±0.10 
+
+Both: 
+
+0.96±0.12 
+
+0.99±0.05 
+
+All tasks, same fact 
+
+OpenQA FiTB MCQA Verification Neg 
+
+MCQA 
+
+Evaluation Task 
+
+OpenQA 
+
+FiTB 
+
+MCQA 
+
+Verification 
+
+Neg 
+
+MCQA 
+
+> Ablated Task
+
+0.52±0.48 
+
+( 47%) 
+
+0.86±0.30 
+
+( 12%) 
+
+0.99±0.03 
+
+( 1%) 
+
+0.92±0.17 
+
+( 4%) 
+
+0.96±0.09 
+
+( 3%) 
+
+0.98±0.10 
+
+( 0%) 
+
+0.34±0.42 
+
+( 65%) 
+
+0.99±0.03 
+
+( 1%) 
+
+0.89±0.16 
+
+( 7%) 
+
+0.95±0.12 
+
+( 4%) 
+
+1.00±0.00 
+
+( 2%) 
+
+0.88±0.26 
+
+( 10%) 
+
+0.32±0.25 
+
+( 68%) 
+
+0.83±0.18 
+
+( 14%) 
+
+0.93±0.11 
+
+( 6%) 
+
+0.92±0.27 
+
+( 6%) 
+
+0.86±0.30 
+
+( 12%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.68±0.34 
+
+( 31%) 
+
+0.97±0.08 
+
+( 2%) 
+
+0.94±0.22 
+
+( 4%) 
+
+0.90±0.24 
+
+( 8%) 
+
+0.99±0.03 
+
+( 1%) 
+
+0.85±0.25 
+
+( 11%) 
+
+0.56±0.26 
+
+( 43%) 
+
+OpenQA FiTB MCQA Verification Neg 
+
+MCQA 
+
+Baseline 
+
+After ablation 
+
+0.98±0.03 0.96±0.03 1.00±0.00 0.95±0.02 0.99±0.01 
+
+0.96±0.12 
+
+( 3%) 
+
+0.83±0.16 
+
+( 13%) 
+
+0.98±0.07 
+
+( 2%) 
+
+0.92±0.09 
+
+( 3%) 
+
+0.95±0.08 
+
+( 3%) 
+
+Same task, other facts 
+
+100 
+
+80 
+
+60 
+
+40 
+
+20 
+
+0
+
+> Relative Change (%)
+
+(d) (person, plays-instrument, instrument) Baseline 1.00±0.00 0.98±0.09 1.00±0.02 0.98±0.09 0.98±0.06 
+
+All tasks, same fact 
+
+OpenQA FiTB MCQA Verification Neg 
+
+MCQA 
+
+Evaluation Task 
+
+OpenQA 
+
+FiTB 
+
+MCQA 
+
+Verification 
+
+Neg 
+
+MCQA 
+
+> Ablated Task
+
+0.06±0.21 
+
+( 94%) 
+
+0.97±0.12 
+
+( 2%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.98±0.07 
+
+( 2%) 
+
+0.98±0.07 
+
+( 1%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.13±0.31 
+
+( 87%) 
+
+0.96±0.11 
+
+( 4%) 
+
+0.98±0.06 
+
+( 2%) 
+
+0.98±0.07 
+
+( 1%) 
+
+0.97±0.18 
+
+( 3%) 
+
+0.95±0.19 
+
+( 3%) 
+
+0.42±0.31 
+
+( 57%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.90±0.16 
+
+( 8%) 
+
+0.97±0.17 
+
+( 3%) 
+
+0.95±0.19 
+
+( 3%) 
+
+0.96±0.12 
+
+( 4%) 
+
+0.44±0.39 
+
+( 56%) 
+
+0.95±0.14 
+
+( 4%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 2%) 
+
+0.97±0.08 
+
+( 3%) 
+
+0.99±0.04 
+
+( 1%) 
+
+0.70±0.27 
+
+( 29%) 
+
+OpenQA FiTB MCQA Verification Neg 
+
+MCQA 
+
+Baseline 
+
+After ablation 
+
+1.00±0.01 0.98±0.01 0.99±0.00 0.99±0.01 0.97±0.01 
+
+0.95±0.05 
+
+( 5%) 
+
+0.91±0.09 
+
+( 7%) 
+
+0.97±0.05 
+
+( 2%) 
+
+0.97±0.04 
+
+( 1%) 
+
+0.98±0.02 
+
+( 0%) 
+
+Same task, other facts 
+
+100 
+
+80 
+
+60 
+
+40 
+
+20 
+
+0
+
+> Relative Change (%)
+
+(e) (company, HQ-in-city, city) 
+
+Figure 11: Necessity results on OLMo-2-13B IT. Same layout as Figure 4. 
+
+22 Baseline 1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 
+
+All tasks, same fact 
+
+OpenQA FiTB Multi-Hop-2 MCQA Verification Neg 
+
+MCQA 
+
+Evaluation Task 
+
+OpenQA 
+
+FiTB 
+
+Multi-Hop-2 
+
+MCQA 
+
+Verification 
+
+Neg 
+
+MCQA 
+
+> Ablated Task
+
+0.47±0.49 
+
+( 53%) 
+
+0.98±0.09 
+
+( 2%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.99±0.06 
+
+( 1%) 
+
+0.99±0.04 
+
+( 1%) 
+
+0.98±0.09 
+
+( 2%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.33±0.44 
+
+( 67%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.15±0.31 
+
+( 85%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.97±0.12 
+
+( 3%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.52±0.29 
+
+( 48%) 
+
+0.99±0.04 
+
+( 1%) 
+
+0.97±0.10 
+
+( 3%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.64±0.33 
+
+( 36%) 
+
+0.98±0.13 
+
+( 2%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.98±0.09 
+
+( 2%) 
+
+1.00±0.02 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.81±0.24 
+
+( 19%) 
+
+OpenQA FiTB Multi-Hop-2 MCQA Verification Neg 
+
+MCQA 
+
+Baseline 
+
+After ablation 
+
+1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 
+
+1.00±0.02 
+
+( 0%) 
+
+0.97±0.06 
+
+( 3%) 
+
+0.97±0.07 
+
+( 3%) 
+
+1.00±0.01 
+
+( 0%) 
+
+1.00±0.01 
+
+( 0%) 
+
+0.97±0.08 
+
+( 3%) 
+
+Same task, other facts 
+
+100 
+
+80 
+
+60 
+
+40 
+
+20 
+
+0
+
+> Relative Change (%)
+
+(a) (country, official language, language) Baseline 1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 
+
+All tasks, same fact 
+
+OpenQA FiTB Multi-Hop-1 MCQA Verification Neg 
+
+MCQA 
+
+Evaluation Task 
+
+OpenQA 
+
+FiTB 
+
+Multi-Hop-1 
+
+MCQA 
+
+Verification 
+
+Neg 
+
+MCQA 
+
+> Ablated Task
+
+0.28±0.39 
+
+( 72%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.99±0.04 
+
+( 1%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.97±0.16 
+
+( 3%) 
+
+0.42±0.44 
+
+( 58%) 
+
+0.99±0.08 
+
+( 1%) 
+
+0.97±0.14 
+
+( 3%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.99±0.06 
+
+( 1%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.37±0.44 
+
+( 63%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.98±0.12 
+
+( 2%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.95±0.15 
+
+( 5%) 
+
+0.49±0.24 
+
+( 51%) 
+
+0.99±0.08 
+
+( 1%) 
+
+0.94±0.16 
+
+( 6%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.99±0.06 
+
+( 1%) 
+
+0.76±0.34 
+
+( 24%) 
+
+0.97±0.11 
+
+( 3%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.99±0.08 
+
+( 1%) 
+
+1.00±0.02 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.80±0.22 
+
+( 20%) 
+
+OpenQA FiTB Multi-Hop-1 MCQA Verification Neg 
+
+MCQA 
+
+Baseline 
+
+After ablation 
+
+1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 
+
+0.98±0.04 
+
+( 2%) 
+
+0.94±0.07 
+
+( 6%) 
+
+0.92±0.14 
+
+( 8%) 
+
+0.98±0.04 
+
+( 2%) 
+
+1.00±0.01 
+
+( 0%) 
+
+0.99±0.01 
+
+( 1%) 
+
+Same task, other facts 
+
+100 
+
+80 
+
+60 
+
+40 
+
+20 
+
+0
+
+> Relative Change (%)
+
+(b) (landmark, in-country, country) Baseline 1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 
+
+All tasks, same fact 
+
+OpenQA FiTB Multi-Hop-2 MCQA Verification Neg 
+
+MCQA 
+
+Evaluation Task 
+
+OpenQA 
+
+FiTB 
+
+Multi-Hop-2 
+
+MCQA 
+
+Verification 
+
+Neg 
+
+MCQA 
+
+> Ablated Task
+
+0.36±0.47 
+
+( 64%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.30±0.41 
+
+( 70%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.98±0.09 
+
+( 2%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.09±0.26 
+
+( 91%) 
+
+1.00±0.02 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.50±0.29 
+
+( 50%) 
+
+0.94±0.12 
+
+( 6%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.99±0.07 
+
+( 1%) 
+
+0.78±0.30 
+
+( 22%) 
+
+0.98±0.09 
+
+( 2%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.97±0.12 
+
+( 3%) 
+
+1.00±0.02 
+
+( 0%) 
+
+0.99±0.04 
+
+( 1%) 
+
+0.89±0.15 
+
+( 11%) 
+
+OpenQA FiTB Multi-Hop-2 MCQA Verification Neg 
+
+MCQA 
+
+Baseline 
+
+After ablation 
+
+1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 
+
+1.00±0.01 
+
+( 0%) 
+
+1.00±0.02 
+
+( 0%) 
+
+0.95±0.09 
+
+( 5%) 
+
+1.00±0.01 
+
+( 0%) 
+
+0.99±0.02 
+
+( 1%) 
+
+1.00±0.02 
+
+( 0%) 
+
+Same task, other facts 
+
+100 
+
+80 
+
+60 
+
+40 
+
+20 
+
+0
+
+> Relative Change (%)
+
+(c) (country, capital-of, city) Baseline 1.00±0.00 0.98±0.10 0.99±0.02 
+
+Truth: 
+
+0.92±0.18 
+
+Both: 
+
+0.86±0.12 
+
+1.00±0.00 
+
+All tasks, same fact 
+
+OpenQA FiTB MCQA Verification Neg 
+
+MCQA 
+
+Evaluation Task 
+
+OpenQA 
+
+FiTB 
+
+MCQA 
+
+Verification 
+
+Neg 
+
+MCQA 
+
+> Ablated Task
+
+0.32±0.47 
+
+( 68%) 
+
+0.78±0.38 
+
+( 20%) 
+
+0.99±0.02 
+
+( 0%) 
+
+0.86±0.19 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.56±0.50 
+
+( 43%) 
+
+0.98±0.04 
+
+( 1%) 
+
+0.84±0.17 
+
+( 2%) 
+
+0.97±0.08 
+
+( 3%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.90±0.24 
+
+( 8%) 
+
+0.54±0.30 
+
+( 46%) 
+
+0.76±0.19 
+
+( 12%) 
+
+0.90±0.17 
+
+( 10%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.98±0.10 
+
+( 0%) 
+
+0.99±0.05 
+
+( 1%) 
+
+0.70±0.37 
+
+( 24%) 
+
+0.98±0.07 
+
+( 2%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.94±0.16 
+
+( 4%) 
+
+0.99±0.02 
+
+( 0%) 
+
+0.84±0.14 
+
+( 2%) 
+
+0.92±0.14 
+
+( 8%) 
+
+OpenQA FiTB MCQA Verification Neg 
+
+MCQA 
+
+Baseline 
+
+After ablation 
+
+1.00±0.00 1.00±0.01 1.00±0.00 0.90±0.02 1.00±0.00 
+
+0.98±0.05 
+
+( 2%) 
+
+0.94±0.13 
+
+( 6%) 
+
+0.99±0.03 
+
+( 1%) 
+
+0.90±0.04 
+
+( 1%) 
+
+0.99±0.02 
+
+( 1%) 
+
+Same task, other facts 
+
+100 
+
+80 
+
+60 
+
+40 
+
+20 
+
+0
+
+> Relative Change (%)
+
+(d) (person, plays-instrument, instrument) Baseline 1.00±0.00 1.00±0.00 1.00±0.02 1.00±0.00 1.00±0.00 
+
+All tasks, same fact 
+
+OpenQA FiTB MCQA Verification Neg 
+
+MCQA 
+
+Evaluation Task 
+
+OpenQA 
+
+FiTB 
+
+MCQA 
+
+Verification 
+
+Neg 
+
+MCQA 
+
+> Ablated Task
+
+0.19±0.37 
+
+( 81%) 
+
+0.84±0.29 
+
+( 16%) 
+
+0.99±0.04 
+
+( 1%) 
+
+0.99±0.06 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.99±0.07 
+
+( 1%) 
+
+0.32±0.39 
+
+( 68%) 
+
+0.98±0.07 
+
+( 1%) 
+
+0.99±0.05 
+
+( 0%) 
+
+0.99±0.05 
+
+( 1%) 
+
+0.99±0.07 
+
+( 1%) 
+
+0.98±0.10 
+
+( 2%) 
+
+0.47±0.34 
+
+( 53%) 
+
+0.99±0.05 
+
+( 1%) 
+
+0.96±0.10 
+
+( 4%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.98±0.09 
+
+( 2%) 
+
+0.65±0.38 
+
+( 35%) 
+
+0.99±0.03 
+
+( 1%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.97±0.11 
+
+( 3%) 
+
+0.99±0.06 
+
+( 0%) 
+
+0.87±0.21 
+
+( 13%) 
+
+OpenQA FiTB MCQA Verification Neg 
+
+MCQA 
+
+Baseline 
+
+After ablation 
+
+1.00±0.00 0.99±0.01 0.99±0.00 0.99±0.01 1.00±0.00 
+
+0.99±0.01 
+
+( 1%) 
+
+0.97±0.03 
+
+( 2%) 
+
+0.98±0.03 
+
+( 1%) 
+
+0.98±0.02 
+
+( 1%) 
+
+0.99±0.01 
+
+( 1%) 
+
+Same task, other facts 
+
+100 
+
+80 
+
+60 
+
+40 
+
+20 
+
+0
+
+> Relative Change (%)
+
+(e) (company, HQ-in-city, city) 
+
+Figure 12: Necessity results on Gemma-2-9B IT. Same layout as Figure 4. 
+
+23 Baseline 
+
+Corrupted 
+
+1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 
+
+0.00±0.00 0.00±0.00 0.16±0.18 
+
+Truth: 
+
+0.23±0.37 
+
+Both: 
+
+0.34±0.26 
+
+0.48±0.13 
+
+All tasks, same fact 
+
+OpenQA FiTB MCQA Verification Neg 
+
+MCQA 
+
+Evaluation Task 
+
+OpenQA 
+
+FiTB 
+
+MCQA 
+
+Verification 
+
+Neg 
+
+MCQA 
+
+> Patched Task
+
+0.94±0.16 
+
+(94%) 
+
+0.08±0.18 
+
+(8%) 
+
+0.15±0.17 
+
+(-2%) 
+
+0.36±0.25 
+
+(2%) 
+
+0.48±0.11 
+
+(0%) 
+
+0.00±0.00 
+
+(0%) 
+
+0.97±0.17 
+
+(97%) 
+
+0.14±0.17 
+
+(-2%) 
+
+0.38±0.25 
+
+(6%) 
+
+0.50±0.11 
+
+(4%) 
+
+0.00±0.00 
+
+(0%) 
+
+0.00±0.00 
+
+(0%) 
+
+0.88±0.18 
+
+(85%) 
+
+0.42±0.24 
+
+(13%) 
+
+0.53±0.15 
+
+(10%) 
+
+0.00±0.00 
+
+(0%) 
+
+0.02±0.09 
+
+(2%) 
+
+0.19±0.19 
+
+(3%) 
+
+0.97±0.12 
+
+(96%) 
+
+0.51±0.07 
+
+(6%) 
+
+0.00±0.00 
+
+(0%) 
+
+0.00±0.00 
+
+(0%) 
+
+0.17±0.17 
+
+(1%) 
+
+0.32±0.23 
+
+(-3%) 
+
+0.74±0.23 
+
+(51%) 
+
+OpenQA FiTB MCQA Verification Neg 
+
+MCQA 
+
+Baseline 
+
+Corrupted 
+
+Patched 
+
+1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 
+
+0.00±0.00 0.00±0.00 0.17±0.06 0.39±0.08 0.47±0.05 
+
+0.06±0.07 
+
+(6%) 
+
+0.07±0.10 
+
+(7%) 
+
+0.24±0.11 
+
+(9%) 
+
+0.41±0.10 
+
+(4%) 
+
+0.50±0.04 
+
+(7%) 
+
+Same task, other facts 
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+> Reconstruction rate
+
+(a) (country, official language, language) Baseline 
+
+Corrupted 
+
+1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 
+
+0.00±0.00 0.00±0.00 0.00±0.03 0.06±0.09 
+
+Truth: 
+
+0.00±0.00 
+
+Both: 
+
+0.43±0.12 
+
+0.52±0.27 
+
+All tasks, same fact 
+
+OpenQA FiTB Multi-Hop-1 MCQA Verification Neg 
+
+MCQA 
+
+Evaluation Task 
+
+OpenQA 
+
+FiTB 
+
+Multi-Hop-1 
+
+MCQA 
+
+Verification 
+
+Neg 
+
+MCQA 
+
+> Patched Task
+
+0.99±0.08 
+
+(99%) 
+
+0.01±0.08 
+
+(1%) 
+
+0.03±0.16 
+
+(2%) 
+
+0.12±0.17 
+
+(6%) 
+
+0.43±0.13 
+
+(-0%) 
+
+0.58±0.26 
+
+(12%) 
+
+0.00±0.00 
+
+(0%) 
+
+0.99±0.08 
+
+(99%) 
+
+0.00±0.00 
+
+(-0%) 
+
+0.09±0.12 
+
+(3%) 
+
+0.40±0.15 
+
+(-5%) 
+
+0.57±0.27 
+
+(9%) 
+
+0.00±0.00 
+
+(0%) 
+
+0.00±0.00 
+
+(0%) 
+
+0.84±0.26 
+
+(84%) 
+
+0.10±0.15 
+
+(5%) 
+
+0.43±0.12 
+
+(1%) 
+
+0.55±0.27 
+
+(5%) 
+
+0.00±0.00 
+
+(0%) 
+
+0.00±0.00 
+
+(0%) 
+
+0.00±0.00 
+
+(-0%) 
+
+0.90±0.18 
+
+(90%) 
+
+0.44±0.13 
+
+(2%) 
+
+0.57±0.24 
+
+(11%) 
+
+0.00±0.00 
+
+(0%) 
+
+0.00±0.00 
+
+(0%) 
+
+0.00±0.00 
+
+(-0%) 
+
+0.11±0.19 
+
+(6%) 
+
+0.89±0.20 
+
+(89%) 
+
+0.57±0.27 
+
+(11%) 
+
+0.00±0.00 
+
+(0%) 
+
+0.00±0.00 
+
+(0%) 
+
+0.00±0.00 
+
+(-0%) 
+
+0.10±0.14 
+
+(5%) 
+
+0.45±0.10 
+
+(4%) 
+
+0.86±0.19 
+
+(70%) 
+
+OpenQA FiTB Multi-Hop-1 MCQA Verification Neg 
+
+MCQA 
+
+Baseline 
+
+Corrupted 
+
+Patched 
+
+1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 
+
+0.00±0.00 0.00±0.00 0.00±0.01 0.05±0.02 0.43±0.04 0.53±0.08 
+
+0.03±0.07 
+
+(3%) 
+
+0.03±0.04 
+
+(3%) 
+
+0.03±0.04 
+
+(3%) 
+
+0.13±0.12 
+
+(9%) 
+
+0.43±0.04 
+
+(1%) 
+
+0.56±0.08 
+
+(7%) 
+
+Same task, other facts 
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+> Reconstruction rate
+
+(b) (landmark, in-country, country) Baseline 
+
+Corrupted 
+
+1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 
+
+0.00±0.04 0.00±0.04 0.21±0.16 0.39±0.32 0.50±0.23 
+
+All tasks, same fact 
+
+OpenQA FiTB MCQA Verification Neg 
+
+MCQA 
+
+Evaluation Task 
+
+OpenQA 
+
+FiTB 
+
+MCQA 
+
+Verification 
+
+Neg 
+
+MCQA 
+
+> Patched Task
+
+0.83±0.27 
+
+(83%) 
+
+0.14±0.22 
+
+(14%) 
+
+0.21±0.19 
+
+(0%) 
+
+0.42±0.25 
+
+(7%) 
+
+0.51±0.27 
+
+(1%) 
+
+0.39±0.35 
+
+(39%) 
+
+0.95±0.19 
+
+(95%) 
+
+0.26±0.18 
+
+(6%) 
+
+0.39±0.28 
+
+(2%) 
+
+0.46±0.23 
+
+(-8%) 
+
+0.05±0.15 
+
+(4%) 
+
+0.02±0.09 
+
+(1%) 
+
+0.75±0.19 
+
+(69%) 
+
+0.53±0.24 
+
+(24%) 
+
+0.53±0.21 
+
+(6%) 
+
+0.00±0.00 
+
+(-0%) 
+
+0.00±0.00 
+
+(-0%) 
+
+0.23±0.18 
+
+(2%) 
+
+0.98±0.09 
+
+(97%) 
+
+0.58±0.21 
+
+(15%) 
+
+0.00±0.00 
+
+(-0%) 
+
+0.00±0.00 
+
+(-0%) 
+
+0.22±0.18 
+
+(1%) 
+
+0.42±0.21 
+
+(7%) 
+
+0.88±0.15 
+
+(76%) 
+
+OpenQA FiTB MCQA Verification Neg 
+
+MCQA 
+
+Baseline 
+
+Corrupted 
+
+Patched 
+
+1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 
+
+0.00±0.02 0.00±0.00 0.20±0.06 0.40±0.08 0.50±0.07 
+
+0.04±0.06 
+
+(4%) 
+
+0.05±0.08 
+
+(5%) 
+
+0.26±0.10 
+
+(8%) 
+
+0.44±0.10 
+
+(7%) 
+
+0.50±0.08 
+
+(0%) 
+
+Same task, other facts 
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+> Reconstruction rate
+
+(c) (country, capital-of, city) Baseline 
+
+Corrupted 
+
+1.00±0.00 0.98±0.10 0.99±0.02 
+
+Truth: 
+
+0.92±0.18 
+
+Both: 
+
+0.86±0.12 
+
+1.00±0.00 
+
+0.01±0.08 0.02±0.09 0.08±0.15 
+
+Truth: 
+
+0.06±0.16 
+
+Both: 
+
+0.46±0.12 
+
+0.54±0.23 
+
+All tasks, same fact 
+
+OpenQA FiTB MCQA Verification Neg 
+
+MCQA 
+
+Evaluation Task 
+
+OpenQA 
+
+FiTB 
+
+MCQA 
+
+Verification 
+
+Neg 
+
+MCQA 
+
+> Patched Task
+
+1.00±0.00 
+
+(100%) 
+
+0.20±0.32 
+
+(19%) 
+
+0.10±0.18 
+
+(2%) 
+
+0.49±0.09 
+
+(7%) 
+
+0.66±0.21 
+
+(26%) 
+
+0.02±0.10 
+
+(1%) 
+
+0.64±0.33 
+
+(65%) 
+
+0.06±0.12 
+
+(-3%) 
+
+0.51±0.09 
+
+(12%) 
+
+0.50±0.22 
+
+(-9%) 
+
+0.00±0.00 
+
+(-1%) 
+
+0.00±0.00 
+
+(-2%) 
+
+0.97±0.05 
+
+(98%) 
+
+0.46±0.09 
+
+(0%) 
+
+0.65±0.24 
+
+(24%) 
+
+0.04±0.14 
+
+(3%) 
+
+0.04±0.14 
+
+(2%) 
+
+0.10±0.21 
+
+(3%) 
+
+0.56±0.45 
+
+(58%) 
+
+0.51±0.27 
+
+(-7%) 
+
+0.02±0.10 
+
+(1%) 
+
+0.04±0.14 
+
+(2%) 
+
+0.11±0.15 
+
+(3%) 
+
+0.46±0.09 
+
+(0%) 
+
+0.80±0.22 
+
+(56%) 
+
+OpenQA FiTB MCQA Verification Neg 
+
+MCQA 
+
+Baseline 
+
+Corrupted 
+
+Patched 
+
+1.00±0.00 1.00±0.01 1.00±0.00 0.90±0.02 1.00±0.00 
+
+0.02±0.02 0.03±0.02 0.09±0.02 0.47±0.02 0.56±0.05 
+
+0.04±0.03 
+
+(2%) 
+
+0.06±0.07 
+
+(3%) 
+
+0.12±0.04 
+
+(3%) 
+
+0.48±0.02 
+
+(3%) 
+
+0.54±0.05 
+
+(-4%) 
+
+Same task, other facts 
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+> Reconstruction rate
+
+(d) (person, plays-instrument, instrument) Baseline 
+
+Corrupted 
+
+1.00±0.00 1.00±0.00 1.00±0.02 1.00±0.00 1.00±0.00 
+
+0.00±0.04 0.00±0.03 0.12±0.20 
+
+Truth: 
+
+0.02±0.10 
+
+Both: 
+
+0.38±0.15 
+
+0.63±0.31 
+
+All tasks, same fact 
+
+OpenQA FiTB MCQA Verification Neg 
+
+MCQA 
+
+Evaluation Task 
+
+OpenQA 
+
+FiTB 
+
+MCQA 
+
+Verification 
+
+Neg 
+
+MCQA 
+
+> Patched Task
+
+0.97±0.12 
+
+(97%) 
+
+0.15±0.25 
+
+(15%) 
+
+0.14±0.20 
+
+(2%) 
+
+0.41±0.14 
+
+(5%) 
+
+0.61±0.27 
+
+(-4%) 
+
+0.03±0.12 
+
+(3%) 
+
+0.77±0.32 
+
+(77%) 
+
+0.13±0.20 
+
+(1%) 
+
+0.43±0.15 
+
+(7%) 
+
+0.61±0.28 
+
+(-4%) 
+
+0.00±0.00 
+
+(-0%) 
+
+0.01±0.07 
+
+(1%) 
+
+0.88±0.16 
+
+(87%) 
+
+0.38±0.14 
+
+(-2%) 
+
+0.72±0.28 
+
+(25%) 
+
+0.01±0.07 
+
+(1%) 
+
+0.00±0.00 
+
+(-0%) 
+
+0.15±0.23 
+
+(3%) 
+
+1.00±0.00 
+
+(100%) 
+
+0.60±0.31 
+
+(-7%) 
+
+0.00±0.00 
+
+(-0%) 
+
+0.00±0.00 
+
+(-0%) 
+
+0.12±0.22 
+
+(-1%) 
+
+0.40±0.13 
+
+(2%) 
+
+0.86±0.21 
+
+(63%) 
+
+OpenQA FiTB MCQA Verification Neg 
+
+MCQA 
+
+Baseline 
+
+Corrupted 
+
+Patched 
+
+1.00±0.00 0.99±0.01 0.99±0.00 0.99±0.01 1.00±0.00 
+
+0.00±0.00 0.00±0.00 0.12±0.02 0.37±0.02 0.63±0.03 
+
+0.00±0.01 
+
+(0%) 
+
+0.01±0.01 
+
+(0%) 
+
+0.13±0.03 
+
+(1%) 
+
+0.39±0.02 
+
+(3%) 
+
+0.66±0.05 
+
+(7%) 
+
+Same task, other facts 
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+> Reconstruction rate
+
+(e) (company, HQ-in-city, city) 
+
+Figure 13: Sufficiency results on Gemma-2-9B IT. Each row shows the reconstruction rate after patching the parametric encoding optimized for one task. Cell color reflects the reconstruction rate: dark green indicates full recovery, light gray indicates no recovery. The top baseline row is pinned to green and the corrupted row to gray for reference. 
+
+24 Baseline 
+
+Corrupted 
+
+1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 
+
+0.03±0.15 0.01±0.06 0.26±0.13 
+
+Truth: 
+
+0.07±0.22 
+
+Both: 
+
+0.45±0.14 
+
+0.49±0.17 
+
+All tasks, same fact 
+
+OpenQA FiTB MCQA Verification Neg 
+
+MCQA 
+
+Evaluation Task 
+
+OpenQA 
+
+FiTB 
+
+MCQA 
+
+Verification 
+
+Neg 
+
+MCQA 
+
+> Patched Task
+
+0.88±0.21 
+
+(88%) 
+
+0.02±0.09 
+
+(1%) 
+
+0.22±0.09 
+
+(-6%) 
+
+0.47±0.10 
+
+(4%) 
+
+0.53±0.10 
+
+(7%) 
+
+0.09±0.19 
+
+(5%) 
+
+0.90±0.20 
+
+(90%) 
+
+0.25±0.17 
+
+(-1%) 
+
+0.48±0.11 
+
+(5%) 
+
+0.47±0.12 
+
+(-3%) 
+
+0.05±0.15 
+
+(2%) 
+
+0.02±0.09 
+
+(1%) 
+
+0.81±0.18 
+
+(74%) 
+
+0.49±0.10 
+
+(7%) 
+
+0.50±0.15 
+
+(2%) 
+
+0.02±0.09 
+
+(-2%) 
+
+0.05±0.15 
+
+(5%) 
+
+0.30±0.15 
+
+(5%) 
+
+0.90±0.20 
+
+(89%) 
+
+0.53±0.12 
+
+(7%) 
+
+0.05±0.15 
+
+(2%) 
+
+0.03±0.13 
+
+(3%) 
+
+0.30±0.13 
+
+(5%) 
+
+0.47±0.14 
+
+(4%) 
+
+0.88±0.16 
+
+(76%) 
+
+OpenQA FiTB MCQA Verification Neg 
+
+MCQA 
+
+Baseline 
+
+Corrupted 
+
+Patched 
+
+1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 
+
+0.03±0.05 0.00±0.01 0.25±0.04 0.45±0.05 0.46±0.07 
+
+0.05±0.08 
+
+(2%) 
+
+0.04±0.05 
+
+(4%) 
+
+0.25±0.06 
+
+(-0%) 
+
+0.49±0.05 
+
+(7%) 
+
+0.52±0.07 
+
+(11%) 
+
+Same task, other facts 
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+> Reconstruction rate
+
+(a) (country, official language, language) Baseline 
+
+Corrupted 
+
+1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 
+
+Truth: 
+
+0.93±0.22 
+
+Both: 
+
+0.97±0.11 
+
+0.99±0.05 
+
+0.00±0.04 0.00±0.00 0.07±0.20 0.27±0.24 
+
+Truth: 
+
+0.00±0.00 
+
+Both: 
+
+0.50±0.00 
+
+0.45±0.13 
+
+All tasks, same fact 
+
+OpenQA FiTB Multi-Hop-1 MCQA Verification Neg 
+
+MCQA 
+
+Evaluation Task 
+
+OpenQA 
+
+FiTB 
+
+Multi-Hop-1 
+
+MCQA 
+
+Verification 
+
+Neg 
+
+MCQA 
+
+> Patched Task
+
+1.00±0.00 
+
+(100%) 
+
+0.00±0.00 
+
+(0%) 
+
+0.09±0.19 
+
+(2%) 
+
+0.36±0.25 
+
+(12%) 
+
+0.50±0.00 
+
+(0%) 
+
+0.52±0.19 
+
+(13%) 
+
+0.00±0.00 
+
+(-0%) 
+
+0.96±0.20 
+
+(96%) 
+
+0.04±0.14 
+
+(-2%) 
+
+0.32±0.22 
+
+(7%) 
+
+0.50±0.00 
+
+(0%) 
+
+0.52±0.13 
+
+(13%) 
+
+0.00±0.00 
+
+(-0%) 
+
+0.00±0.00 
+
+(0%) 
+
+1.00±0.00 
+
+(100%) 
+
+0.29±0.26 
+
+(4%) 
+
+0.50±0.00 
+
+(0%) 
+
+0.47±0.13 
+
+(3%) 
+
+0.02±0.10 
+
+(2%) 
+
+0.00±0.00 
+
+(0%) 
+
+0.07±0.17 
+
+(0%) 
+
+0.96±0.08 
+
+(94%) 
+
+0.50±0.00 
+
+(0%) 
+
+0.50±0.16 
+
+(9%) 
+
+0.00±0.00 
+
+(-0%) 
+
+0.00±0.00 
+
+(0%) 
+
+0.04±0.14 
+
+(-2%) 
+
+0.34±0.21 
+
+(10%) 
+
+0.76±0.29 
+
+(81%) 
+
+0.46±0.16 
+
+(1%) 
+
+0.00±0.00 
+
+(-0%) 
+
+0.00±0.00 
+
+(0%) 
+
+0.02±0.10 
+
+(-5%) 
+
+0.24±0.24 
+
+(-4%) 
+
+0.50±0.00 
+
+(0%) 
+
+0.90±0.16 
+
+(84%) 
+
+OpenQA FiTB Multi-Hop-1 MCQA Verification Neg 
+
+MCQA 
+
+Baseline 
+
+Corrupted 
+
+Patched 
+
+1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 0.96±0.04 0.98±0.02 
+
+0.00±0.02 0.00±0.00 0.05±0.06 0.27±0.10 0.50±0.00 0.44±0.05 
+
+0.08±0.09 
+
+(8%) 
+
+0.05±0.07 
+
+(5%) 
+
+0.08±0.09 
+
+(3%) 
+
+0.34±0.12 
+
+(10%) 
+
+0.50±0.01 
+
+(0%) 
+
+0.53±0.09 
+
+(17%) 
+
+Same task, other facts 
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+> Reconstruction rate
+
+(b) (landmark, in-country, country) Baseline 
+
+Corrupted 
+
+1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 
+
+0.00±0.04 0.00±0.00 0.23±0.15 
+
+Truth: 
+
+0.36±0.40 
+
+Both: 
+
+0.40±0.30 
+
+0.45±0.20 
+
+All tasks, same fact 
+
+OpenQA FiTB MCQA Verification Neg 
+
+MCQA 
+
+Evaluation Task 
+
+OpenQA 
+
+FiTB 
+
+MCQA 
+
+Verification 
+
+Neg 
+
+MCQA 
+
+> Patched Task
+
+0.89±0.21 
+
+(89%) 
+
+0.00±0.00 
+
+(0%) 
+
+0.21±0.16 
+
+(-2%) 
+
+0.45±0.29 
+
+(7%) 
+
+0.48±0.16 
+
+(6%) 
+
+0.12±0.22 
+
+(12%) 
+
+0.88±0.22 
+
+(88%) 
+
+0.22±0.16 
+
+(-1%) 
+
+0.43±0.27 
+
+(4%) 
+
+0.49±0.18 
+
+(7%) 
+
+0.02±0.09 
+
+(1%) 
+
+0.00±0.00 
+
+(0%) 
+
+0.96±0.08 
+
+(95%) 
+
+0.45±0.27 
+
+(7%) 
+
+0.47±0.23 
+
+(4%) 
+
+0.02±0.09 
+
+(1%) 
+
+0.00±0.00 
+
+(0%) 
+
+0.22±0.13 
+
+(-1%) 
+
+0.91±0.19 
+
+(86%) 
+
+0.52±0.24 
+
+(12%) 
+
+0.04±0.13 
+
+(3%) 
+
+0.00±0.00 
+
+(0%) 
+
+0.23±0.16 
+
+(1%) 
+
+0.49±0.25 
+
+(15%) 
+
+0.87±0.18 
+
+(76%) 
+
+OpenQA FiTB MCQA Verification Neg 
+
+MCQA 
+
+Baseline 
+
+Corrupted 
+
+Patched 
+
+1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 
+
+0.01±0.02 0.00±0.00 0.22±0.05 0.38±0.09 0.46±0.07 
+
+0.05±0.09 
+
+(4%) 
+
+0.01±0.03 
+
+(1%) 
+
+0.25±0.06 
+
+(4%) 
+
+0.44±0.08 
+
+(10%) 
+
+0.49±0.06 
+
+(7%) 
+
+Same task, other facts 
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+> Reconstruction rate
+
+(c) (country, capital-of, city) Baseline 
+
+Corrupted 
+
+0.98±0.10 0.98±0.10 1.00±0.00 
+
+Truth: 
+
+0.98±0.10 
+
+Both: 
+
+0.96±0.12 
+
+0.99±0.05 
+
+0.18±0.28 0.00±0.00 0.47±0.27 
+
+Truth: 
+
+0.00±0.00 
+
+Both: 
+
+0.50±0.04 
+
+0.56±0.25 
+
+All tasks, same fact 
+
+OpenQA FiTB MCQA Verification Neg 
+
+MCQA 
+
+Evaluation Task 
+
+OpenQA 
+
+FiTB 
+
+MCQA 
+
+Verification 
+
+Neg 
+
+MCQA 
+
+> Patched Task
+
+1.00±0.00 
+
+(102%) 
+
+0.00±0.00 
+
+(0%) 
+
+0.54±0.31 
+
+(13%) 
+
+0.50±0.00 
+
+(1%) 
+
+0.60±0.25 
+
+(8%) 
+
+0.04±0.14 
+
+(-17%) 
+
+0.64±0.33 
+
+(65%) 
+
+0.47±0.29 
+
+(-0%) 
+
+0.52±0.07 
+
+(5%) 
+
+0.54±0.24 
+
+(-6%) 
+
+0.20±0.35 
+
+(3%) 
+
+0.04±0.14 
+
+(4%) 
+
+0.99±0.02 
+
+(99%) 
+
+0.50±0.00 
+
+(1%) 
+
+0.67±0.21 
+
+(25%) 
+
+0.08±0.23 
+
+(-12%) 
+
+0.02±0.10 
+
+(2%) 
+
+0.48±0.30 
+
+(4%) 
+
+0.70±0.40 
+
+(71%) 
+
+0.64±0.19 
+
+(18%) 
+
+0.12±0.21 
+
+(-7%) 
+
+0.00±0.00 
+
+(0%) 
+
+0.55±0.31 
+
+(16%) 
+
+0.51±0.05 
+
+(3%) 
+
+0.80±0.22 
+
+(55%) 
+
+OpenQA FiTB MCQA Verification Neg 
+
+MCQA 
+
+Baseline 
+
+Corrupted 
+
+Patched 
+
+0.98±0.03 0.96±0.03 1.00±0.00 0.95±0.02 0.99±0.01 
+
+0.21±0.08 0.02±0.02 0.48±0.06 0.49±0.01 0.60±0.07 
+
+0.22±0.09 
+
+(1%) 
+
+0.03±0.05 
+
+(2%) 
+
+0.50±0.06 
+
+(5%) 
+
+0.50±0.01 
+
+(3%) 
+
+0.60±0.06 
+
+(1%) 
+
+Same task, other facts 
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+> Reconstruction rate
+
+(d) (person, plays-instrument, instrument) Baseline 
+
+Corrupted 
+
+1.00±0.00 0.98±0.09 1.00±0.02 0.98±0.09 0.98±0.06 
+
+0.00±0.04 0.01±0.08 0.33±0.22 
+
+Truth: 
+
+0.00±0.00 
+
+Both: 
+
+0.50±0.00 
+
+0.53±0.09 
+
+All tasks, same fact 
+
+OpenQA FiTB MCQA Verification Neg 
+
+MCQA 
+
+Evaluation Task 
+
+OpenQA 
+
+FiTB 
+
+MCQA 
+
+Verification 
+
+Neg 
+
+MCQA 
+
+> Patched Task
+
+0.98±0.09 
+
+(98%) 
+
+0.06±0.17 
+
+(5%) 
+
+0.35±0.25 
+
+(2%) 
+
+0.50±0.00 
+
+(0%) 
+
+0.52±0.09 
+
+(-3%) 
+
+0.03±0.12 
+
+(3%) 
+
+0.94±0.21 
+
+(95%) 
+
+0.36±0.21 
+
+(4%) 
+
+0.50±0.00 
+
+(0%) 
+
+0.50±0.06 
+
+(-7%) 
+
+0.00±0.00 
+
+(-0%) 
+
+0.00±0.00 
+
+(-1%) 
+
+0.95±0.10 
+
+(93%) 
+
+0.50±0.00 
+
+(0%) 
+
+0.53±0.08 
+
+(0%) 
+
+0.00±0.00 
+
+(-0%) 
+
+0.00±0.00 
+
+(-1%) 
+
+0.41±0.27 
+
+(12%) 
+
+0.98±0.09 
+
+(100%) 
+
+0.52±0.07 
+
+(-2%) 
+
+0.02±0.09 
+
+(1%) 
+
+0.00±0.00 
+
+(-1%) 
+
+0.38±0.30 
+
+(7%) 
+
+0.50±0.00 
+
+(0%) 
+
+0.80±0.20 
+
+(59%) 
+
+OpenQA FiTB MCQA Verification Neg 
+
+MCQA 
+
+Baseline 
+
+Corrupted 
+
+Patched 
+
+1.00±0.01 0.98±0.01 0.99±0.00 0.99±0.01 0.97±0.01 
+
+0.00±0.01 0.00±0.01 0.31±0.04 0.50±0.00 0.52±0.01 
+
+0.01±0.01 
+
+(1%) 
+
+0.01±0.02 
+
+(1%) 
+
+0.34±0.05 
+
+(4%) 
+
+0.50±0.01 
+
+(1%) 
+
+0.52±0.01 
+
+(-1%) 
+
+Same task, other facts 
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+> Reconstruction rate
+
+(e) (company, HQ-in-city, city) 
+
+Figure 14: Sufficiency results on OLMo-2-13B IT. Same layout as Figure 13. 
+
+25 Baseline 
+
+Corrupted 
+
+0.98±0.10 0.98±0.10 1.00±0.00 0.95±0.14 0.99±0.05 
+
+0.03±0.15 0.03±0.13 0.26±0.21 
+
+Truth: 
+
+0.00±0.00 
+
+Both: 
+
+0.48±0.13 
+
+0.48±0.14 
+
+All tasks, same fact 
+
+OpenQA FiTB MCQA Verification Neg 
+
+MCQA 
+
+Evaluation Task 
+
+OpenQA 
+
+FiTB 
+
+MCQA 
+
+Verification 
+
+Neg 
+
+MCQA 
+
+> Patched Task
+
+0.93±0.17 
+
+(95%) 
+
+0.09±0.19 
+
+(7%) 
+
+0.23±0.19 
+
+(-5%) 
+
+0.44±0.10 
+
+(-8%) 
+
+0.45±0.10 
+
+(-5%) 
+
+0.02±0.10 
+
+(-0%) 
+
+1.00±0.00 
+
+(102%) 
+
+0.19±0.17 
+
+(-11%) 
+
+0.50±0.08 
+
+(4%) 
+
+0.52±0.15 
+
+(8%) 
+
+0.02±0.10 
+
+(-0%) 
+
+0.00±0.00 
+
+(-3%) 
+
+0.91±0.11 
+
+(88%) 
+
+0.49±0.12 
+
+(2%) 
+
+0.52±0.10 
+
+(8%) 
+
+0.05±0.21 
+
+(2%) 
+
+0.02±0.10 
+
+(-0%) 
+
+0.29±0.20 
+
+(3%) 
+
+0.86±0.22 
+
+(90%) 
+
+0.44±0.13 
+
+(-7%) 
+
+0.02±0.10 
+
+(-0%) 
+
+0.02±0.10 
+
+(-0%) 
+
+0.23±0.20 
+
+(-4%) 
+
+0.52±0.10 
+
+(9%) 
+
+0.83±0.17 
+
+(69%) 
+
+OpenQA FiTB MCQA Verification Neg 
+
+MCQA 
+
+Baseline 
+
+Corrupted 
+
+Patched 
+
+0.98±0.03 0.97±0.04 1.00±0.00 0.96±0.03 1.00±0.01 
+
+0.04±0.07 0.04±0.04 0.28±0.08 0.47±0.04 0.49±0.04 
+
+0.08±0.09 
+
+(4%) 
+
+0.09±0.12 
+
+(6%) 
+
+0.30±0.09 
+
+(4%) 
+
+0.48±0.04 
+
+(2%) 
+
+0.51±0.06 
+
+(3%) 
+
+Same task, other facts 
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+> Reconstruction rate
+
+(a) (country, official language, language) Baseline 
+
+Corrupted 
+
+1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 0.97±0.12 1.00±0.00 
+
+0.00±0.00 0.03±0.12 0.01±0.07 0.24±0.19 
+
+Truth: 
+
+0.00±0.00 
+
+Both: 
+
+0.50±0.00 
+
+0.54±0.24 
+
+All tasks, same fact 
+
+OpenQA FiTB Multi-Hop-1 MCQA Verification Neg 
+
+MCQA 
+
+Evaluation Task 
+
+OpenQA 
+
+FiTB 
+
+Multi-Hop-1 
+
+MCQA 
+
+Verification 
+
+Neg 
+
+MCQA 
+
+> Patched Task
+
+0.94±0.16 
+
+(94%) 
+
+0.03±0.12 
+
+(0%) 
+
+0.00±0.00 
+
+(-1%) 
+
+0.25±0.17 
+
+(2%) 
+
+0.50±0.00 
+
+(0%) 
+
+0.51±0.22 
+
+(-6%) 
+
+0.03±0.12 
+
+(3%) 
+
+0.91±0.19 
+
+(91%) 
+
+0.03±0.12 
+
+(2%) 
+
+0.30±0.21 
+
+(8%) 
+
+0.50±0.00 
+
+(0%) 
+
+0.59±0.17 
+
+(10%) 
+
+0.00±0.00 
+
+(0%) 
+
+0.06±0.16 
+
+(3%) 
+
+1.00±0.00 
+
+(100%) 
+
+0.24±0.17 
+
+(1%) 
+
+0.50±0.00 
+
+(0%) 
+
+0.53±0.24 
+
+(-3%) 
+
+0.00±0.00 
+
+(0%) 
+
+0.03±0.12 
+
+(0%) 
+
+0.00±0.00 
+
+(-1%) 
+
+0.95±0.13 
+
+(93%) 
+
+0.54±0.10 
+
+(9%) 
+
+0.62±0.17 
+
+(16%) 
+
+0.00±0.00 
+
+(0%) 
+
+0.03±0.12 
+
+(0%) 
+
+0.03±0.12 
+
+(2%) 
+
+0.26±0.18 
+
+(3%) 
+
+0.65±0.33 
+
+(67%) 
+
+0.57±0.19 
+
+(6%) 
+
+0.00±0.00 
+
+(0%) 
+
+0.03±0.12 
+
+(0%) 
+
+0.00±0.00 
+
+(-1%) 
+
+0.26±0.25 
+
+(3%) 
+
+0.50±0.00 
+
+(0%) 
+
+0.87±0.19 
+
+(71%) 
+
+OpenQA FiTB Multi-Hop-1 MCQA Verification Neg 
+
+MCQA 
+
+Baseline 
+
+Corrupted 
+
+Patched 
+
+1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 0.99±0.03 1.00±0.00 
+
+0.02±0.05 0.02±0.05 0.00±0.00 0.25±0.08 0.50±0.00 0.54±0.12 
+
+0.07±0.12 
+
+(5%) 
+
+0.07±0.09 
+
+(5%) 
+
+0.05±0.11 
+
+(5%) 
+
+0.31±0.09 
+
+(8%) 
+
+0.50±0.03 
+
+(-1%) 
+
+0.55±0.09 
+
+(2%) 
+
+Same task, other facts 
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+> Reconstruction rate
+
+(b) (landmark, in-country, country) Baseline 
+
+Corrupted 
+
+1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 
+
+0.00±0.00 0.00±0.05 0.21±0.22 
+
+Truth: 
+
+0.30±0.29 
+
+Both: 
+
+0.48±0.21 
+
+0.48±0.20 
+
+All tasks, same fact 
+
+OpenQA FiTB MCQA Verification Neg 
+
+MCQA 
+
+Evaluation Task 
+
+OpenQA 
+
+FiTB 
+
+MCQA 
+
+Verification 
+
+Neg 
+
+MCQA 
+
+> Patched Task
+
+0.93±0.17 
+
+(93%) 
+
+0.11±0.25 
+
+(10%) 
+
+0.22±0.26 
+
+(2%) 
+
+0.51±0.19 
+
+(5%) 
+
+0.53±0.27 
+
+(10%) 
+
+0.28±0.25 
+
+(28%) 
+
+1.00±0.00 
+
+(100%) 
+
+0.22±0.22 
+
+(2%) 
+
+0.58±0.16 
+
+(18%) 
+
+0.49±0.17 
+
+(1%) 
+
+0.00±0.00 
+
+(0%) 
+
+0.00±0.00 
+
+(-0%) 
+
+0.92±0.13 
+
+(90%) 
+
+0.49±0.20 
+
+(1%) 
+
+0.50±0.22 
+
+(3%) 
+
+0.00±0.00 
+
+(0%) 
+
+0.04±0.14 
+
+(4%) 
+
+0.28±0.24 
+
+(9%) 
+
+0.98±0.10 
+
+(97%) 
+
+0.51±0.27 
+
+(5%) 
+
+0.00±0.00 
+
+(0%) 
+
+0.00±0.00 
+
+(-0%) 
+
+0.21±0.21 
+
+(-0%) 
+
+0.50±0.22 
+
+(3%) 
+
+0.88±0.18 
+
+(77%) 
+
+OpenQA FiTB MCQA Verification Neg 
+
+MCQA 
+
+Baseline 
+
+Corrupted 
+
+Patched 
+
+1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 
+
+0.00±0.00 0.00±0.00 0.20±0.09 0.51±0.07 0.51±0.07 
+
+0.04±0.06 
+
+(4%) 
+
+0.04±0.06 
+
+(4%) 
+
+0.24±0.10 
+
+(5%) 
+
+0.51±0.09 
+
+(0%) 
+
+0.52±0.09 
+
+(1%) 
+
+Same task, other facts 
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+> Reconstruction rate
+
+(c) (country, capital-of, city) Baseline 
+
+Corrupted 
+
+1.00±0.00 0.98±0.10 0.99±0.03 0.98±0.10 0.97±0.08 
+
+0.24±0.34 0.34±0.36 0.34±0.20 
+
+Truth: 
+
+0.00±0.00 
+
+Both: 
+
+0.50±0.00 
+
+0.59±0.20 
+
+All tasks, same fact 
+
+OpenQA FiTB MCQA Verification Neg 
+
+MCQA 
+
+Evaluation Task 
+
+OpenQA 
+
+FiTB 
+
+MCQA 
+
+Verification 
+
+Neg 
+
+MCQA 
+
+> Patched Task
+
+0.98±0.10 
+
+(97%) 
+
+0.48±0.41 
+
+(22%) 
+
+0.39±0.27 
+
+(7%) 
+
+0.50±0.00 
+
+(0%) 
+
+0.55±0.21 
+
+(-11%) 
+
+0.26±0.38 
+
+(3%) 
+
+0.92±0.18 
+
+(91%) 
+
+0.38±0.24 
+
+(5%) 
+
+0.50±0.00 
+
+(0%) 
+
+0.53±0.18 
+
+(-16%) 
+
+0.20±0.32 
+
+(-5%) 
+
+0.36±0.41 
+
+(3%) 
+
+0.97±0.07 
+
+(97%) 
+
+0.51±0.05 
+
+(2%) 
+
+0.56±0.20 
+
+(-8%) 
+
+0.26±0.35 
+
+(3%) 
+
+0.26±0.32 
+
+(-13%) 
+
+0.41±0.24 
+
+(11%) 
+
+0.74±0.32 
+
+(76%) 
+
+0.55±0.21 
+
+(-11%) 
+
+0.20±0.28 
+
+(-5%) 
+
+0.28±0.35 
+
+(-9%) 
+
+0.36±0.26 
+
+(2%) 
+
+0.50±0.00 
+
+(0%) 
+
+0.88±0.14 
+
+(76%) 
+
+OpenQA FiTB MCQA Verification Neg 
+
+MCQA 
+
+Baseline 
+
+Corrupted 
+
+Patched 
+
+1.00±0.00 0.99±0.02 0.99±0.01 0.98±0.01 0.99±0.01 
+
+0.23±0.08 0.31±0.07 0.39±0.06 0.50±0.00 0.55±0.04 
+
+0.27±0.11 
+
+(5%) 
+
+0.32±0.08 
+
+(1%) 
+
+0.41±0.08 
+
+(3%) 
+
+0.50±0.01 
+
+(1%) 
+
+0.58±0.06 
+
+(5%) 
+
+Same task, other facts 
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+> Reconstruction rate
+
+(d) (person, plays-instrument, instrument) Baseline 
+
+Corrupted 
+
+0.97±0.11 1.00±0.00 1.00±0.00 0.98±0.09 1.00±0.00 
+
+0.00±0.04 0.00±0.04 0.33±0.27 
+
+Truth: 
+
+0.00±0.00 
+
+Both: 
+
+0.50±0.00 
+
+0.63±0.28 
+
+All tasks, same fact 
+
+OpenQA FiTB MCQA Verification Neg 
+
+MCQA 
+
+Evaluation Task 
+
+OpenQA 
+
+FiTB 
+
+MCQA 
+
+Verification 
+
+Neg 
+
+MCQA 
+
+> Patched Task
+
+0.99±0.08 
+
+(101%) 
+
+0.00±0.00 
+
+(-0%) 
+
+0.32±0.24 
+
+(-2%) 
+
+0.50±0.00 
+
+(0%) 
+
+0.60±0.26 
+
+(-6%) 
+
+0.01±0.08 
+
+(1%) 
+
+0.99±0.08 
+
+(99%) 
+
+0.33±0.29 
+
+(-1%) 
+
+0.50±0.00 
+
+(0%) 
+
+0.57±0.25 
+
+(-14%) 
+
+0.00±0.00 
+
+(-0%) 
+
+0.01±0.08 
+
+(1%) 
+
+0.89±0.14 
+
+(84%) 
+
+0.50±0.00 
+
+(0%) 
+
+0.59±0.24 
+
+(-10%) 
+
+0.00±0.00 
+
+(-0%) 
+
+0.00±0.00 
+
+(-0%) 
+
+0.33±0.30 
+
+(-0%) 
+
+0.98±0.09 
+
+(100%) 
+
+0.61±0.25 
+
+(-3%) 
+
+0.00±0.00 
+
+(-0%) 
+
+0.00±0.00 
+
+(-0%) 
+
+0.40±0.28 
+
+(9%) 
+
+0.50±0.00 
+
+(0%) 
+
+0.89±0.17 
+
+(71%) 
+
+OpenQA FiTB MCQA Verification Neg 
+
+MCQA 
+
+Baseline 
+
+Corrupted 
+
+Patched 
+
+0.99±0.01 1.00±0.00 0.99±0.01 0.99±0.01 0.99±0.01 
+
+0.00±0.01 0.01±0.01 0.33±0.05 0.50±0.00 0.67±0.04 
+
+0.02±0.02 
+
+(1%) 
+
+0.02±0.02 
+
+(1%) 
+
+0.33±0.05 
+
+(1%) 
+
+0.50±0.01 
+
+(0%) 
+
+0.66±0.07 
+
+(-3%) 
+
+Same task, other facts 
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+> Reconstruction rate
+
+(e) (company, HQ-in-city, city) 
+
+Figure 15: Sufficiency results on OLMo-2-7B IT. Same layout as Figure 13. 
+
+26 OpenQA 
+
+> =0.12
+> FiTB
+> =0.15
+> Multi-Hop-2
+> =0.14
+> MCQA
+> =0.09
+> Verification
+> =0.09
+> Neg MCQA
+> =0.15
+
+Evaluated Task 
+
+OpenQA 
+
+=0.08 
+
+FiTB 
+
+=0.06 
+
+Multi-Hop-2 
+
+=0.09 
+
+MCQA 
+
+=0.11 
+
+Verification 
+
+=0.25 
+
+Neg MCQA 
+
+=0.16 
+
+> Ablated Task
+
+0.13 0.08 0.04 0.02 0.11 
+
+0.1 0.09 0.02 0.02 0.05 
+
+0.06 0.05 0.07 0.1 0.14 
+
+0.08 0.12 0.08 0.11 0.15 
+
+0.22 0.28 0.26 0.2 0.27 
+
+0.16 0.15 0.17 0.14 0.2 
+
+0.0 
+
+0.1 
+
+0.2 
+
+0.3 
+
+0.4 
+
+0.5 
+
+> Entanglement Score
+
+(a) (country, capital-of, city) OpenQA 
+
+> =0.14
+> FiTB
+> =0.16
+> Multi-Hop-2
+> =0.17
+> MCQA
+> =0.13
+> Verification
+> =0.17
+> Neg MCQA
+> =0.12
+
+Evaluated Task 
+
+OpenQA 
+
+=0.12 
+
+FiTB 
+
+=0.09 
+
+Multi-Hop-2 
+
+=0.08 
+
+MCQA 
+
+=0.14 
+
+Verification 
+
+=0.24 
+
+Neg MCQA 
+
+=0.22 
+
+> Ablated Task
+
+0.13 0.13 0.06 0.13 0.14 
+
+0.13 0.09 0.04 0.16 0.05 
+
+0.06 0.1 0.05 0.1 0.07 
+
+0.12 0.11 0.13 0.2 0.14 
+
+0.19 0.25 0.28 0.26 0.22 
+
+0.18 0.2 0.22 0.24 0.27 
+
+0.0 
+
+0.1 
+
+0.2 
+
+0.3 
+
+0.4 
+
+0.5 
+
+> Entanglement Score
+
+(b) (country, official language, language) 
+
+Figure 16: Pairwise entanglement scores Ent( tA → tB )
+
+on OLMo-2-7B IT. Rows correspond to the ablated task; columns to the evaluated task. Row and column annotations show the mean score ( μ). Discrimination-tasks exhibit higher entanglement with all other tasks than generation-tasks. 
+
+27 OpenQA 
+
+FiTB 
+
+MCQA 
+
+Verification 
+
+Neg MCQA 
+
+0.0 
+
+0.5 
+
+1.0 
+
+> Accuracy
+
+Direct, no ablation Direct, zero-ablated CoT, zero-ablated (a) (country, official language, language), own-encoding OpenQA 
+
+FiTB 
+
+MCQA 
+
+Verification 
+
+Neg MCQA 
+
+0.0 
+
+0.5 
+
+1.0 
+
+> Accuracy
+
+Direct, no ablation Direct, zero-ablated CoT, zero-ablated (b) (country, official language, language), cross-task OpenQA 
+
+FiTB 
+
+MCQA 
+
+Verification 
+
+Neg MCQA 
+
+0.0 
+
+0.5 
+
+1.0 
+
+> Accuracy
+
+Direct, no ablation Direct, zero-ablated CoT, zero-ablated 
+
+(c) (landmark, in-country, country), own-encoding OpenQA 
+
+FiTB 
+
+MCQA 
+
+Verification 
+
+Neg MCQA 
+
+0.0 
+
+0.5 
+
+1.0 
+
+> Accuracy
+
+Direct, no ablation Direct, zero-ablated CoT, zero-ablated (d) (landmark, in-country, country), cross-task OpenQA 
+
+FiTB 
+
+MCQA 
+
+Verification 
+
+Neg MCQA 
+
+0.0 
+
+0.5 
+
+1.0 
+
+> Accuracy
+
+Direct, no ablation Direct, zero-ablated CoT, zero-ablated 
+
+(e) (country, capital-of, city), own-encoding OpenQA 
+
+FiTB 
+
+MCQA 
+
+Verification 
+
+Neg MCQA 
+
+0.0 
+
+0.5 
+
+1.0 
+
+> Accuracy
+
+Direct, no ablation Direct, zero-ablated CoT, zero-ablated (f) (country, capital-of, city), cross-task OpenQA 
+
+FiTB 
+
+MCQA 
+
+Verification 
+
+Neg MCQA 
+
+0.0 
+
+0.5 
+
+1.0 
+
+> Accuracy
+
+Direct, no ablation Direct, zero-ablated CoT, zero-ablated 
+
+(g) (company, HQ-in-city, city), own-encoding OpenQA 
+
+FiTB 
+
+MCQA 
+
+Verification 
+
+Neg MCQA 
+
+0.0 
+
+0.5 
+
+1.0 
+
+> Accuracy
+
+Direct, no ablation Direct, zero-ablated CoT, zero-ablated (h) (company, HQ-in-city, city), cross-task OpenQA 
+
+FiTB 
+
+MCQA 
+
+Verification 
+
+Neg MCQA 
+
+0.0 
+
+0.5 
+
+1.0 
+
+> Accuracy
+
+Direct, no ablation Direct, zero-ablated CoT, zero-ablated 
+
+(i) (person, plays-instrument, instrument), own-encoding OpenQA 
+
+FiTB 
+
+MCQA 
+
+Verification 
+
+Neg MCQA 
+
+0.0 
+
+0.5 
+
+1.0 
+
+> Accuracy
+
+Direct, no ablation Direct, zero-ablated CoT, zero-ablated (j) (person, plays-instrument, instrument), cross-task 
+
+Figure 17: CoT vs. direct answering under zero-ablation, OLMo-2-7B IT. 
+
+28 OpenQA 
+
+FiTB 
+
+MCQA 
+
+Verification 
+
+Neg MCQA 
+
+0.0 
+
+0.5 
+
+1.0 
+
+> Accuracy
+
+Direct, no ablation Direct, zero-ablated CoT, zero-ablated (a) (country, official language, language), own-encoding OpenQA 
+
+FiTB 
+
+MCQA 
+
+Verification 
+
+Neg MCQA 
+
+0.0 
+
+0.5 
+
+1.0 
+
+> Accuracy
+
+Direct, no ablation Direct, zero-ablated CoT, zero-ablated (b) (country, official language, language), cross-task OpenQA 
+
+FiTB 
+
+MCQA 
+
+Verification 
+
+Neg MCQA 
+
+0.0 
+
+0.5 
+
+1.0 
+
+> Accuracy
+
+Direct, no ablation Direct, zero-ablated CoT, zero-ablated 
+
+(c) (landmark, in-country, country), own-encoding OpenQA 
+
+FiTB 
+
+MCQA 
+
+Verification 
+
+Neg MCQA 
+
+0.0 
+
+0.5 
+
+1.0 
+
+> Accuracy
+
+Direct, no ablation Direct, zero-ablated CoT, zero-ablated (d) (landmark, in-country, country), cross-task OpenQA 
+
+FiTB 
+
+MCQA 
+
+Verification 
+
+Neg MCQA 
+
+0.0 
+
+0.5 
+
+1.0 
+
+> Accuracy
+
+Direct, no ablation Direct, zero-ablated CoT, zero-ablated 
+
+(e) (country, capital-of, city), own-encoding OpenQA 
+
+FiTB 
+
+MCQA 
+
+Verification 
+
+Neg MCQA 
+
+0.0 
+
+0.5 
+
+1.0 
+
+> Accuracy
+
+Direct, no ablation Direct, zero-ablated CoT, zero-ablated (f) (country, capital-of, city), cross-task OpenQA 
+
+FiTB 
+
+MCQA 
+
+Verification 
+
+Neg MCQA 
+
+0.0 
+
+0.5 
+
+1.0 
+
+> Accuracy
+
+Direct, no ablation Direct, zero-ablated CoT, zero-ablated 
+
+(g) (company, HQ-in-city, city), own-encoding OpenQA 
+
+FiTB 
+
+MCQA 
+
+Verification 
+
+Neg MCQA 
+
+0.0 
+
+0.5 
+
+1.0 
+
+> Accuracy
+
+Direct, no ablation Direct, zero-ablated CoT, zero-ablated (h) (company, HQ-in-city, city), cross-task OpenQA 
+
+FiTB 
+
+MCQA 
+
+Verification 
+
+Neg MCQA 
+
+0.0 
+
+0.5 
+
+1.0 
+
+> Accuracy
+
+Direct, no ablation Direct, zero-ablated CoT, zero-ablated 
+
+(i) (person, plays-instrument, instrument), own-encoding OpenQA 
+
+FiTB 
+
+MCQA 
+
+Verification 
+
+Neg MCQA 
+
+0.0 
+
+0.5 
+
+1.0 
+
+> Accuracy
+
+Direct, no ablation Direct, zero-ablated CoT, zero-ablated (j) (person, plays-instrument, instrument), cross-task 
+
+Figure 18: CoT vs. direct answering under zero-ablation, OLMo-2-13B IT. 
+
+29 OpenQA 
+
+FiTB 
+
+MCQA 
+
+Verification 
+
+Neg MCQA 
+
+0.0 
+
+0.5 
+
+1.0 
+
+> Accuracy
+
+Direct, no ablation Direct, zero-ablated CoT, zero-ablated (a) (country, official language, language), own-encoding OpenQA 
+
+FiTB 
+
+MCQA 
+
+Verification 
+
+Neg MCQA 
+
+0.0 
+
+0.5 
+
+1.0 
+
+> Accuracy
+
+Direct, no ablation Direct, zero-ablated CoT, zero-ablated (b) (country, official language, language), cross-task OpenQA 
+
+FiTB 
+
+MCQA 
+
+Verification 
+
+Neg MCQA 
+
+0.0 
+
+0.5 
+
+1.0 
+
+> Accuracy
+
+Direct, no ablation Direct, zero-ablated CoT, zero-ablated 
+
+(c) (landmark, in-country, country), own-encoding OpenQA 
+
+FiTB 
+
+MCQA 
+
+Verification 
+
+Neg MCQA 
+
+0.0 
+
+0.5 
+
+1.0 
+
+> Accuracy
+
+Direct, no ablation Direct, zero-ablated CoT, zero-ablated (d) (landmark, in-country, country), cross-task OpenQA 
+
+FiTB 
+
+MCQA 
+
+Verification 
+
+Neg MCQA 
+
+0.0 
+
+0.5 
+
+1.0 
+
+> Accuracy
+
+Direct, no ablation Direct, zero-ablated CoT, zero-ablated 
+
+(e) (country, capital-of, city), own-encoding OpenQA 
+
+FiTB 
+
+MCQA 
+
+Verification 
+
+Neg MCQA 
+
+0.0 
+
+0.5 
+
+1.0 
+
+> Accuracy
+
+Direct, no ablation Direct, zero-ablated CoT, zero-ablated (f) (country, capital-of, city), cross-task OpenQA 
+
+FiTB 
+
+MCQA 
+
+Verification 
+
+Neg MCQA 
+
+0.0 
+
+0.5 
+
+1.0 
+
+> Accuracy
+
+Direct, no ablation Direct, zero-ablated CoT, zero-ablated 
+
+(g) (company, HQ-in-city, city), own-encoding OpenQA 
+
+FiTB 
+
+MCQA 
+
+Verification 
+
+Neg MCQA 
+
+0.0 
+
+0.5 
+
+1.0 
+
+> Accuracy
+
+Direct, no ablation Direct, zero-ablated CoT, zero-ablated (h) (company, HQ-in-city, city), cross-task OpenQA 
+
+FiTB 
+
+MCQA 
+
+Verification 
+
+Neg MCQA 
+
+0.0 
+
+0.5 
+
+1.0 
+
+> Accuracy
+
+Direct, no ablation Direct, zero-ablated CoT, zero-ablated 
+
+(i) (person, plays-instrument, instrument), own-encoding OpenQA 
+
+FiTB 
+
+MCQA 
+
+Verification 
+
+Neg MCQA 
+
+0.0 
+
+0.5 
+
+1.0 
+
+> Accuracy
+
+Direct, no ablation Direct, zero-ablated CoT, zero-ablated (j) (person, plays-instrument, instrument), cross-task 
+
+Figure 19: CoT vs. direct answering under zero-ablation, Gemma-2-9B IT. 
+
+30 Baseline 1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 
+
+All tasks, same fact 
+
+OpenQA FiTB MCQA Verification Neg MCQA 
+
+Evaluation Task 
+
+OpenQA 
+
+FiTB 
+
+MCQA 
+
+Verification 
+
+Neg MCQA 
+
+> Ablated Task
+
+0.86±0.22 
+
+( 14%) 
+
+0.86±0.28 
+
+( 14%) 
+
+0.97±0.12 
+
+( 3%) 
+
+0.96±0.12 
+
+( 4%) 
+
+0.89±0.21 
+
+( 11%) 
+
+0.75±0.38 
+
+( 25%) 
+
+0.92±0.19 
+
+( 8%) 
+
+0.94±0.18 
+
+( 6%) 
+
+0.97±0.08 
+
+( 3%) 
+
+0.93±0.16 
+
+( 7%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.97±0.11 
+
+( 3%) 
+
+0.82±0.25 
+
+( 18%) 
+
+0.94±0.13 
+
+( 6%) 
+
+0.83±0.24 
+
+( 17%) 
+
+0.83±0.33 
+
+( 17%) 
+
+0.89±0.31 
+
+( 11%) 
+
+0.88±0.19 
+
+( 12%) 
+
+0.69±0.38 
+
+( 31%) 
+
+0.76±0.27 
+
+( 24%) 
+
+0.83±0.37 
+
+( 17%) 
+
+0.92±0.25 
+
+( 8%) 
+
+0.92±0.21 
+
+( 8%) 
+
+0.89±0.28 
+
+( 11%) 
+
+0.78±0.33 
+
+( 22%) 
+
+OpenQA FiTB MCQA Verification Neg MCQA 
+
+Baseline 
+
+After ablation 
+
+1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 
+
+0.93±0.14 
+
+( 7%) 
+
+0.93±0.14 
+
+( 7%) 
+
+0.98±0.03 
+
+( 2%) 
+
+0.91±0.17 
+
+( 9%) 
+
+0.90±0.15 
+
+( 10%) 
+
+Same task, other facts 
+
+100 
+
+80 
+
+60 
+
+40 
+
+20 
+
+0
+
+> Relative Change (%)
+
+(a) (country, official language, language) Baseline 1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 
+
+All tasks, same fact 
+
+OpenQA FiTB MCQA Verification Neg MCQA 
+
+Evaluation Task 
+
+OpenQA 
+
+FiTB 
+
+MCQA 
+
+Verification 
+
+Neg MCQA 
+
+> Ablated Task
+
+0.74±0.39 
+
+( 26%) 
+
+0.79±0.39 
+
+( 21%) 
+
+0.85±0.32 
+
+( 15%) 
+
+0.88±0.26 
+
+( 12%) 
+
+0.78±0.30 
+
+( 22%) 
+
+0.79±0.39 
+
+( 21%) 
+
+0.76±0.35 
+
+( 24%) 
+
+0.89±0.27 
+
+( 11%) 
+
+0.91±0.19 
+
+( 9%) 
+
+0.78±0.22 
+
+( 22%) 
+
+0.85±0.33 
+
+( 15%) 
+
+0.82±0.38 
+
+( 18%) 
+
+0.86±0.26 
+
+( 14%) 
+
+0.82±0.33 
+
+( 18%) 
+
+0.76±0.30 
+
+( 24%) 
+
+0.94±0.16 
+
+( 6%) 
+
+0.88±0.27 
+
+( 12%) 
+
+0.92±0.25 
+
+( 8%) 
+
+0.82±0.34 
+
+( 18%) 
+
+0.85±0.26 
+
+( 15%) 
+
+0.79±0.35 
+
+( 21%) 
+
+0.79±0.35 
+
+( 21%) 
+
+0.73±0.38 
+
+( 27%) 
+
+0.74±0.40 
+
+( 26%) 
+
+0.56±0.28 
+
+( 44%) 
+
+OpenQA FiTB MCQA Verification Neg MCQA 
+
+Baseline 
+
+After ablation 
+
+1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 
+
+0.86±0.22 
+
+( 14%) 
+
+0.87±0.31 
+
+( 13%) 
+
+0.87±0.29 
+
+( 13%) 
+
+0.91±0.19 
+
+( 9%) 
+
+0.71±0.20 
+
+( 29%) 
+
+Same task, other facts 
+
+100 
+
+80 
+
+60 
+
+40 
+
+20 
+
+0 
+
+> Relative Change (%)
+
+(b) (landmark, in-country, country) Baseline 1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 
+
+All tasks, same fact 
+
+OpenQA FiTB MCQA Verification Neg MCQA 
+
+Evaluation Task 
+
+OpenQA 
+
+FiTB 
+
+MCQA 
+
+Verification 
+
+Neg MCQA 
+
+> Ablated Task
+
+0.73±0.36 
+
+( 27%) 
+
+0.84±0.28 
+
+( 16%) 
+
+0.88±0.27 
+
+( 12%) 
+
+0.89±0.27 
+
+( 11%) 
+
+0.83±0.31 
+
+( 17%) 
+
+0.89±0.26 
+
+( 11%) 
+
+0.48±0.38 
+
+( 52%) 
+
+0.90±0.24 
+
+( 10%) 
+
+0.88±0.32 
+
+( 12%) 
+
+0.82±0.25 
+
+( 18%) 
+
+0.89±0.30 
+
+( 11%) 
+
+0.98±0.10 
+
+( 2%) 
+
+0.88±0.19 
+
+( 12%) 
+
+0.94±0.21 
+
+( 6%) 
+
+0.86±0.24 
+
+( 14%) 
+
+0.91±0.24 
+
+( 9%) 
+
+0.93±0.23 
+
+( 7%) 
+
+0.95±0.15 
+
+( 5%) 
+
+0.91±0.24 
+
+( 9%) 
+
+0.88±0.24 
+
+( 12%) 
+
+0.95±0.14 
+
+( 5%) 
+
+0.89±0.30 
+
+( 11%) 
+
+0.90±0.22 
+
+( 10%) 
+
+0.92±0.23 
+
+( 8%) 
+
+0.80±0.32 
+
+( 20%) 
+
+OpenQA FiTB MCQA Verification Neg MCQA 
+
+Baseline 
+
+After ablation 
+
+1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 
+
+0.89±0.24 
+
+( 11%) 
+
+0.90±0.23 
+
+( 10%) 
+
+0.97±0.10 
+
+( 3%) 
+
+0.94±0.16 
+
+( 6%) 
+
+0.89±0.16 
+
+( 11%) 
+
+Same task, other facts 
+
+100 
+
+80 
+
+60 
+
+40 
+
+20 
+
+0
+
+> Relative Change (%)
+
+(c) (country, capital-of, city) Baseline 1.00±0.00 1.00±0.00 1.00±0.02 1.00±0.00 1.00±0.00 
+
+All tasks, same fact 
+
+OpenQA FiTB MCQA Verification Neg MCQA 
+
+Evaluation Task 
+
+OpenQA 
+
+FiTB 
+
+MCQA 
+
+Verification 
+
+Neg MCQA 
+
+> Ablated Task
+
+0.60±0.42 
+
+( 40%) 
+
+0.77±0.32 
+
+( 23%) 
+
+0.93±0.21 
+
+( 6%) 
+
+0.91±0.22 
+
+( 9%) 
+
+0.86±0.21 
+
+( 14%) 
+
+0.75±0.37 
+
+( 25%) 
+
+0.63±0.38 
+
+( 37%) 
+
+0.91±0.23 
+
+( 8%) 
+
+0.89±0.19 
+
+( 11%) 
+
+0.84±0.23 
+
+( 16%) 
+
+0.92±0.23 
+
+( 8%) 
+
+0.88±0.29 
+
+( 12%) 
+
+0.86±0.24 
+
+( 14%) 
+
+0.87±0.26 
+
+( 13%) 
+
+0.74±0.30 
+
+( 26%) 
+
+0.96±0.13 
+
+( 4%) 
+
+0.90±0.24 
+
+( 10%) 
+
+0.93±0.19 
+
+( 6%) 
+
+0.87±0.30 
+
+( 13%) 
+
+0.81±0.32 
+
+( 19%) 
+
+0.79±0.37 
+
+( 21%) 
+
+0.87±0.30 
+
+( 13%) 
+
+0.84±0.28 
+
+( 15%) 
+
+0.87±0.30 
+
+( 13%) 
+
+0.51±0.32 
+
+( 49%) 
+
+OpenQA FiTB MCQA Verification Neg MCQA 
+
+Baseline 
+
+After ablation 
+
+1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 
+
+0.96±0.13 
+
+( 4%) 
+
+0.91±0.25 
+
+( 9%) 
+
+0.94±0.17 
+
+( 5%) 
+
+0.91±0.19 
+
+( 9%) 
+
+0.79±0.17 
+
+( 21%) 
+
+Same task, other facts 
+
+100 
+
+80 
+
+60 
+
+40 
+
+20 
+
+0 
+
+> Relative Change (%)
+
+(d) (company, HQ-in-city, city) Baseline 1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 
+
+All tasks, same fact 
+
+OpenQA FiTB MCQA Verification Neg MCQA 
+
+Evaluation Task 
+
+OpenQA 
+
+FiTB 
+
+MCQA 
+
+Verification 
+
+Neg MCQA 
+
+> Ablated Task
+
+0.40±0.45 
+
+( 60%) 
+
+0.67±0.43 
+
+( 33%) 
+
+0.90±0.19 
+
+( 10%) 
+
+0.82±0.30 
+
+( 18%) 
+
+0.87±0.22 
+
+( 13%) 
+
+0.67±0.43 
+
+( 33%) 
+
+0.67±0.35 
+
+( 33%) 
+
+0.96±0.13 
+
+( 4%) 
+
+0.88±0.15 
+
+( 12%) 
+
+0.95±0.14 
+
+( 5%) 
+
+0.80±0.31 
+
+( 20%) 
+
+0.77±0.31 
+
+( 23%) 
+
+0.80±0.32 
+
+( 20%) 
+
+0.88±0.18 
+
+( 12%) 
+
+0.82±0.23 
+
+( 18%) 
+
+0.93±0.17 
+
+( 7%) 
+
+0.80±0.31 
+
+( 20%) 
+
+0.96±0.09 
+
+( 4%) 
+
+0.83±0.35 
+
+( 17%) 
+
+0.80±0.31 
+
+( 20%) 
+
+0.80±0.36 
+
+( 20%) 
+
+0.70±0.40 
+
+( 30%) 
+
+0.91±0.25 
+
+( 9%) 
+
+0.88±0.20 
+
+( 12%) 
+
+0.75±0.30 
+
+( 25%) 
+
+OpenQA FiTB MCQA Verification Neg MCQA 
+
+Baseline 
+
+After ablation 
+
+1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 
+
+0.79±0.27 
+
+( 21%) 
+
+0.91±0.12 
+
+( 9%) 
+
+0.96±0.14 
+
+( 4%) 
+
+0.91±0.20 
+
+( 9%) 
+
+0.82±0.24 
+
+( 18%) 
+
+Same task, other facts 
+
+100 
+
+80 
+
+60 
+
+40 
+
+20 
+
+0
+
+> Relative Change (%)
+
+(e) (person, plays-instrument, instrument) 
+
+Figure 20: CoT-ablation heatmaps, OLMo-2-7B IT. Rows: ablated task; columns: evaluation task scored under CoT; bottom panel: same-task other-facts control. 
+
+31 Baseline 1.00±0.00 1.00±0.00 1.00±0.00 
+
+Truth: 
+
+0.97±0.11 
+
+Both: 
+
+1.00±0.00 
+
+1.00±0.00 
+
+All tasks, same fact 
+
+OpenQA FiTB MCQA Verification Neg MCQA 
+
+Evaluation Task 
+
+OpenQA 
+
+FiTB 
+
+MCQA 
+
+Verification 
+
+Neg MCQA 
+
+> Ablated Task
+
+0.68±0.40 
+
+( 32%) 
+
+0.88±0.27 
+
+( 12%) 
+
+0.93±0.18 
+
+( 7%) 
+
+0.89±0.30 
+
+( 11%) 
+
+0.82±0.32 
+
+( 18%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.78±0.33 
+
+( 22%) 
+
+0.93±0.20 
+
+( 7%) 
+
+0.89±0.27 
+
+( 11%) 
+
+0.85±0.24 
+
+( 15%) 
+
+0.82±0.36 
+
+( 18%) 
+
+0.82±0.36 
+
+( 18%) 
+
+0.82±0.32 
+
+( 18%) 
+
+0.78±0.35 
+
+( 22%) 
+
+0.89±0.24 
+
+( 11%) 
+
+0.95±0.15 
+
+( 5%) 
+
+0.95±0.15 
+
+( 5%) 
+
+0.97±0.11 
+
+( 3%) 
+
+0.85±0.32 
+
+( 13%) 
+
+0.88±0.23 
+
+( 12%) 
+
+0.93±0.18 
+
+( 7%) 
+
+0.88±0.27 
+
+( 12%) 
+
+0.89±0.24 
+
+( 11%) 
+
+0.88±0.28 
+
+( 12%) 
+
+0.74±0.35 
+
+( 26%) 
+
+OpenQA FiTB MCQA Verification Neg MCQA 
+
+Baseline 
+
+After ablation 
+
+1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 
+
+0.88±0.24 
+
+( 12%) 
+
+0.91±0.22 
+
+( 9%) 
+
+0.83±0.34 
+
+( 17%) 
+
+0.96±0.10 
+
+( 4%) 
+
+0.84±0.24 
+
+( 16%) 
+
+Same task, other facts 
+
+100 
+
+80 
+
+60 
+
+40 
+
+20 
+
+0
+
+> Relative Change (%)
+
+(a) (country, official language, language) Baseline 1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 
+
+All tasks, same fact 
+
+OpenQA FiTB MCQA Verification Neg MCQA 
+
+Evaluation Task 
+
+OpenQA 
+
+FiTB 
+
+MCQA 
+
+Verification 
+
+Neg MCQA 
+
+> Ablated Task
+
+0.61±0.45 
+
+( 39%) 
+
+0.74±0.38 
+
+( 26%) 
+
+0.88±0.24 
+
+( 12%) 
+
+0.76±0.32 
+
+( 24%) 
+
+0.66±0.37 
+
+( 34%) 
+
+0.74±0.38 
+
+( 26%) 
+
+0.68±0.37 
+
+( 32%) 
+
+0.90±0.24 
+
+( 10%) 
+
+0.86±0.25 
+
+( 14%) 
+
+0.82±0.28 
+
+( 18%) 
+
+0.84±0.33 
+
+( 16%) 
+
+0.87±0.27 
+
+( 13%) 
+
+0.82±0.28 
+
+( 18%) 
+
+0.78±0.34 
+
+( 22%) 
+
+0.67±0.34 
+
+( 33%) 
+
+0.89±0.26 
+
+( 11%) 
+
+0.92±0.24 
+
+( 8%) 
+
+0.93±0.23 
+
+( 7%) 
+
+0.84±0.28 
+
+( 16%) 
+
+0.75±0.29 
+
+( 25%) 
+
+0.95±0.15 
+
+( 5%) 
+
+0.97±0.11 
+
+( 3%) 
+
+0.93±0.18 
+
+( 7%) 
+
+0.95±0.13 
+
+( 5%) 
+
+0.49±0.29 
+
+( 51%) 
+
+OpenQA FiTB MCQA Verification Neg MCQA 
+
+Baseline 
+
+After ablation 
+
+1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 
+
+0.89±0.21 
+
+( 11%) 
+
+0.88±0.22 
+
+( 12%) 
+
+0.89±0.25 
+
+( 11%) 
+
+0.93±0.15 
+
+( 7%) 
+
+0.73±0.26 
+
+( 27%) 
+
+Same task, other facts 
+
+100 
+
+80 
+
+60 
+
+40 
+
+20 
+
+0 
+
+> Relative Change (%)
+
+(b) (landmark, in-country, country) Baseline 1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 
+
+All tasks, same fact 
+
+OpenQA FiTB MCQA Verification Neg MCQA 
+
+Evaluation Task 
+
+OpenQA 
+
+FiTB 
+
+MCQA 
+
+Verification 
+
+Neg MCQA 
+
+> Ablated Task
+
+0.85±0.34 
+
+( 15%) 
+
+0.87±0.34 
+
+( 13%) 
+
+0.94±0.20 
+
+( 6%) 
+
+0.92±0.23 
+
+( 8%) 
+
+0.82±0.34 
+
+( 18%) 
+
+0.78±0.36 
+
+( 22%) 
+
+0.74±0.39 
+
+( 26%) 
+
+0.93±0.18 
+
+( 7%) 
+
+0.83±0.31 
+
+( 17%) 
+
+0.82±0.31 
+
+( 18%) 
+
+0.96±0.20 
+
+( 4%) 
+
+0.93±0.22 
+
+( 7%) 
+
+0.79±0.30 
+
+( 21%) 
+
+0.91±0.22 
+
+( 9%) 
+
+0.80±0.28 
+
+( 20%) 
+
+0.87±0.30 
+
+( 13%) 
+
+0.87±0.30 
+
+( 13%) 
+
+0.85±0.28 
+
+( 15%) 
+
+0.74±0.39 
+
+( 26%) 
+
+0.71±0.29 
+
+( 29%) 
+
+0.93±0.17 
+
+( 7%) 
+
+0.91±0.24 
+
+( 9%) 
+
+0.85±0.26 
+
+( 15%) 
+
+0.82±0.31 
+
+( 18%) 
+
+0.62±0.37 
+
+( 38%) 
+
+OpenQA FiTB MCQA Verification Neg MCQA 
+
+Baseline 
+
+After ablation 
+
+1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 
+
+0.94±0.18 
+
+( 6%) 
+
+0.93±0.21 
+
+( 7%) 
+
+0.92±0.21 
+
+( 8%) 
+
+0.89±0.21 
+
+( 11%) 
+
+0.73±0.26 
+
+( 27%) 
+
+Same task, other facts 
+
+100 
+
+80 
+
+60 
+
+40 
+
+20 
+
+0
+
+> Relative Change (%)
+
+(c) (country, capital-of, city) Baseline 1.00±0.00 1.00±0.00 1.00±0.00 
+
+Truth: 
+
+0.90±0.20 
+
+Both: 
+
+1.00±0.00 
+
+1.00±0.00 
+
+All tasks, same fact 
+
+OpenQA FiTB MCQA Verification Neg MCQA 
+
+Evaluation Task 
+
+OpenQA 
+
+FiTB 
+
+MCQA 
+
+Verification 
+
+Neg MCQA 
+
+> Ablated Task
+
+0.27±0.40 
+
+( 73%) 
+
+0.43±0.40 
+
+( 57%) 
+
+0.97±0.07 
+
+( 3%) 
+
+0.87±0.27 
+
+( 13%) 
+
+0.88±0.22 
+
+( 12%) 
+
+0.53±0.43 
+
+( 47%) 
+
+0.43±0.44 
+
+( 57%) 
+
+0.91±0.20 
+
+( 9%) 
+
+0.82±0.25 
+
+( 18%) 
+
+0.85±0.27 
+
+( 15%) 
+
+0.83±0.30 
+
+( 17%) 
+
+0.80±0.31 
+
+( 20%) 
+
+0.74±0.33 
+
+( 26%) 
+
+0.78±0.33 
+
+( 22%) 
+
+0.78±0.24 
+
+( 22%) 
+
+0.93±0.25 
+
+( 7%) 
+
+0.97±0.12 
+
+( 3%) 
+
+0.97±0.12 
+
+( 3%) 
+
+0.87±0.29 
+
+( 4%) 
+
+0.80±0.26 
+
+( 20%) 
+
+0.87±0.22 
+
+( 13%) 
+
+0.97±0.12 
+
+( 3%) 
+
+0.90±0.21 
+
+( 10%) 
+
+0.77±0.33 
+
+( 23%) 
+
+0.62±0.33 
+
+( 38%) 
+
+OpenQA FiTB MCQA Verification Neg MCQA 
+
+Baseline 
+
+After ablation 
+
+1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 
+
+0.92±0.14 
+
+( 8%) 
+
+0.95±0.06 
+
+( 5%) 
+
+0.93±0.14 
+
+( 7%) 
+
+0.92±0.18 
+
+( 8%) 
+
+0.76±0.27 
+
+( 24%) 
+
+Same task, other facts 
+
+100 
+
+80 
+
+60 
+
+40 
+
+20 
+
+0 
+
+> Relative Change (%)
+
+(d) (company, HQ-in-city, city) Baseline 1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 
+
+All tasks, same fact 
+
+OpenQA FiTB MCQA Verification Neg MCQA 
+
+Evaluation Task 
+
+OpenQA 
+
+FiTB 
+
+MCQA 
+
+Verification 
+
+Neg MCQA 
+
+> Ablated Task
+
+0.79±0.41 
+
+( 21%) 
+
+0.79±0.31 
+
+( 21%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.88±0.18 
+
+( 12%) 
+
+0.77±0.20 
+
+( 23%) 
+
+0.82±0.36 
+
+( 18%) 
+
+0.43±0.42 
+
+( 57%) 
+
+0.89±0.21 
+
+( 11%) 
+
+0.80±0.30 
+
+( 20%) 
+
+0.73±0.35 
+
+( 27%) 
+
+0.79±0.36 
+
+( 21%) 
+
+0.64±0.44 
+
+( 36%) 
+
+0.79±0.30 
+
+( 21%) 
+
+0.86±0.18 
+
+( 14%) 
+
+0.70±0.25 
+
+( 30%) 
+
+0.79±0.41 
+
+( 21%) 
+
+0.79±0.36 
+
+( 21%) 
+
+0.92±0.20 
+
+( 8%) 
+
+0.86±0.29 
+
+( 14%) 
+
+0.75±0.34 
+
+( 25%) 
+
+0.68±0.45 
+
+( 32%) 
+
+0.68±0.41 
+
+( 32%) 
+
+0.79±0.24 
+
+( 21%) 
+
+0.73±0.38 
+
+( 27%) 
+
+0.52±0.35 
+
+( 48%) 
+
+OpenQA FiTB MCQA Verification Neg MCQA 
+
+Baseline 
+
+After ablation 
+
+1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 
+
+0.94±0.08 
+
+( 6%) 
+
+0.80±0.23 
+
+( 20%) 
+
+0.99±0.02 
+
+( 1%) 
+
+0.92±0.16 
+
+( 8%) 
+
+0.70±0.29 
+
+( 30%) 
+
+Same task, other facts 
+
+100 
+
+80 
+
+60 
+
+40 
+
+20 
+
+0
+
+> Relative Change (%)
+
+(e) (person, plays-instrument, instrument) 
+
+Figure 21: CoT-ablation heatmaps, OLMo-2-13B IT. Same layout as Figure 20. 
+
+32 Baseline 1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 
+
+All tasks, same fact 
+
+OpenQA FiTB MCQA Verification Neg MCQA 
+
+Evaluation Task 
+
+OpenQA 
+
+FiTB 
+
+MCQA 
+
+Verification 
+
+Neg MCQA 
+
+> Ablated Task
+
+0.80±0.35 
+
+( 20%) 
+
+0.98±0.09 
+
+( 2%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.99±0.04 
+
+( 1%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.97±0.12 
+
+( 3%) 
+
+0.56±0.43 
+
+( 44%) 
+
+0.97±0.15 
+
+( 3%) 
+
+0.97±0.14 
+
+( 3%) 
+
+0.98±0.13 
+
+( 2%) 
+
+0.92±0.25 
+
+( 8%) 
+
+0.97±0.17 
+
+( 3%) 
+
+0.86±0.24 
+
+( 14%) 
+
+0.91±0.22 
+
+( 9%) 
+
+0.94±0.18 
+
+( 6%) 
+
+0.95±0.19 
+
+( 5%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.69±0.37 
+
+( 31%) 
+
+0.99±0.04 
+
+( 1%) 
+
+0.97±0.17 
+
+( 3%) 
+
+0.98±0.09 
+
+( 2%) 
+
+0.96±0.16 
+
+( 4%) 
+
+0.98±0.07 
+
+( 2%) 
+
+0.79±0.29 
+
+( 21%) 
+
+OpenQA FiTB MCQA Verification Neg MCQA 
+
+Baseline 
+
+After ablation 
+
+1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 
+
+0.98±0.02 
+
+( 2%) 
+
+1.00±0.01 
+
+( 0%) 
+
+0.97±0.15 
+
+( 3%) 
+
+0.99±0.01 
+
+( 1%) 
+
+0.87±0.23 
+
+( 13%) 
+
+Same task, other facts 
+
+100 
+
+80 
+
+60 
+
+40 
+
+20 
+
+0
+
+> Relative Change (%)
+
+(a) (country, official language, language) Baseline 1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 
+
+All tasks, same fact 
+
+OpenQA FiTB MCQA Verification Neg MCQA 
+
+Evaluation Task 
+
+OpenQA 
+
+FiTB 
+
+MCQA 
+
+Verification 
+
+Neg MCQA 
+
+> Ablated Task
+
+0.72±0.43 
+
+( 28%) 
+
+0.92±0.25 
+
+( 8%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.99±0.08 
+
+( 1%) 
+
+0.99±0.04 
+
+( 1%) 
+
+0.91±0.28 
+
+( 9%) 
+
+0.70±0.39 
+
+( 30%) 
+
+0.94±0.21 
+
+( 6%) 
+
+0.95±0.16 
+
+( 5%) 
+
+0.94±0.20 
+
+( 6%) 
+
+0.85±0.35 
+
+( 15%) 
+
+0.92±0.25 
+
+( 8%) 
+
+0.70±0.37 
+
+( 30%) 
+
+0.91±0.24 
+
+( 9%) 
+
+0.90±0.21 
+
+( 10%) 
+
+0.89±0.31 
+
+( 11%) 
+
+0.96±0.18 
+
+( 4%) 
+
+0.96±0.18 
+
+( 4%) 
+
+0.88±0.29 
+
+( 12%) 
+
+0.97±0.12 
+
+( 3%) 
+
+0.97±0.16 
+
+( 3%) 
+
+0.97±0.16 
+
+( 3%) 
+
+0.99±0.06 
+
+( 1%) 
+
+0.97±0.17 
+
+( 3%) 
+
+0.86±0.29 
+
+( 14%) 
+
+OpenQA FiTB MCQA Verification Neg MCQA 
+
+Baseline 
+
+After ablation 
+
+1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 
+
+0.98±0.02 
+
+( 2%) 
+
+0.97±0.05 
+
+( 3%) 
+
+0.98±0.08 
+
+( 2%) 
+
+0.98±0.07 
+
+( 2%) 
+
+0.89±0.26 
+
+( 11%) 
+
+Same task, other facts 
+
+100 
+
+80 
+
+60 
+
+40 
+
+20 
+
+0 
+
+> Relative Change (%)
+
+(b) (landmark, in-country, country) Baseline 1.00±0.00 1.00±0.00 1.00±0.00 0.98±0.09 1.00±0.00 
+
+All tasks, same fact 
+
+OpenQA FiTB MCQA Verification Neg MCQA 
+
+Evaluation Task 
+
+OpenQA 
+
+FiTB 
+
+MCQA 
+
+Verification 
+
+Neg MCQA 
+
+> Ablated Task
+
+0.55±0.43 
+
+( 45%) 
+
+0.95±0.15 
+
+( 5%) 
+
+0.98±0.10 
+
+( 2%) 
+
+0.98±0.07 
+
+( 2%) 
+
+0.97±0.14 
+
+( 3%) 
+
+0.87±0.31 
+
+( 13%) 
+
+0.50±0.44 
+
+( 50%) 
+
+0.92±0.25 
+
+( 8%) 
+
+0.95±0.19 
+
+( 5%) 
+
+0.93±0.25 
+
+( 7%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.98±0.09 
+
+( 2%) 
+
+0.95±0.15 
+
+( 5%) 
+
+0.94±0.19 
+
+( 6%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.95±0.19 
+
+( 5%) 
+
+0.98±0.09 
+
+( 2%) 
+
+0.97±0.11 
+
+( 3%) 
+
+0.74±0.42 
+
+( 25%) 
+
+0.95±0.15 
+
+( 5%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.85±0.30 
+
+( 15%) 
+
+OpenQA FiTB MCQA Verification Neg MCQA 
+
+Baseline 
+
+After ablation 
+
+1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 
+
+1.00±0.01 
+
+( 0%) 
+
+0.93±0.23 
+
+( 7%) 
+
+0.99±0.05 
+
+( 1%) 
+
+0.95±0.17 
+
+( 5%) 
+
+0.90±0.25 
+
+( 10%) 
+
+Same task, other facts 
+
+100 
+
+80 
+
+60 
+
+40 
+
+20 
+
+0
+
+> Relative Change (%)
+
+(c) (country, capital-of, city) Baseline 1.00±0.00 1.00±0.00 1.00±0.02 0.99±0.08 1.00±0.00 
+
+All tasks, same fact 
+
+OpenQA FiTB MCQA Verification Neg MCQA 
+
+Evaluation Task 
+
+OpenQA 
+
+FiTB 
+
+MCQA 
+
+Verification 
+
+Neg MCQA 
+
+> Ablated Task
+
+0.33±0.45 
+
+( 67%) 
+
+0.76±0.33 
+
+( 24%) 
+
+0.97±0.11 
+
+( 2%) 
+
+0.90±0.20 
+
+( 10%) 
+
+0.98±0.09 
+
+( 2%) 
+
+0.80±0.36 
+
+( 20%) 
+
+0.60±0.40 
+
+( 40%) 
+
+0.95±0.16 
+
+( 5%) 
+
+0.96±0.13 
+
+( 4%) 
+
+0.93±0.19 
+
+( 7%) 
+
+0.88±0.29 
+
+( 12%) 
+
+0.88±0.27 
+
+( 12%) 
+
+0.76±0.32 
+
+( 24%) 
+
+0.88±0.21 
+
+( 12%) 
+
+0.89±0.21 
+
+( 11%) 
+
+0.91±0.24 
+
+( 9%) 
+
+0.96±0.17 
+
+( 4%) 
+
+0.97±0.11 
+
+( 3%) 
+
+0.72±0.40 
+
+( 27%) 
+
+0.96±0.14 
+
+( 4%) 
+
+0.94±0.23 
+
+( 6%) 
+
+0.96±0.17 
+
+( 4%) 
+
+0.94±0.17 
+
+( 6%) 
+
+0.93±0.19 
+
+( 7%) 
+
+0.90±0.22 
+
+( 10%) 
+
+OpenQA FiTB MCQA Verification Neg MCQA 
+
+Baseline 
+
+After ablation 
+
+1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 
+
+0.98±0.02 
+
+( 2%) 
+
+0.98±0.02 
+
+( 2%) 
+
+0.99±0.04 
+
+( 1%) 
+
+0.99±0.02 
+
+( 1%) 
+
+0.90±0.21 
+
+( 10%) 
+
+Same task, other facts 
+
+100 
+
+80 
+
+60 
+
+40 
+
+20 
+
+0 
+
+> Relative Change (%)
+
+(d) (company, HQ-in-city, city) Baseline 1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 
+
+All tasks, same fact 
+
+OpenQA FiTB MCQA Verification Neg MCQA 
+
+Evaluation Task 
+
+OpenQA 
+
+FiTB 
+
+MCQA 
+
+Verification 
+
+Neg MCQA 
+
+> Ablated Task
+
+0.53±0.45 
+
+( 47%) 
+
+0.78±0.35 
+
+( 22%) 
+
+0.83±0.31 
+
+( 17%) 
+
+0.81±0.23 
+
+( 19%) 
+
+0.86±0.22 
+
+( 14%) 
+
+0.81±0.30 
+
+( 19%) 
+
+0.56±0.46 
+
+( 44%) 
+
+0.96±0.12 
+
+( 4%) 
+
+0.92±0.15 
+
+( 8%) 
+
+0.88±0.27 
+
+( 12%) 
+
+0.88±0.22 
+
+( 12%) 
+
+0.91±0.26 
+
+( 9%) 
+
+0.83±0.27 
+
+( 17%) 
+
+0.89±0.12 
+
+( 11%) 
+
+0.86±0.22 
+
+( 14%) 
+
+1.00±0.00 
+
+( 0%) 
+
+1.00±0.00 
+
+( 0%) 
+
+0.98±0.06 
+
+( 2%) 
+
+0.94±0.17 
+
+( 6%) 
+
+0.98±0.06 
+
+( 2%) 
+
+0.91±0.26 
+
+( 9%) 
+
+0.97±0.12 
+
+( 3%) 
+
+0.94±0.21 
+
+( 6%) 
+
+0.88±0.20 
+
+( 12%) 
+
+0.67±0.30 
+
+( 33%) 
+
+OpenQA FiTB MCQA Verification Neg MCQA 
+
+Baseline 
+
+After ablation 
+
+1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 1.00±0.00 
+
+0.96±0.03 
+
+( 4%) 
+
+0.92±0.21 
+
+( 8%) 
+
+0.99±0.04 
+
+( 1%) 
+
+0.97±0.02 
+
+( 3%) 
+
+0.85±0.20 
+
+( 15%) 
+
+Same task, other facts 
+
+100 
+
+80 
+
+60 
+
+40 
+
+20 
+
+0
+
+> Relative Change (%)
+
+(e) (person, plays-instrument, instrument) 
+
+Figure 22: CoT-ablation heatmaps, Gemma-2-9B IT. Same layout as Figure 20. 
+
+33
