@@ -6,52 +6,38 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-06-26
-- 运行时间：2026-06-26 21:57:05 UTC
+- 最新运行日期：2026-06-27
+- 运行时间：2026-06-27 21:09:37 UTC
 - 运行状态：成功
-- 本次总论文数：10
-- 精读区：5
+- 本次总论文数：5
+- 精读区：0
 - 速读区：5
 
 ### 今日简报（AI）
-今日聚焦神经符号推理与知识增强语言模型，重点解析自适应推理工作流与资源感知推理方案。  
-最值得关注的两篇精读文章《VADAOrchestra》与《Resource-Aware Neuro-Symbolic Reasoning》均获9分，展现了符号系统与语言模型协同优化的前沿思路。  
-建议优先精读这两篇高分论文，关注其面向本地小模型的资源平衡机制，并尝试将神经符号架构融入实际推理任务中。
-- 详情：[/202606/26/README](/202606/26/README)
+1) 今日推荐5篇论文，涵盖自动化知识图谱构建、人机协作统计验证与多模态大模型混合推理，均获6.0分。
+2) 最值得关注的是知识图谱与问题生成的“All Relations Lead to Rome”，以及结合代码推理的“AIR”方法。
+3) 这三篇论文均具中等实用性，建议从知识图谱或多模态推理方向入门，快速把握当前研究热点。
+- 详情：[/202606/27/README](/202606/27/README)
 
 ### 精读区论文标签
-1. [VADAOrchestra: Neurosymbolic Orchestration of Adaptive Reasoning Workflows](/202606/26/2606.22485v2-vadaorchestra-neurosymbolic-orchestration-of-adaptive-reasoning-workflows)  
-   标签：评分：9.0/10、query:ns-xai
-   evidence：神经符号框架结合LLM灵活性与符号工作流严谨性
-2. [Resource-Aware Neuro-Symbolic Reasoning for Local Small Language Models](/202606/26/2606.27281v1-resource-aware-neuro-symbolic-reasoning-for-local-small-language-models)  
-   标签：评分：9.0/10、query:ns-xai
-   evidence：本地小语言模型的神经符号推理
-3. [Holographic Memory for Zero-Shot Compositional Reasoning in Knowledge Graphs: A Mechanistic Study of Where and Why It Fails](/202606/26/2606.24948v1-holographic-memory-for-zero-shot-compositional-reasoning-in-knowledge-graphs-a-mechanistic-study-of-where-and-why-it-fails)  
-   标签：评分：8.0/10、query:ns-xai
-   evidence：利用全息符号绑定进行知识图谱组合推理，是一种神经符号方法
-4. [Data-driven Machine Learning Cannot Reach Symbolic-level Logical Reasoning -- The Limit of the Scaling Law](/202606/26/2606.26454v1-data-driven-machine-learning-cannot-reach-symbolic-level-logical-reasoning----the-limit-of-the-scaling-law)  
-   标签：评分：8.0/10、query:ns-xai
-   evidence：数据驱动ML在符号逻辑推理上的局限性，与神经网络对比
-5. [Discovering Millions of Interpretable Features with Sparse Autoencoders](/202606/26/2606.26620v1-discovering-millions-of-interpretable-features-with-sparse-autoencoders)  
-   标签：评分：8.0/10、query:ns-xai
-   evidence：稀疏自编码器揭示大模型可解释特征
+- 本次无精读推荐。
 
 ### 速读区论文标签
-1. [KARLA: Knowledge-base Augmented Retrieval for Language Models](/202606/26/2606.26807v1-karla-knowledge-base-augmented-retrieval-for-language-models)  
-   标签：评分：7.0/10、query:ns-xai
-   evidence：将符号知识库与神经LLM整合，实现可追溯和可解释的事实检索
-2. [Bridging Vision and Language Concepts through Optimal Transport Semantic Flow](/202606/26/2606.26891v1-bridging-vision-and-language-concepts-through-optimal-transport-semantic-flow)  
-   标签：评分：7.0/10、query:ns-xai
-   evidence：使用概念瓶颈模型通过跨模态传输实现可解释推理
-3. [LMs as Task-Specific Knowledge Bases: An Interpretability Analysis](/202606/26/2606.27237v1-lms-as-task-specific-knowledge-bases-an-interpretability-analysis)  
-   标签：评分：7.0/10、query:ns-xai
-   evidence：大语言模型作为知识库的可解释性分析
-4. [Efficient and Trainable Language Model Test-Time Scaling via Local Branch Routing](/202606/26/2606.25354v1-efficient-and-trainable-language-model-test-time-scaling-via-local-branch-routing)  
+1. [All Relations Lead to Rome: Automated Knowledge Graph Creation and Question Generation](/202606/27/2606.22645v1-all-relations-lead-to-rome-automated-knowledge-graph-creation-and-question-generation)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：通过局部分支路由改进LLM测试时推理缩放，提升推理效率
-5. [Diagnosing Task Insensitivity in Language Agents](/202606/26/2606.26918v1-diagnosing-task-insensitivity-in-language-agents)  
+   evidence：知识图谱构建服务于神经符号问答推理
+2. [Statistical Proof as a Window into Human-AI Collaboration: Practical Insights and a Community Agenda](/202606/27/2606.23666v1-statistical-proof-as-a-window-into-human-ai-collaboration-practical-insights-and-a-community-agenda)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：诊断LLM智能体的任务不敏感性，涉及推理和可解释性
+   evidence：LLM在统计证明中的推理及人机协作
+3. [AIR: Adaptive Interleaved Reasoning with Code in MLLMs](/202606/27/2606.23678v1-air-adaptive-interleaved-reasoning-with-code-in-mllms)  
+   标签：评分：6.0/10、query:ns-xai
+   evidence：自适应交错推理与代码，融合神经多模态大模型和符号代码执行
+4. [ReM-MoA: Reasoning Memory Sustains Mixture-of-Agents Scaling](/202606/27/2606.24437v1-rem-moa-reasoning-memory-sustains-mixture-of-agents-scaling)  
+   标签：评分：6.0/10、query:ns-xai
+   evidence：通过记忆增强的混合智能体架构维持大语言模型推理性能
+5. [\textsc{DiARC}: Distinguishing Positive and Negative Samples Helps Improving ARC-like Reasoning Ability of Large Language Models](/202606/27/2606.26530v1-textscdiarc-distinguishing-positive-and-negative-samples-helps-improving-arc-like-reasoning-ability-of-large-language-models)  
+   标签：评分：6.0/10、query:ns-xai
+   evidence：通过样本判别提升LLM在ARC任务上的推理能力
 
 
 <div class="dpr-home-promo-card">
