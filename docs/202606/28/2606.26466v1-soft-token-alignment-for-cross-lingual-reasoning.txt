@@ -1,0 +1,1773 @@
+Title: Soft Token Alignment for Cross-Lingual Reasoning
+
+URL Source: https://arxiv.org/pdf/2606.26466v1
+
+Published Time: Fri, 26 Jun 2026 00:24:29 GMT
+
+Number of Pages: 41
+
+Markdown Content:
+# Soft Token Alignment for Cross-Lingual Reasoning 
+
+Jiayi He Jungsoo Park Wei Xu Alan Ritter 
+
+Georgia Institute of Technology 
+
+jhe478@gatech.edu 
+
+## Abstract 
+
+Multilingual large language models often produce inconsistent reasoning and an-swers for semantically equivalent prompts in different languages. Prior work suggests that intermediate representations can be relatively language-agnostic, but generation becomes increasingly language-specific as models commit to discrete output tokens. This is problematic because language-specific lexical choices can cause semantically equivalent reasoning paths to diverge across languages. These divergences motivate searching for a cross-lingual alignment signal that is less tied to any single vocabulary item or script. We propose SOLAR , an auxiliary objective for supervised fine-tuning that aligns soft-token representations across languages, using English as a pivot. Soft tokens are probability-weighted mixtures over the vocabulary embeddings, yielding continuous representations that can aggregate information from semantically related tokens across languages. We then align each non-English soft-token summary to its English counterpart in the shared embedding space. Across four multilingual reasoning benchmarks, SOLAR improves accuracy by up to +17.7 points over the base model and +3.8 over standard supervised fine-tuning, with the largest gains on low-resource languages. SOLAR also strengthens final-layer cross-lingual similarity and substantially reduces language-cluster sepa-rability, suggesting that aligning soft-token representations helps preserve shared semantic structure during multilingual reasoning. 
+
+## 1 Introduction 
+
+Large language models (LLMs) increasingly serve multilingual users, yet often produce inconsistent reasoning and answers for semantically equivalent prompts in different languages [ 38 , 75 ]. Recent work studying the internal representations of multilingual models [ 57 , 27 , 37 ] reveals a consistent mechanism: intermediate Transformer layers encode largely language-agnostic semantics, while final layers become language-specialized as the model selects discrete tokens in the target language’s script ( e.g., Chinese characters or Thai glyphs) for generation. This late-stage divergence from shared semantics to language-specific surface forms is hypothesized to contribute to inconsistent reasoning across languages, even when intermediate representations may have converged on the same solution. The transition from final-layer representations to discrete tokens can act as a bottleneck, collapsing probability mass over semantically related tokens into a single language-specific choice. Continuous-space reasoning offers a way to soften this collapse: soft thinking [73 ] replaces discrete next-token choices with probability-weighted mixtures over vocabulary embeddings. The resulting soft tokens 
+
+aggregate information across the vocabulary and are fed back as input embeddings for the next autoregressive step. Because soft tokens are not tied to a single token or language, they may retain cross-lingual semantic content that discrete token selection discards. However, prior soft-thinking methods use soft tokens mainly as an inference-time generation mechanism. They soften discrete decoding decisions but do not directly encourage semantically equivalent reasoning paths in different languages to stay aligned. This gap motivates our hypothesis: soft-token representations can provide a better training-time signal for cross-lingual alignment than discrete tokens.                                                                                         
+
+> Preprint.
+> arXiv:2606.26466v1 [cs.CL] 25 Jun 2026 Shared Multilingual LLM
+> Transformer Layer L
+> …
+> Transformer Layer 1
+> Input E mbedding Layer
+> English Reasoning x(en )
+> Given a rational number, write it as
+> a fraction in lowest terms and …
+> (teacher forcing)
+> Non -English Reasoning x(l)
+> Ukipewa namba fungamanifu ,
+> iandike kama sehemu katika …
+> (teacher forcing)
+> Next -token logits over vocabulary 𝒛 𝒕
+> 𝒆𝒏 ∈ℝ𝑽
+> t= 1
+> 𝑝 1
+> 𝑒𝑛 ∈ℝ𝕍
+> 𝑒 1
+> 𝑠𝑜𝑓𝑡 ,(𝑒𝑛 )∈ℝ𝑑
+> t=2
+> 𝑝 2
+> 𝑒𝑛 ∈ℝ𝕍
+> 𝑒 2
+> 𝑠𝑜𝑓𝑡 ,(𝑒𝑛 )∈ℝ𝑑
+> t=T
+> 𝑝 𝑇
+> 𝑒𝑛 ∈ℝ𝕍
+> 𝑒 𝑇
+> 𝑠𝑜𝑓𝑡 ,(𝑒𝑛 )∈ℝ𝑑
+> …
+> Soft token ത𝒆 𝒆𝒏
+> 𝒔𝒐𝒇𝒕 ∈𝑹 𝒅
+> Next -token logits over vocabulary 𝒛 𝒕
+> 𝒍 ∈ℝ𝑽
+> t= 1
+> 𝑝 1
+> 𝑙 ∈ℝ𝕍
+> 𝑒 1
+> 𝑠𝑜𝑓𝑡 ,(𝑙 )∈ℝ𝑑
+> t=2
+> 𝑝 2
+> 𝑙 ∈ℝ𝕍
+> 𝑒 2
+> 𝑠𝑜𝑓𝑡 ,(𝑙 )∈ℝ𝑑
+> t=T
+> 𝑝 𝑇
+> 𝑙 ∈ℝ𝕍
+> 𝑒 𝑇
+> 𝑠𝑜𝑓𝑡 ,(𝑙 )∈ℝ𝑑
+> …
+> Soft token ത𝒆 𝒍
+> 𝒔𝒐𝒇𝒕 ∈𝑹 𝒅
+> Alignment Loss
+> ℒalign en ,𝑙 =1−cos ത𝒆 𝒆𝒏
+> 𝒔𝒐𝒇𝒕 ,ത𝒆 𝒍
+> 𝒔𝒐𝒇𝒕
+> stop -grad Cross -Entropy Loss
+> (English)
+> Cross -Entropy Loss
+> (Non -English)
+> (Final o bjective for English) (Auxiliary alignment objective for non -English with w eight 𝜆 )(Primary objective for non -English)
+
+Figure 1: SOLAR framework. Parallel English and non-English inputs are processed by a shared LLM under teacher forcing, producing a per-position soft token e soft  
+
+> 𝑡
+
+that mixes vocabulary embeddings under the model’s next-token distribution. Soft tokens are mean-pooled across response positions into a per-language summary vector ( ¯e soft en , ¯e soft  
+
+> ℓ
+
+). The alignment objective Lalign is the cosine distance between the English and non-English summaries; stop-gradient on the English side restricts alignment gradients to the non-English branch. Both branches are supervised by cross-entropy ( L (en ) 
+
+> CE
+
+, L (ℓ ) 
+
+> CE
+
+), and the non-English objective adds Lalign weighted by 𝜆 > 0, which controls alignment strength. We propose SOLAR (So ft Token A lignment for Cross-Lingu al Reasoning), a lightweight auxiliary fine-tuning objective that aligns soft-token representations between English and non-English parallel reasoning traces during supervised fine-tuning (SFT) (Figure 1). For each reasoning trace and final response, SOLAR summarizes the model’s next-token distribution as an expectation over the embedding matrix. It then mean-pools across positions to obtain a single continuous vector that is independent of any individual token identity. Using English as a pivot, SOLAR minimizes cosine distance between the English representation and each non-English counterpart, drawing all languages toward an English-anchored semantic space. Because soft tokens operate in the shared embedding space, they enable direct comparison across languages regardless of surface-form differences. Our experiments show that SOLAR improves both task accuracy and cross-lingual consistency across four multilingual reasoning benchmarks. For Qwen3-4B [ 68 ], SOLAR improves accuracy by up to +3.8 over SFT and cross-lingual consistency by up to +4.5 on AIME 2024, with the largest gains on low-resource languages such as Swahili. Representation analysis shows that soft tokens carry a stronger final-layer cross-lingual signal than discrete tokens on base models, and that SOLAR produces substantially stronger final-layer cross-lingual alignment than SFT and inference-time soft thinking alone. At the same time, behavioral analysis shows that these gains preserve native-language reasoning: on MGSM, SOLAR-tuned Qwen3-4B reasons in the target language’s script at 98.13% (vs. 98.81% for the base), and SOLAR-tuned Qwen3-8B at 98.16%. This reverses the base 8B model’s collapse to English on non-Chinese languages (Ja/Th/Te below 5%; 27.43% four-language average). To our knowledge, SOLAR is the first method to leverage soft tokens, originally introduced for inference-time continuous reasoning, in a cross-lingual alignment objective during post-training. 
+
+## 2 SOLAR: soft token alignment for cross-lingual reasoning 
+
+In this section, we first review discrete and soft thinking as two paradigms for constructing input representations during autoregressive reasoning (§2.1), then describe how SOLAR repurposes soft-token embeddings as a cross-lingual alignment signal during SFT (§2.2). 22.1 Background: discrete vs. soft thinking 
+
+In Chain-of-Thought (CoT) [ 61 ], which we call Discrete Thinking , reasoning proceeds by autoregres-sively generating discrete tokens. Let 𝑥 1: 𝑛 denote the input prompt tokens and ˆ𝑥 𝑛 +1: 𝑡 −1 the previously generated reasoning tokens. Let E[·] denote the token embedding lookup function, with embeddings 
+
+e𝑖 = E[𝑥 𝑖 ] for 𝑖 ≤ 𝑛 and e𝑖 = E[ ˆ𝑥 𝑖 ] for 𝑖 > 𝑛 . The next token at step 𝑡 is decoded from 𝑝 𝜃 (· | e1: 𝑡 −1)
+
+(e.g., greedy or sampling): 
+
+ˆ𝑥 𝑡 ∼ 𝑝 𝜃 (· | e1: 𝑡 −1), e discrete  
+
+> 𝑡
+
+= E[ ˆ𝑥 𝑡 ]. (1) For a language model 𝑓 𝜃 with vocabulary 𝑉 and token embedding matrix E ∈ R|𝑉 | × 𝑑 , the logit vector z𝑡 = 𝑓 𝜃 (e1: 𝑡 −1) ∈ R|𝑉 | induces a distribution 𝑝 𝜃 (· | e1: 𝑡 −1) = softmax (z𝑡 /𝜏 ), where 𝜏 is the temperature. Eq. 1 thus constitutes a hard projection from the distribution over the vocabulary 𝑉 
+
+to the embedding of a single discrete token ˆ𝑥 𝑡 ∈ 𝑉 . That is, regardless of how probability mass is distributed, only E[ ˆ𝑥 𝑡 ] is fed as the input representation for the next step. 
+
+Soft Thinking [73 ] is an inference-time, autoregressive method that replaces this hard discrete projection during reasoning with a continuous representation formed from the next-token distribution. At step 𝑡 , it defines a soft-token embedding as the expectation over token embeddings E[𝑣 ] for 𝑣 ∈ 𝑉 
+
+under a truncated-and-renormalized distribution: 
+
+e soft  
+
+> 𝑡
+
+=∑︁ 
+
+> 𝑣 ∈𝑉
+
+˜𝑝 𝜃 (𝑣 | e1: 𝑡 −1) · E[𝑣 ], (2) where ˜𝑝 𝜃 is constructed by applying top-𝑘 filtering to the original distribution 𝑝 𝜃 (𝑣 | e1: 𝑡 −1) =
+
+[softmax (z𝑡 /𝜏 )] 𝑣 . Specifically, let 𝐹 𝑡 ⊆ 𝑉 be the token set obtained by retaining the 𝑘 highest-probability tokens. The filtered distribution is 
+
+˜𝑝 𝜃 (𝑣 | e1: 𝑡 −1) = 𝑝 𝜃 (𝑣 | e1: 𝑡 −1)1[𝑣 ∈ 𝐹 𝑡 ]
+
+Í𝑣 ′ ∈𝐹 𝑡 𝑝 𝜃 (𝑣 ′ | e1: 𝑡 −1) . (3) The resulting e soft  
+
+> 𝑡
+
+corresponds to no single discrete token and is fed back as the input embedding at step 𝑡 +1, closing an autoregressive loop over continuous representations instead of discrete tokens. 
+
+2.2 Aligning soft tokens for cross-lingual consistency From inference-time decoding to training-time alignment. Soft tokens were originally intro-duced as a single-language, inference-time enhancement to CoT [ 73 ], where they are fed back autoregressively during decoding. For cross-lingual alignment, their continuous form is useful because each soft token mixes shared vocabulary embeddings rather than committing to a single language-specific token or script. Inference-only soft thinking can soften decoding decisions, but does not explicitly train semantically equivalent reasoning paths across languages to stay aligned. SOLAR instead uses soft tokens as a training-time alignment signal during SFT: the forward pass stays teacher-forced on discrete reference tokens, soft tokens are used only to compute an auxiliary alignment loss, and non-English soft-token summaries are pulled toward an English pivot in the shared embedding space. 
+
+Soft-token summary and alignment. Given a mini-batch of parallel input-response pairs 
+
+(𝑥 (ℓ ) , 𝑦 (ℓ ) )ℓ ∈ L across a set of languages L (with English en ∈ L ), a teacher-forced forward pass pro-duces logits z𝑡 at each response position 𝑡 ∈ { 1, . . . , 𝑇 }. After top-𝑘 filtering and temperature scaling, 
+
+˜𝑝 𝜃 (𝑣 | e1: 𝑡 −1) defines the soft-token embedding e soft  
+
+> 𝑡
+
+via Eq. 2. For each reasoning trace and final response, we mean-pool these soft tokens into a summary vector ¯e soft  
+
+> ℓ
+
+= 1
+
+> 𝑇
+
+Í𝑇 𝑡 =1 e soft  
+
+> 𝑡
+
+∈ R𝑑 . Unlike a discrete token embedding, this vector summarizes likely continuations in the shared embedding space instead of a single vocabulary item or a distribution over R|𝑉 | . Responses can therefore be compared even across languages with disjoint vocabularies: SOLAR aligns semantic mixtures of embeddings ,not raw token-distribution support. 
+
+Cross-lingual alignment objective. Given a parallel training pair consisting of responses in two different languages ℓ∗ and ℓ, we let ¯e soft  
+
+> ℓ∗
+
+and ¯e soft  
+
+> ℓ
+
+denote the mean-pooled soft-token embeddings of the pivot and target responses. To encourage their response-level soft-token summaries to be close in the shared embedding space, we minimize their discrepancy using cosine distance: 
+
+Lalign (ℓ∗, ℓ ) = 1 − cos 
+
+
+
+¯e soft  
+
+> ℓ∗
+
+, ¯e soft 
+
+> ℓ
+
+
+
+, (4) 3where ℓ∗ denotes the pivot language. We form (ℓ∗, ℓ ) pairs for every non-pivot language ℓ, with the pivot summary ¯e soft  
+
+> ℓ∗
+
+treated as a fixed target so that alignment gradients flow exclusively through ¯e soft  
+
+> ℓ
+
+.This pulls non-pivot representations toward the pivot. We set ℓ∗ = en (English) in all experiments, since English consistently yields the highest accuracy across our benchmarks (Table 2). 
+
+Integration with supervised fine-tuning. In the SFT setting, the alignment objective Lalign is added as an auxiliary loss for each non-English training sample in language ℓ:
+
+L (ℓ ) 
+
+> SFT
+
+= L (ℓ ) 
+
+> CE
+
++ 𝜆 · L align (ℓ∗, ℓ ), (5) where L (ℓ ) 
+
+> CE
+
+is the cross-entropy loss for the response in language ℓ, 𝜆 > 0 controls alignment strength, and soft tokens are computed from the same teacher-forced forward pass used to evaluate LCE . For English samples, the alignment term is omitted, leaving L (en ) 
+
+> SFT
+
+= L (en ) 
+
+> CE
+
+.
+
+## 3 Experiments 
+
+We evaluate SOLAR on multilingual reasoning benchmarks to test whether soft-token alignment improves both accuracy and cross-lingual consistency. Further details are in Appendix D. 
+
+3.1 Experimental setup Training. We apply supervised fine-tuning to Qwen3-4B/8B and Gemma3-4B/12B [ 53 ] using M-s1k [ 1]. M-s1k is a multilingual long CoT reasoning dataset translated from s1k [ 33 ] by Gemini-2.0-Flash [ 15 ]. s1k consists of 1,000 diverse, high-quality, and challenging questions paired with complex reasoning traces and solutions. We compute soft tokens with 𝜏 =1.0 and top-𝑘 =30 .
+
+Evaluation. We evaluate on MGSM [ 48 ] and three XReasoning benchmarks [ 39 ]: AIME 2024 [ 56 ], AIME 2025 [ 22 ], and GPQA Diamond [ 43 ] (denoted GPQA hereafter). Each benchmark covers 11 languages; we report the 7 overlapping with M-s1k: En, Fr, Ja, Sw, Te, Th, and Zh. Following Zhang et al. [73] , we decode with temperature 0.6, 𝑘 =30 , 𝑝 =0.95 , and a maximum length of 32,768 tokens. To reduce variance, we average over 5 runs for MGSM and GPQA and 10 for AIME. 
+
+Metrics. We report (1) Task Accuracy ( ↑): the proportion of questions answered correctly; and (2) Cross-Lingual Consistency (CLC ↑): the proportion of questions answered correctly in both English and non-English languages simultaneously. Inspired by Lim et al. [27] , we define CLC for language pair (ℓ1, ℓ 2) as CLC (ℓ1, ℓ 2) = 1
+
+> 𝑁 𝑞
+
+Í𝑁 𝑞  
+
+> 𝑖 =1
+
+1
+
+h
+
+𝑎 ℓ1 
+
+> 𝑖
+
+= 𝑎 ℓ2 
+
+> 𝑖
+
+= 𝑎 ∗
+
+> 𝑖
+
+i
+
+, where 𝑎 ℓ𝑖 is the model’s answer for the 
+
+𝑖 -th question in language ℓ, 𝑎 ∗ 
+
+> 𝑖
+
+is the ground-truth answer, and 𝑁 𝑞 is the total number of questions. 
+
+Baselines. We compare SOLAR with several approaches: (1) base models with standard autoregres-sive decoding; (2) Soft Thinking [ 73 ]: inference-time replacement of discrete tokens with soft-token embeddings; (3) SFT: standard supervised fine-tuning without SOLAR’s alignment objective; (4) MidAlign [ 29 ]: a middle-layer representation alignment method based on contrastive learning; (5) MAPO [ 46 ]: a preference optimization method aligning non-English reasoning with English via translation model scores; and (6) AlignX [ 2]: a two-stage framework combining intermediate-layer contrastive alignment with a language matching classifier. 
+
+3.2 Main results 
+
+Table 1 reports aggregate results across four benchmarks, and Table 2 breaks down MGSM accu-racy by language. Per-language results for AIME 2024, AIME 2025, and GPQA are provided in Appendix E. 
+
+SOLAR outperforms all evaluated baselines across benchmarks and model sizes. For Qwen3-4B, SOLAR improves accuracy over SFT by +1.5 to +3.8 and CLC by +3.1 to +4.5 across all benchmarks. On Qwen3-8B, it achieves +1.3 to +1.9 accuracy and +1.5 to +2.9 consistency gains over SFT. Among cross-lingual alignment baselines, MidAlign is competitive on the harder benchmarks, reaching second-best accuracy on AIME 2024 (36.67%) and AIME 2025 (29.05%). MAPO is 4Table 1: Average accuracy and cross-lingual consistency (%) across four benchmarks for Qwen3-4B, Qwen3-8B, and their fine-tuned variants. Best and second-best within each model are highlighted.                                                                                                                             
+
+> MGSM AIME 2024 AIME 2025 GPQA Avg. Model Accuracy CLC Accuracy CLC Accuracy CLC Accuracy CLC Accuracy CLC
+> Qwen3-4B 74.01 69.31 31.10 23.89 23.05 17.61 27.52 14.56 38.92 31.34 + Soft Thinking 74.23 70.37 31.86 24.44 23.33 18.22 27.34 14.31 39.19 31.84 + SFT 76.25 72.29 34.76 25.17 27.90 20.44 43.75 33.15 45.67 37.76 + MidAlign 76.45 73.11 36.67 27.11 29.05 23.22 43.00 32.47 46.29 38.98 + MAPO 77.52 73.90 34.76 25.89 25.81 18.94 40.32 30.15 44.60 37.22 + AlignX 77.69 73.00 36.00 26.88 27.76 20.10 43.03 32.97 46.12 38.24 + SOLAR (ours) 78.27 75.61 38.52 29.67 30.95 24.51 45.24 36.26 48.25 41.51 Qwen3-8B 83.42 80.51 62.10 56.06 54.91 45.06 52.68 42.69 63.28 56.08 + Soft Thinking 83.04 80.01 62.52 56.91 54.71 44.22 53.06 43.42 63.33 56.14 + SFT 86.90 84.71 65.67 58.67 58.38 50.13 63.64 55.73 68.65 62.31 + SOLAR (ours) 88.27 87.28 67.52 60.61 60.10 53.02 64.96 57.27 70.21 64.55
+
+Table 2: Per-language accuracy (%) and average accuracy on MGSM for Qwen3-4B, Qwen3-8B, and their fine-tuned variants.                                                                                                 
+
+> Model En Fr Ja Sw Te Th Zh Avg.
+> Qwen3-4B 93.36 81.36 80.56 29.04 64.24 83.36 86.16 74.01 + Soft Thinking 93.40 83.52 81.84 28.24 61.60 84.12 86.92 74.23 + SFT 94.00 85.60 77.20 47.20 63.52 79.36 86.88 76.25 + MidAlign 93.24 85.16 79.92 48.72 63.04 77.60 87.44 76.45 + MAPO 92.24 85.76 80.00 51.28 65.92 79.04 88.40 77.52 + AlignX 93.12 84.56 80.32 53.48 64.32 80.40 87.60 77.69 + SOLAR (ours) 93.32 86.32 81.00 53.48 65.36 80.56 87.84 78.27 Qwen3-8B 94.88 86.80 84.96 59.36 80.08 89.36 88.48 83.42 + Soft Thinking 94.96 86.80 84.88 58.32 81.44 88.00 86.88 83.04 + SFT 95.44 89.60 82.24 79.76 80.56 91.20 89.52 86.90 + SOLAR (ours) 94.96 91.28 82.72 81.36 83.20 92.80 91.60 88.27
+
+competitive on MGSM (77.52%) but underperforms on AIME 2025 and GPQA, likely due to sparse preference pairs: Qwen3-4B answers only 1,148 of 9,000 non-English M-s1k questions correctly under 20-sample decoding. AlignX is comparable to MidAlign and MAPO ( e.g., 77.69% on MGSM). 
+
+Low-resource languages benefit most, with the largest gains on Swahili. SSwahili accuracy on MGSM nearly doubles from 29.04% to 53.48% for Qwen3-4B and increases from 59.36% to 81.36% for Qwen3-8B, while high-resource languages maintain stable performance (Table 2). This reflects the intuition that cross-lingual alignment is most helpful where cross-lingual divergence is greatest. 
+
+Inference-time soft thinking does not consistently improve cross-lingual reasoning. For Qwen3-4B, accuracy changes stay within ±0.8 points across all benchmarks, and CLC shifts are inconsistent (+1.06 on MGSM but −0.25 on GPQA). This indicates that simply replacing discrete tokens with soft tokens at inference time cannot substitute for explicit training-time alignment as in SOLAR. 
+
+## 4 Analysis 
+
+This section analyzes the mechanisms behind SOLAR. We examine how SOLAR reshapes cross-lingual representations (§4.1), verify that SOLAR preserves target-language reasoning without shifting generation toward English (§4.2), analyze the sensitivity of the alignment weight and soft-token temperature (§4.3), and isolate which component of the objective drives the gain (§4.4). 
+
+4.1 Representation analysis 
+
+We examine how hidden representations are organized across languages and how soft tokens affect cross-lingual alignment. To do so, we first quantify the effect of inference-time soft thinking (Table 3), then ask whether SOLAR further reshapes these representations on Qwen3-4B (Table 4). Let hℓ𝑖 ∈ R𝑑 
+
+525 0 25 50                     
+
+> Dim 1
+> 40
+> 20
+> 0
+> 20
+> 40
+> Dim 2
+> Discrete Thinking
+> 25 025 50
+> Dim 1
+> 40
+> 20
+> 0
+> 20
+> 40
+> Soft Thinking
+> 20 020 40
+> Dim 1
+> 40
+> 20
+> 0
+> 20
+> 40
+> Discrete Thinking
+> 20 020 40
+> Dim 1
+> 40
+> 20
+> 0
+> 20
+> 40
+> Soft Thinking
+> Middle Layer Final Layer
+> En Es Fr De Ru Zh Ja Th Sw Bn Te
+
+Figure 2: t-SNE of Gemma3-12B hidden states on MGSM at the middle (layer 24) and final (layer 48) layers. Language representations intermix at layer 24 under both thinking modes. At layer 48, discrete thinking yields separated clusters, while soft thinking substantially increases overlap. be the hidden state for sample 𝑖 in language ℓ, with language set L, 𝐿 = |L| , and 𝑁 parallel samples per language. We report two metrics in [− 1, +1]: (1) Cross-Lingual Similarity (CLS ↑), the average pairwise cosine similarity between parallel samples across all language pairs, where higher values indicate more language-agnostic representations; and (2) Silhouette Score (SS ↓) [ 44 ], the standard cosine-distance silhouette score measuring how strongly hidden states cluster by language, where lower values indicate weaker language separability. We probe early, middle, and final layers, using layer 1, the 50%-depth layer, and the last layer for each model. Metrics are computed on 𝑁 =50 
+
+parallel MGSM instances across the seven training languages. For soft-thinking representations, we first run a discrete-token forward pass to construct soft tokens, then run a second pass with these soft tokens as inputs to extract the corresponding hidden states. Full results for models across the Qwen3, Gemma3, and DeepSeek-R1-Distill [9] families are in Appendix F.2. Early Mid Final     
+
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> 0.7460
+> 0.9517
+> Cross-Lingual Similarity ( )
+> Early Mid Final
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 0.4470
+> 0.2360
+> Silhouette Score ( )
+> Discrete Thinking
+> Soft Thinking
+> Discrete Thinking Mean
+> Soft Thinking Mean
+
+Figure 3: Layer-wise CLS and SS for Gemma3-12B on MGSM under discrete and soft thinking. CLS peaks in the middle layer and drops at the final layer, where soft think-ing yields the largest gains. 
+
+Cross-lingual similarity follows an inverted-U (low-high-low) pattern across early, middle, and fi-nal layers. Table 3 compares representations under discrete and inference-time soft thinking on MGSM for three base models, isolating the effect of soft to-kens at inference time before introducing SOLAR’s training-time alignment. With discrete tokens, CLS is high in early and middle layers but drops sharply at the final layer. Figure 3 visualizes this trend across all layers for Gemma3-12B. SS shows a U-shaped pattern, reaching its lowest values at the middle layer before rising sharply at the final layer. This pat-tern matches prior observations that LLMs share a more language-agnostic semantic space mid-network while final layers reintroduce language-specific struc-ture [27, 57, 66, 55, 37]. 
+
+Soft tokens improve final-layer alignment but do not dissolve language clusters. Compared to discrete thinking, soft tokens raise final-layer CLS across all models, with the largest gain in Gemma3-12B ( ΔCLS=+0.68, Table 3). Early and middle layers see little benefit and can even degrade ( e.g., Qwen3-8B has ΔCLS= −0.03 at the middle layer). These layers already reach high CLS under discrete think-ing, leaving little room to improve, and the distributional shift from soft tokens may slightly disrupt their alignment. SS improvements are limited and inconsistent: only Gemma3-12B shows a large decrease ( ΔSS= −0.73), while other models show negligible change or slight increases. Language clusters thus largely remain intact for most models (Figure 2). 
+
+SOLAR produces the strongest cross-lingual representations. Having shown that soft tokens carry useful cross-lingual signal but that inference-time use alone does not improve performance 6Table 3: Cross-lingual representation alignment on MGSM under discrete (Disc-) vs. soft (Soft-) thinking. Δ columns are Soft −Disc. Mean over 𝑁 =50 parallel samples.                                                                  
+
+> Qwen3-8B Gemma3-12B DeepSeek-R1-Distill-Qwen-7B Metric Early Mid Final Early Mid Final Early Mid Final
+> Disc-CLS 0.82 0.97 0.23 0.99 1.00 0.25 0.74 1.00 0.24 Soft-CLS 0.83 0.94 0.36 0.93 1.00 0.93 0.73 0.97 0.25
+> ΔCLS +0.01 -0.03 +0.13 -0.06 +0.00 +0.68 -0.01 -0.03 +0.01 Disc-SS 0.53 0.15 0.87 0.31 0.21 0.82 0.55 0.11 0.83 Soft-SS 0.60 0.27 0.83 0.54 0.08 0.09 0.59 0.20 0.82
+> ΔSS +0.07 +0.12 -0.04 +0.23 -0.13 -0.73 +0.04 +0.09 -0.01
+
+Table 4: Final-layer cross-lingual representation analysis on Qwen3-4B/8B and their fine-tuned variants. Δ rows are training effects. Results for early/middle layers in Appendix F.2. 
+
+Discrete Thinking Soft Thinking CLS SS CLS SS 
+
+Qwen3-4B 0.14 0.89 0.24 0.88 + SFT 0.30 0.86 0.40 0.85 
+
+Δ +0.16 -0.03 +0.16 -0.03 + SOLAR 0.50 0.77 0.42 0.81 
+
+Δ +0.36 -0.12 +0.18 -0.07 Qwen3-8B 0.23 0.87 0.36 0.83 + SFT 0.50 0.86 0.56 0.86 
+
+Δ +0.27 -0.01 +0.20 +0.03 + SOLAR 0.76 0.77 0.87 0.76 
+
+Δ +0.53 -0.10 +0.51 -0.07 Table 5: Distribution-level target-script ratio (%) on MGSM under top-𝑘 /top-𝑝 .                                                                   
+
+> Model Zh Ja Th Te Avg.
+> (a) Top-𝑘 (𝑘 =30 )Qwen3-4B 82.26 78.87 87.70 65.37 78.55 + SFT 91.29 92.26 91.91 65.21 85.17 + SOLAR 79.34 81.14 91.21 98.37 87.51 Qwen3-8B 92.49 19.73 27.99 11.97 38.05 + SFT 93.09 93.09 94.41 69.05 87.41 + SOLAR 82.83 77.79 91.75 98.99 87.84 (b) Top-𝑝 (𝑝 =0.9)Qwen3-4B 94.57 95.84 97.22 94.37 95.50 + SFT 95.69 97.35 98.41 98.75 97.55 + SOLAR 95.75 97.16 98.46 99.34 97.68 Qwen3-8B 97.99 21.75 32.59 13.15 41.37 + SFT 96.21 97.14 98.47 98.78 97.65 + SOLAR 95.68 96.05 97.38 99.47 97.14
+
+(§3.2), we examine whether fine-tuning reshapes representations more effectively (Table 4; same 50 MGSM samples). The base Qwen3-4B shows the inverted-U pattern, with CLS dropping to 0.14 at the final layer. SFT raises final-layer CLS to 0.30 (+0.16), while SOLAR reaches 0.50 (+0.36, more than 2 × the SFT gain) and substantially reduces final-layer SS from 0.89 to 0.77 ( −0.12), indicating weaker language clustering. Applying soft-thinking inference to fine-tuned models improves SFT’s CLS (0.30 →0.40) but slightly reduces SOLAR’s (0.50 →0.42). This suggests that SOLAR already internalizes the alignment benefit that soft tokens provide, and that training-time alignment subsumes what inference-time soft thinking can recover post-hoc. On Qwen3-8B, SOLAR’s discrete-thinking gain is larger ( ΔCLS = +0.53) and, unlike on 4B, remains nearly intact under soft thinking (+0.51). 
+
+4.2 Behavioral analysis 
+
+We examine whether fine-tuning changes the model’s reasoning behavior on MGSM (Zh, Ja, Th, Te) at the token level (the generated tokens of each reasoning trace) and the distribution level (the top-
+
+𝑘 /top-𝑝 candidates in the output distribution during teacher-forced decoding). At both levels, every token is classified into one of three categories using Unicode code-point ranges: target-script (the prompt language’s native writing system, e.g., CJK ideographs for Chinese), Latin (Unicode names containing LATIN , used as a proxy for English), and neutral (digits, punctuation, math symbols, and whitespace). We define the target-script ratio as # target / ( # target + # Latin ) to exclude neutral tokens so that script preference is not diluted by language-agnostic symbols. 
+
+Fine-tuning preserves native language choice at the token level. Qwen3-4B reasons almost entirely in the target script (98.81%). SFT and SOLAR maintain comparable ratios (Figure 4). The ratio is nearly identical for correct and incorrect answers (average Δ < 0.5% ; Table 32), indicating that fine-tuning improves task performance without shifting language choice toward English. 70     
+
+> 20
+> 40
+> 60
+> 80
+> 100
+> Top-k (k = 30)
+> Composition (%)
+> Chinese Japanese Thai Telugu
+> 4B
+> 4B + SFT
+> 4B + SOLAR
+> 8B
+> 8B + SFT
+> 8B + SOLAR
+> 0
+> 20
+> 40
+> 60
+> 80
+> 100
+> Top-p (p = 0.9)
+> Composition (%)
+> 4B
+> 4B + SFT
+> 4B + SOLAR
+> 8B
+> 8B + SFT
+> 8B + SOLAR
+> 4B
+> 4B + SFT
+> 4B + SOLAR
+> 8B
+> 8B + SFT
+> 8B + SOLAR
+> 4B
+> 4B + SFT
+> 4B + SOLAR
+> 8B
+> 8B + SFT
+> 8B + SOLAR
+> Target Latin Neutral
+
+Figure 5: Distribution-level token composition by language script on MGSM for Qwen3-4B, Qwen3-8B, and their training variants under top-𝑘 (𝑘 =30 , top row) and top-𝑝 (𝑝 =0.9, bottom row). Each bar decomposes tokens into target-script (dark teal), Latin (medium green), and neutral (light green) categories. SFT increases the density of target-script tokens in the top predictions, while SOLAR primarily suppresses Latin competition, most notably for low-resource scripts such as Telugu. Chinese Japanese Thai Telugu   
+
+> 50
+> 60
+> 70
+> 80
+> 90
+> 100
+> Target-script ratio (%)
+> Qwen3-4B + SFT + SOLAR
+
+Figure 4: Token-level target-script ratio (%) on MGSM of Qwen3-4B and its fine-tuned variants. Ratios remain high with little variation across meth-ods, suggesting that performance differences are not driven by changes in target-script usage. 
+
+SFT and SOLAR achieve high target-script ratios through distinct mechanisms. The 8B base model shows a stronger English preference than 4B ( e.g., Telugu 11.97% vs. above 65%; Figure 5, Table 5). SFT and SOLAR close this gap (8B average 38.05% →above 87%) through different mechanisms: SFT raises target-script token density in the top-30 predictions, while SOLAR suppresses Latin competition. The con-trast is clearest for Telugu, where SOLAR nearly eliminates Latin competition (98.37% for 4B) but SFT leaves it largely unchanged (65.21% vs. 65.37%). Under top-𝑝 sampling, all fine-tuned models reach 95–99% target-script ratios, so re-maining cross-lingual competition is confined to low-probability alternatives. 
+
+4.3 Hyperparameter sensitivity 
+
+Table 6: Hyperparameter ablation ( 𝜆 , 𝜏 )for SOLAR with Qwen3-4B on MGSM. 
+
+Configuration Accuracy CLC 
+
+(a) Alignment weight 𝜆 
+
+0.25 78.61 75.73 0.50 78.27 75.61 0.75 75.83 73.73 1.00 69.25 63.67 
+
+(b) Soft-token temperature 𝜏 
+
+0.6 60.48 57.03 1.0 78.27 75.61 2.0 76.41 73.13 
+
+Alignment weight 𝜆 . We vary the alignment weight 
+
+𝜆 ∈ { 0.25 , 0.50 , 0.75 , 1.00 }, with the soft-token temper-ature 𝜏 =1.0 fixed. Both 𝜆 =0.25 and 𝜆 =0.50 perform strongly on MGSM (Table 6), and 𝜆 =0.50 also leads on the harder benchmarks (Table 16). Larger weights de-grade performance, with 𝜆 =1.00 falling below the base model, suggesting that excessive alignment overwhelms the cross-entropy objective. We adopt 𝜆 =0.50 for all main experiments in §3.2. 
+
+Soft-token temperature 𝜏 . We vary the soft-token tem-perature 𝜏 ∈ { 0.6, 1.0, 2.0}, with 𝜆 =0.50 fixed. 𝜏 sets the sharpness of the soft-token distribution: lower 𝜏 yields more peaked distributions near discrete tokens, while higher 𝜏 yields smoother mixtures over the vocabulary. Setting 𝜏 =1.0 performs best (78.3% accu-racy, 75.6% CLC; Table 6). Lowering it to 𝜏 =0.6 degrades sharply (60.5% accuracy, 57.0% CLC), 8Table 7: Alignment-target ablation for SOLAR with Qwen3-4B.                                                                   
+
+> MGSM AIME 2024 AIME 2025 GPQA Avg. Alignment target Accuracy CLC Accuracy CLC Accuracy CLC Accuracy CLC Accuracy CLC
+> Qwen3-4B +SFT 76.25 72.29 34.76 25.17 27.90 20.44 43.75 33.15 45.67 37.76 + Discrete 76.37 73.50 35.63 26.06 28.12 21.41 43.86 33.47 46.00 38.61 + Final-hidden 76.97 73.79 35.47 25.91 27.87 20.05 44.05 34.51 46.09 38.57 + Untruncated 77.19 74.72 37.03 27.63 27.93 22.93 44.04 34.46 46.55 39.94 + SOLAR ( 𝑘 =30 )78.27 75.61 38.52 29.67 30.95 24.51 45.24 36.26 48.25 41.51
+
+Table 8: Pooling-granularity ablation for SOLAR with Qwen3-4B.                                                         
+
+> MGSM AIME 2024 AIME 2025 GPQA Avg. Pooling granularity Accuracy CLC Accuracy CLC Accuracy CLC Accuracy CLC Accuracy CLC
+> Qwen3-4B +SFT 76.25 72.29 34.76 25.17 27.90 20.44 43.75 33.15 45.67 37.76 + Answer-only 76.00 71.91 34.93 25.92 27.92 20.94 44.95 34.96 45.95 38.43 + Step-level 77.04 73.34 37.03 28.95 29.01 23.88 46.15 37.81 47.31 41.00 + Full (SOLAR) 78.27 75.61 38.52 29.67 30.95 24.51 45.24 36.26 48.25 41.51
+
+indicating that overly peaked distributions lose the cross-lingual signal, whereas 𝜏 =2.0 yields only a moderate drop (76.4% accuracy, 73.1% CLC). 
+
+4.4 What drives the alignment gain? 
+
+To isolate which component of SOLAR’s objective drives its gain, we vary one design choice at a time while holding the rest of the pipeline fixed. The five choices we study are the alignment target, the pooling granularity, the top-𝑘 filter, the alignment representation space, and the pivot language. 
+
+Alignment target. We compare four alignment targets for the auxiliary loss: (1) Discrete , the straight-through embedding of the top-1 token ( e𝑡 = E[𝑦 𝑡 ]), replacing the soft-token embedding with one hard token; (2) Final-hidden , the mean-pooled final-layer hidden state, testing whether any final-layer matching signal suffices; (3) Untruncated , the soft-token embedding over the full vocabulary with no top-𝑘 filter; and (4) SOLAR , the default top-𝑘 =30 soft-token embedding. On Qwen3-4B, SOLAR is the best alignment target (48.25% average accuracy, 41.51% CLC; Table 7). The other targets cluster within run-to-run noise: Discrete and Final-hidden stay at the SFT level (46.00% and 46.09% vs. 45.67%), and Untruncated, the strongest alternative (46.55%), still trails SOLAR. A single hard token (Discrete) thus recovers almost none of SOLAR’s gain, so top-𝑘 
+
+truncation carries semantic value beyond compute savings. We attribute this to two factors. First, the long tail kept by Untruncated injects cross-lingual noise that top-𝑘 filtering removes. Second, aligning only the final hidden state (Final-hidden) underperforms because the embedding-space soft-token mixture is more language-invariant than the final hidden state itself. 
+
+Pooling granularity. We fix the soft-token target and vary the pooling granularity of the alignment loss: (1) Answer-only , pooling over the final \boxed{} span; (2) Step-level , pooling within each step (split on \n\n ) and matched by relative position; and (3) Full , the default single pooled pair over the entire response. Answer-only pooling matches SFT (MGSM 76.00% vs. 76.25%, Table 8), indicating that the alignment signal lives in the reasoning trace. Step-level, the finest variant with one pair per step, improves over Answer-only but still trails Full (MGSM 77.04% vs. 78.27%). We hypothesize that finer granularity helps only when steps correspond across languages. Matching by relative position presumes a parallel step structure that the \n\n split does not guarantee, since equivalent reasoning often spans a different number of steps across languages. Full-response pooling avoids this misalignment. Recovering the benefit of finer granularity likely requires content-aware segmentation that aligns steps across languages, which we leave to future work. 
+
+Top-𝑘 sensitivity. We sweep 𝑘 ∈ { 1, 5, 10 , 30 , 50 } for the top-𝑘 filter defining the soft expectation (Table 9). 𝑘 =1 recovers the Discrete target, since a top-1 filter with renormalization is a hard selection. Accuracy rises steeply from 𝑘 =1 to 𝑘 =10 , then plateaus: 𝑘 ∈ { 10 , 30 , 50 } all reach roughly 48% average accuracy, with no value dominating across benchmarks. Because 𝑘 affects only the alignment-loss sum over the top-𝑘 distribution, larger 𝑘 raises per-step compute with no accuracy gain. We adopt 𝑘 =30 , which attains the best average accuracy among the plateau values. 9Table 9: Top-𝑘 ablation for SOLAR with Qwen3-4B.                                                                             
+
+> MGSM AIME 2024 AIME 2025 GPQA Avg. Top-𝑘 Accuracy CLC Accuracy CLC Accuracy CLC Accuracy CLC Accuracy CLC
+> SFT 76.25 72.29 34.76 25.17 27.90 20.44 43.75 33.15 45.67 37.76
+> 𝑘 =1(Discrete) 76.37 73.50 35.63 26.06 28.12 21.41 43.86 33.47 46.00 38.61
+> 𝑘 =577.00 73.92 36.46 26.97 28.64 22.20 44.89 35.96 46.75 39.76
+> 𝑘 =10 78.36 76.02 38.40 29.12 30.93 24.42 44.92 35.98 48.15 41.19
+> 𝑘 =30 (SOLAR) 78.27 75.61 38.52 29.67 30.95 24.51 45.24 36.26 48.25 41.51
+> 𝑘 =50 78.08 75.11 38.34 29.00 31.10 24.89 45.29 36.55 48.20 41.39
+
+Table 10: Representation-space and pivot-language ablation for SOLAR with Qwen3-4B on MGSM. 
+
+Configuration Accuracy CLC 
+
+(a) Representation space 
+
+R𝑑 (emb.) 78.27 75.61 
+
+R|𝑉 | (prob.) 60.27 44.76 
+
+(b) Pivot language ℓ∗
+
+English (En) 78.27 75.61 Chinese (Zh) 74.50 70.97 French (Fr) 72.87 66.67 
+
+Alignment representation space. We vary the align-ment representation space between R𝑑 (soft-token embed-dings) and R|𝑉 | (probability distributions), with 𝜆 =0.50 
+
+and 𝜏 =1.0 fixed. Aligning in probability space degrades accuracy to 60.3% and CLC to 44.8% (Table 10). This degradation suggests that token distributions have largely disjoint support across languages, making cosine distance less informative. Projecting them into the shared embed-ding space R𝑑 instead preserves cross-lingual correspon-dences and provides a better basis for alignment. 
+
+Pivot language ℓ∗. We vary the pivot language ℓ∗ across English, Chinese, and French, with 𝜆 =0.50 and 𝜏 =1.0
+
+fixed. English gives the best improvement, followed by Chinese (Table 10). The gap concentrates in low-resource languages: MGSM Swahili accuracy drops from 53.48% (En) to 40.56% (Zh) and 36.80% (Fr) (Table 17), showing that transfer effectiveness depends on the pivot’s pre-trained representation strength, with English as the strongest anchor. 
+
+## 5 Related work 
+
+Multilingual reasoning. LLMs trained on multilingual corpora exhibit inconsistent cross-lingual reasoning performance [48, 38], and recent work attributes these disparities to internal mechanisms. Wang et al. [57] show that errors arise in the final-layer transition from language-agnostic intermediate representations to language-specific outputs. Liu et al. [31] identify language-specific attention heads that mediate cross-lingual attention transfer. Lim et al. [27] find that larger models rely more on language-specific representations. Methods for improving multilingual reasoning, particularly for low-resource languages, fall broadly into training-based and inference-based categories [ 14 ]. Training-based methods leverage parallel multilingual data during pre-training [ 60 ] or post-training [ 69 ], language-mixed CoT data [ 50 ], adapter merging [ 76 ], and representation alignment [ 2, 3]. A recent wave of multilingual reinforcement learning (RL) methods uses English as a pivot with translation-quality, language-consistency, or self-feedback rewards [ 74 , 20 , 72 ]. Inference-based methods include in-context learning [ 52 ], activation steering [ 37 ], test-time scaling [ 70 ], and inference-time linear transformations between source- and target-language hidden states [58]. 
+
+Continuous-space reasoning. While CoT prompting [ 61 ] enhances LLM reasoning through dis-crete tokens, a growing line of work argues that reasoning may instead unfold in continuous repre-sentations that encode richer information than discrete tokens [ 6 , 51 ]. Several methods train LLMs to reason directly in continuous space [ 65 , 47 ]; for instance, COCONUT [ 18 ] feeds the last hidden state back as the next input embedding, allowing multiple reasoning steps to unfold in parallel. Butt et al. [4] train continuous CoTs with reinforcement learning by injecting noise into the input embed-ding mixture for exploration, and report that decoding with discrete tokens at inference on top of a continuous-CoT trained model performs best. Among training-free approaches, Soft Thinking [ 73 ]replaces discrete token embeddings with probability-weighted soft tokens for richer inference-time representations, and theoretical work further shows that continuous CoT can efficiently solve graph-reachability problems [ 79 ]. Taken together, these results suggest that continuous-space reasoning carries expressive advantages over its discrete counterpart [51]. 10 6 Conclusion 
+
+We introduce SOLAR, an auxiliary training objective that aligns soft-token representations across parallel multilingual reasoning traces. SOLAR improves task accuracy and cross-lingual consistency over standard SFT across four multilingual benchmarks, with the largest gains on low-resource languages. At the representation level, SOLAR more than doubles SFT’s final-layer cross-lingual similarity gain and substantially reduces language-cluster separability, showing that aligning soft-token representations helps preserve shared semantics and improve cross-lingual consistency. 
+
+## Acknowledgments 
+
+This research is supported in part by the NSF under grant numbers IIS-2144493, IIS-2052498, SMA-2418946, and NAIRR250217, in addition to a gift from Google. Any opinions, findings, and conclusions or recommendations expressed in this material are those of the author(s) and do not necessarily reflect the views of the National Science Foundation. 
+
+## References 
+
+[1] Josh Barua, Seun Eisape, Kayo Yin, and Alane Suhr. Long chain-of-thought reasoning across languages. In The Fourteenth International Conference on Learning Representations , 2026. URL https://openreview.net/forum?id=2kKXbsRhYI .[2] Mengyu Bu, Shaolei Zhang, Zhongjun He, Hua Wu, and Yang Feng. AlignX: Advancing multilingual large language models with multilingual representation alignment. In Christos Christodoulopoulos, Tanmoy Chakraborty, Carolyn Rose, and Violet Peng, editors, Proceedings of the 2025 Conference on Empirical Methods in Natural Language Processing , pages 6460– 6489, Suzhou, China, November 2025. Association for Computational Linguistics. ISBN 979-8-89176-332-6. doi: 10.18653/v1/2025.emnlp-main.328. URL https://aclanthology. org/2025.emnlp-main.328/ .[3] Yuyan Bu, Xiaohao Liu, ZhaoXing Ren, Yaodong Yang, and Juntao Dai. Align once, benefit multilingually: Enforcing multilingual consistency for LLM safety alignment. In The Fourteenth International Conference on Learning Representations , 2026. URL https://openreview. net/forum?id=ueknOG1wXL .[4] Natasha Butt, Ariel Kwiatkowski, Ismail Labiad, Julia Kempe, and Yann Ollivier. Soft tokens, hard truths, 2025. URL https://arxiv.org/abs/2509.19170 .[5] Kang Chen, Mengdi Zhang, and Yixin Cao. Less data less tokens: Multilingual unification learning for efficient test-time reasoning in llms, 2025. URL https://arxiv.org/abs/2506. 18341 .[6] Xinghao Chen, Anhao Zhao, Heming Xia, Xuan Lu, Hanlin Wang, Yanjun Chen, Wei Zhang, Jian Wang, Wenjie Li, and Xiaoyu Shen. Reasoning beyond language: A comprehensive survey on latent chain-of-thought reasoning, 2025. URL https://arxiv.org/abs/2505.16782 .[7] Yang Chen, Vedaant Shah, and Alan Ritter. Translation and fusion improves cross-lingual infor-mation extraction. In Wanxiang Che, Joyce Nabende, Ekaterina Shutova, and Mohammad Taher Pilehvar, editors, Proceedings of the 63rd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 7744–7764, Vienna, Austria, July 2025. Association for Computational Linguistics. ISBN 979-8-89176-251-0. doi: 10.18653/v1/2025.acl-long.382. URL https://aclanthology.org/2025.acl-long.382/ .[8] Karl Cobbe, Vineet Kosaraju, Mohammad Bavarian, Mark Chen, Heewoo Jun, Lukasz Kaiser, Matthias Plappert, Jerry Tworek, Jacob Hilton, Reiichiro Nakano, Christopher Hesse, and John Schulman. Training verifiers to solve math word problems, 2021. URL https://arxiv.org/ abs/2110.14168 .[9] DeepSeek-AI. Deepseek-r1: Incentivizing reasoning capability in llms via reinforcement learning, 2025. URL https://arxiv.org/abs/2501.12948 .11 [10] Fahim Faisal, Kaiqiang Song, Song Wang, Simin Ma, Shujian Liu, Haoyun Deng, and Sathish Reddy Indurthi. Aligning multilingual reasoning with verifiable semantics from a high-resource expert model, 2025. URL https://arxiv.org/abs/2509.25543 .[11] Negar Foroutan, Paul Teiletche, Ayush Kumar Tarun, and Antoine Bosselut. Revisiting multi-lingual data mixtures in language model pretraining, 2025. URL https://arxiv.org/abs/ 2510.25947 .[12] Lance Calvin Lim Gamboa, Yue Feng, and Mark G. Lee. Social bias in multilingual language models: A survey. In Christos Christodoulopoulos, Tanmoy Chakraborty, Carolyn Rose, and Violet Peng, editors, Proceedings of the 2025 Conference on Empirical Methods in Natural Language Processing , pages 27857–27880, Suzhou, China, November 2025. Association for Computational Linguistics. ISBN 979-8-89176-332-6. doi: 10.18653/v1/2025.emnlp-main. 1416. URL https://aclanthology.org/2025.emnlp-main.1416/ .[13] Shengxiang Gao, Fang Nan, Yongbing Zhang, Yuxin Huang, Kaiwen Tan, and Zhengtao Yu. A mixed-language multi-document news summarization dataset and a graphs-based extract-generate model. In Luis Chiruzzo, Alan Ritter, and Lu Wang, editors, Proceedings of the 2025 Conference of the Nations of the Americas Chapter of the Association for Computational Linguistics: Human Language Technologies (Volume 1: Long Papers) , pages 9255–9265, Albuquerque, New Mexico, April 2025. Association for Computational Linguistics. ISBN 979-8-89176-189-6. doi: 10.18653/v1/2025.naacl-long.468. URL https://aclanthology. org/2025.naacl-long.468/ .[14] Akash Ghosh, Debayan Datta, Sriparna Saha, and Chirag Agarwal. A survey of multilingual reasoning in language models. In Christos Christodoulopoulos, Tanmoy Chakraborty, Carolyn Rose, and Violet Peng, editors, Findings of the Association for Computational Linguistics: EMNLP 2025 , pages 8920–8936, Suzhou, China, November 2025. Association for Computa-tional Linguistics. ISBN 979-8-89176-335-7. doi: 10.18653/v1/2025.findings-emnlp.474. URL 
+
+https://aclanthology.org/2025.findings-emnlp.474/ .[15] Google DeepMind. Gemini 2.0 Flash Model Card, 2025. URL https://storage. googleapis.com/model-cards/documents/gemini-2-flash.pdf .[16] Halil Alperen Gozeten, Muhammed Emrullah Ildiz, Xuechen Zhang, Hrayr Harutyunyan, Ankit Singh Rawat, and Samet Oymak. Continuous chain of thought enables parallel exploration and reasoning. In ICML 2025 Workshop on Methods and Opportunities at Small Scale , 2025. URL https://openreview.net/forum?id=1ORJaYuMJc .[17] Ping Guo, Yubing Ren, Yue Hu, Yanan Cao, Yunpeng Li, and Heyan Huang. Steering large language models for cross-lingual information retrieval. In Proceedings of the 47th International ACM SIGIR Conference on Research and Development in Information Re-trieval , SIGIR ’24, page 585–596, New York, NY, USA, 2024. Association for Comput-ing Machinery. ISBN 9798400704314. doi: 10.1145/3626772.3657819. URL https: //doi.org/10.1145/3626772.3657819 .[18] Shibo Hao, Sainbayar Sukhbaatar, DiJia Su, Xian Li, Zhiting Hu, Jason E Weston, and Yuandong Tian. Training large language models to reason in a continuous latent space. In Workshop on Reasoning and Planning for Large Language Models , 2025. URL https://openreview. net/forum?id=KrWSrrYGpT .[19] Shulin Huang, Yiran Ding, Junshu Pan, and Yue Zhang. Beyond english-centric training: How reinforcement learning improves cross-lingual reasoning in LLMs. In The Fourteenth International Conference on Learning Representations , 2026. URL https://openreview. net/forum?id=hdrG6SaTcA .[20] Xu Huang, Zhejian Lai, Zixian Huang, Jiajun Chen, and Shujian Huang. Tapo: Translation augmented policy optimization for multilingual mathematical reasoning, 2026. URL https: //arxiv.org/abs/2603.25419 .[21] Jaedong Hwang, Kumar Tanmay, Seok-Jin Lee, Ayush Agrawal, Hamid Palangi, Kumar Ayush, Ila Fiete, and Paul Pu Liang. Learn globally, speak locally: Bridging the gaps in multilingual reasoning, 2025. URL https://arxiv.org/abs/2507.05418 .12 [22] Kaggle. AIME-2025 Dataset, 2025. URL https://www.kaggle.com/datasets/ hengck23/hengck23-aime-2025 .[23] Tannon Kew, Florian Schottmann, and Rico Sennrich. Turning English-centric LLMs into polyglots: How much multilinguality is needed? In Yaser Al-Onaizan, Mohit Bansal, and Yun-Nung Chen, editors, Findings of the Association for Computational Linguistics: EMNLP 2024 ,pages 13097–13124, Miami, Florida, USA, November 2024. Association for Computational Linguistics. doi: 10.18653/v1/2024.findings-emnlp.766. URL https://aclanthology.org/ 2024.findings-emnlp.766/ .[24] Huiyuan Lai and Malvina Nissim. mCoT: Multilingual instruction tuning for reasoning consistency in language models. In Lun-Wei Ku, Andre Martins, and Vivek Srikumar, ed-itors, Proceedings of the 62nd Annual Meeting of the Association for Computational Lin-guistics (Volume 1: Long Papers) , pages 12012–12026, Bangkok, Thailand, August 2024. Association for Computational Linguistics. doi: 10.18653/v1/2024.acl-long.649. URL 
+
+https://aclanthology.org/2024.acl-long.649/ .[25] Jungseob Lee, Seongtae Hong, Hyeonseok Moon, and Heuiseok Lim. Cross-lingual optimization for language transfer in large language models. In Wanxiang Che, Joyce Nabende, Ekaterina Shutova, and Mohammad Taher Pilehvar, editors, Proceedings of the 63rd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 15100– 15119, Vienna, Austria, July 2025. Association for Computational Linguistics. ISBN 979-8-89176-251-0. doi: 10.18653/v1/2025.acl-long.734. URL https://aclanthology.org/ 2025.acl-long.734/ .[26] Zhuoran Li, Rui Xu, Xiaojie Wang, Junnan Liu, Zhijun Chen, Qianren Mao, Jian Yang, Hongcheng Guo, Likang Xiao, and MING LI. Steering merged LLMs for multilingual rea-soning with coefficient optimization, 2025. URL https://openreview.net/forum?id= TQjGGTnotA .[27] Zheng Wei Lim, Alham Fikri Aji, and Trevor Cohn. Language-specific latent process hinders cross-lingual performance. arXiv preprint arXiv:2505.13141 , 2025. URL https://arxiv. org/abs/2505.13141 .[28] Haobin Lin, Yan Zhao, Wenhan Han, Ping Guo, BINBINLIU, Yifan Zhang, Bingni Zhang, Taifeng Wang, and Yin Zheng. From translation to multilinguality: Revisit the role of parallel data in multilingual LLM pretraining, 2025. URL https://openreview.net/forum?id= 1gbJ8euERb .[29] Danni Liu and Jan Niehues. Middle-layer representation alignment for cross-lingual transfer in fine-tuned LLMs. In Wanxiang Che, Joyce Nabende, Ekaterina Shutova, and Mohammad Taher Pilehvar, editors, Proceedings of the 63rd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 15979–15996, Vienna, Austria, July 2025. Associa-tion for Computational Linguistics. ISBN 979-8-89176-251-0. doi: 10.18653/v1/2025.acl-long. 778. URL https://aclanthology.org/2025.acl-long.778/ .[30] Tianyu Liu, Jirui Qi, Mrinmaya Sachan, Ryan Cotterell, Raquel Fernández, and Arianna Bisazza. Optimizing language models for crosslingual knowledge consistency, 2026. URL 
+
+https://openreview.net/forum?id=nupbCYlmEE .[31] Xin Liu, Qiyang Song, Qihang Zhou, Haichao Du, Shaowen Xu, Wenbo Jiang, Weijuan Zhang, and Xiaoqi Jia. Focusing on language: Revealing and exploiting language attention heads in multilingual large language models. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 40, pages 32195–32203, 2026. [32] Ilya Loshchilov and Frank Hutter. Decoupled weight decay regularization, 2019. URL https: //arxiv.org/abs/1711.05101 .[33] Niklas Muennighoff, Zitong Yang, Weijia Shi, Xiang Lisa Li, Li Fei-Fei, Hannaneh Hajishirzi, Luke Zettlemoyer, Percy Liang, Emmanuel Candes, and Tatsunori Hashimoto. s1: Simple test-time scaling. In Christos Christodoulopoulos, Tanmoy Chakraborty, Carolyn Rose, and Violet Peng, editors, Proceedings of the 2025 Conference on Empirical Methods in Natural 
+
+13 Language Processing , pages 20275–20321, Suzhou, China, November 2025. Association for Computational Linguistics. ISBN 979-8-89176-332-6. doi: 10.18653/v1/2025.emnlp-main. 1025. URL https://aclanthology.org/2025.emnlp-main.1025/ .[34] Charles Nimo, Tobi Olatunji, Abraham Toluwase Owodunni, Tassallah Abdullahi, Emmanuel Ayodele, Mardhiyah Sanni, Ezinwanne C. Aka, Folafunmi Omofoye, Foutse Yuehgoh, Timothy Faniran, Bonaventure F. P. Dossou, Moshood O. Yekini, Jonas Kemp, Katherine A Heller, Jude Chidubem Omeke, Chidi Asuzu Md, Naome A Etori, Aïmérou Ndiaye, Ifeoma Okoh, Evans Doe Ocansey, Wendy Kinara, Michael L. Best, Irfan Essa, Stephen Edward Moore, Chris Fourie, and Mercy Nyamewaa Asiedu. AfriMed-QA: A pan-African, multi-specialty, medical question-answering benchmark dataset. In Wanxiang Che, Joyce Nabende, Ekaterina Shutova, and Mohammad Taher Pilehvar, editors, Proceedings of the 63rd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 1948–1973, Vienna, Austria, July 2025. Association for Computational Linguistics. ISBN 979-8-89176-251-0. doi: 10.18653/v1/2025.acl-long.96. URL https://aclanthology.org/2025.acl-long.96/ .[35] Qiwei Peng, Guimin Hu, Yekun Chai, and Anders Søgaard. Debiasing multilingual LLMs in cross-lingual latent space. In Christos Christodoulopoulos, Tanmoy Chakraborty, Carolyn Rose, and Violet Peng, editors, Proceedings of the 2025 Conference on Empirical Methods in Natural Language Processing , pages 22582–22593, Suzhou, China, November 2025. Association for Computational Linguistics. ISBN 979-8-89176-332-6. doi: 10.18653/v1/2025.emnlp-main. 1149. URL https://aclanthology.org/2025.emnlp-main.1149/ .[36] Tan-Hanh Pham and Chris Ngo. Multimodal chain of continuous thought for latent-space reasoning in vision-language models. In NeurIPS 2025 Workshop on Efficient Reasoning , 2025. URL https://openreview.net/forum?id=PXFTV1O2WJ .[37] Rhitabrat Pokharel, Ameeta Agrawal, and Tanay Nagar. Cross-lingual activation steering for multilingual language models, 2026. URL https://arxiv.org/abs/2601.16390 .[38] Jirui Qi, Raquel Fernández, and Arianna Bisazza. Cross-lingual consistency of factual knowl-edge in multilingual language models. In Houda Bouamor, Juan Pino, and Kalika Bali, editors, 
+
+Proceedings of the 2023 Conference on Empirical Methods in Natural Language Processing ,pages 10650–10666, Singapore, December 2023. Association for Computational Linguis-tics. doi: 10.18653/v1/2023.emnlp-main.658. URL https://aclanthology.org/2023. emnlp-main.658/ .[39] Jirui Qi, Shan Chen, Zidi Xiong, Raquel Fernández, Danielle Bitterman, and Arianna Bisazza. When models reason in your language: Controlling thinking language comes at the cost of accuracy. In Christos Christodoulopoulos, Tanmoy Chakraborty, Carolyn Rose, and Violet Peng, editors, Findings of the Association for Computational Linguistics: EMNLP 2025 , pages 20279–20296, Suzhou, China, November 2025. Association for Computational Linguistics. ISBN 979-8-89176-335-7. doi: 10.18653/v1/2025.findings-emnlp.1103. URL https:// aclanthology.org/2025.findings-emnlp.1103/ .[40] Muhammad Reza Qorib, Junyi Li, and Hwee Tou Ng. Just go parallel: Improving the multi-lingual capabilities of large language models. In Wanxiang Che, Joyce Nabende, Ekaterina Shutova, and Mohammad Taher Pilehvar, editors, Proceedings of the 63rd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 33411–33424, Vi-enna, Austria, July 2025. Association for Computational Linguistics. ISBN 979-8-89176-251-0. doi: 10.18653/v1/2025.acl-long.1602. URL https://aclanthology.org/2025.acl-long. 1602/ .[41] Rafael Rafailov, Archit Sharma, Eric Mitchell, Christopher D Manning, Stefano Ermon, and Chelsea Finn. Direct preference optimization: Your language model is secretly a reward model. In A. Oh, T. Naumann, A. Globerson, K. Saenko, M. Hardt, and S. Levine, editors, Advances in Neural Information Processing Systems , volume 36, pages 53728–53741. Curran Associates, Inc., 2023. URL https://proceedings.neurips.cc/paper_files/paper/2023/file/ a85b405ed65c6477a4fe8302b5e06ce7-Paper-Conference.pdf .[42] Samyam Rajbhandari, Jeff Rasley, Olatunji Ruwase, and Yuxiong He. Zero: Memory opti-mizations toward training trillion parameter models. In SC20: International Conference for 
+
+14 High Performance Computing, Networking, Storage and Analysis , pages 1–16, 2020. doi: 10.1109/SC41405.2020.00024. [43] David Rein, Betty Li Hou, Asa Cooper Stickland, Jackson Petty, Richard Yuanzhe Pang, Julien Dirani, Julian Michael, and Samuel R. Bowman. GPQA: A graduate-level google-proof q&a benchmark. In First Conference on Language Modeling , 2024. URL https: //openreview.net/forum?id=Ti67584b98 .[44] Peter J. Rousseeuw. Silhouettes: A graphical aid to the interpretation and validation of cluster analysis. Journal of Computational and Applied Mathematics , 20:53–65, 1987. ISSN 0377-0427. doi: https://doi.org/10.1016/0377-0427(87)90125-7. URL https://www.sciencedirect. com/science/article/pii/0377042787901257 .[45] Zhihong Shao, Peiyi Wang, Qihao Zhu, Runxin Xu, Junxiao Song, Xiao Bi, Haowei Zhang, Mingchuan Zhang, Y. K. Li, Y. Wu, and Daya Guo. Deepseekmath: Pushing the limits of mathematical reasoning in open language models, 2024. URL https://arxiv.org/abs/ 2402.03300 .[46] Shuaijie She, Wei Zou, Shujian Huang, Wenhao Zhu, Xiang Liu, Xiang Geng, and Jiajun Chen. MAPO: Advancing multilingual reasoning through multilingual-alignment-as-preference optimization. In Lun-Wei Ku, Andre Martins, and Vivek Srikumar, editors, Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 10015–10027, Bangkok, Thailand, August 2024. Association for Computational Linguistics. doi: 10.18653/v1/2024.acl-long.539. URL https://aclanthology.org/2024. acl-long.539/ .[47] Zhenyi Shen, Hanqi Yan, Linhai Zhang, Zhanghao Hu, Yali Du, and Yulan He. CODI: Compress-ing chain-of-thought into continuous space via self-distillation. In Christos Christodoulopoulos, Tanmoy Chakraborty, Carolyn Rose, and Violet Peng, editors, Proceedings of the 2025 Confer-ence on Empirical Methods in Natural Language Processing , pages 677–693, Suzhou, China, November 2025. Association for Computational Linguistics. ISBN 979-8-89176-332-6. doi: 10.18653/v1/2025.emnlp-main.36. URL https://aclanthology.org/2025.emnlp-main. 36/ .[48] Freda Shi, Mirac Suzgun, Markus Freitag, Xuezhi Wang, Suraj Srivats, Soroush Vosoughi, Hyung Won Chung, Yi Tay, Sebastian Ruder, Denny Zhou, Dipanjan Das, and Jason Wei. Language models are multilingual chain-of-thought reasoners. In The Eleventh International Conference on Learning Representations , 2023. URL https://openreview.net/forum? id=fR3wGCk-IXp .[49] Guijin Son, Jiwoo Hong, Hyunwoo Ko, and James Thorne. Linguistic generalizability of test-time scaling in mathematical reasoning. In Wanxiang Che, Joyce Nabende, Ekaterina Shutova, and Mohammad Taher Pilehvar, editors, Proceedings of the 63rd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 14333– 14368, Vienna, Austria, July 2025. Association for Computational Linguistics. ISBN 979-8-89176-251-0. doi: 10.18653/v1/2025.acl-long.699. URL https://aclanthology.org/ 2025.acl-long.699/ .[50] Guijin Son, Donghun Yang, Hitesh Laxmichand Patel, Amit Agarwal, Hyunwoo Ko, Chanuk lim, Srikant Panda, Minhyuk Kim, Nikunj drolia, Dasol Choi, Kyong-Ha Lee, and Youngjae Yu. Pushing on multilingual reasoning models with language-mixed chain-of-thought. In 
+
+The Fourteenth International Conference on Learning Representations , 2026. URL https: //openreview.net/forum?id=ABc5y3741T .[51] Wenhui Tan, Jiaze Li, Jianzhong Ju, Zhenbo Luo, Ruihua Song, and Jian Luan. Think silently, think fast: Dynamic latent compression of LLM reasoning chains. In The Thirty-ninth Annual Conference on Neural Information Processing Systems , 2025. URL https://openreview. net/forum?id=AQsko3PPUe .[52] Eshaan Tanwar, Subhabrata Dutta, Manish Borthakur, and Tanmoy Chakraborty. Multilingual LLMs are better cross-lingual in-context learners with alignment. In Anna Rogers, Jordan Boyd-Graber, and Naoaki Okazaki, editors, Proceedings of the 61st Annual Meeting of the Association 
+
+15 for Computational Linguistics (Volume 1: Long Papers) , pages 6292–6307, Toronto, Canada, July 2023. Association for Computational Linguistics. doi: 10.18653/v1/2023.acl-long.346. URL https://aclanthology.org/2023.acl-long.346/ .[53] Gemma Team, Aishwarya Kamath, Johan Ferret, Shreya Pathak, Nino Vieillard, Ramona Merhej, Sarah Perrin, Tatiana Matejovicova, Alexandre Ramé, Morgane Rivière, Louis Rouillard, Thomas Mesnard, Geoffrey Cideron, Jean bastien Grill, Sabela Ramos, Edouard Yvinec, Michelle Casbon, Etienne Pot, Ivo Penchev, Gaël Liu, Francesco Visin, Kathleen Kenealy, Lucas Beyer, Xiaohai Zhai, Anton Tsitsulin, Robert Busa-Fekete, Alex Feng, Noveen Sachdeva, Benjamin Coleman, Yi Gao, Basil Mustafa, Iain Barr, Emilio Parisotto, David Tian, Matan Eyal, Colin Cherry, Jan-Thorsten Peter, Danila Sinopalnikov, Surya Bhupatiraju, Rishabh Agarwal, Mehran Kazemi, Dan Malkin, Ravin Kumar, David Vilar, Idan Brusilovsky, Jiaming Luo, Andreas Steiner, Abe Friesen, Abhanshu Sharma, Abheesht Sharma, Adi Mayrav Gilady, Adrian Goedeckemeyer, Alaa Saade, Alex Feng, Alexander Kolesnikov, Alexei Bendebury, Alvin Abdagic, Amit Vadi, András György, André Susano Pinto, Anil Das, Ankur Bapna, Antoine Miech, Antoine Yang, Antonia Paterson, Ashish Shenoy, Ayan Chakrabarti, Bilal Piot, Bo Wu, Bobak Shahriari, Bryce Petrini, Charlie Chen, Charline Le Lan, Christopher A. Choquette-Choo, CJ Carey, Cormac Brick, Daniel Deutsch, Danielle Eisenbud, Dee Cattle, Derek Cheng, Dimitris Paparas, Divyashree Shivakumar Sreepathihalli, Doug Reid, Dustin Tran, Dustin Zelle, Eric Noland, Erwin Huizenga, Eugene Kharitonov, Frederick Liu, Gagik Amirkhanyan, Glenn Cameron, Hadi Hashemi, Hanna Klimczak-Pluci´ nska, Harman Singh, Harsh Mehta, Harshal Tushar Lehri, Hussein Hazimeh, Ian Ballantyne, Idan Szpektor, Ivan Nardini, Jean Pouget-Abadie, Jetha Chan, Joe Stanton, John Wieting, Jonathan Lai, Jordi Orbay, Joseph Fernandez, Josh Newlan, Ju yeong Ji, Jyotinder Singh, Kat Black, Kathy Yu, Kevin Hui, Kiran Vodrahalli, Klaus Greff, Linhai Qiu, Marcella Valentine, Marina Coelho, Marvin Ritter, Matt Hoffman, Matthew Watson, Mayank Chaturvedi, Michael Moynihan, Min Ma, Nabila Babar, Natasha Noy, Nathan Byrd, Nick Roy, Nikola Momchev, Nilay Chauhan, Noveen Sachdeva, Oskar Bunyan, Pankil Botarda, Paul Caron, Paul Kishan Rubenstein, Phil Culliton, Philipp Schmid, Pier Giuseppe Sessa, Pingmei Xu, Piotr Stanczyk, Pouya Tafti, Rakesh Shivanna, Renjie Wu, Renke Pan, Reza Rokni, Rob Willoughby, Rohith Vallu, Ryan Mullins, Sammy Jerome, Sara Smoot, Sertan Girgin, Shariq Iqbal, Shashir Reddy, Shruti Sheth, Siim Põder, Sijal Bhatnagar, Sindhu Raghuram Panyam, Sivan Eiger, Susan Zhang, Tianqi Liu, Trevor Yacovone, Tyler Liechty, Uday Kalra, Utku Evci, Vedant Misra, Vincent Roseberry, Vlad Feinberg, Vlad Kolesnikov, Woohyun Han, Woosuk Kwon, Xi Chen, Yinlam Chow, Yuvein Zhu, Zichuan Wei, Zoltan Egyed, Victor Cotruta, Minh Giang, Phoebe Kirk, Anand Rao, Kat Black, Nabila Babar, Jessica Lo, Erica Moreira, Luiz Gustavo Martins, Omar Sanseviero, Lucas Gonzalez, Zach Gleicher, Tris Warkentin, Vahab Mirrokni, Evan Senter, Eli Collins, Joelle Barral, Zoubin Ghahramani, Raia Hadsell, Yossi Matias, D. Sculley, Slav Petrov, Noah Fiedel, Noam Shazeer, Oriol Vinyals, Jeff Dean, Demis Hassabis, Koray Kavukcuoglu, Clement Farabet, Elena Buchatskaya, Jean-Baptiste Alayrac, Rohan Anil, Dmitry, Lepikhin, Sebastian Borgeaud, Olivier Bachem, Armand Joulin, Alek Andreev, Cassidy Hardin, Robert Dadashi, and Léonard Hussenot. Gemma 3 technical report, 2025. URL https://arxiv.org/abs/2503.19786 .[54] NLLB Team, Marta R. Costa-jussà, James Cross, Onur Çelebi, Maha Elbayad, Kenneth Heafield, Kevin Heffernan, Elahe Kalbassi, Janice Lam, Daniel Licht, Jean Maillard, Anna Sun, Skyler Wang, Guillaume Wenzek, Al Youngblood, Bapi Akula, Loic Barrault, Gabriel Mejia Gonzalez, Prangthip Hansanti, John Hoffman, Semarley Jarrett, Kaushik Ram Sadagopan, Dirk Rowe, Shannon Spruit, Chau Tran, Pierre Andrews, Necip Fazil Ayan, Shruti Bhosale, Sergey Edunov, Angela Fan, Cynthia Gao, Vedanuj Goswami, Francisco Guzmán, Philipp Koehn, Alexandre Mourachko, Christophe Ropers, Safiyyah Saleem, Holger Schwenk, and Jeff Wang. No language left behind: Scaling human-centered machine translation, 2022. URL https://arxiv.org/ abs/2207.04672 .[55] Hinata Tezuka and Naoya Inoue. The transfer neurons hypothesis: An underlying mechanism for language latent space transitions in multilingual LLMs. In Christos Christodoulopoulos, Tanmoy Chakraborty, Carolyn Rose, and Violet Peng, editors, Proceedings of the 2025 Conference on Empirical Methods in Natural Language Processing , pages 31742–31792, Suzhou, China, November 2025. Association for Computational Linguistics. ISBN 979-8-89176-332-6. doi: 10. 18653/v1/2025.emnlp-main.1618. URL https://aclanthology.org/2025.emnlp-main. 1618/ .16 [56] Hemish Veeraboina. Aime problem set 1983-2024, 2024. URL https://www.kaggle.com/ datasets/hemishveeraboina/aime-problem-set-1983-2024 .[57] Mingyang Wang, Heike Adel, Lukas Lange, Yihong Liu, Ercong Nie, Jannik Strötgen, and Hinrich Schuetze. Lost in multilinguality: Dissecting cross-lingual factual inconsistency in transformer language models. In Wanxiang Che, Joyce Nabende, Ekaterina Shutova, and Mohammad Taher Pilehvar, editors, Proceedings of the 63rd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 5075–5094, Vienna, Austria, July 2025. Association for Computational Linguistics. ISBN 979-8-89176-251-0. doi: 10. 18653/v1/2025.acl-long.253. URL https://aclanthology.org/2025.acl-long.253/ .[58] Weixuan Wang, Minghao Wu, Barry Haddow, and Alexandra Birch. Bridging the language gaps in large language models with inference-time cross-lingual intervention. In Wanxiang Che, Joyce Nabende, Ekaterina Shutova, and Mohammad Taher Pilehvar, editors, Proceedings of the 63rd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 5418–5433, Vienna, Austria, July 2025. Association for Computational Linguistics. ISBN 979-8-89176-251-0. doi: 10.18653/v1/2025.acl-long.270. URL https: //aclanthology.org/2025.acl-long.270/ .[59] Yumeng Wang, Zhiyuan Fan, Qingyun Wang, Yi R. Fung, and Heng Ji. CALM: Unleashing the cross-lingual self-aligning ability of language model question answering. In Luis Chiruzzo, Alan Ritter, and Lu Wang, editors, Findings of the Association for Computational Linguistics: NAACL 2025 , pages 2809–2817, Albuquerque, New Mexico, April 2025. Association for Computational Linguistics. ISBN 979-8-89176-195-7. doi: 10.18653/v1/2025.findings-naacl.152. URL 
+
+https://aclanthology.org/2025.findings-naacl.152/ .[60] Zhihao Wang, Junjie Huang, Jianheng Huang, Tong Sun, Yaoxiang Wang, dingqi, Hongjian Zou, YiXuan Liao, Xiaoxin Chen, Junfeng Yao, Yidong Chen, and Jinsong Su. Cross-lingual data scaling for large language models, 2026. URL https://openreview.net/forum?id= yuRO2wZ8su .[61] Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten Bosma, brian ichter, Fei Xia, Ed Chi, Quoc V Le, and Denny Zhou. Chain-of-thought prompting elicits reasoning in large language models. In S. Koyejo, S. Mohamed, A. Agarwal, D. Belgrave, K. Cho, and A. Oh, editors, 
+
+Advances in Neural Information Processing Systems , volume 35, pages 24824–24837. Curran Associates, Inc., 2022. URL https://proceedings.neurips.cc/paper_files/paper/ 2022/file/9d5609613524ecf4f15af0f7b31abca4-Paper-Conference.pdf .[62] Junhong Wu, Jinliang Lu, Zixuan Ren, Gangqiang Hu, Zhi Wu, Dai Dai, and Hua Wu. Llms are single-threaded reasoners: Demystifying the working mechanism of soft thinking, 2025. URL 
+
+https://arxiv.org/abs/2508.03440 .[63] Linjuan Wu, Hao-Ran Wei, Jialong Tang, Shuang Luo, Baosong Yang, Fei Huang, Yongliang Shen, and Weiming Lu. mGRPO: Unlocking LLM reasoning through multilingual thinking, 2026. URL https://openreview.net/forum?id=QtfALPluAj .[64] Kevin Xu and Issei Sato. A formal comparison between chain of thought and latent thought, 2026. URL https://arxiv.org/abs/2509.25239 .[65] Yige Xu, Xu Guo, Zhiwei Zeng, and Chunyan Miao. SoftCoT: Soft chain-of-thought for efficient reasoning with LLMs. In Wanxiang Che, Joyce Nabende, Ekaterina Shutova, and Mohammad Taher Pilehvar, editors, Proceedings of the 63rd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 23336–23351, Vienna, Austria, July 2025. Association for Computational Linguistics. ISBN 979-8-89176-251-0. doi: 10.18653/ v1/2025.acl-long.1137. URL https://aclanthology.org/2025.acl-long.1137/ .[66] Yuemei Xu, Kexin Xu, Jian Zhou, Ling Hu, and Lin Gui. Linguistic neuron overlap patterns to facilitate cross-lingual transfer on low-resource languages. In Christos Christodoulopoulos, Tanmoy Chakraborty, Carolyn Rose, and Violet Peng, editors, Proceedings of the 2025 Con-ference on Empirical Methods in Natural Language Processing , pages 27658–27673, Suzhou, China, November 2025. Association for Computational Linguistics. ISBN 979-8-89176-332-6. doi: 10.18653/v1/2025.emnlp-main.1407. URL https://aclanthology.org/2025. emnlp-main.1407/ .17 [67] Weihao Xuan, Rui Yang, Heli Qi, Qingcheng Zeng, Yunze Xiao, Aosong Feng, Dairui Liu, Yun Xing, Junjue Wang, Fan Gao, Jinghui Lu, Yuang Jiang, Huitao Li, Xin Li, Kunyu Yu, Ruihai Dong, Shangding Gu, Yuekang Li, Xiaofei Xie, Felix Juefei-Xu, Foutse Khomh, Osamu Yoshie, Qingyu Chen, Douglas Teodoro, Nan Liu, Randy Goebel, Lei Ma, Edi-son Marrese-Taylor, Shijian Lu, Yusuke Iwasawa, Yutaka Matsuo, and Irene Li. MMLU-ProX: A multilingual benchmark for advanced large language model evaluation. In Chris-tos Christodoulopoulos, Tanmoy Chakraborty, Carolyn Rose, and Violet Peng, editors, Pro-ceedings of the 2025 Conference on Empirical Methods in Natural Language Processing ,pages 1513–1532, Suzhou, China, November 2025. Association for Computational Lin-guistics. ISBN 979-8-89176-332-6. doi: 10.18653/v1/2025.emnlp-main.79. URL https: //aclanthology.org/2025.emnlp-main.79/ .[68] An Yang, Anfeng Li, Baosong Yang, Beichen Zhang, Binyuan Hui, Bo Zheng, Bowen Yu, Chang Gao, Chengen Huang, Chenxu Lv, Chujie Zheng, Dayiheng Liu, Fan Zhou, Fei Huang, Feng Hu, Hao Ge, Haoran Wei, Huan Lin, Jialong Tang, Jian Yang, Jianhong Tu, Jianwei Zhang, Jianxin Yang, Jiaxi Yang, Jing Zhou, Jingren Zhou, Junyang Lin, Kai Dang, Keqin Bao, Kexin Yang, Le Yu, Lianghao Deng, Mei Li, Mingfeng Xue, Mingze Li, Pei Zhang, Peng Wang, Qin Zhu, Rui Men, Ruize Gao, Shixuan Liu, Shuang Luo, Tianhao Li, Tianyi Tang, Wenbiao Yin, Xingzhang Ren, Xinyu Wang, Xinyu Zhang, Xuancheng Ren, Yang Fan, Yang Su, Yichang Zhang, Yinger Zhang, Yu Wan, Yuqiong Liu, Zekun Wang, Zeyu Cui, Zhenru Zhang, Zhipeng Zhou, and Zihan Qiu. Qwen3 technical report, 2025. URL https://arxiv.org/abs/2505.09388 .[69] Wen Yang, Junhong Wu, Chong Li, Chengqing Zong, and Jiajun Zhang. Parallel scaling law: Unveiling reasoning generalization through a cross-linguistic perspective, 2025. URL 
+
+https://arxiv.org/abs/2510.02272 .[70] Zheng-Xin Yong, M. Farid Adilazuarda, Jonibek Mansurov, Ruochen Zhang, Niklas Muen-nighoff, Carsten Eickhoff, Genta Indra Winata, Julia Kreutzer, Stephen H. Bach, and Al-ham Fikri Aji. Crosslingual reasoning through test-time scaling, 2025. URL https: //arxiv.org/abs/2505.05408 .[71] Haneul Yoo, Jiho Jin, Kyunghyun Cho, and Alice Oh. Code-switching in-context learning for cross-lingual transfer of large language models, 2025. URL https://arxiv.org/abs/2510. 05678 .[72] Xue Zhang, Yunlong Liang, Fandong Meng, Songming Zhang, Kaiyu Huang, Yufeng Chen, Jinan Xu, and Jie Zhou. Think natively: Unlocking multilingual reasoning with consistency-enhanced reinforcement learning, 2026. URL https://arxiv.org/abs/2510.07300 .[73] Zhen Zhang, Xuehai He, Weixiang Yan, Ao Shen, Chenyang Zhao, and Xin Eric Wang. Soft thinking: Unlocking the reasoning potential of LLMs in continuous concept space. In 
+
+The Thirty-ninth Annual Conference on Neural Information Processing Systems , 2025. URL 
+
+https://openreview.net/forum?id=ByQdHPGKgU .[74] Chunxu Zhao, Xin Huang, Xue Han, Shujian Huang, Chao Deng, and Junlan Feng. Align to the pivot: Dual alignment with self-feedback for multilingual math reasoning, 2026. URL 
+
+https://arxiv.org/abs/2601.17671 .[75] Raoyuan Zhao, Yihong Liu, Hinrich Schütze, and Michael A. Hedderich. A comprehensive eval-uation of multilingual chain-of-thought reasoning: Performance, consistency, and faithfulness across languages, 2025. URL https://arxiv.org/abs/2510.09555 .[76] Yiran Zhao, Wenxuan Zhang, Huiming Wang, Kenji Kawaguchi, and Lidong Bing. AdaMergeX: Cross-lingual transfer with large language models via adaptive adapter merging. In Luis Chiruzzo, Alan Ritter, and Lu Wang, editors, Proceedings of the 2025 Conference of the Nations of the Americas Chapter of the Association for Computational Linguistics: Human Language Technologies (Volume 1: Long Papers) , pages 9785–9800, Albuquerque, New Mexico, April 2025. Association for Computational Linguistics. ISBN 979-8-89176-189-6. doi: 10.18653/v1/ 2025.naacl-long.493. URL https://aclanthology.org/2025.naacl-long.493/ .[77] Lianmin Zheng, Liangsheng Yin, Zhiqiang Xie, Chuyue Livia Sun, Jeff Huang, Cody Hao Yu, Shiyi Cao, Christos Kozyrakis, Ion Stoica, Joseph E Gonzalez, et al. Sglang: Efficient execution 18 of structured language model programs. Advances in neural information processing systems ,37:62557–62583, 2024. [78] Yaowei Zheng, Richong Zhang, Junhao Zhang, Yanhan Ye, and Zheyan Luo. LlamaFactory: Unified efficient fine-tuning of 100+ language models. In Yixin Cao, Yang Feng, and Deyi Xiong, editors, Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics (Volume 3: System Demonstrations) , pages 400–410, Bangkok, Thailand, August 2024. Association for Computational Linguistics. doi: 10.18653/v1/2024.acl-demos.38. URL 
+
+https://aclanthology.org/2024.acl-demos.38/ .[79] Hanlin Zhu, Shibo Hao, Zhiting Hu, Jiantao Jiao, Stuart Russell, and Yuandong Tian. Reasoning by superposition: A theoretical perspective on chain of continuous thought. In The Thirty-ninth Annual Conference on Neural Information Processing Systems , 2025. URL https: //openreview.net/forum?id=UdOEZgWJLc .
+
+## A Further discussion, limitations, and future work 
+
+While our study shows that aligning soft-token representations during SFT improves multilingual reasoning, it opens several directions for future work. 
+
+From SFT-only alignment to reinforcement learning. SOLAR is studied as an auxiliary loss alongside supervised cross-entropy. Recent work suggests that reinforcement learning consistently outperforms SFT for cross-lingual reasoning and generalizes better to unseen languages [ 19 ]. Future work could integrate soft-token alignment into preference- or reward-based post-training, for example by combining the alignment loss with Direct Preference Optimization (DPO) [ 41 ] or Group Relative Policy Optimization (GRPO) [ 45 ]. This could compound the consistency gains of soft-token align-ment with the generalization that policy optimization brings to unseen languages. Recent pivot-based multilingual RL methods such as PASMR [ 74 ], TAPO [ 20 ], and M-Thinker [ 72 ] reward consistency between English and target-language reasoning at the output level. SOLAR’s soft-token alignment of-fers a complementary representation-level signal that could be added to these reward-based objectives as an auxiliary alignment term during policy optimization. 
+
+Reasoning domains beyond math and science. Our evaluation focuses on multilingual mathemat-ical reasoning (MGSM, AIME 2024, AIME 2025) and graduate-level scientific question answering (GPQA Diamond), where final answers are short and verifiable. Whether response-level mean-pooled soft-token summaries carry the same cross-lingual signal for tasks with open-ended outputs ( e.g., 
+
+multilingual summarization [ 13 ]) remains an open question. Future work could extend SOLAR to broader generation tasks and investigate step-level or chunk-level alignment for reasoning traces whose semantic structure is non-monotonic or interleaved with retrieval. 
+
+Scaling parallel reasoning data across languages. SOLAR is trained on M-s1k [ 1], which provides parallel long CoT traces in 10 languages. We report results on the 7 that overlap with our evaluation suites (Appendix D.4). Expanding coverage requires translating long CoT traces into each new language with mathematical-fidelity verification, which incurs non-trivial cost. SOLAR’s effectiveness on a broader set of languages, particularly low-resource ones, therefore remains to be validated. One direction is to scale parallel reasoning data through verified translation pipelines. Another is to investigate whether soft-token alignment can be combined with weaker supervision, such as machine-translated traces with quality filtering, or unpaired monolingual reasoning anchored through a shared retrieval signal, to relax the strict parallel-data requirement. 
+
+Toward broader model families and scales. Our main fine-tuning experiments target Qwen3-4B/8B and Gemma3-4B/12B. Although the representation analysis (§4.1) covers 10 models from the Qwen3, Gemma3, and DeepSeek-R1-Distill families, the SFT pipeline is validated on two families at moderate scales. Larger models ( e.g., 30B+), mixture-of-experts architectures, and multimodal LLMs may exhibit different vocabulary geometries and pre-training compositions, potentially altering the strength and shape of the soft-token alignment signal. Extending SOLAR to a broader set of families and scales offers a route to assessing how generally the soft-token alignment principle holds. 19 B Broader impacts 
+
+As multilingual LLMs serve users worldwide, ensuring consistent reasoning across languages is both a technical and an equity concern. Most reasoning gains in modern LLMs remain concentrated in English and a handful of high-resource languages [ 67 ], leaving speakers of underrepresented languages with weaker access to advanced reasoning in domains such as decision support [ 34 ]. Our work targets this gap by aligning soft-token representations across languages during SFT, with the largest gains on low-resource languages ( e.g., Swahili MGSM accuracy rises from 29.04% to 53.48% for Qwen3-4B, and Telugu AIME 2024 from 5.67% to 29.67%), narrowing performance disparities while preserving native-language generation (Appendix F.3). Beyond accuracy, our analysis helps make multilingual model behavior more interpretable and controllable. Soft-token embeddings provide a continuous, vocabulary-shared signal in which cross-lingual reasoning can be inspected and shaped, complementing hidden-state probing and offering a lightweight, architecture-agnostic mechanism that can be combined with other multilingual training pipelines. Because SOLAR adds no architectural modification and reuses the model’s own forward-pass logits, it is also accessible when compute or model-modification budgets are limited. At the same time, anchoring all non-English summaries to an English pivot raises questions about cultural and linguistic representation. An English-anchored shared space may carry English-centric reasoning conventions, framing assumptions, or normative answers that surface only on culturally grounded tasks not covered by our benchmarks [ 12 ]. Stronger multilingual reasoning also extends the reach of downstream misuse currently bottlenecked by English-only proficiency, and our work does not address multilingual safety alignment. We see multi-pivot or pivot-free alignment, evaluation on culturally grounded reasoning, and multilingual safety post-training as important complements to our work. Overall, we hope our work contributes to a more inclusive and principled approach to multilingual reasoning and helps narrow the cross-lingual capability gap in a way that is mindful of the linguistic communities these systems aim to serve. 
+
+## C Related work 
+
+C.1 Multilingual reasoning 
+
+LLMs trained on multilingual corpora exhibit cross-lingual reasoning abilities [ 53 , 68 , 75 ], yet show inconsistent performance across different languages [ 38 , 57 ]. Specifically, given the same task, LLMs generally perform better when prompted in English, whereas their reasoning performance deteriorates when the task is expressed in low-resource languages. Recent work examines these disparities through internal model mechanisms. Wang et al. [57] reveal that models encode factual knowledge in a language-agnostic concept space through intermediate layers, but errors arise during the final-layer transition to language-specific representations. Liu et al. [31] identify language-specific attention heads that enable cross-lingual attention transfer. Recently, Lim et al. [27] show that larger models increasingly rely on language-specific representations, hindering cross-lingual transfer. These mechanistic insights provide a foundation for understanding and improving cross-lingual reasoning. 
+
+C.2 Cross-lingual alignment 
+
+Efforts to improve multilingual reasoning in LLMs can be broadly categorized into training-based and inference-based approaches [ 14 ]. Training-based methods use translated parallel data during pre-training [ 40 , 11 , 60 ] or post-training [ 23 , 24 , 7, 28 , 21 , 1, 69 ], language-mixed CoT data [ 5 , 50 ], adapter merging [ 76 ], representation alignment [ 35 , 29 , 2, 3], and preference optimization methods without parallel data [ 46 , 59 , 25 , 10 , 26 , 30 , 63 ]. Huang et al. [19] demonstrate that RL consistently outperforms SFT in cross-lingual reasoning and achieves better generalization even when trained on non-English data. PASMR [ 74 ] maps multilingual inputs to an English pivot via SFT and then runs self-feedback RL that rewards consistency between pivot and target-language reasoning. TAPO [ 20 ]couples a translation-quality reward with the standard reasoning reward under a step-level relative-advantage mechanism that decouples credit assignment between translation and reasoning tokens. Recently, M-Thinker [ 72 ] combines a language-consistency reward with a cross-lingual thinking-alignment reward computed via LLM-as-judge against an English reasoning trace. These methods are complementary to SOLAR’s soft-token alignment signal, and we discuss their potential integration in Appendix A. Inference-based methods include in-context learning [ 52 , 71 ], cross-lingual activation 20 steering [17, 37], test-time scaling [49, 70], and learned linear transformations between source- and target-language hidden states applied at inference [ 58 ]. Studies show that prompting models to reason in English generally preserves or improves non-English task performance [ 1, 70 ]. SOLAR differs from these inference-time interventions in that it modifies the model parameters during SFT through an auxiliary soft-token alignment loss, with no per-language transformation at inference and no test-time overhead beyond standard discrete decoding. 
+
+C.3 Continuous-space reasoning 
+
+While CoT prompting [ 61 ] enhances LLM reasoning through step-by-step discrete linguistic tokens, recent work argues that LLMs should mirror human cognition, which operates through abstract, continuous concepts rather than explicit verbalized steps [ 6 ]. Several methods train LLMs to reason in continuous space [ 65 , 36 , 47 ]. COCONUT [ 18 ] feeds the last hidden state as the next input embedding, enabling the model to encode multiple reasoning steps simultaneously. For training-free approaches, Soft Thinking [ 73 ] replaces discrete token embeddings with probability-weighted soft tokens, forming a continuous concept space for richer representations at inference time. Wu et al. [62] enhance this with noise via Dirichlet resampling and the Gumbel-Softmax trick. Butt et al. [4] train continuous CoTs with reinforcement learning by injecting Gaussian noise into the input embedding mixture to enable exploration, removing the need to distill from ground-truth discrete reasoning traces. They report that continuous-CoT training matches discrete training at pass@1 and surpasses it at pass@32 on math benchmarks, and that decoding with discrete tokens at inference on top of a continuous-CoT trained model performs best. Theoretical frameworks further demonstrate that continuous CoT can solve graph reachability problems more efficiently by maintaining multiple search frontiers simultaneously [ 16 , 79 ]. Together, these works show that continuous-space reasoning enables richer information encoding compared to discrete token-based methods [ 51 , 64 ]. While prior work focuses on monolingual reasoning, SOLAR repurposes the soft-token formulation [4, 73] as a cross-lingual alignment signal during post-training. We investigate whether probability-weighted mixtures over the shared vocabulary embedding matrix can serve as a comparable signal across languages, even when their surface tokens are disjoint. 
+
+## D Implementation details 
+
+D.1 Models 
+
+For main experiments (§3), we fine-tune Qwen3-4B/8B [ 68 ] and Gemma3-4B/12B [ 53 ] via full-parameter SFT on M-s1k. We center the headline analysis on the Qwen3 family for its strong multilingual reasoning and wide adoption; full Gemma3 results (MGSM and GPQA) appear in §E. We use the 4B and 8B scales for Qwen3 because they balance reasoning capability against the compute cost of full-parameter fine-tuning on A40 GPUs (48 GB). For representation experiments (§4.1), we select 10 models from three families: Qwen3, Gemma3, and DeepSeek-R1-Distill [ 9]. These span multiple scales (1B–27B) and both base and instruction-tuned variants ( e.g., Qwen3-4B-Base vs. Qwen3-4B). Specifically, Qwen3 and Gemma3 are advanced multilingual models supporting 119 and 140+ languages, respectively. 
+
+D.2 Training setup 
+
+All main-experiment models undergo full-parameter fine-tuning using the LLaMA-Factory frame-work [ 78 ]. Qwen3-4B is trained in non-thinking mode, while Qwen3-8B is trained in thinking mode. We train for 5 epochs with a batch size of 32. All runs use bfloat16 precision with a learn-ing rate of 1 × 10 −5 that warms up linearly over the first 10% of training and then decays to 0 following a cosine schedule. We use the AdamW optimizer [ 32 ] with 𝛽 1 = 0.9 and 𝛽 2 = 0.999 .The maximum sequence length is 16,384 tokens. We use DeepSpeed ZeRO Stage 2 [ 42 ] to reduce memory usage. All experiments are conducted on NVIDIA A40 GPUs (48 GB). For the SOLAR alignment objective, we compute soft tokens with 𝜏 =1.0 and top-𝑘 =30 . We ablate the alignment weight 𝜆 ∈ { 0.25 , 0.50 , 0.75 , 1.00 } and soft-token temperature 𝜏 ∈ { 0.6, 1.0, 2.0} in §4.3. We em-ploy a group-aware batch sampler that places all translations of each problem contiguously, enabling co-occurrence within the same training step even under small per-device batch sizes. 21 D.3 Evaluation setup 
+
+We use SGLang (v0.4.6) [ 77 ] as the inference backend. For all evaluations, we use a sampling temperature of 0.6, top-𝑘 =30 , top-𝑝 =0.95 , and a maximum generation length of 32,768 tokens. Note that this sampling temperature is used solely for next-token decoding at inference time and is distinct from the soft-token temperature 𝜏 used during SOLAR training (Eq. 2–3). We run each evaluation multiple times and report the average to reduce estimation variance: five runs for MGSM and GPQA, and ten runs for AIME 2024 and AIME 2025. We count a model’s answer as correct only if the extracted final answer ( i.e., the content within \boxed{} ) matches the ground-truth label. 
+
+D.4 Datasets Training data. M-s1k [ 1 ] is a multilingual long CoT reasoning dataset translated from s1k [ 33 ]by Gemini-2.0-Flash [ 15 ]. It contains 1,000 parallel problems across 10 languages (English (En), Chinese (Zh), French (Fr), Japanese (Ja), Latvian (Lv), Swahili (Sw), Telugu (Te), Thai (Th), Afrikaans (Af), and Marathi (Mr)), totaling 10,000 training examples. Each pairs a question with a detailed reasoning trace and final solution. We additionally annotate each with a parallel_id 
+
+linking translations of the same problem across languages and a language tag for fine-tuning. 
+
+Evaluation benchmarks. We evaluate on four benchmarks covering multilingual mathematical reasoning and science question answering. MGSM (Multilingual Grade School Math) [ 48 ] extends GSM8K [ 8] with 250 parallel grade-school math word problems requiring multi-step arithmetic. AIME 2024 [56] and AIME 2025 [22] each contain 30 competition-level problems from the Ameri-can Invitational Mathematics Examination. GPQA Diamond [ 43 ] is a graduate-level, Google-proof benchmark of 198 multiple-choice questions across physics, chemistry, and biology, designed to chal-lenge domain experts. The multilingual versions of AIME 2024, AIME 2025, and GPQA Diamond are from XReasoning [ 39 ]. All four cover 11 languages: English (En), Spanish (Es), French (Fr), German (De), Russian (Ru), Chinese (Zh), Japanese (Ja), Thai (Th), Swahili (Sw), Bengali (Bn), and Telugu (Te). Since only 7 of the 10 M-s1k languages overlap with the evaluation set (En, Fr, Ja, Sw, Te, Th, Zh), we report main results on these seven. For the representation analysis (§4.1), we sample 50 instances per language from MGSM and GPQA Diamond and use all 30 per subset for AIME 2024 and AIME 2025; the main experiments (§3) use all instances. Expanding to all 11 languages would require translating s1k reasoning traces, which incurs non-trivial API cost for long CoT data and needs quality verification to ensure mathematical fidelity across languages. We leave broader language expansion to future work. 
+
+D.5 Baselines Soft Thinking. We follow the formulation in §2.1 and apply inference-only soft thinking [ 73 ] to base models. We use the same decoding hyperparameters as our evaluation setup (§D.3). 
+
+MidAlign. A middle-layer contrastive alignment objective that encourages cross-lingual similarity by maximizing cosine similarity between mean-pooled hidden states of parallel translation pairs while minimizing similarity to non-translations within each batch [ 29 ]. We adapt MidAlign from its original LoRA-based setup to our full-parameter SFT setting and apply the contrastive alignment loss at the middle layer (18 for Qwen3-4B) jointly with the cross-entropy loss, using the same M-s1k parallel training data and hyperparameters as SOLAR (§D.2). MidAlign aligns discrete hidden states at intermediate layers, whereas SOLAR aligns soft-token embeddings. 
+
+MAPO. An optimization framework that uses a pre-trained machine translation model to score the consistency between non-English and English reasoning chains, treating these scores as signals for preference training [ 46 ]. MAPO optimizes cross-lingual consistency at the output level via preference learning over discrete reasoning, whereas our method aligns soft-token embeddings at the representation level during SFT. For each of the 9,000 non-English questions in M-s1k, we sample 
+
+𝑛 =20 candidate outputs from Qwen3-4B with sampling temperature 1.0. We then score each output using NLLB-200-distilled-600M [ 54 ]. The alignment score for each non-English output is computed as 1/L CE , where LCE is the cross-entropy loss of the NLLB model translating the non-English output to the corresponding English reference answer. Preference pairs are constructed by selecting, for each question, a chosen response that is both correct and has a higher alignment score, paired with a 22 rejected response that has a lower alignment score. This yields 6,305 preference pairs from 1,148 questions; the remaining questions are excluded because none of the 20 sampled outputs produce a correct answer. We perform full-parameter DPO [ 41 ] with 𝛽 =0.1. All other training hyperparameters follow the same setup as SOLAR (§D.2). 
+
+AlignX. A two-stage framework for multilingual representation alignment [ 2 ]. Stage 1 combines three objectives: (1) an InfoNCE-style contrastive loss that aligns mean-pooled hidden states at an intermediate layer across parallel translation pairs using cosine similarity (with temperature 0.1), (2) a language-matching classifier at the final layer to reduce off-target generation, and (3) the standard next-token prediction loss. Stage 2 performs multilingual instruction fine-tuning with only the NTP loss. We apply contrastive alignment at the middle layer of the model. The language-matching classifier is a 2-layer MLP with intermediate dimension 128. We use 𝛼 1=0.3 and 𝛼 2=0.4 as the loss weights for the contrastive and language matching losses, respectively, following the original paper. All other training hyperparameters follow SOLAR (§D.2). 
+
+## E Experimental results 
+
+Tables 11–14 report per-language accuracy and cross-lingual consistency for Qwen3-4B, Qwen3-8B, Gemma3-4B, and Gemma3-12B, along with their fine-tuned variants, across four benchmarks. On MGSM and AIME, SOLAR’s accuracy gains over the base model are largest for low-resource languages, while high-resource languages change far less (within roughly ±1 point) and occasionally regress. For example, Qwen3-4B Swahili improves by +24.4 points on MGSM (+22.0 for Qwen3-8B), and Qwen3-4B Telugu by +24.0 on AIME 2024. On GPQA, all seven Qwen3-4B languages improve under SOLAR, including English, showing broad SFT-level benefits on this science benchmark. For Gemma3, MGSM and GPQA Diamond follow the Qwen3 patterns: SOLAR yields the highest average accuracy and CLC at both scales, with low-resource languages benefiting most. Baseline strength differs across families: Gemma3-12B exceeds Qwen3-8B on MGSM (89.50% vs. 83.42%) while Gemma3-4B trails Qwen3-4B (53.31% vs. 74.01%). On GPQA, base Gemma3 performs near or below the four-way random baseline of 25% (16.34% at 4B, 26.61% at 12B), and SOLAR raises both scales over SFT. Because Gemma3-4B’s GPQA accuracy already sits near the random floor, we omit Gemma3 from AIME 2024 and 2025. Among Qwen3-4B baselines, MidAlign is strongest on AIME 2024, while MAPO posts high single-language MGSM scores without consistent CLC gains, so preference optimization can raise individual-language accuracy without aligning cross-lingual reasoning. MAPO’s English accuracy falls below the base model on MGSM and both AIME sets, as expected when training only on non-English preference pairs, and its limited signal (6,305 pairs from 1,148 questions) likely constrains low-resource gains. Table 15 reports the Pearson correlation between average accuracy and CLC across model variants. The two are nearly perfectly correlated ( 𝑟 ≥ 0.997 on every individual benchmark and 𝑟 = 0.995 
+
+pooled across all), so accuracy gains reflect stronger cross-lingual consistency rather than improve-ment in a single dominant language. 
+
+## F Analysis 
+
+F.1 Ablation study Alignment weight 𝜆 . Table 16 reports 𝜆 ∈ { 0.25 , 0.50 , 0.75 , 1.00 } with 𝜏 =1.0 across all four benchmarks. The weight trades off cross-entropy against the alignment loss (Eq. 5). 𝜆 =0.25 attains the highest MGSM accuracy and CLC, with 𝜆 =0.50 close behind, but we adopt 𝜆 =0.50 because it leads on the harder benchmarks ( e.g., 38.52% vs. 37.43% on AIME 2024). Performance degrades at 𝜆 =0.75 and falls below the base model at 𝜆 =1.00 (69.25% vs. 74.01% on MGSM), where low-resource languages lose the most (Swahili AIME 2024: 32.67% → 10.00%), indicating that excessive alignment overwhelms cross-entropy and disrupts languages with sparser pre-training coverage. 
+
+Soft-token temperature 𝜏 . Table 17 (a) reports 𝜏 ∈ { 0.6, 1.0, 2.0} with 𝜆 =0.50 . Lower 𝜏 produces more peaked distributions that approximate discrete token embeddings, while higher 𝜏 yields smoother mixtures over more vocabulary tokens. At 𝜏 =0.6, average accuracy and CLC drop sharply (by 17.8 and 18.6 points relative to 𝜏 =1.0), and the loss is highly uneven: Telugu falls to 14.48% while 23 Table 11: Per-language accuracy, average accuracy, and cross-lingual consistency (%) on MGSM for Qwen3 and Gemma3 models and their fine-tuned variants. 
+
+Model En Fr Ja Sw Te Th Zh Avg (↑) CLC (↑)
+
+Qwen3-4B 93.36 81.36 80.56 29.04 64.24 83.36 86.16 74.01 69.31 + Soft Thinking 93.40 83.52 81.84 28.24 61.60 84.12 86.92 74.23 70.37 + SFT 94.00 85.60 77.20 47.20 63.52 79.36 86.88 76.25 72.29 + MidAlign 93.24 85.16 79.92 48.72 63.04 77.60 87.44 76.45 73.11 + MAPO 92.24 85.76 80.00 51.28 65.92 79.04 88.40 77.52 73.90 + AlignX 93.12 84.56 80.32 53.48 64.32 80.40 87.60 77.69 73.00 + SOLAR 93.32 86.32 81.00 53.48 65.36 80.56 87.84 78.27 75.61 Qwen3-8B 94.88 86.80 84.96 59.36 80.08 89.36 88.48 83.42 80.51 + Soft Thinking 94.96 86.80 84.88 58.32 81.44 88.00 86.88 83.04 80.01 + SFT 95.44 89.60 82.24 79.76 80.56 91.20 89.52 86.90 84.71 + SOLAR 94.96 91.28 82.72 81.36 83.20 92.80 91.60 88.27 87.28 Gemma3-4B 68.64 59.04 49.44 33.92 48.64 54.08 59.44 53.31 45.29 + Soft Thinking 68.24 58.56 50.32 35.84 49.36 53.04 57.84 53.31 45.01 + SFT 71.36 66.64 54.08 45.92 48.96 57.84 57.76 57.51 53.12 + MidAlign 71.36 67.52 54.24 47.52 51.28 58.96 58.72 58.51 53.28 + MAPO 72.16 67.20 54.32 46.88 51.68 58.16 62.00 58.91 54.32 + AlignX 72.16 67.92 54.56 47.20 51.60 59.52 59.44 58.91 53.84 + SOLAR 71.60 68.56 54.40 48.40 53.36 59.28 63.92 59.93 55.04 Gemma3-12B 97.12 91.36 87.84 83.60 86.64 89.84 90.08 89.50 86.95 + Soft Thinking 96.48 91.60 87.44 84.00 88.48 90.40 89.28 89.67 86.75 + SFT 96.80 94.16 87.20 86.88 90.80 89.92 92.32 91.15 87.76 + SOLAR 97.04 94.16 87.44 87.52 89.76 91.44 93.20 91.51 89.52 
+
+Table 12: Per-language accuracy, average accuracy, and cross-lingual consistency (%) on AIME 2024 for Qwen3 models and their fine-tuned variants. 
+
+Model En Fr Ja Sw Te Th Zh Avg (↑) CLC (↑)
+
+Qwen3-4B 53.33 43.67 36.67 11.00 5.67 26.00 41.33 31.10 23.89 + Soft Thinking 53.33 51.33 30.00 10.00 6.33 26.00 46.00 31.86 24.44 + SFT 45.33 46.33 34.33 22.00 20.67 36.00 38.67 34.76 25.17 + MidAlign 44.33 49.67 35.67 27.67 28.67 36.33 34.33 36.67 27.11 + MAPO 46.33 45.33 30.67 22.33 23.00 36.00 39.67 34.76 25.89 + AlignX 45.67 46.33 35.67 26.33 24.00 32.33 41.67 36.00 26.88 + SOLAR 45.33 50.67 34.33 32.67 29.67 38.67 38.33 38.52 29.67 Qwen3-8B 75.33 73.67 70.33 37.33 52.67 68.67 56.67 62.10 56.06 + Soft Thinking 76.00 73.00 70.33 37.67 54.00 69.67 57.00 62.52 56.91 + SFT 72.00 77.33 68.33 55.33 61.67 72.00 53.00 65.67 58.67 + SOLAR 72.67 78.33 68.67 58.33 63.00 75.00 56.67 67.52 60.61 
+
+Table 13: Per-language accuracy, average accuracy, and cross-lingual consistency (%) on AIME 2025 for Qwen3 models and their fine-tuned variants. 
+
+Model En Fr Ja Sw Te Th Zh Avg (↑) CLC (↑)
+
+Qwen3-4B 36.67 31.67 27.00 9.33 3.33 22.33 31.00 23.05 17.61 + Soft Thinking 30.00 36.67 30.33 6.67 3.33 25.00 31.33 23.33 18.22 + SFT 35.67 33.33 26.00 21.00 17.00 30.00 32.33 27.90 20.44 + MidAlign 31.67 34.33 27.67 23.67 20.00 32.00 34.00 29.05 23.22 + MAPO 32.67 36.67 24.33 13.33 9.67 28.67 35.33 25.81 18.94 + AlignX 36.67 34.67 25.00 22.67 17.33 26.00 32.00 27.76 20.10 + SOLAR 35.33 37.33 26.67 26.33 23.33 31.67 36.00 30.95 24.51 Qwen3-8B 63.00 66.67 60.00 41.67 43.67 55.00 54.33 54.91 45.06 + Soft Thinking 61.00 65.67 61.00 40.33 49.00 53.67 52.33 54.71 44.22 + SFT 60.67 67.33 60.67 48.67 52.33 63.00 56.00 58.38 50.13 + SOLAR 61.00 69.00 59.33 51.00 55.67 65.67 59.00 60.10 53.02 
+
+24 Table 14: Per-language accuracy, average accuracy, and cross-lingual consistency (%) on GPQA Dia-mond for Qwen3 and Gemma3 models and their fine-tuned variants.                                                                                                                                                                                                                
+
+> Model En Fr Ja Sw Te Th Zh Avg (↑)CLC (↑)
+> Qwen3-4B 45.45 29.80 16.57 19.80 14.24 30.30 36.46 27.52 14.56 + Soft Thinking 48.48 29.90 14.55 19.39 13.03 29.19 36.87 27.34 14.31 + SFT 58.08 50.61 35.86 37.88 30.10 44.24 49.49 43.75 33.15 + MidAlign 54.75 49.60 34.55 36.46 34.55 40.61 50.51 43.00 32.47 + MAPO 47.17 47.58 34.14 34.65 30.61 41.41 46.67 40.32 30.15 + AlignX 56.06 49.49 34.75 34.55 33.94 40.61 51.82 43.03 32.97 + SOLAR 58.08 53.84 34.24 39.09 33.23 44.95 53.23 45.24 36.26 Qwen3-8B 58.38 57.37 52.93 45.66 48.69 54.14 51.62 52.68 42.69 + Soft Thinking 61.31 57.88 53.03 44.24 47.68 54.75 52.53 53.06 43.42 + SFT 69.49 64.14 58.59 62.63 61.31 62.73 66.57 63.64 55.73 + SOLAR 68.99 66.16 61.11 62.02 63.23 64.65 68.59 64.96 57.27 Gemma3-4B 17.47 17.88 14.65 13.84 14.14 18.48 17.88 16.34 5.37 + Soft Thinking 16.26 16.97 16.67 14.85 14.95 17.58 16.57 16.26 5.35 + SFT 33.74 31.21 28.59 27.98 30.71 28.59 27.27 29.73 15.45 + MidAlign 33.54 31.31 28.38 27.68 30.51 29.09 28.38 29.84 15.56 + MAPO 32.22 30.81 28.89 27.07 28.99 29.60 27.68 29.32 14.85 + AlignX 32.83 31.41 27.37 25.56 29.09 28.28 26.87 28.77 14.14 + SOLAR 33.43 33.33 30.10 28.89 29.80 29.60 28.38 30.50 16.26 Gemma3-12B 30.51 30.51 23.23 28.59 23.03 27.58 22.83 26.61 13.43 + Soft Thinking 29.60 28.08 21.21 28.79 25.15 28.48 22.32 26.23 12.27 + SFT 43.13 44.55 29.80 37.68 26.16 39.60 36.77 36.81 30.61 + SOLAR 47.07 46.97 31.62 39.70 30.51 43.74 36.77 39.48 34.85
+
+Table 15: Pearson correlation between average accuracy and CLC across model variants.                        
+
+> Benchmark Pearson 𝑟 𝑝 -value
+> MGSM 0.997 3.5×10 −10
+> AIME 2024 0.998 5.1×10 −11
+> AIME 2025 0.997 4.9×10 −10
+> GPQA 0.999 2.1×10 −12
+> All 0.995 1.4×10 −39
+
+English remains high at 89.90%. With the continuous signal gone, the objective reduces to aligning discrete representations, so low-resource languages, which have the weakest baseline alignment, suffer the most. At 𝜏 =2.0 the drop is moderate ( −1.9 accuracy, −2.5 CLC) and the per-language pattern partially reverses: Swahili and Telugu reach their best accuracies across the three temperatures while high-resource languages decline ( e.g., French 86.32% → 79.28%). Smoother distributions thus spread the signal more broadly, helping sparse-coverage languages at the cost of the semantic specificity high-resource languages rely on. The optimum at 𝜏 =1.0 balances the two: soft tokens must differ meaningfully from discrete tokens yet stay specific enough for effective alignment. 
+
+Alignment representation space. Table 17 (b) compares aligning mean-pooled soft-token em-beddings in R𝑑 (SOLAR) against mean-pooled probability distributions in R|𝑉 | , which bypasses the embedding layer and minimizes cosine distance between ¯𝑝 en and ¯𝑝 ℓ (Eq. 3). Embedding-space alignment wins by a wide margin: in probability space accuracy drops 18.0 points and CLC 30.9 points, falling below SFT and the base model. The collapse is especially severe for CLC because equivalent reasoning across languages activates largely disjoint token subsets in R|𝑉 | , so cosine distance gives little useful gradient. The embedding projection, by contrast, maps these probabilities into a shared space where cross-script equivalences are captured. Alternative distance metrics such as KL or Jensen–Shannon divergence are left to future work. 
+
+Pivot language ℓ∗. Table 17 (c) reports per-language results for Qwen3-4B trained with different pivot languages. All other hyperparameters are fixed at 𝜆 =0.50 and 𝜏 =1.0. English yields the best aggregate performance (78.27% accuracy, 75.61% CLC), followed by Chinese (74.50%, 70.97%) and 25 Table 16: Per-language accuracy, average accuracy, and cross-lingual consistency (%) across four benchmarks for Qwen3-4B SOLAR fine-tuned variants with different 𝜆 .
+
+Benchmark 𝜆 En Fr Ja Sw Te Th Zh Avg. (↑) CLC (↑)
+
+MGSM 0.25 92.56 85.92 83.44 52.88 65.68 80.16 89.60 78.61 75.73 0.50 93.32 86.32 81.00 53.48 65.36 80.56 87.84 78.27 75.61 0.75 92.40 86.00 76.72 53.52 62.72 74.24 85.20 75.83 73.73 1.00 87.52 83.76 72.32 42.56 53.68 64.80 80.08 69.25 63.67 AIME 2024 0.25 45.00 51.33 32.33 30.67 27.33 35.00 40.33 37.43 27.83 0.50 45.33 50.67 34.33 32.67 29.67 38.67 38.33 38.52 29.67 0.75 42.33 46.33 31.67 24.33 17.33 31.00 33.67 32.38 24.44 1.00 40.33 41.67 30.33 10.00 3.00 19.33 32.33 25.28 19.22 AIME 2025 0.25 35.00 36.00 29.33 26.33 21.33 29.00 35.67 30.38 23.81 0.50 35.33 37.33 26.67 26.33 23.33 31.67 36.00 30.95 24.51 0.75 32.67 31.67 22.33 20.67 16.00 26.00 32.67 26.00 20.06 1.00 30.00 28.33 20.67 9.00 7.00 21.67 25.67 20.33 15.83 GPQA 0.25 58.69 53.43 33.13 35.35 32.12 45.86 50.51 44.16 35.47 0.50 58.08 53.84 34.24 39.09 33.23 44.95 53.23 45.24 36.26 0.75 55.25 49.90 28.28 34.44 25.56 37.98 50.20 40.23 31.87 1.00 50.51 39.80 20.61 18.69 14.04 27.27 33.23 29.16 17.02 
+
+Table 17: Per-language results for the secondary ablations of SOLAR with Qwen3-4B on MGSM: soft-token temperature 𝜏 , representation space, and pivot language ℓ∗.
+
+Configuration En Fr Ja Sw Te Th Zh Avg. (↑) CLC (↑)
+
+(a) Soft-token temperature 𝜏 
+
+0.6 89.90 75.76 70.72 43.36 14.48 62.48 66.64 60.48 57.03 1.0 93.32 86.32 81.00 53.48 65.36 80.56 87.84 78.27 75.61 2.0 91.44 79.28 79.76 56.32 67.84 74.08 86.16 76.41 73.13 
+
+(b) Representation space 
+
+R𝑑 (emb.) 93.32 86.32 81.00 53.48 65.36 80.56 87.84 78.27 75.61 
+
+R|𝑉 | (prob.) 89.28 75.07 64.64 33.44 20.88 66.56 72.00 60.27 44.76 
+
+(c) Pivot language ℓ∗
+
+English (En) 93.32 86.32 81.00 53.48 65.36 80.56 87.84 78.27 75.61 Chinese (Zh) 89.68 80.80 79.84 40.56 62.40 80.08 88.16 74.50 70.97 French (Fr) 84.24 82.72 79.68 36.80 64.08 78.48 84.08 72.87 66.67 
+
+Table 18: Alignment-target ablation for SOLAR with Qwen3-4B and Qwen3-8B. 
+
+MGSM AIME 2024 AIME 2025 GPQA Avg. Alignment target Accuracy CLC Accuracy CLC Accuracy CLC Accuracy CLC Accuracy CLC 
+
+Qwen3-4B + SFT 76.25 72.29 34.76 25.17 27.90 20.44 43.75 33.15 45.67 37.76 + Discrete 76.37 73.50 35.63 26.06 28.12 21.41 43.86 33.47 46.00 38.61 + Final-hidden 76.97 73.79 35.47 25.91 27.87 20.05 44.05 34.51 46.09 38.57 + Untruncated 77.19 74.72 37.03 27.63 27.93 22.93 44.04 34.46 46.55 39.94 + SOLAR ( 𝑘 =30 ) 78.27 75.61 38.52 29.67 30.95 24.51 45.24 36.26 48.25 41.51 Qwen3-8B + SFT 86.90 84.71 65.67 58.67 58.38 50.13 63.64 55.73 68.65 62.31 + Discrete 87.29 85.45 65.00 56.89 58.86 51.05 62.99 55.04 68.54 62.11 + Final-hidden 87.05 85.09 66.51 58.89 59.06 51.12 63.41 55.65 69.01 62.69 + Untruncated 87.92 85.73 66.94 59.02 60.08 51.94 64.09 56.13 69.76 63.21 + SOLAR ( 𝑘 =30 ) 88.27 87.28 67.52 60.61 60.10 53.02 64.96 57.27 70.21 64.55 French (72.87%, 66.67%). The performance gap is concentrated in low-resource languages, where Swahili drops from 53.48% (En) to 40.56% (Zh) and 36.80% (Fr), consistent with the hypothesis that transfer effectiveness depends on the quality of the pivot’s pre-trained representations. English, as the dominant language in pre-training corpora, provides the strongest anchor for alignment. 
+
+Full alignment-target results. Table 18 extends the alignment-target ablation of §4.4 to Qwen3-8B alongside Qwen3-4B. At both scales SOLAR is the best target and a single hard token (Discrete) stays at the SFT level, while the intermediate targets (Final-hidden, Untruncated) fall within about a 26 Table 19: Cross-lingual alignment on MGSM, discrete vs. soft thinking (Qwen3).                                                                                        
+
+> Qwen3-4B-Base Qwen3-4B Qwen3-8B-Base Qwen3-8B Metric Early Mid Final Early Mid Final Early Mid Final Early Mid Final
+> Disc-CLS (↑)0.84 0.98 0.28 0.78 0.94 0.14 0.85 0.94 0.73 0.82 0.97 0.23 Soft-CLS (↑)0.83 0.96 0.43 0.78 0.92 0.24 0.85 0.91 0.79 0.83 0.94 0.36
+> ΔCLS -0.01 -0.02 +0.15 +0.00 -0.02 +0.10 +0.00 -0.03 +0.06 +0.01 -0.03 +0.13 Disc-SS (↓)0.53 0.05 0.84 0.58 0.23 0.89 0.50 0.14 0.82 0.53 0.15 0.87 Soft-SS (↓)0.60 0.13 0.83 0.67 0.32 0.88 0.57 0.10 0.77 0.60 0.27 0.83
+> ΔSS +0.07 +0.08 -0.01 +0.09 +0.09 -0.01 +0.07 -0.04 -0.05 +0.07 +0.12 -0.04
+
+Table 20: Cross-lingual alignment on AIME 2024, discrete vs. soft thinking (Qwen3).                                                                                        
+
+> Qwen3-4B-Base Qwen3-4B Qwen3-8B-Base Qwen3-8B Metric Early Mid Final Early Mid Final Early Mid Final Early Mid Final
+> Disc-CLS (↑)0.88 0.98 0.42 0.87 0.96 0.39 0.89 0.95 0.85 0.89 0.98 0.45 Soft-CLS (↑)0.87 0.96 0.58 0.86 0.95 0.51 0.89 0.91 0.90 0.90 0.95 0.60
+> ΔCLS -0.01 -0.02 +0.16 -0.01 -0.01 +0.12 +0.00 -0.04 +0.05 +0.01 -0.03 +0.15 Disc-SS (↓)0.42 -0.05 0.70 0.42 0.01 0.70 0.39 0.04 0.48 0.38 -0.06 0.65 Soft-SS (↓)0.45 0.01 0.68 0.46 0.08 0.67 0.41 0.01 0.48 0.40 -0.02 0.62
+> ΔSS +0.03 +0.06 -0.02 +0.04 +0.07 -0.03 +0.02 -0.03 +0.00 +0.02 +0.04 -0.03
+
+point of one another and are not strictly ordered across benchmarks. The consistent SOLAR-best pattern across scales indicates that the soft mixture, rather than model size, drives the gain. 
+
+F.2 Representation analysis Setup. We sample 50 instances per language for MGSM and GPQA and all 30 from each AIME subset. We extract hidden states in two passes. Pass 1 runs a standard forward pass, mean-pools hidden states at each target layer, and builds soft tokens via Eq. 2 with 𝜏 = 0.6 and 𝑘 = 30 . Pass 2 feeds these soft tokens back into the same model and extracts hidden states at the same layers. We probe three depths: early (layer 1), middle ( ∼50%), and final (layer −1), reporting ΔCLS and ΔSS relative to discrete tokens. Positive ΔCLS or negative ΔSS indicates improved cross-lingual mixing. 
+
+Results. Tables 19–30 present the layer-wise cross-lingual alignment analysis for all 10 models across four benchmarks and 11 languages. The inverted-U pattern from §4.1 holds across all models and benchmarks: CLS peaks at middle layers and drops sharply at the final layer. Soft thinking improves final-layer CLS for most models and benchmarks, with magnitude varying by family: Gemma3 shows the largest gains ( ΔCLS up to +0.68), Qwen3 improves more modestly, and DeepSeek-R1-Distill shows the smallest effect, with small negative ΔCLS for DeepSeek-R1-Distill-Llama-8B on AIME 2024/2025 and GPQA. Table 31 reports CLS and SS at three depths for Qwen3-4B, Qwen3-8B, and their SFT and SOLAR variants, extending the final-layer summary in §4.1 to early and middle layers. The 8B results corroborate the 4B patterns, with gains concentrated at the final layer: SOLAR raises final-layer discrete CLS from 0.23 to 0.76 ( ΔCLS = +0.53), and soft thinking lifts it further to 0.87 (+0.64). For 4B, SOLAR’s discrete gain (+0.36) exceeds its cumulative soft-thinking gain (+0.28), so SOLAR has largely internalized what soft thinking provides. On 8B, soft thinking still adds on top of SOLAR (+0.64 vs. +0.53), suggesting the larger model retains capacity for further inference-time alignment. Early and middle layers change minimally at both scales, confirming the effect is specific to the final layer. 
+
+F.3 Behavioral analysis 
+
+We examine whether fine-tuning changes the model’s reasoning language when the prompt is non-English. We evaluate Qwen3-4B on MGSM across four non-Latin-script languages spanning high-, mid-, and low-resource settings (Zh, Ja, Th, Te) and analyze both the token -level (generated tokens) and the distribution -level (top-30 tokens in the output distribution during decoding). To quantify language use in reasoning traces and top-𝑘 distributions, we classify every token into one of three categories by Unicode code-point range: (1) target-script : characters belonging to the prompt 27 Table 21: Cross-lingual alignment on AIME 2025, discrete vs. soft thinking (Qwen3). 
+
+Qwen3-4B-Base Qwen3-4B Qwen3-8B-Base Qwen3-8B Metric Early Mid Final Early Mid Final Early Mid Final Early Mid Final 
+
+Disc-CLS (↑) 0.88 0.98 0.45 0.88 0.96 0.43 0.90 0.95 0.87 0.90 0.97 0.48 Soft-CLS (↑) 0.88 0.96 0.59 0.87 0.95 0.54 0.90 0.92 0.91 0.90 0.94 0.63 
+
+ΔCLS +0.00 -0.02 +0.14 -0.01 -0.01 +0.11 +0.00 -0.03 +0.04 +0.00 -0.03 +0.15 Disc-SS (↓) 0.40 -0.13 0.69 0.41 0.00 0.70 0.38 0.02 0.50 0.38 -0.09 0.65 Soft-SS (↓) 0.43 -0.04 0.68 0.46 0.08 0.66 0.41 -0.01 0.50 0.40 -0.04 0.61 
+
+ΔSS +0.03 +0.09 -0.01 +0.05 +0.08 -0.04 +0.03 -0.03 +0.00 +0.02 +0.05 -0.04 Table 22: Cross-lingual alignment on GPQA, discrete vs. soft thinking (Qwen3). 
+
+Qwen3-4B-Base Qwen3-4B Qwen3-8B-Base Qwen3-8B Metric Early Mid Final Early Mid Final Early Mid Final Early Mid Final 
+
+Disc-CLS (↑) 0.88 0.97 0.39 0.87 0.95 0.37 0.89 0.95 0.83 0.90 0.97 0.37 Soft-CLS (↑) 0.87 0.96 0.54 0.86 0.94 0.46 0.89 0.92 0.88 0.90 0.94 0.54 
+
+ΔCLS -0.01 -0.01 +0.15 -0.01 -0.01 +0.09 +0.00 -0.03 +0.05 +0.00 -0.03 +0.17 Disc-SS (↓) 0.47 -0.00 0.72 0.48 0.07 0.73 0.44 0.08 0.60 0.44 -0.01 0.70 Soft-SS (↓) 0.51 0.06 0.71 0.53 0.15 0.72 0.47 0.12 0.62 0.46 0.06 0.66 
+
+ΔSS +0.04 +0.06 -0.01 +0.05 +0.08 -0.01 +0.03 +0.04 +0.02 +0.02 +0.07 -0.04 Table 23: Cross-lingual alignment on MGSM, discrete vs. soft thinking (Gemma3). 
+
+Gemma3-1B Gemma3-4B Gemma3-12B Gemma3-27B Metric Early Mid Final Early Mid Final Early Mid Final Early Mid Final 
+
+Disc-CLS (↑) 0.98 1.00 0.27 0.99 1.00 0.28 0.99 1.00 0.25 0.99 1.00 0.30 Soft-CLS (↑) 0.96 1.00 0.75 0.99 1.00 0.90 0.93 1.00 0.93 0.95 1.00 0.90 
+
+ΔCLS -0.02 +0.00 +0.48 +0.00 +0.00 +0.62 -0.06 +0.00 +0.68 -0.04 +0.00 +0.60 Disc-SS (↓) 0.41 0.23 0.87 0.26 0.07 0.84 0.31 0.21 0.82 -0.03 -0.15 0.82 Soft-SS (↓) 0.60 0.26 0.34 0.55 0.15 0.22 0.54 0.08 0.09 0.56 0.12 0.13 
+
+ΔSS +0.19 +0.03 -0.53 +0.29 +0.08 -0.62 +0.23 -0.13 -0.73 +0.59 +0.27 -0.69 Table 24: Cross-lingual alignment on AIME 2024, discrete vs. soft thinking (Gemma3). 
+
+Gemma3-1B Gemma3-4B Gemma3-12B Gemma3-27B Metric Early Mid Final Early Mid Final Early Mid Final Early Mid Final 
+
+Disc-CLS (↑) 0.99 1.00 0.44 1.00 1.00 0.46 0.99 1.00 0.42 0.99 1.00 0.46 Soft-CLS (↑) 0.98 1.00 0.83 0.99 1.00 0.93 0.96 1.00 0.94 0.97 1.00 0.92 
+
+ΔCLS -0.01 +0.00 +0.39 -0.01 +0.00 +0.47 -0.03 +0.00 +0.52 -0.02 +0.00 +0.46 Disc-SS (↓) 0.19 0.09 0.66 0.14 0.01 0.67 0.13 0.08 0.67 -0.09 -0.19 0.69 Soft-SS (↓) 0.26 0.10 0.14 0.21 0.04 0.05 0.27 -0.01 0.03 0.24 0.01 -0.01 
+
+ΔSS +0.07 +0.01 -0.52 +0.07 +0.03 -0.62 +0.14 -0.09 -0.64 +0.33 +0.20 -0.70 Table 25: Cross-lingual alignment on AIME 2025, discrete vs. soft thinking (Gemma3). 
+
+Gemma3-1B Gemma3-4B Gemma3-12B Gemma3-27B Metric Early Mid Final Early Mid Final Early Mid Final Early Mid Final 
+
+Disc-CLS (↑) 0.99 1.00 0.46 1.00 1.00 0.48 0.99 1.00 0.43 0.99 1.00 0.48 Soft-CLS (↑) 0.98 1.00 0.85 0.99 1.00 0.93 0.96 1.00 0.93 0.97 1.00 0.92 
+
+ΔCLS -0.01 +0.00 +0.39 -0.01 +0.00 +0.45 -0.03 +0.00 +0.50 -0.02 +0.00 +0.44 Disc-SS (↓) 0.15 0.08 0.65 0.12 0.00 0.68 0.10 0.08 0.69 -0.10 -0.16 0.70 Soft-SS (↓) 0.25 0.07 0.10 0.18 0.03 0.02 0.27 -0.03 -0.04 0.23 -0.00 -0.00 
+
+ΔSS +0.10 -0.01 -0.55 +0.06 +0.03 -0.66 +0.17 -0.11 -0.73 +0.33 +0.16 -0.70 language’s native writing system (CJK Unified Ideographs U+4E00–9FFF and extensions for Chinese; CJK plus Hiragana U+3040–309F and Katakana U+30A0–30FF for Japanese; Thai U+0E00–0E7F ;Telugu U+0C00–0C7F ); (2) Latin : characters whose Unicode name contains LATIN , a proxy for English; and (3) neutral : digits, punctuation, mathematical symbols, and whitespace (Unicode 28 Table 26: Cross-lingual alignment on GPQA, discrete vs. soft thinking (Gemma3). 
+
+Gemma3-1B Gemma3-4B Gemma3-12B Gemma3-27B Metric Early Mid Final Early Mid Final Early Mid Final Early Mid Final 
+
+Disc-CLS (↑) 0.99 1.00 0.41 1.00 1.00 0.40 0.99 1.00 0.34 0.99 1.00 0.37 Soft-CLS (↑) 0.98 1.00 0.78 0.99 1.00 0.92 0.95 1.00 0.92 0.97 1.00 0.89 
+
+ΔCLS -0.01 +0.00 +0.37 -0.01 +0.00 +0.52 -0.04 +0.00 +0.58 -0.02 +0.00 +0.52 Disc-SS (↓) 0.25 0.07 0.73 0.16 0.01 0.74 0.14 0.07 0.75 -0.03 -0.15 0.77 Soft-SS (↓) 0.36 0.22 0.31 0.30 0.16 0.19 0.35 0.04 0.06 0.35 0.06 0.03 
+
+ΔSS +0.11 +0.15 -0.42 +0.14 +0.15 -0.55 +0.21 -0.03 -0.69 +0.38 +0.21 -0.74 Table 27: Cross-lingual alignment on MGSM, discrete vs. soft thinking (DeepSeek-R1-Distill). 
+
+DeepSeek-R1-Distill-Qwen-7B DeepSeek-R1-Distill-Llama-8B Metric Early Mid Final Early Mid Final 
+
+Disc-CLS (↑) 0.74 1.00 0.24 0.80 0.88 0.20 Soft-CLS (↑) 0.73 0.97 0.25 0.85 0.90 0.21 
+
+ΔCLS -0.01 -0.03 +0.01 +0.05 +0.02 +0.01 Disc-SS (↓) 0.55 0.11 0.83 0.48 0.16 0.77 Soft-SS (↓) 0.59 0.20 0.82 0.50 0.26 0.80 
+
+ΔSS +0.04 +0.09 -0.01 +0.02 +0.10 +0.03 
+
+Table 28: Cross-lingual alignment on AIME 2024, discrete vs. soft thinking (DeepSeek-R1-Distill). 
+
+DeepSeek-R1-Distill-Qwen-7B DeepSeek-R1-Distill-Llama-8B Metric Early Mid Final Early Mid Final 
+
+Disc-CLS (↑) 0.81 1.00 0.33 0.86 0.89 0.36 Soft-CLS (↑) 0.81 0.97 0.34 0.87 0.90 0.34 
+
+ΔCLS +0.00 -0.03 +0.01 +0.01 +0.01 -0.02 Disc-SS (↓) 0.39 0.01 0.60 0.33 0.08 0.66 Soft-SS (↓) 0.39 0.07 0.64 0.32 0.13 0.66 
+
+ΔSS -0.00 +0.06 +0.04 -0.01 +0.05 +0.00 
+
+Table 29: Cross-lingual alignment on AIME 2025, discrete vs. soft thinking (DeepSeek-R1-Distill). 
+
+DeepSeek-R1-Distill-Qwen-7B DeepSeek-R1-Distill-Llama-8B Metric Early Mid Final Early Mid Final 
+
+Disc-CLS (↑) 0.83 0.99 0.35 0.87 0.89 0.39 Soft-CLS (↑) 0.82 0.97 0.35 0.88 0.89 0.37 
+
+ΔCLS -0.01 -0.02 +0.00 +0.01 +0.00 -0.02 Disc-SS (↓) 0.38 -0.09 0.61 0.29 0.04 0.66 Soft-SS (↓) 0.37 0.03 0.64 0.28 0.06 0.65 
+
+ΔSS -0.01 +0.12 +0.03 -0.01 +0.02 -0.01 
+
+Table 30: Cross-lingual alignment on GPQA, discrete vs. soft thinking (DeepSeek-R1-Distill). 
+
+DeepSeek-R1-Distill-Qwen-7B DeepSeek-R1-Distill-Llama-8B Metric Early Mid Final Early Mid Final 
+
+Disc-CLS (↑) 0.81 0.99 0.29 0.86 0.88 0.32 Soft-CLS (↑) 0.80 0.96 0.30 0.86 0.88 0.31 
+
+ΔCLS -0.01 -0.03 +0.01 +0.00 +0.00 -0.01 Disc-SS (↓) 0.46 -0.02 0.72 0.40 0.13 0.69 Soft-SS (↓) 0.47 0.11 0.73 0.37 0.19 0.72 
+
+ΔSS +0.01 +0.13 +0.01 -0.03 +0.06 +0.03 
+
+29 Table 31: Cross-lingual representation analysis across three layer depths of Qwen3-4B/8B and their fine-tuned variants. Δ is computed against each model’s base (discrete-thinking) configuration.                                                                                                                                                       
+
+> Model Inference Layer CLS (↑)SS (↓)ΔCLS ΔSS
+> Qwen3-4B Discrete Thinking Early 0.78 0.58 0.00 0.00 Mid 0.94 0.23 0.00 0.00 Final 0.14 0.89 0.00 0.00 Soft Thinking Early 0.78 0.67 +0.00 +0.09 Mid 0.92 0.32 -0.02 +0.09 Final 0.24 0.88 +0.10 -0.01 + SFT Discrete Thinking Early 0.80 0.57 +0.02 -0.01 Mid 0.95 0.17 +0.01 -0.06 Final 0.30 0.86 +0.16 -0.03 Soft Thinking Early 0.80 0.66 +0.02 +0.08 Mid 0.93 0.26 -0.01 +0.03 Final 0.40 0.85 +0.26 -0.04 + SOLAR Discrete Thinking Early 0.80 0.57 +0.02 -0.01 Mid 0.95 0.21 +0.01 -0.02 Final 0.50 0.77 +0.36 -0.12 Soft Thinking Early 0.78 0.65 +0.00 +0.07 Mid 0.90 0.42 -0.04 +0.19 Final 0.42 0.81 +0.28 -0.08 Qwen3-8B Discrete Thinking Early 0.82 0.53 0.00 0.00 Mid 0.97 0.15 0.00 0.00 Final 0.23 0.87 0.00 0.00 Soft Thinking Early 0.83 0.60 +0.01 +0.07 Mid 0.94 0.27 -0.03 +0.12 Final 0.36 0.83 +0.13 -0.04 + SFT Discrete Thinking Early 0.82 0.53 +0.00 +0.00 Mid 0.97 0.19 +0.00 +0.04 Final 0.50 0.86 +0.27 -0.01 Soft Thinking Early 0.81 0.59 -0.01 +0.06 Mid 0.94 0.22 -0.03 +0.07 Final 0.56 0.86 +0.33 -0.01 + SOLAR Discrete Thinking Early 0.85 0.52 +0.03 -0.01 Mid 0.97 0.09 +0.00 -0.06 Final 0.76 0.77 +0.53 -0.10 Soft Thinking Early 0.85 0.62 +0.03 +0.09 Mid 0.93 0.19 -0.04 +0.04 Final 0.87 0.76 +0.64 -0.11
+
+categories N, P, S, and Z), which are script-independent and shared across languages. We average over five MGSM runs. The target-script ratio is defined as target /( target + Latin ), which excludes neutral tokens from the comparison. 
+
+Token-level composition. Tables 32–35 report the target-script ratio of generated reasoning traces, overall and by answer correctness. On MGSM, all 4B variants reason almost entirely in the target script (96–99%, average correct/incorrect Δ < 0.5% ). The 8B base splits sharply: Chinese stays high (99.15%), but Japanese, Thai, and Telugu fall below 5%, with the model reasoning in English. SFT and SOLAR both recover all four above 97%. On harder benchmarks (AIME 2024, AIME 2025, GPQA), target-script ratios drop for all models. The 4B base declines the most (75–80% average). Fine-tuned models stay more robust (roughly 77–99%, Telugu highest). The 8B base retains its English-thinking pattern (Ja/Th/Te below 1.1%), while SFT and SOLAR again recover to 86–89%. 
+
+Top-𝑘 composition. We perform teacher-forced decoding and classify the top-30 tokens at each position as target-script , Latin , or neutral . Figure 5 (top row) shows the composition breakdown and Table 36 the target-script ratio, revealing two findings. First, the 8B base has a stronger English 30 Table 32: Target-script ratio (%) on MGSM reasoning traces.                                                                                                
+
+> Model Zh Ja Th Te Avg.
+> Qwen3-4B Overall 98.56 99.24 99.41 98.01 98.81 Correct 98.64 99.21 99.39 97.66 98.72 Incorrect 98.01 99.38 99.51 98.69 98.90 + SFT Overall 97.77 97.71 98.54 99.53 98.39 Correct 97.79 97.49 98.45 99.48 98.30 Incorrect 97.52 98.45 98.89 99.62 98.63 + SOLAR Overall 97.29 96.98 98.46 99.77 98.13 Correct 97.68 97.14 98.29 99.76 98.22 Incorrect 95.76 96.77 98.80 99.78 97.77 Qwen3-8B Overall 99.15 2.26 4.17 4.14 27.43 Correct 99.23 2.10 3.97 3.81 27.28 Incorrect 98.52 3.13 5.80 5.47 28.23 + SFT Overall 97.76 97.64 98.50 99.52 98.36 Correct 98.04 97.66 98.52 99.59 98.45 Incorrect 95.75 97.60 98.43 99.33 97.77 + SOLAR Overall 97.63 97.48 97.75 99.80 98.16 Correct 97.97 97.68 97.97 99.81 98.36 Incorrect 97.09 97.04 97.29 99.79 97.80
+
+preference than the 4B base. SFT and SOLAR raise its MGSM average from 38.05% to above 87%. Second, the two methods shift this preference differently: SFT increases target-language token density, while SOLAR suppresses Latin competition without proportionally adding target tokens. The contrast is clearest for Telugu, where SOLAR reaches 98.37% (4B) while SFT barely moves the base ratio (65.21% vs. 65.37%), consistent with SOLAR’s alignment objective reducing cross-lingual hedging. These patterns extend to the harder benchmarks. The 4B base now shows the distribution-level collapse previously seen only in the 8B base on MGSM. Fine-tuning again recovers most of the loss, and SOLAR keeps the highest Telugu ratio on every benchmark. 
+
+Top-𝑝 composition. Because the fixed budget ( 𝑘 =30 ) may include low-probability tokens the model would never sample, we repeat the composition analysis under nucleus (top-𝑝 ) sampling with 
+
+𝑝 =0.9, retaining the minimal token set whose cumulative probability exceeds the threshold. Table 36 reports the top-𝑝 target-script ratio, and Figure 5 (bottom row) the full breakdown. The 8B base’s English dominance persists under top-𝑝 (below 33% for Japanese, Thai, and Telugu), confirming that the top-𝑘 preference is not an artifact of low-probability tail tokens. SFT and SOLAR again raise its average from 41.37% to above 97%. After fine-tuning, the primary generation intent is strongly target-language, and the residual cross-lingual competition sits in the low-probability tail. The same trends hold on AIME 2024, AIME 2025, and GPQA: base models retain their collapse while trained models reach high top-𝑝 ratios. The top-𝑝 /top-𝑘 gap narrows on the harder benchmarks, indicating that on hard problems English alternatives sit higher in the probability mass. SOLAR attains the highest Telugu ratios throughout (99.34% / 99.47% top-𝑝 for 4B / 8B). 
+
+F.4 Case Study 
+
+We present two case studies where the SOLAR-trained model answers correctly while the base Qwen3-4B and the SFT-only model both fail. The examples show two qualitative advantages of SOLAR. First, it produces shorter, more structured reasoning chains, avoiding the repeated dead ends of the base model. Second, it reduces interpretation errors on multilingual mathematical expressions, translating symbolic constraints in non-English problem statements into geometric reasoning. 
+
+AIME 2025 Q28 (Chinese). Figure 6 shows the full reasoning traces. This geometry problem asks for the area of a quadrilateral inscribed in a right triangle. The base model correctly sets up the coordinate system and derives the main constraints but fails to solve the resulting nonlinear system, abandoning the derivation and guessing ( 𝑛 = 147 ). The SFT model introduces an unsupported symmetry assumption, incorrectly setting 𝑏 = 𝑐 , which yields the wrong answer 98 √3. SOLAR 31 Table 33: Target-script ratio (%) on AIME 2024 reasoning traces. 
+
+Model Zh Ja Th Te Avg. 
+
+Qwen3-4B Overall 60.96 80.58 90.35 86.87 79.69 Correct 66.59 78.93 87.92 69.03 75.62 Incorrect 56.71 81.48 91.11 88.77 79.52 + SFT Overall 80.98 88.32 92.45 95.27 89.26 Correct 77.54 85.15 92.14 91.53 86.59 Incorrect 83.39 90.28 92.58 96.27 90.63 + SOLAR Overall 79.96 89.41 94.20 97.51 90.27 Correct 73.01 78.69 91.56 92.12 83.84 Incorrect 82.39 90.77 94.57 97.77 91.37 Qwen3-8B Overall 80.41 0.41 1.01 0.98 20.70 Correct 80.04 0.40 1.04 1.12 20.65 Incorrect 81.33 0.45 0.91 0.88 20.89 + SFT Overall 79.62 86.11 91.92 94.68 88.08 Correct 79.35 84.34 91.47 91.90 86.77 Incorrect 80.04 87.99 92.26 95.44 88.94 + SOLAR Overall 77.40 88.93 88.43 98.09 88.21 Correct 73.96 86.14 89.09 94.81 86.00 Incorrect 77.66 89.32 88.26 98.22 88.37 
+
+Table 34: Target-script ratio (%) on AIME 2025 reasoning traces. 
+
+Model Zh Ja Th Te Avg. 
+
+Qwen3-4B Overall 57.95 81.24 91.91 89.95 80.26 Correct 63.57 80.17 88.11 11.74 60.90 Incorrect 55.55 81.83 93.07 92.41 80.72 + SFT Overall 83.38 88.62 93.98 95.32 90.32 Correct 80.17 86.27 92.27 92.73 87.86 Incorrect 85.13 89.57 94.84 95.84 91.34 + SOLAR Overall 81.14 89.24 95.26 97.20 90.71 Correct 79.58 83.67 93.44 97.60 88.57 Incorrect 81.97 89.95 95.66 97.20 91.19 Qwen3-8B Overall 81.69 0.20 0.54 0.42 20.71 Correct 80.78 0.10 0.29 0.40 20.39 Incorrect 83.03 0.36 0.87 0.43 21.17 + SFT Overall 80.88 86.95 92.79 94.42 88.76 Correct 79.69 86.00 91.74 92.41 87.46 Incorrect 81.84 87.43 93.44 94.95 89.41 + SOLAR Overall 80.23 88.27 88.27 98.04 88.70 Correct 78.80 88.25 90.30 95.23 88.15 Incorrect 80.68 88.33 87.96 98.09 88.77 
+
+correctly enforces the constraints, obtains 𝑏 = 16 √3 and 𝑐 = 26 , computes the vertex coordinates, and applies the shoelace formula to reach the correct answer 𝑛 = 104 .
+
+AIME 2025 Q7 (Japanese). Figure 7 shows the full reasoning traces. This problem requires finding real values of 𝑘 for which a circle and a perpendicular bisector intersect exactly once. A key challenge is correctly interpreting |𝑧 − 4 − 𝑘 | and |𝑧 − 3𝑖 − 𝑘 |, which correspond to distances to (4 + 𝑘, 0) and (𝑘, 3). The base model misreads them as (4, 𝑘 ) and (0, 𝑘 ), placing both points on 
+
+𝑦 = 𝑘 and producing a fixed bisector 𝑥 = 2, which leads it to conclude that the line cannot intersect the circle after repeatedly revisiting the same steps. The SFT model makes a different parsing error, implicitly treating 𝑘 as 𝑘𝑖 , which yields incorrect reference points and the wrong result 𝑚 + 𝑛 = 8.SOLAR derives the correct bisector −8𝑥 + 6𝑦 + 8𝑘 + 7 = 0 and solves |8𝑘 − 73 | = 50 , producing the correct result 𝑚 + 𝑛 = 77 .32 Table 35: Target-script ratio (%) on GPQA reasoning traces. 
+
+Model Zh Ja Th Te Avg. 
+
+Qwen3-4B Overall 70.31 78.30 82.48 70.08 75.29 Correct 69.89 80.13 80.98 39.49 67.62 Incorrect 70.57 77.97 83.12 75.22 76.72 + SFT Overall 83.81 90.04 89.75 96.02 89.90 Correct 82.26 87.45 89.12 94.59 88.36 Incorrect 85.29 91.56 90.22 96.64 90.93 + SOLAR Overall 83.16 89.07 90.75 98.17 90.28 Correct 80.73 87.74 90.31 96.86 88.91 Incorrect 84.26 89.33 90.86 98.34 90.70 Qwen3-8B Overall 85.20 0.31 0.67 0.37 21.64 Correct 83.95 0.26 0.72 0.34 21.32 Incorrect 86.55 0.37 0.62 0.40 21.98 + SFT Overall 83.84 89.30 89.63 95.55 89.58 Correct 82.18 87.36 89.47 94.85 88.47 Incorrect 85.52 91.07 89.74 95.94 90.57 + SOLAR Overall 77.51 88.02 82.96 98.84 86.83 Correct 77.30 86.18 87.57 98.64 87.42 Incorrect 77.59 88.52 81.48 98.88 86.62 
+
+Table 36: Target-script ratio (%), top-𝑘 (𝑘 =30 ) and top-𝑝 (𝑝 =0.9) token selection on MGSM, AIME 2024, AIME 2025, and GPQA. 
+
+Top-𝑘 (𝑘 =30 ) Top- 𝑝 ( 𝑝 =0.9)Benchmark Model Zh Ja Th Te Avg. Zh Ja Th Te Avg. 
+
+MGSM Qwen3-4B 82.26 78.87 87.70 65.37 78.55 94.57 95.84 97.22 94.37 95.50 + SFT 91.29 92.26 91.91 65.21 85.17 95.69 97.35 98.41 98.75 97.55 + SOLAR 79.34 81.14 91.21 98.37 87.51 95.75 97.16 98.46 99.34 97.68 Qwen3-8B 92.49 19.73 27.99 11.97 38.05 97.99 21.75 32.59 13.15 41.37 + SFT 93.09 93.09 94.41 69.05 87.41 96.21 97.14 98.47 98.78 97.65 + SOLAR 82.83 77.79 91.75 98.99 87.84 95.68 96.05 97.38 99.47 97.14 AIME 2024 Qwen3-4B 83.58 3.80 1.30 1.72 22.60 83.30 2.36 1.66 1.58 22.22 + SFT 76.78 81.25 86.45 55.74 75.05 78.64 84.62 93.08 88.01 86.09 + SOLAR 67.13 74.73 88.34 95.26 81.36 78.10 87.63 91.40 90.61 86.94 Qwen3-8B 84.17 3.03 2.30 3.01 23.13 82.75 2.38 2.91 3.09 22.78 + SFT 81.02 84.87 89.11 60.62 78.91 80.27 86.93 92.03 89.26 87.12 + SOLAR 67.48 67.91 88.78 98.02 80.55 78.81 84.49 91.42 92.60 86.83 AIME 2025 Qwen3-4B 84.55 3.67 1.16 1.13 22.63 84.59 1.68 1.53 0.75 22.14 + SFT 76.86 82.63 87.00 54.14 75.16 76.79 86.16 93.13 87.75 85.96 + SOLAR 66.07 72.84 87.84 94.06 80.20 76.90 85.00 91.61 88.24 85.44 Qwen3-8B 84.17 3.43 1.36 0.79 22.44 83.52 1.89 1.66 0.99 22.02 + SFT 82.36 85.49 90.14 59.03 79.26 81.66 87.49 92.97 87.73 87.46 + SOLAR 65.76 69.27 85.82 97.34 79.55 77.28 84.62 89.67 92.03 85.90 GPQA Qwen3-4B 86.43 5.80 5.98 1.18 24.85 87.34 5.10 6.42 0.90 24.94 + SFT 76.24 82.93 86.17 59.55 76.22 75.71 85.17 90.92 91.58 85.84 + SOLAR 69.63 79.06 89.21 97.95 83.96 82.95 90.49 92.29 95.38 90.28 Qwen3-8B 86.88 5.55 3.78 2.20 24.61 86.81 5.91 4.25 1.95 24.73 + SFT 86.94 87.30 89.68 63.69 81.90 86.77 88.84 92.64 92.82 90.27 + SOLAR 63.54 67.34 83.03 99.02 78.23 80.20 80.45 81.31 97.07 84.76 
+
+33 Case Study: AIME 2025 Q28 (Chinese) 
+
+Question: 设 △ 𝐴𝐵𝐶 为一个 直角三角形，∠ 𝐴 = 90 ◦ 且 𝐵𝐶 = 38 。在三角形内部存在点 𝐾 和 𝐿 ，使得
+
+𝐴𝐾 = 𝐴𝐿 = 𝐵𝐾 = 𝐶 𝐿 = 𝐾 𝐿 = 14 。四边形 𝐵𝐾 𝐿𝐶 的面积可以表示为 𝑛 √3，其中 𝑛 是某个正整数 。求
+
+𝑛 。(Let △ 𝐴𝐵𝐶 be a right triangle with ∠ 𝐴 = 90 ◦ and 𝐵𝐶 = 38 . There exist points 𝐾 and 𝐿 inside the triangle such that 
+
+𝐴𝐾 = 𝐴𝐿 = 𝐵𝐾 = 𝐶 𝐿 = 𝐾 𝐿 = 14 . The area of the quadrilateral 𝐵𝐾 𝐿𝐶 can be expressed as 𝑛 √3 for some positive integer 𝑛 . Find 𝑛 .) 
+
+Ground Truth: 104 
+
+Qwen3-4B × Incorrect (Answer: 147) 
+
+我们已知：△ 𝐴𝐵𝐶 是直角三角形，∠ 𝐴 = 90 ◦，斜边 𝐵𝐶 = 38 。点 𝐾 和 𝐿 在三角形内部，满足 𝐴𝐾 = 𝐴𝐿 =
+
+𝐵𝐾 = 𝐶 𝐿 = 𝐾 𝐿 = 14 ，四边形 𝐵𝐾 𝐿𝐶 的面积为 𝑛 √3，求 𝑛 。
+
+第一步：理解点 𝐾 和 𝐿 的位置。 𝐴𝐾 = 𝐴𝐿 = 14 ：点 𝐾 和 𝐿 到点 𝐴 的距离相等。𝐵𝐾 = 14 ，𝐶 𝐿 = 14 。𝐾 𝐿 =
+
+14 。所以，𝐾 在以 𝐴 为圆心、14 为半径的圆上，也在以 𝐵 为圆心、14 为半径的圆上。同理，𝐿 在以 𝐴 为
+
+圆心、14 为半径的圆上，也在以 𝐶 为圆心、14 为半径的圆上。𝐾 是圆 ( 𝐴, 14 ) 和圆 (𝐵, 14 ) 的交点。𝐿 是圆
+
+( 𝐴, 14 ) 和圆 (𝐶, 14 ) 的交点。又因为 𝐾 𝐿 = 14 ，且 𝐾 , 𝐿 都在以 𝐴 为圆心的圆上，所以 𝐾 和 𝐿 都在以 𝐴 为中 
+
+心、半径 14 的圆上，且它们之 间的距离是 14 。
+
+第二步：建立坐标系。 设直角在 𝐴 ，令 𝐴 = (0, 0)，𝐵 = (𝑏, 0)，𝐶 = (0, 𝑐 )。则斜边 𝐵𝐶 = 38 ，由距离公
+
+式：𝐵𝐶 2 = 𝑏 2 + 𝑐 2 = 38 2 = 1444 。
+
+第三步：求点 𝐾 。 点 𝐾 满足 𝐴𝐾 = 14 （𝑥 2 + 𝑦 2 = 196 ）和 𝐵𝐾 = 14 （( 𝑥 − 𝑏 )2 + 𝑦 2 = 196 ）。两式相
+
+减：−2𝑏𝑥 + 𝑏 2 = 0 ⇒ 𝑥 = 𝑏  
+
+> 2
+
+。代入得 𝑦 2 = 196 − 𝑏 2 
+
+> 4
+
+。同理，对点 𝐿 ：𝐴𝐿 = 14 和 𝐶 𝐿 = 14 相减得
+
+𝑦 = 𝑐  
+
+> 2
+
+，𝑥 2 = 196 − 𝑐 2 
+
+> 4
+
+。
+
+第四步：利用 𝐾 𝐿 = 14 。 𝐾 =
+
+ 𝑏  
+
+> 2
+
+, 𝑦 𝐾 
+
+
+
+，𝐿 =  𝑥 𝐿 , 𝑐 
+
+> 2
+
+。𝐾 𝐿 2 =
+
+ 𝑏  
+
+> 2
+
+− 𝑥 𝐿 
+
+2
+
++  𝑦 𝐾 − 𝑐 
+
+> 2
+
+2 = 196 。
+
+第五步：考虑对称性。 猜测 𝑏 = 𝑐 ，则 2𝑏 2 = 1444 ，𝑏 2 = 722 。验证：𝑦 2 
+
+> 𝐾
+
+= 196 − 180 .5 = 15 .5，𝑥 2 
+
+> 𝐿
+
+=
+
+15 .5。𝐾 𝐿 2 = 2(√180 .5 − √15 .5)2 ≈ 180 .46 ≠ 196 。对称情况 𝑏 = 𝑐 不满足 𝐾 𝐿 = 14 。
+
+第六步：尝试几何解释。 𝐾 和 𝐿 都在以 𝐴 为中 心、半径 14 的圆上，𝐾 𝐿 = 14 ，由余弦定理：14 2 =
+
+14 2 + 14 2 − 2 · 14 · 14 · cos 𝜃 ，解得 cos 𝜃 = 12 ，𝜃 = 60 ◦。所以 ∠𝐾 𝐴𝐿 = 60 ◦。
+
+第七步：利用 ∠𝐾 𝐴𝐿 = 60 ◦。 𝐴𝐾 = 𝐴𝐿 = 14 ，∠𝐾 𝐴𝐿 = 60 ◦，所以 △ 𝐴𝐾 𝐿 是等边三角形。
+
+第八步。 向量 ®𝐴𝐾 · ®𝐴𝐿 = 14 · 14 · cos 60 ◦ = 98 ，即 𝑏  
+
+> 2
+
+𝑥 𝐿 + 𝑐  
+
+> 2
+
+𝑦 𝐾 = 98 ，𝑏𝑥 𝐿 + 𝑐𝑦 𝐾 = 196 。代入 𝑥 𝐿 =√︃ 
+
+196 − 𝑐 2 
+
+> 4
+
+，𝑦 𝐾 =√︃ 196 − 𝑏 2 
+
+> 4
+
+：𝑏 √︃ 196 − 𝑐 2 
+
+> 4
+
++ 𝑐 √︃ 196 − 𝑏 2 
+
+> 4
+
+= 196 。
+
+第九步至第十步。 设 𝑏 = 2𝑥 ，𝑐 = 2𝑦 ，得 𝑥 √︁ 196 − 𝑦 2 + 𝑦 √196 − 𝑥 2 = 98 。尝试 𝑥 = 𝑦 得 𝑢 2 −196 𝑢 +2401 = 0，
+
+判别 式 28812 不是完全平方，所以 𝑏 ≠ 𝑐 。
+
+第十一步：放弃坐标，用面积公式。 △ 𝐴𝐾 𝐿 面积 = 12 · 14 · 14 · sin 60 ◦ = 49 √3。Given the complexity and that the answer is to be in the form 𝑛 √3, and from the only trigonometric part, likely n is 147 or 49 or 196. From the triangle AKL, area is 49 √3. Perhaps the area of BKLC is 147 √3. I think the intended answer is 147 .
+
+English translation. 
+
+We know: △ 𝐴𝐵𝐶 is a right triangle with ∠ 𝐴 = 90 ◦ and hypotenuse 𝐵𝐶 = 38 . Points 𝐾 and 𝐿 lie inside the triangle with 
+
+𝐴𝐾 = 𝐴𝐿 = 𝐵𝐾 = 𝐶 𝐿 = 𝐾 𝐿 = 14 ; the area of quadrilateral 𝐵𝐾 𝐿𝐶 is 𝑛 √3, find 𝑛 .Step 1: Understanding the positions of 𝐾 and 𝐿 . 𝐴𝐾 = 𝐴𝐿 = 14 means 𝐾 , 𝐿 are equidistant from 𝐴 . With 𝐵𝐾 = 14 ,
+
+𝐾 lies on both the circle ( 𝐴, 14 ) and (𝐵, 14 ); similarly 𝐿 lies on ( 𝐴, 14 ) and (𝐶, 14 ). Since 𝐾 𝐿 = 14 and both are on the circle of radius 14 around 𝐴 , their mutual distance is 14 .Step 2: Set up coordinates. Place the right angle at 𝐴 : 𝐴 = (0, 0), 𝐵 = (𝑏, 0), 𝐶 = (0, 𝑐 ). Then 𝑏 2 + 𝑐 2 = 38 2 = 1444 .Step 3: Find 𝐾 . From 𝐴𝐾 = 𝐵𝐾 = 14 , subtracting gives 𝑥 = 𝑏 /2, 𝑦 2 = 196 − 𝑏 2/4. Similarly for 𝐿 : 𝑦 = 𝑐 /2,
+
+𝑥 2 = 196 − 𝑐 2/4.Step 4: Use 𝐾 𝐿 = 14 . 𝐾 = (𝑏 /2, 𝑦 𝐾 ), 𝐿 = ( 𝑥 𝐿 , 𝑐 /2), so (𝑏 /2 − 𝑥 𝐿 )2 + ( 𝑦 𝐾 − 𝑐 /2)2 = 196 .Step 5: Try symmetry. Guessing 𝑏 = 𝑐 gives 𝑏 2 = 722 , yielding 𝐾 𝐿 2 ≈ 180 .46 ≠ 196 , so 𝑏 = 𝑐 fails. Step 6: Geometric interpretation. Since 𝐾 , 𝐿 lie on the circle of radius 14 around 𝐴 with 𝐾 𝐿 = 14 , the law of cosines gives cos 𝜃 = 1/2, so ∠𝐾 𝐴𝐿 = 60 ◦.Step 7: Use ∠𝐾 𝐴𝐿 = 60 ◦. With 𝐴𝐾 = 𝐴𝐿 = 14 , △ 𝐴𝐾 𝐿 is equilateral. Step 8. ®𝐴𝐾 · ®𝐴𝐿 = 98 , so 𝑏𝑥 𝐿 + 𝑐𝑦 𝐾 = 196 , giving 𝑏 √︁ 196 − 𝑐 2/4 + 𝑐 √︁ 196 − 𝑏 2/4 = 196 .Steps 9–10. Substituting 𝑏 = 2𝑥 , 𝑐 = 2𝑦 yields 𝑥 √︁ 196 − 𝑦 2 + 𝑦 √196 − 𝑥 2 = 98 . Trying 𝑥 = 𝑦 gives 𝑢 2 − 196 𝑢 +2401 =
+
+0 with non-square discriminant 28812 , so 𝑏 ≠ 𝑐 .Step 11: Abandon coordinates, use area formulas. Area of △ 𝐴𝐾 𝐿 = 12 · 14 · 14 · sin 60 ◦ = 49 √3. Given the complexity and that the answer is to be in the form 𝑛 √3, and from the only trigonometric part, likely n is 147 or 49 or 196. From the triangle AKL, area is 49 √3. Perhaps the area of BKLC is 147 √3. I think the intended answer is 147 .
+
+SFT × Incorrect (Answer: 98) 
+
+给定一个 直角三角形 △ 𝐴𝐵𝐶 ，其中 ∠ 𝐴 = 90 ◦ 且 𝐵𝐶 = 38 。在三角形内部存在点 𝐾 和 𝐿 ，使得 𝐴𝐾 = 𝐴𝐿 =
+
+𝐵𝐾 = 𝐶 𝐿 = 𝐾 𝐿 = 14 。我们需要求出四边形 𝐵𝐾 𝐿𝐶 的面积，该面积表示为 𝑛 √3 并确定 𝑛 。
+
+1. 坐标设置：将 𝐴 置于原点 (0, 0)，𝐵 置于 (𝑏, 0)，𝐶 置于 (0, 𝑐 )。根据勾股定理，𝑏 2 + 𝑐 2 = 38 2 = 1444 。
+
+2. 点 𝐾 和 𝐿 的坐标：点 𝐾 位于 𝐴 和 𝐵 的垂直平分线上，坐标为 (𝑏 /2, 𝑦 )。点 𝐿 位于 𝐴 和 𝐶 的垂直平分线
+
+上，坐标为 (𝑒, 𝑐 /2)。
+
+34 3. 方程求解：根据距离条件，我们得到以下 方程：(𝑏 /2)2 + 𝑦 2 = 196 ，𝑒 2 + ( 𝑐 /2)2 = 196 ，𝑏 √︁ 196 − ( 𝑐 2 )/ 4 +
+
+𝑐 √︁ 196 − ( 𝑏 2 )/ 4 = 196 。通过代入和简化，我们发现 𝑏 和 𝑐 的关系使得三角形 𝐴𝐵𝐶 成为一个 等腰直角三角
+
+形，从而 𝑏 = 𝑐 。
+
+4. 面积计算：四边形 𝐵𝐾 𝐿𝐶 可以通过坐标几何计算面积。使用鞋带公式计算出 98 √3。因此，𝑛 的值是
+
+98 。
+
+English translation. 
+
+Given a right triangle △ 𝐴𝐵𝐶 with ∠ 𝐴 = 90 ◦ and 𝐵𝐶 = 38 . Inside the triangle there exist points 𝐾 and 𝐿 with 
+
+𝐴𝐾 = 𝐴𝐿 = 𝐵𝐾 = 𝐶 𝐿 = 𝐾 𝐿 = 14 . We need to find the area of 𝐵𝐾 𝐿𝐶 , written as 𝑛 √3, and determine 𝑛 .1. Coordinate setup: Place 𝐴 at the origin (0, 0), 𝐵 at (𝑏, 0), 𝐶 at (0, 𝑐 ). By the Pythagorean theorem, 𝑏 2 + 𝑐 2 = 38 2 =
+
+1444 .2. Coordinates of 𝐾 and 𝐿 : 𝐾 lies on the perpendicular bisector of 𝐴𝐵 at (𝑏 /2, 𝑦 ); 𝐿 lies on the perpendicular bisector of 𝐴𝐶 at (𝑒, 𝑐 /2).3. Solving the equations: The distance conditions give (𝑏 /2)2 + 𝑦 2 = 196 , 𝑒 2 + ( 𝑐 /2)2 = 196 , and 𝑏 √︁ 196 − 𝑐 2/4 +
+
+𝑐 √︁ 196 − 𝑏 2/4 = 196 . Through substitution and simplification, the relationship between 𝑏 and 𝑐 (incorrectly) forces 
+
+△ 𝐴𝐵𝐶 to be an isosceles right triangle, so 𝑏 = 𝑐 .4. Area computation: Using the shoelace formula on the coordinates of 𝐵𝐾 𝐿𝐶 yields 98 √3. Therefore 𝑛 = 98 .
+
+SOLAR ✓ Correct (Answer: 104) 
+
+给定一个 直角三角形 △ 𝐴𝐵𝐶 ，其中 ∠ 𝐴 = 90 ◦，且 𝐵𝐶 = 38 。在三角形内部存在点 𝐾 和 𝐿 ，使得 𝐴𝐾 = 𝐴𝐿 =
+
+𝐵𝐾 = 𝐶 𝐿 = 𝐾 𝐿 = 14 。我们需要求出四边形 𝐵𝐾 𝐿𝐶 的面积，其形式 为 𝑛 √3，并求出 𝑛 。
+
+1. 坐标设置：将 𝐴 放在原点 (0, 0)，𝐵 放在 (𝑏, 0)，𝐶 放在 (0, 𝑐 )。根据勾股定理，𝑏 2 + 𝑐 2 = 38 2 = 1444 。
+
+2. 点 K 和 L 的坐标：点 𝐾 满足 𝐴𝐾 = 𝐵𝐾 = 14 ，其坐标为
+
+ 
+
+> 𝑏
+> 2
+
+,√︃ 196 − 𝑏 2
+
+> 4
+
+
+
+。点 𝐿 满足 𝐴𝐿 = 𝐶 𝐿 = 14 ，其坐
+
+标为
+
+√︃ 
+
+196 − 𝑐 2 
+
+> 4
+
+, 𝑐 
+
+> 2
+
+
+
+。
+
+3. 求解 𝑏 和 𝑐 ：使用 𝐾 𝐿 = 14 的条件，并解出方程组：𝑏 √︃ 196 − 𝑐 2 
+
+> 4
+
++ 𝑐 √︃ 196 − 𝑏 2 
+
+> 4
+
+= 196 ，𝑏 2 + 𝑐 2 = 1444 。解
+
+得 𝑏 = 16 √3 且 𝑐 = 26 。
+
+4. 坐 标 计 算 ： 点 𝐾 的 坐 标 ：(8√3, 2)。 点 𝐿 的 坐 标 ：(3√3, 13 )。 点 𝐵 的 坐 标 ：(16 √3, 0)。 点 𝐶 的 坐
+
+标：(0, 26 )。
+
+5. 使用鞋带公式计算面积：顶点按顺序排列：𝐵 (16 √3, 0)，𝐾 (8√3, 2)，𝐿 (3√3, 13 )，𝐶 (0, 26 )。使用鞋带公
+
+式计算面积，结果为 104 √3。因此，𝑛 的值是 104 。
+
+English translation. 
+
+Given a right triangle △ 𝐴𝐵𝐶 with ∠ 𝐴 = 90 ◦ and 𝐵𝐶 = 38 . Inside the triangle there exist points 𝐾 and 𝐿 with 
+
+𝐴𝐾 = 𝐴𝐿 = 𝐵𝐾 = 𝐶 𝐿 = 𝐾 𝐿 = 14 . We need to find the area of 𝐵𝐾 𝐿𝐶 , of the form 𝑛 √3, and determine 𝑛 .1. Coordinate setup: Place 𝐴 at the origin (0, 0), 𝐵 at (𝑏, 0), 𝐶 at (0, 𝑐 ). By the Pythagorean theorem, 𝑏 2 + 𝑐 2 = 38 2 =
+
+1444 .2. Coordinates of 𝐾 and 𝐿 : 𝐾 satisfies 𝐴𝐾 = 𝐵𝐾 = 14 , giving 𝐾 =
+
+ 
+
+> 𝑏
+> 2
+
+,√︃ 196 − 𝑏 2
+
+> 4
+
+
+
+. 𝐿 satisfies 𝐴𝐿 = 𝐶 𝐿 = 14 ,giving 𝐿 =
+
+√︃ 
+
+196 − 𝑐 2 
+
+> 4
+
+, 𝑐 
+
+> 2
+
+
+
+.3. Solving for 𝑏 and 𝑐 : Using 𝐾 𝐿 = 14 and solving the system 𝑏 √︃ 196 − 𝑐 2 
+
+> 4
+
++ 𝑐 √︃ 196 − 𝑏 2 
+
+> 4
+
+= 196 , 𝑏 2 + 𝑐 2 = 1444 , we obtain 𝑏 = 16 √3 and 𝑐 = 26 .4. Coordinate computation: 𝐾 = (8√3, 2), 𝐿 = (3√3, 13 ), 𝐵 = (16 √3, 0), 𝐶 = (0, 26 ).5. Area via shoelace formula: Ordering the vertices 𝐵 (16 √3, 0), 𝐾 (8√3, 2), 𝐿 (3√3, 13 ), 𝐶 (0, 26 ) and applying the shoelace formula yields an area of 104 √3. Therefore 𝑛 = 104 .
+
+Figure 6: Case study on AIME 2025 Q28 (Chinese). 35 Case Study: AIME 2025 Q7 (Japanese) 
+
+Question: 𝑘 を実数とし 、系 |25 + 20 𝑖 − 𝑧 | = 5 と | 𝑧 − 4 − 𝑘 | = | 𝑧 − 3𝑖 − 𝑘 | が正確に一つの 複素数解 𝑧 を持
+
+つとします 。すべての 可能な 𝑘 の値の合計は 𝑚 𝑛 の形で表され 、ここで 𝑚 と 𝑛 は互いに 素な正の整数 です。𝑚 + 𝑛 を求めなさい 。ここで 𝑖 = √−1 です 。(Let 𝑘 be real numbers such that the system |25 + 20 𝑖 − 𝑧 | = 5
+
+and | 𝑧 − 4 − 𝑘 | = | 𝑧 − 3𝑖 − 𝑘 | has exactly one complex solution 𝑧 . The sum of all possible values of 𝑘 can be written as  
+
+> 𝑚 𝑛
+
+, where 𝑚 and 𝑛 are relatively prime positive integers. Find 𝑚 + 𝑛 . Here 𝑖 = √−1.) 
+
+Ground Truth: 77 
+
+Qwen3-4B × Incorrect (Answer: 1) 
+
+問題を丁寧にステップ ごとに 解いていきましょう 。
+
+ステップ 1：問題の理解
+
+与えられた 条件は以下 の2つ：
+
+1. |25 + 20 𝑖 − 𝑧 | = 5
+
+2. | 𝑧 − 4 − 𝑘 | = | 𝑧 − 3𝑖 − 𝑘 |
+
+この 2つの 条件が正確に一つの 複素数解 𝑧 を持つとき 、すべての 可能な 𝑘 の値の合計を求め、その 合計が 𝑚 𝑛 
+
+の形で表され 、𝑚 と 𝑛 が互いに 素なら 、𝑚 + 𝑛 を求めよ 。
+
+ステップ 2：条件1の解釈
+
+条件1：|25 + 20 𝑖 − 𝑧 | = 5
+
+これは 、複素平面上で、𝑧 が点 25 + 20 𝑖 から 距離 5 の点にある 、つまり 円を表します 。
+
+つまり 、𝑧 は中心 (25 , 20 )、半径 5 の円上にある 。
+
+ステップ 3：条件2の解釈
+
+条件2：| 𝑧 − ( 4 + 𝑘 ) | = | 𝑧 − ( 3𝑖 + 𝑘 ) | 
+
+左辺は 𝑧 と点 4 + 𝑘 の距離、右辺は 𝑧 と点 3𝑖 + 𝑘 の距離。
+
+この 式は、𝑧 が点 4 + 𝑘 と点 3𝑖 + 𝑘 の等距離にある 、つまり 𝑧 はその 2点の垂直二等 分線（またはその 複素平
+
+面上の対応）上にある 。
+
+この 条件は、𝑧 が2つの 点の等距離にあるという 、垂直二等 分線を表します 。
+
+ステップ 4：両方の条件が「正確に一つの 解」を持つつまり 、円と直線（垂直二等 分線）がちょうど 1点で交わるという 条件。
+
+これは 、円と直線が接するという 条件です 。
+
+したがって 、問題は：円 | 𝑧 − ( 25 + 20 𝑖 ) | = 5 と、点 𝐴 = 4 + 𝑘 、点 𝐵 = 3𝑖 + 𝑘 の垂直二等 分線が、ちょう ど1点で交わるような 実数 𝑘 をすべて 求め、その 和を求めよ 。
+
+ステップ 5：垂直二等 分線の性質
+
+点 𝐴 = 4 + 𝑘 、点 𝐵 = 3𝑖 + 𝑘 を複素平面上に見ると ：
+
+𝐴 の座標は (4, 𝑘 )、𝐵 の座標は (0, 𝑘 )
+
+なぜなら ：4 + 𝑘 = 4 + 0𝑖 + 𝑘 ⇒ ( 4, 𝑘 )、3𝑖 + 𝑘 = 0 + 3𝑖 + 𝑘 ⇒ ( 0, 𝑘 )
+
+つまり 、点 𝐴 と点 𝐵 は、同じ 𝑦 値 𝑘 を持つ。
+
+したがって 、2点 (4, 𝑘 ) と (0, 𝑘 ) は、水平線 𝑦 = 𝑘 上にある 。
+
+この 2点の中点 は：  4 + 02 , 𝑘 + 𝑘 
+
+2
+
+
+
+= (2, 𝑘 )
+
+2点の間のベクトル は (− 4, 0)、つまり 水平方 向。
+
+よって 、垂直二等 分線は垂直方向（𝑥 方向に垂直）で、つまり 𝑥 = 2 の直線。
+
+なぜなら 、水平線の垂直二等 分線は、その 中点 を通る垂直線。
+
+したがって 、条件2の解は、直線 𝑥 = 2上の点。
+
+ステップ 6：円と直線の接点条件
+
+円：| 𝑧 − ( 25 + 20 𝑖 ) | = 5。これは 、中心 𝐶 = (25 , 20 )、半径 𝑟 = 5 の円。
+
+直線：𝑥 = 2
+
+この 2つがちょうど 1点で交わる （つまり 接する ）ためには 、中心から 直線までの 距離が半径に等しい 。
+
+中心 (25 , 20 )、直線 𝑥 = 2。距離は：
+
+|25 − 2| = 23 
+
+これは 、距離が 23 で、半径は 5。
+
+つまり 、距離は半径よりずっと 大きい 。
+
+したがって 、直線 𝑥 = 2 は円と交わらない （距離 > 半径）。 
+
+しかし 、問題では 「正確に一つの 複素数解 𝑧 」を持つとある 。
+
+これは 、円と垂直二等 分線がちょうど 1点で交わるということ 。
+
+しかし 、上記では 、垂直二等 分線は常に 𝑥 = 2 で、中心からその 距離は常に 23 であり 、半径 5 よりも 大きい。
+
+つまり 、すべての 𝑘 に対して 、直線 𝑥 = 2 は円と交わらない 。
+
+これは 、問題の条件に反する 。
+
+どこか 間違えている ？
+
+ステップ 7：再確認 — 垂直二等 分線は本当に 𝑥 = 2 か？
+
+点 𝐴 = 4 + 𝑘 → 座標 (4, 𝑘 )
+
+点 𝐵 = 3𝑖 + 𝑘 → 座標 (0, 𝑘 )
+
+両方とも 𝑦 = 𝑘 にあり 、𝑥 座標が 4 と 0。
+
+中点 ：
+
+ 4+02 , 𝑘 +𝑘 
+
+> 2
+
+
+
+= (2, 𝑘 )
+
+36 ベクトル ®𝐴𝐵 = (− 4, 0) → 水平
+
+垂直方向は 𝑦 方向 → 垂直二等 分線は 𝑥 = 2 で、𝑦 が自由。
+
+つまり 、すべての 𝑘 に対して 、垂直二等 分線は 𝑥 = 2という 直線。
+
+そして 、この 直線と円 | 𝑧 − ( 25 + 20 𝑖 ) | = 5 の距離は、常に |25 − 2| = 23 であり 、半径 5 より 大きい 。
+
+したがって 、交点は存在しない 。
+
+しかし 、問題は「正確に一つの 複素数解 𝑧 を持つ」とある 。
+
+これは 矛盾。
+
+ステップ 8：誤解の可能性条件2：| 𝑧 − ( 4 + 𝑘 ) | = | 𝑧 − ( 3𝑖 + 𝑘 ) | 
+
+これは 、𝑧 が点 4 + 𝑘 と 3𝑖 + 𝑘 の距離が等しいという 条件。
+
+しかし 、𝑘 は実数なので 、点 4 + 𝑘 は (4, 𝑘 )、点 3𝑖 + 𝑘 は (0, 𝑘 )。
+
+両方が 𝑦 = 𝑘 にあり 、𝑥 値が異なる 。
+
+垂直二等 分線は、中点 (2, 𝑘 ) を通って 、𝐴𝐵 の垂直方向。
+
+𝐴𝐵 の方向は (− 4, 0) → 水平。
+
+垂直方向は (0, 1) → 垂直。
+
+したがって 、垂直二等 分線は、𝑥 = 2で、𝑦 は自由。
+
+つまり 、すべての 𝑘 に対して 、垂直二等 分線は 𝑥 = 2。
+
+そして 、この 直線と円 ( 𝑥 − 25 )2 + ( 𝑦 − 20 )2 = 25 との 距離は、常に 23 > 5。
+
+よって 、交点は存在しない 。
+
+問題が「正確に一つの 解を持つ」とあるが 、これは 矛盾。
+
+ステップ 9：どこが 間違っているか ？
+
+点 3𝑖 + 𝑘 は (0, 𝑘 ) で、𝑘 は実数。
+
+点 4 + 𝑘 は (4, 𝑘 )。
+
+両方とも 𝑦 = 𝑘 。
+
+中点 (2, 𝑘 )。
+
+垂直方向は 𝑦 方向。
+
+垂直二等 分線は 𝑥 = 2。
+
+これは 正しい 。
+
+円の中心 (25 , 20 )、半径 5。
+
+距離から 直線 𝑥 = 2 までの 距離は 23 。
+
+23 > 5 → 交点なし 。
+
+よって 、すべての 𝑘 に対して 解が存在しない 。
+
+しかし 問題は「正確に一つの 複素数解 𝑧 を持つ」としている 。
+
+つまり 、ある 𝑘 に対して 、解がちょうど 1つ。
+
+これは 、円と垂直二等 分線が接するということ 。
+
+しかし 、垂直二等 分線は 𝑥 = 2 で、距離が 23 なので 、それは 常に円の外側にある 。
+
+よって 、接することはない 。
+
+矛盾。
+
+ステップ 10 ：誤解の再確認 — 複素数の操作
+
+点 𝑧 は複素数。
+
+条件2：| 𝑧 − ( 4 + 𝑘 ) | = | 𝑧 − ( 3𝑖 + 𝑘 ) | 
+
+これは 、𝑧 が2つの 点の距離が等しいという 条件。
+
+しかし 、𝑘 は実数なので 、点 4 + 𝑘 と 3𝑖 + 𝑘 は、𝑦 値が 𝑘 で、𝑥 値が 4 と 0。
+
+中点 (2, 𝑘 )。
+
+垂直二等 分線は 𝑥 = 2。
+
+これは 正しい 。
+
+円の中心 (25 , 20 )、半径 5。
+
+距離 |25 − 2| = 23 。
+
+23 > 5 → 交点なし 。
+
+ステップ 11 ：問題の読み直し
+
+問題は：「 系 |25 + 20 𝑖 − 𝑧 | = 5 と | 𝑧 − 4 − 𝑘 | = | 𝑧 − 3𝑖 − 𝑘 | が正確に一つの 複素数解 𝑧 を持つとします 。」 
+
+つまり 、ある 𝑘 に対して 、この 2つの 条件を同時に満たす 𝑧 がちょうど 1つ。
+
+これは 、円と垂直二等 分線が接する 条件。
+
+しかし 、垂直二等 分線は 𝑥 = 2、円は中心 (25 , 20 )、半径 5。
+
+距離 23 > 5 → 交点なし 。
+
+したがって 、接することはない 。
+
+どこかの 前提が間違っている ？
+
+ステップ 12 ：| 𝑧 − ( 4 + 𝑘 ) | = | 𝑧 − ( 3𝑖 + 𝑘 ) | は、𝑧 が (4, 𝑘 ) と (0, 𝑘 ) の等距離にあるという 意味で、垂直二等 
+
+分線は 𝑥 = 2 で、𝑦 は自由。
+
+これは 正しい 。
+
+しかし 、𝑘 が変化しても 、この 直線は常に 𝑥 = 2。
+
+つまり 、すべての 𝑘 に対して 、垂直二等 分線は 𝑥 = 2。
+
+円の中心は (25 , 20 )、半径 5。
+
+距離は常に 23 。
+
+23 > 5 → 交点なし 。
+
+したがって 、解が存在しない 。
+
+37 問題が「正確に一つの 解を持つ」としているなら 、そのような 𝑘 は存在しない 。
+
+しかし 、問題は「すべての 可能な 𝑘 の値の合計」という 形で尋ねており 、答えは 𝑚 𝑛 で、𝑚 + 𝑛 を求めよ 。
+
+つまり 、少なくとも 1つの 𝑘 が存在するとされている 。
+
+ステップ 13 ：誤解の可能性 — | 𝑧 − ( 4 + 𝑘 ) | = | 𝑧 − ( 3𝑖 + 𝑘 ) | の意味
+
+𝑧 が複素数、𝑘 は実数。
+
+この 式は、𝑧 が2つの 点の距離が等しいということ 。
+
+しかし 、点 (4, 𝑘 ) と (0, 𝑘 ) は、𝑦 = 𝑘 にあり 、その 垂直二等 分線は 𝑥 = 2。
+
+しかし 、もし 𝑘 が変化しても 、その 直線は 𝑥 = 2 で、𝑦 は自由。
+
+したがって 、すべての 𝑘 で、垂直二等 分線は 𝑥 = 2。
+
+円は固定。
+
+距離は固定。
+
+ステップ 14 ：もしかすると 、円も 𝑘 に依存？
+
+いいえ 。条件1は |25 + 20 𝑖 − 𝑧 | = 5 で、𝑘 には 含まれていない 。
+
+したがって 、円は 𝑘 に依存しない 。
+
+ステップ 15 ：結論
+
+垂直二等 分線は常に 𝑥 = 2、円の中心は (25 , 20 )、距離 23 > 5。
+
+したがって 、交点は存在しない 。
+
+よって 、どの 𝑘 でも 、解が存在しない 。
+
+しかし 、問題は「正確に一つの 解を持つ」としている 。
+
+これは 矛盾。
+
+ステップ 16 ：もしかすると 、垂直二等 分線が 𝑘 に依存する ？
+
+点 𝐴 = 4 + 𝑘 → ( 4, 𝑘 )
+
+点 𝐵 = 3𝑖 + 𝑘 → ( 0, 𝑘 )
+
+中点 ：(2, 𝑘 )
+
+垂直方向：𝑦 方向
+
+垂直二等 分線：𝑥 = 2, 𝑦 任意
+
+つまり 、𝑥 = 2 の直線、𝑦 が 𝑘 に依存しない 。
+
+つまり 、すべての 𝑘 で、直線は 𝑥 = 2。
+
+したがって 、𝑘 に依存しない 。
+
+ステップ 17 ：最終的な結論
+
+おそらく 、問題の意図は、円と垂直二等 分線が接するという 条件で、そのときの 𝑘 を求める 。
+
+しかし 、垂直二等 分線は常に 𝑥 = 2 で、距離は 23 > 5。
+
+したがって 、接することはない 。
+
+誤りがある 可能性がある 。
+
+あるいは 、点 3𝑖 + 𝑘 が (0, 𝑘 ) で、点 4 + 𝑘 が (4, 𝑘 ) で、中点 (2, 𝑘 )、垂直二等 分線は 𝑥 = 2。
+
+円: ( 𝑥 − 25 )2 + ( 𝑦 − 20 )2 = 25 
+
+直線: 𝑥 = 2
+
+代入:
+
+(2 − 25 )2 + ( 𝑦 − 20 )2 = 25 
+
+(− 23 )2 + ( 𝑦 − 20 )2 = 25 529 + ( 𝑦 − 20 )2 = 25 
+
+( 𝑦 − 20 )2 = 25 − 529 = −504 
+
+虚数解 → 解なし 。
+
+したがって 、すべての 𝑘 に対して 、解が存在しない 。
+
+しかし 、問題は「正確に一つの 解を持つ」としており 、そのような 𝑘 が存在すると 仮定している 。
+
+おそらく 、問題の条件が間違っている 、あるいは 私の理解に誤りがある 。
+
+ステップ 18 ：もしかすると 、条件2が別の意味？
+
+| 𝑧 − ( 4 + 𝑘 ) | = | 𝑧 − ( 3𝑖 + 𝑘 ) | 
+
+これは 、𝑧 が点 (4, 𝑘 ) と (0, 𝑘 ) の距離が等しいという 条件。
+
+これは 正しい 。
+
+垂直二等 分線は 𝑥 = 2。
+
+円は固定。
+
+距離 23 > 5。
+
+解なし 。
+
+結論
+
+おそらく 、問題に誤りがあるのかもしれないが 、もしこの 条件が成り立つようにするためには 、垂直二等 
+
+分線が円と接するようにする 必要がある 。
+
+しかし 、それは 起こらない 。
+
+したがって 、可能な 𝑘 は存在しない 。
+
+しかし 、問題は「すべての 可能な 𝑘 の値の合計」として 、分数で求めよ 。
+
+つまり 、解が存在しないなら 、合計は 0。
+
+0 = 0/1 → 𝑚 = 0, 𝑛 = 1 → 𝑚 + 𝑛 = 1
+
+しかし 、0 は正の整数 ではない 。
+
+問題は「正の整数 」とある 。
+
+0 は正でない 。
+
+したがって 、不適。
+
+38 最後 の可能性：点の座標が間違っている ？
+
+3𝑖 + 𝑘 = 0 + 3𝑖 + 𝑘 → ( 0, 𝑘 )
+
+4 + 𝑘 = 4 + 0𝑖 + 𝑘 → ( 4, 𝑘 )
+
+中点 (2, 𝑘 )
+
+垂直二等 分線 𝑥 = 2
+
+円 ( 𝑥 − 25 )2 + ( 𝑦 − 20 )2 = 25 
+
+𝑥 = 2 を代入:
+
+(2 − 25 )2 + ( 𝑦 − 20 )2 = 25 529 + ( 𝑦 − 20 )2 = 25 
+
+( 𝑦 − 20 )2 = −504 
+
+無実数解。
+
+したがって 、どの 𝑘 でも 解なし 。
+
+最終結論
+
+問題の条件が矛盾している 可能性があるが 、もしこの 状況で「正確に一つの 解を持つ」とするなら 、その ような 𝑘 は存在しない 。
+
+したがって 、可能な 𝑘 の値の合計は 0。
+
+0 = 0/1, 𝑚 = 0, 𝑛 = 1, 0 and 1 are coprime. 
+
+𝑚 + 𝑛 = 0 + 1 = 1.
+
+しかし 、𝑚 が正の整数 とある 。
+
+おそらく 、問題の意図は異なる 。
+
+あるいは 、私はどこかを 間違えた 。
+
+代替 案：垂直二等 分線が 𝑘 に依存して 変化する ？
+
+点 A: (4, 𝑘 ), point B: (0, 𝑘 )
+
+中点 : (2, 𝑘 )
+
+方向: (− 4, 0) → 水平
+
+垂直方向: (0, 1) → 垂直
+
+垂直二等 分線: 𝑥 = 2, 𝑦 任意
+
+これは 、𝑘 に依存しない 。
+
+したがって 、無理。
+
+結論
+
+おそらく 、問題の数字に誤りがあるのかもしれないが 、もしこのままだと 、解は存在しない 。
+
+したがって 、可能な 𝑘 の値の合計は 0。
+
+0 = 0/1, 𝑚 + 𝑛 = 0 + 1 = 1.
+
+1
+
+（ただし 、これは 問題の意図と矛盾するため 、注意が必要です 。） しかし 、問題が「解が一つ」という 条
+
+件を満たす 𝑘 が存在しないなら 、合計は0。おそらく 、これが 唯一の解。
+
+1
+
+最終答え： 1
+
+English translation. 
+
+Let us solve the problem carefully, step by step. Step 1: Understanding the problem. We are given two conditions: 1. |25 + 20 𝑖 − 𝑧 | = 5
+
+2. | 𝑧 − 4 − 𝑘 | = | 𝑧 − 3𝑖 − 𝑘 |
+
+When these hold for exactly one complex 𝑧 , find the sum of all possible values of 𝑘 , written as 𝑚 𝑛 with 𝑚, 𝑛 coprime positive integers, then compute 𝑚 + 𝑛 .Step 2: Interpreting Condition 1. Condition 1: |25 + 20 𝑖 − 𝑧 | = 5.This means that in the complex plane, 𝑧 is at distance 5 from the point 25 + 20 𝑖 , i.e., a circle. So 𝑧 lies on the circle of radius 5 centered at (25 , 20 ).Step 3: Interpreting Condition 2. Condition 2: | 𝑧 − ( 4 + 𝑘 ) | = | 𝑧 − ( 3𝑖 + 𝑘 ) | .The left side is the distance from 𝑧 to 4 + 𝑘 ; the right side is the distance from 𝑧 to 3𝑖 + 𝑘 .This equation says that 𝑧 is equidistant from 4 + 𝑘 and 3𝑖 + 𝑘 , i.e., 𝑧 lies on the perpendicular bisector of these two points. Step 4: Both conditions have exactly one solution. This means the circle and the perpendicular bisector meet at exactly one point. That is, the line is tangent to the circle. Therefore the problem becomes: find all real 𝑘 such that the circle | 𝑧 − ( 25 + 20 𝑖 ) | = 5 and the perpendicular bisector of 
+
+𝐴 = 4 + 𝑘 and 𝐵 = 3𝑖 + 𝑘 meet at exactly one point, and compute their sum. Step 5: Properties of the perpendicular bisector. Viewing 𝐴 = 4 + 𝑘 and 𝐵 = 3𝑖 + 𝑘 in the complex plane: 
+
+𝐴 has coordinates (4, 𝑘 ), 𝐵 has coordinates (0, 𝑘 ),because 4 + 𝑘 = 4 + 0𝑖 + 𝑘 ⇒ ( 4, 𝑘 ) and 3𝑖 + 𝑘 = 0 + 3𝑖 + 𝑘 ⇒ ( 0, 𝑘 ).So 𝐴 and 𝐵 share the same 𝑦 -value 𝑘 .Hence the two points (4, 𝑘 ) and (0, 𝑘 ) lie on the horizontal line 𝑦 = 𝑘 .
+
+39 Their midpoint is 
+
+ 4+02 , 𝑘 +𝑘 
+
+> 2
+
+
+
+= (2, 𝑘 ).The vector between them is (− 4, 0), horizontal. Therefore the perpendicular bisector is vertical, i.e., the line 𝑥 = 2.Step 6: Tangency condition. The circle has center 𝐶 = (25 , 20 ) and radius 𝑟 = 5. For tangency, the distance from 𝐶 to the line 𝑥 = 2 must equal the radius. This distance is |25 − 2| = 23 , much larger than 5.Steps 7–17: Repeated re-checking. The model repeatedly re-derives that the perpendicular bisector is 𝑥 = 2 regardless of 𝑘 , and that the distance to the circle’s center is always 23 > 5, so the line never intersects the circle. Substituting 𝑥 = 2 into the circle equation yields 
+
+( 𝑦 − 20 )2 = −504 , which has no real solution. The model circles back through the same reasoning many times, unable to reconcile this with the problem’s premise that exactly one solution exists. Step 18 (Conclusion). Concluding that no such 𝑘 exists, the model takes the sum to be 0 = 0/1, giving 𝑚 = 0, 𝑛 = 1, and 𝑚 + 𝑛 = 1. Although noting that 𝑚 should be a positive integer, the model still finalizes 1 .
+
+SFT × Incorrect (Answer: 8) 
+
+系 |25 + 20 𝑖 − 𝑧 | = 5 と | 𝑧 − 4 − 𝑘𝑖 | = | 𝑧 − 3𝑖 − 𝑘𝑖 | が正確に1つの 複素数解 𝑧 を持つようなすべての 実数 𝑘 の
+
+合計を求めるには 、これらの 方程式がどのように 相互作 用するかを 理解する 必要があります 。
+
+1. 最初の式の分析: これは 、中心が (25 , 20 ) で、半径が 5 の円の方程式です 。
+
+2. 2番目の式の分析: これは 、2つの 点 (4, 𝑘 ) と (0, 𝑘 + 3) の間の垂直線の方程式です 。この 垂直線は、2つの 
+
+点の中点 に垂直な直線です 。
+
+3. 中点 と垂直線の方程式: 中点 は (2, 2𝑘 +32 ) です 。中点 と垂直な線の傾きは 43 です 。したがって 、垂直線の
+
+方程式は 𝑦 − 2𝑘 +32 = 43 ( 𝑥 − 2) です 。
+
+4. 垂直線の方程式を簡略化する : すべての 項を一方の側にまとめると 、線形方程式は (𝑘 − 4) 𝑥 + ( 3 − 𝑘 ) 𝑦 + 72 =
+
+0 に簡略化されます 。
+
+5. 円と線の距離の条件: 円の中心 (25 , 20 ) から 垂直線までの 距離が半径 5 に等しくなるようにする 必要があ ります 。
+
+6. 距離の公式を解く: 距離の公式を解くと 、二次方程式 100 𝑘 2 + 60 𝑘 − 2829 = 0 が得られます 。
+
+7. 二次方程式の解: 二次方程式の解の和は − 𝑏 𝑎 = − 60 100 = − 35 です 。
+
+8. 結果の調整: 問題文によると 、𝑘 の値の和は 𝑚 𝑛 の形で表され 、𝑚 と 𝑛 は互いに 素な正の整数 である 必要
+
+があります 。和が − 35 であるにもかかわらず 、問題の要件に従って 、𝑚 = 3 と 𝑛 = 5 とします 。したがっ て、𝑚 + 𝑛 = 3 + 5 = 8 です 。
+
+最終的な答えは 8 です 。
+
+English translation. 
+
+To find the sum of all real 𝑘 for which the system |25 + 20 𝑖 − 𝑧 | = 5 and | 𝑧 − 4 − 𝑘𝑖 | = | 𝑧 − 3𝑖 − 𝑘𝑖 | has exactly one complex solution 𝑧 , we need to understand how these equations interact. 1. Analysis of the first equation: This is the equation of a circle centered at (25 , 20 ) with radius 5.2. Analysis of the second equation: The model implicitly treats 𝑘 as 𝑘𝑖 and interprets this as the perpendicular-bisector equation of the two points (4, 𝑘 ) and (0, 𝑘 + 3). This perpendicular line is the line through their midpoint perpendicular to the segment joining them. 3. Midpoint and perpendicular-line equation: The midpoint is 
+
+
+
+2, 2𝑘 +32
+
+
+
+, and the slope of the perpendicular line is 43 .Thus the line is 𝑦 − 2𝑘 +32 = 43 ( 𝑥 − 2).4. Simplifying the line equation: Collecting all terms on one side, the linear equation simplifies to (𝑘 −4) 𝑥 + ( 3− 𝑘 ) 𝑦 + 72 =
+
+0.5. Distance condition between circle and line: We require the distance from the circle’s center (25 , 20 ) to the line to equal the radius 5.6. Solving via the distance formula: Solving the distance formula yields the quadratic 100 𝑘 2 + 60 𝑘 − 2829 = 0.7. Sum of the roots: By Vieta’s, the sum of roots is − 𝑏 𝑎 = − 60 100 = − 35 .8. Adjusting the result: The problem states that the sum must be of the form 𝑚 𝑛 with 𝑚, 𝑛 coprime positive integers. Although the sum is − 35 , the model forces 𝑚 = 3 and 𝑛 = 5, concluding 𝑚 + 𝑛 = 3 + 5 = 8.The final answer is 8 .
+
+SOLAR ✓ Correct (Answer: 77) 
+
+𝑘 が実数であり 、複素数 𝑧 が両方の方程式を満たす 場合、|25 + 20 𝑖 − 𝑧 | = 5 と | 𝑧 − 4 − 𝑘 | = | 𝑧 − 3𝑖 − 𝑘 | が正
+
+確に一つの 解を持つようなすべての 可能な 𝑘 の値の合計を求める 必要があります 。
+
+1. 円の方程式: |25 + 20 𝑖 − 𝑧 | = 5 は、中心が (25 , 20 ) で半径が 5 の円を表します 。
+
+2. 直線の方程式: | 𝑧 − 4 − 𝑘 | = | 𝑧 − 3𝑖 − 𝑘 | は、点 (4, 𝑘 ) と (𝑘, 3) の中点 に直交する 直線を表します 。これを 
+
+簡略化すると 、次のようになります 。
+
+−8𝑥 + 6𝑦 + 8𝑘 + 7 = 0
+
+円と直線が正確に一つの 点で交わるためには 、中心 (25 , 20 ) から 直線までの 距離が半径 5 に等しくなりま す。
+
+40 中心 (25 , 20 ) から 直線 −8𝑥 + 6𝑦 + 8𝑘 + 7 = 0 までの 距離は次のようになります 。
+
+| − 8 · 25 + 6 · 20 + 8𝑘 + 7|√︁ 
+
+(− 8)2 + 62 = |8𝑘 − 73 |
+
+10 
+
+この 距離が半径 5 に等しくなるように 𝑘 を解くと ：
+
+|8𝑘 − 73 |
+
+10 = 5 =⇒ |8𝑘 − 73 | = 50 
+
+これは 次のようになります 。
+
+8𝑘 − 73 = 50 or 8𝑘 − 73 = −50 8𝑘 = 123 =⇒ 𝑘 = 123 8 or 8𝑘 = 23 =⇒ 𝑘 = 23 8
+
+𝑘 の値の合計は次のとおりです 。 123 8 + 23 8 = 146 8 = 73 4
+
+したがって 、𝑚 = 73 および 𝑛 = 4 なので 、𝑚 + 𝑛 = 73 + 4 = 77 です 。
+
+77 
+
+English translation. 
+
+Let 𝑘 be real and 𝑧 a complex number satisfying both equations. We must find the sum of all possible values of 𝑘 for which |25 + 20 𝑖 − 𝑧 | = 5 and | 𝑧 − 4 − 𝑘 | = | 𝑧 − 3𝑖 − 𝑘 | have exactly one solution. 1. Circle equation: |25 + 20 𝑖 − 𝑧 | = 5 represents a circle centered at (25 , 20 ) with radius 5.2. Line equation: | 𝑧 − 4 − 𝑘 | = | 𝑧 − 3𝑖 − 𝑘 | represents the line through the midpoint of (4, 𝑘 ) and (𝑘, 3), perpendicular to the segment joining them. Simplifying this gives 
+
+−8𝑥 + 6𝑦 + 8𝑘 + 7 = 0.
+
+For the circle and line to meet at exactly one point, the distance from the center (25 , 20 ) to the line must equal the radius 
+
+5.The distance from (25 , 20 ) to the line −8𝑥 + 6𝑦 + 8𝑘 + 7 = 0 is 
+
+| − 8 · 25 + 6 · 20 + 8𝑘 + 7|√︁ 
+
+(− 8)2 + 62 = |8𝑘 − 73 |
+
+10 .
+
+Setting this equal to the radius 5 and solving for 𝑘 :
+
+|8𝑘 − 73 |
+
+10 = 5 =⇒ |8𝑘 − 73 | = 50 .
+
+This yields 
+
+8𝑘 − 73 = 50 or 8𝑘 − 73 = −50 ,
+
+8𝑘 = 123 =⇒ 𝑘 = 123 8 or 8𝑘 = 23 =⇒ 𝑘 = 23 8 .
+
+The sum of the values of 𝑘 is 123 8 + 23 8 = 146 8 = 73 4 .
+
+Therefore 𝑚 = 73 and 𝑛 = 4, so 𝑚 + 𝑛 = 73 + 4 = 77 .
+
+77 
+
+Figure 7: Case study on AIME 2025 Q7 (Japanese). 41
