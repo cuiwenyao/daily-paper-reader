@@ -6,47 +6,49 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-06-28
-- 运行时间：2026-06-28 20:35:26 UTC
+- 最新运行日期：2026-06-29
+- 运行时间：2026-06-29 21:10:56 UTC
 - 运行状态：成功
 - 本次总论文数：9
-- 精读区：1
-- 速读区：8
+- 精读区：4
+- 速读区：5
 
 ### 今日简报（AI）
-今日精读1篇、速读8篇，聚焦LLM推理可靠性提升与策略优化。最值得关注的是结构化验证循环（8.0分）和策略引导优化（7.0分）两条路径。建议优先深读Denoising Iterative Self-Correction，掌握前沿推理纠错方法。
-- 详情：[/202606/28/README](/202606/28/README)
+1) 今日精选9篇论文，聚焦LLM在数学推理、规划鲁棒性与用户建模中的突破与陷阱。  
+2) 最值得关注：**可验证几何问题求解**（9.0分）通过求解器驱动自动形式化与定理提议，以及**符号反馈迭代自优化框架**（8.0分）提升LLM规划可靠性。  
+3) 普通读者可优先浏览谄媚检测与控制方法，了解如何让AI更诚实而非迎合用户。
+- 详情：[/202606/29/README](/202606/29/README)
 
 ### 精读区论文标签
-1. [Denoising Iterative Self-Correction: Structured Verification Loops for Reliable LLM Reasoning](/202606/28/2606.21724v1-denoising-iterative-self-correction-structured-verification-loops-for-reliable-llm-reasoning)  
+1. [Verifiable Geometry Problem Solving: Solver-Driven Autoformalization and Theorem Proposing](/202606/29/2606.27926v1-verifiable-geometry-problem-solving-solver-driven-autoformalization-and-theorem-proposing)  
+   标签：评分：9.0/10、query:ns-xai
+   evidence：神经符号求解器驱动的几何问题求解框架
+2. [Towards Reliable and Robust LLM Planning: Symbolic Feedback-Driven Iterative Self-Refinement Framework](/202606/29/2606.27757v1-towards-reliable-and-robust-llm-planning-symbolic-feedback-driven-iterative-self-refinement-framework)  
    标签：评分：8.0/10、query:ns-xai
-   evidence：结构化验证循环提升大语言模型推理可靠性
+   evidence：符号反馈驱动的LLM规划迭代自精炼框架
+3. [Cognitive Episodes in LLM Reasoning Traces Enable Interpretable Human Item Difficulty Prediction](/202606/29/2606.28186v1-cognitive-episodes-in-llm-reasoning-traces-enable-interpretable-human-item-difficulty-prediction)  
+   标签：评分：8.0/10、query:ns-xai
+   evidence：利用大语言模型推理轨迹实现可解释的难度预测
+4. [COCOLogic-V2: Identifying Logical Inconsistencies via Truly Hard-Negatives](/202606/29/2606.28194v1-cocologic-v2-identifying-logical-inconsistencies-via-truly-hard-negatives)  
+   标签：评分：8.0/10、query:ns-xai
+   evidence：使用一阶逻辑的视觉归纳推理数据集，用于可解释性评估
 
 ### 速读区论文标签
-1. [Beyond Trajectory Imitation: Strategy-Guided Policy Optimization for LLM Reasoning](/202606/28/2606.24064v1-beyond-trajectory-imitation-strategy-guided-policy-optimization-for-llm-reasoning)  
+1. [Detecting and Controlling Sycophancy with Cascading Linear Features](/202606/29/2606.26155v1-detecting-and-controlling-sycophancy-with-cascading-linear-features)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：用于大语言模型推理的策略蒸馏
-2. [Project Auto-World: Towards Automated Benchmarking of Neural Relational Reasoners](/202606/28/2606.24965v1-project-auto-world-towards-automated-benchmarking-of-neural-relational-reasoners)  
-   标签：评分：7.0/10、query:ns-xai
-   evidence：使用Datalog规则和神经Edge Transformer进行推理，结合符号与神经
-3. [Fine-Tuning Large Language Models for Quantum Reasoning](/202606/28/2606.21974v1-fine-tuning-large-language-models-for-quantum-reasoning)  
+   evidence：通过激活引导的大模型可解释性
+2. [ScaleToT: Generalizing Structured LLM Reasoning for Billion-Scale Low-Activity User Modeling](/202606/29/2606.24605v1-scaletot-generalizing-structured-llm-reasoning-for-billion-scale-low-activity-user-modeling)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：微调大型语言模型以增强量子推理能力
-4. [From Recognition to Understanding: Unlocking Cognitive Time Series Reasoning with LLMs](/202606/28/2606.22126v1-from-recognition-to-understanding-unlocking-cognitive-time-series-reasoning-with-llms)  
+   evidence：使用Tree-of-Thought结构化的LLM推理方法
+3. [SER: Learning to Ground Video Reasoning with Semantic Evidence Rewards](/202606/29/2606.24726v1-ser-learning-to-ground-video-reasoning-with-semantic-evidence-rewards)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：将大语言模型用于时间序列推理理解
-5. [Improving Reasoning in Vision-Language Models via Perception Verified Self-Training](/202606/28/2606.22158v1-improving-reasoning-in-vision-language-models-via-perception-verified-self-training)  
+   evidence：通过语义证据定位提升视频推理可解释性
+4. [Retrieval-Warmed Energy-Based Reasoning: A Five-Arm Ablation Methodology for Diffusion-as-Inference on Structured Reasoning Tasks](/202606/29/2606.26476v1-retrieval-warmed-energy-based-reasoning-a-five-arm-ablation-methodology-for-diffusion-as-inference-on-structured-reasoning-tasks)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：通过感知验证提升视觉语言模型的推理能力
-6. [At the Edge of Understanding: Sparse Autoencoders Trace The Limits of Transformer Generalization](/202606/28/2606.26396v1-at-the-edge-of-understanding-sparse-autoencoders-trace-the-limits-of-transformer-generalization)  
+   evidence：基于能量的结构化推理与消融分析
+5. [Intuition-Guided Latent Reasoning for LLM-Based Recommendation](/202606/29/2606.27684v1-intuition-guided-latent-reasoning-for-llm-based-recommendation)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：使用稀疏自编码器追踪Transformer泛化极限，增强可解释性
-7. [Soft Token Alignment for Cross-Lingual Reasoning](/202606/28/2606.26466v1-soft-token-alignment-for-cross-lingual-reasoning)  
-   标签：评分：6.0/10、query:ns-xai
-   evidence：软令牌对齐提高跨语言推理一致性
-8. [ReaORE: Reasoning-Guided Progressive Open Relation Extraction Empowered by Large Reasoning Models](/202606/28/2606.26986v1-reaore-reasoning-guided-progressive-open-relation-extraction-empowered-by-large-reasoning-models)  
-   标签：评分：6.0/10、query:ns-xai
-   evidence：利用大推理模型引导关系抽取
+   evidence：面向基于LLM的推荐的潜在推理方法，关注推理能力
 
 
 <div class="dpr-home-promo-card">

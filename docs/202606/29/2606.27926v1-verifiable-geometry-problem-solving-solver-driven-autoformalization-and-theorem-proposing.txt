@@ -1,0 +1,416 @@
+Title: Verifiable Geometry Problem Solving: Solver-Driven Autoformalization and Theorem Proposing
+
+URL Source: https://arxiv.org/pdf/2606.27926v1
+
+Published Time: Mon, 29 Jun 2026 00:41:33 GMT
+
+Number of Pages: 17
+
+Markdown Content:
+# Verifiable Geometry Problem Solving: Solver-Driven Autoformalization and Theorem Proposing 
+
+Can Li Ting Zhang Junbo Zhao Hua Huang Beijing Normal University 
+
+Abstract 
+
+Geometry Problem Solving have increasingly adopt the neuro-symbolic paradigm, combining neural intuition with symbolic rigor. However, current frameworks suffer from severe bottlenecks in two core stages: autoformalization, which treats multimodal translation as a static task decoupled from downstream solver compati-bility, and theorem prediction, where solvers frequently hit a deductive impasse due to fixed rule libraries. To address these, we propose SD-GPS, a solver-driven framework that treats the symbolic solver as an execution oracle throughout both formalization and deduction. First, Solver-Driven Autoformalization unifies super-vised formal-language adaptation and solvability-guided reinforcement learning into a single module built on QwenVL3-2B, making executability the central train-ing signal. Second, Verified Theorem Proposing introduces an impasse-aware agent that proposes local auxiliary lemmas from current proof states, ensuring soundness by filtering all proposals through symbolic verification. Empirical evaluations on Geometry3K and PGPS9K demonstrate that SD-GPS consistently outperforms existing MLLM, neural, and neuro-symbolic methods across standard completion, multiple-choice, and cross-modal reference regimes, proving that closing the loop between multimodal perception and symbolic execution significantly improves geometric reasoning, offering profound insights into how neural agents can be grounded by formal systems to achieve verifiable problem-solving capabilities. 
+
+1 Introduction 
+
+Geometry Problem Solving (GPS) aims to derive mathematical solutions from a textual problem description and its corresponding diagram [Chen et al., 2022, Gelernter et al., 1960, Sachan and Xing, 2017, Wu, 1986, Wu et al., 2024, Peng et al., 2023]. To tackle the inherent complexity of geometry, many recent systems adopt the neuro-symbolic paradigm [Trinh et al., 2024, Chervonyi et al., 2025]. This dual-process approach utilizes neural networks as a "perceptual front-end" and symbolic engines as a "logical back-end" [Wu et al., 2022a]. Within this framework, the reasoning pipeline is driven by two core modules: (i) Autoformalization, which translates multimodal raw inputs into executable formal representations, and (ii) Theorem Prediction, which selects or proposes theorem instances that can be used by the solver to derive solutions. This modular architecture allows systems to leverage the intuitive recognition of deep learning alongside the deterministic rigor of formal logic. In the autoformalization stage, the objective is to transform multimodal inputs into solver-ready pred-icates. However, existing GPS frameworks typically adopt a “decoupled-and-rectified” paradigm [Lu et al., 2021, Zhao et al., 2025, Ping et al., 2026], in which isolated neural modules independently parse diagrams and formalize text, followed by a post-hoc rectification step to resolve referential ambiguities [Zhao et al., 2025, Ping et al., 2026]. Beyond this structural fragility, a more fundamental limitation lies in objective misalignment. Current approaches treat formalization as a static, one-way semantic translation task, optimizing against expensive human-annotated logical forms that empha-size linguistic fidelity rather than computational solvability. As a result, the formalization process is 
+
+> Preprint.
+> arXiv:2606.27926v1 [cs.AI] 26 Jun 2026
+
+not aligned with the ultimate goal of solver-based problem solving, and high semantic accuracy does not necessarily translate into effective or executable representations for downstream reasoning. Even when provided with accurate formalization, the theorem prediction stage faces a second critical bottleneck: a fixed theorem library and finite search budget can leave the solver at a deductive impasse. State-of-the-art GPS frameworks [Ping et al., 2026, Zhang et al., 2024a] usually operate with a pre-defined library of geometric rules, so they may fail when a problem requires a rarely selected theorem instance, a small auxiliary construction, or an intermediate relation such as cyclicity, similarity, or proportionality. We therefore treat theorem proposing as a bounded, verifier-controlled proposal problem rather than as free-form axiom generation: a neural agent may suggest local auxiliary lemmas from the current proof state, but only the symbolic back-end can accept, reject, and use them. 30 40 50 60 70 80 90 
+
+> Accuracy on Geometry3K (%)
+> 30
+> 40
+> 50
+> 60
+> 70
+> 80
+> Accuracy on PGPS9K (%)
+> Vision-R1-7B
+> Qwen2.5-VL-32B
+> InternVL2.5-78B
+> InternVL3-78B
+> GPT-4o
+> NGS
+> Geoformer
+> PGPSNet-v2-S
+> LANS
+> PGPSNet
+> Auto-GPS
+> Pi-GPS
+> Ours
+> Completion
+> MLLMs
+> Neural Solvers
+> Symbolic Solvers
+> Ours
+
+Figure 1: Performance comparison among existing methods. To resolve these misalignments, we propose SD-GPS, a solver-driven framework that treats the symbolic solver as an execution oracle throughout both formalization and de-duction. First, Solver-Driven Autoformalization replaces the decoupled pipeline with a unified multimodal formalizer built on QwenVL3-2B. It reads the raw diagram and problem text jointly, learns the target formal language through supervised adaptation, and is further optimized with solvability-guided feedback from the solver. This makes executability, rather than surface-level textual similarity alone, the central training signal. Second, Solver-Driven Theorem Proposing addresses solver-side impasses. Instead of allowing a neural model to add unchecked axioms, the agent proposes bounded auxiliary lemmas or theorem instantiations from the current proof state, and every accepted proposal must pass symbolic verification before it can drive the derivation. Empirical evaluations on Geometry3K Lu et al. [2021] and PGPS9K Zhang et al. [2023] show consistent improvements over MLLM, neural, and neuro-symbolic baselines. As summarized in Figure 1, SD-GPS improves completion accuracy on both benchmarks over the strongest listed prior systems. The results suggest that closing the loop between multimodal perception and symbolic execution improves both solver-ready formalization and final geometric reasoning. In summary, our contributions are three-fold: • Solver-Driven Autoformalization: We unify supervised formal-language adaptation and solvability-guided reinforcement learning into a single autoformalization module that pro-duces solver-executable predicates from raw diagram-text inputs. • Verified Theorem Proposing: We introduce an impasse-aware theorem-proposing agent that proposes auxiliary lemmas from solver states, while preserving soundness by accepting only proposals verified by the symbolic back-end. • Systematic Evaluation: We evaluate under standard completion and choice settings, cross-modal point-reference regimes, and OCR-induced failure modes, showing robust gains on Geometry3K and PGPS9K. 
+
+2 Related Work 
+
+Geometry problem solving. The field of GPS has evolved from classical rule-based engines to contemporary neural-symbolic hybrids. Early symbolic methods, such as Wu’s Method [Wu, 1978] and Groebner Basis [Buchberger, 1976], established a foundation of mathematical rigor but were fundamentally limited by their inability to interpret informal multimodal inputs. To bridge this gap, modern frameworks [Wu et al., 2024, Peng et al., 2023] like Inter-GPS [Lu et al., 2021] and UniGeo [Cheng et al., 2025] integrate deep learning parsers with symbolic solvers. However, these systems predominantly rely on a decoupled paradigm where text and diagrams are processed by isolated neural modules. Recent advancements, notably Pi-GPS [Zhao et al., 2025] and AutoGPS [Ping et al., 2026], attempt to mitigate this isolation by introducing specialized post-hoc rectification stages or diagrammatic heuristics to resolve referential ambiguities. Despite these efforts, 2such systems remain tethered to the quality of initial independent parsing results. This structural separation often leads to cascading information loss, as the formalization process lacks a unified representation to resolve inter-modal dependencies, particularly when faced with complex spatial relationships that are under-specified in text or diagram. 
+
+Multimodal autoformalization. Autoformalization bridges the gap between informal human intu-ition and machine-verifiable logic [Wu et al., 2022b]. In geometry, this task is particularly formidable as linguistic descriptions are often logically under-specified without visual grounding. The signifi-cance of this field is underscored by MATP-BENCH [He et al., 2025], which highlights that formally verified multimodal mathematics remains a grand challenge for frontier MLLMs. Recent frameworks, such as AutoGPS [Ping et al., 2026] and Pi-GPS [Zhao et al., 2025], attempt to address this by translating diagrams into predicates. However, they predominantly rely on a decoupled paradigm that utilizes specialized, non-transformer parsers like PGDP [Hao et al., 2022], necessitating post-hoc heuristics to resolve inter-modal inconsistencies. Similarly, DFE-GPS [Zhang et al., 2024b] treats diagram formalization merely as an auxiliary signal rather than a primary objective. While recent MMFORMALIZER [Xiong et al., 2026] extends autoformalization to physics via recursive grounding and rule-based searches in PhysLean, it focuses on high-level axiomatic deduction. In contrast, our framework achieves joint diagram-text alignment within a unified LMM representation. By enabling bidirectional disambiguation in a single inference pass, we resolve low-level topological ambiguities directly from raw pixels, offering a more integrated and scalable pathway for verifiable multimodal reasoning. 
+
+Verifiable reinforcement learning. Reinforcement learning has also been explored in geometry reasoning, for example GeoDRL formulates deductive reasoning as sequential decision making over geometry logic graphs [Peng et al., 2023]. More recently, LLM reasoning has shifted toward 
+
+verifiable rewards [DeepSeek-AI, 2025], where correctness can be computed automatically from math or code outputs instead of relying on human preference labels. DeepSeekMath popularized this paradigm in mathematical reasoning with GRPO [Shao et al., 2024], while GSPO later improved training stability and efficiency through sequence-level policy optimization [Zheng et al., 2025]. In contrast, our work anchors optimization on solver-readiness of the formal representation. We adapt GSPO to multimodal autoformalization with rewards derived from parse validity, executable solver states, and answer-level solvability. When gold formal annotations are available, we use them for supervised adaptation and analysis; the reinforcement-learning stage itself can be driven by parser and solver execution feedback, making the objective closer to the downstream symbolic task. 
+
+3 Method 
+
+3.1 Framework Overview 
+
+Given a geometry problem consisting of a diagram I, a textual question T , and a target answer a∗,SD-GPS aims to generate a formal representation ˆΛ that can be consumed by a symbolic solver 
+
+S. The system is organized around two solver-coupled loops. The first loop learns a multimodal formalizer Fθ :
+
+ˆΛ = Fθ (I, T ), (1) where ˆΛ contains formal predicates grounded in both the diagram and the text. The second loop augments symbolic deduction with a theorem-proposing agent. When S(ˆΛ) cannot derive the target answer, the agent observes the intermediate proof state and proposes a theorem hypothesis ˆτ , after which the solver verifies whether ˆτ is applicable and useful for continuing the proof. This design keeps all accepted formalizations and theorem proposals grounded in symbolic execution. Figure 2 illustrates the overall workflow of SD-GPS, including multimodal formalization, solver feedback, repair, and theorem proposal. 
+
+3.2 Formalization Data: Curated and Synthetic Sources 
+
+To expose the formalizer to realistic textbook phrasing, diverse diagram styles, and annotation noise, we build a mixed formalization corpus from curated real-world examples and controllable synthetic instances. The real-world portion is constructed from Geometry3K-Train, the training split of PGPS9K, and the PGDP training set. Since these datasets differ in annotation conventions 3SD-GPS solver-driven framework  Theorem-Proposing Agent Module              
+
+> Problem Text
+> Geometry3K #2431 Regular hexagon side 12; find WY.
+> Problem Diagram
+> Unified MLLM Formalizer
+> Fθ(I,T): joint grounding
+> no external OCR / GT labels
+> Solver-ready Formalization
+> Λ =(Ê,Ĉ,q̂)
+> typed entities + constraints target query: Length(WY)
+> invalid forms enter repair
+> Validator + Symbolic Solver
+> 1. parse and type check 2. execute formal predicates 3. expose proof bottleneck S( Λ ) = (s, â, h)
+> Execution Record
+> status: ParseFail / Inconsistent Unsolved / Solved proof state h drives feedback
+> Inference Controller
+> repair invalid Λ 
+> trigger agent if blocked
+> Verified Result
+> answer derived by solver or proof trace with local lemma
+> SG-RL
+> parse/match exec/answer
+> solver reward repair loop
+> Blocked State
+> valid Λ , s=Unsolved
+> D facts · G goals U failures · M memory
+> Theorem Agent
+> search missing symbolic intermediates
+> never outputs answer
+> Theorem Card
+> type, variables premises -> conclusion
+> Proposal Types
+> relation completion theorem instantiation auxiliary / algebraic bridge
+> Normalize + Rank
+> canonicalize variables premise match + goal relevance penalize rejected repeats
+> Solver-side Verification Gate
+> accepted only if grounded, consistent, and useful
+> Syntax Grounding Premise Semantic Utility
+> Accepted Local Lemma
+> resume solver search record in proof trace
+> Rejected Proposal
+> ill-typed / ungrounded duplicate / no reduction
+> rejection memory for next round
+
+Figure 2: Overview of the proposed SD-GPS framework. Raw diagram-text inputs are converted into solver-executable formal predicates, checked by a symbolic solver, refined through solver-guided repair when necessary, and augmented with verified auxiliary theorem proposals when the solver reaches a deductive impasse. and were not originally designed as a unified strict formal-language benchmark, we normalize symbolic expressions, entity names, and diagram-text grounding formats. Geometry3K annotations are proofread and standardized to reduce inconsistent predicate usage and ambiguous entity references. For PGPS9K, diagram-side formal language is converted into the Inter-GPS formalism, disambiguated during preprocessing, and then filtered by parser and solver execution. Samples whose converted predicates fail parsing, entity grounding, or solver verification are removed. The synthetic portion is generated from geometry templates that specify a diagram construction program, a predicate-level formalization, and a target query. Template parameters control point layout, label visibility, auxiliary marks, algebraic values, and ambiguity type. We use the solver to reject inconsistent constructions and keep only examples whose predicates are executable and whose target answer is uniquely determined. This gives the formalizer additional supervision for cases that are underrepresented in real data, such as omitted labels, diagram-supplied points, dense angle marks, and visually similar point names. The final training data are tuples (I, T, Λ∗, a ∗, m ), where I denotes the diagram, T denotes the problem text, Λ∗ denotes the target formal representation, a∗ denotes the gold answer, and m
+
+stores metadata about entity grounding, ambiguity type, annotation source, and solver status. This metadata supports curriculum sampling. Early training emphasizes clean, solver-verified examples with direct text-diagram alignment, while later training gradually increases the proportion of diagram-dependent, ambiguity-heavy, and cross-modal-mismatch examples. We keep training, validation, and test problems separated at the problem and diagram levels to reduce leakage between curated or template-derived instances and held-out evaluation examples. 
+
+3.3 Solver-Driven Autoformalization 
+
+Solver-Driven Autoformalization is the front-end loop that converts raw multimodal inputs into a formal representation that the solver can execute. Rather than first extracting OCR tokens, diagram primitives, and textual predicates through separate modules, the formalizer Fθ receives the raw diagram I and problem text T jointly and emits a complete predicate sequence ˆΛ in one pass. A lightweight parser checks arity, type compatibility, duplicated declarations, illegal symbols, and unresolved references before any candidate is passed to the symbolic solver S. In our implementation, 
+
+Fθ is initialized from QwenVL3-2B [Bai et al., 2025]; all supervised, RL, repair, and theorem-proposal variants use this same 2B-parameter multimodal backbone unless explicitly stated otherwise. The same parser and solver are then used in both training and inference, so the model is optimized toward the interface actually consumed by the downstream reasoner. 4Stage I: supervised formal-language adaptation. Given the curated and synthetic formalization dataset 
+
+DSFT = {(Ii, T i, Λ∗ 
+
+> i
+
+, a ∗ 
+
+> i
+
+)}Ni=1 , (2) we first adapt QwenVL3-2B, a 2B-parameter pretrained multimodal language model, to the target geometry formal language. The model generates 
+
+ˆΛi = Fθ (Ii, T i), (3) and is trained with the autoregressive negative log-likelihood of the target predicate sequence Λ∗ 
+
+> i
+
+=(yi, 1, . . . , y i,L i ):
+
+LSFT (θ) = − 1
+
+N
+
+> N
+
+X
+
+> i=1
+> Li
+
+X
+
+> t=1
+
+log pθ (yi,t | Ii, T i, y i,<t ) . (4) This stage teaches the predicate inventory, output grammar, and cross-modal grounding patterns, providing a solver-compatible initialization before execution-based optimization. 
+
+Stage II: solvability-guided policy optimization. After supervised adaptation, we further optimize 
+
+Fθ with Solvability-Guided Reinforcement Learning (SG-RL), instantiated with GSPO-style group sequence policy optimization. For each problem, the model samples a group of K candidate formalizations {ˆΛi,j }Kj=1 . Each candidate is parsed and, if valid, executed by S. We assign a sequence-level reward 
+
+R(ˆΛ) = λfmt Rfmt (ˆΛ) + λexec Rexec (ˆΛ) + λans Rans (ˆΛ, a ∗), (5) where 
+
+Rfmt (ˆΛ) = I[Parse( ˆΛ) = 1] , (6) 
+
+Rexec (ˆΛ) = I[S constructs a non-contradictory proof state from ˆΛ] , (7) and 
+
+Rans (ˆΛ, a ∗) = I[S(ˆΛ) = a∗]. (8) The format term rewards syntactic validity, the execution term rewards usable intermediate solver states, and the answer term rewards candidates that are sufficient for deriving the gold answer. Invalid or unparsable candidates receive no execution or answer reward. Within each sampled group, rewards are normalized into sequence-level advantages and used to update the policy, so formalizations that are merely plausible but unusable by the solver are discouraged. Unlike the supervised stage, SG-RL does not require gold formal-language annotations for every problem; it requires the problem input, the target answer, and solver feedback. 
+
+Inference-time use. At test time, the same parser-solver interface provides structured diagnostics. If a candidate fails parsing or execution, it is sent to the bounded repair loop described in Appendix A.2. If the candidate is executable but the solver cannot close the proof within the search budget, the system invokes the theorem-proposing agent in Section 3.4. 
+
+3.4 Solver-Driven Theorem-Proposing Agent 
+
+Even a correct and executable formalization may be insufficient when the symbolic solver is restricted to a fixed theorem library or a finite search budget. The Solver-Driven Theorem-Proposing Agent addresses this bottleneck by acting as a proposal module over the current proof state, not as an unchecked source of new axioms. In our implementation, the agent is driven by the same QwenVL3-2B backbone as the formalizer, but its output is restricted to a verifier-readable proposal schema. It is activated only after S has successfully parsed ˆΛ and built a consistent proof state but cannot derive the target query q. At iteration t, the solver exposes a state summary ht containing known facts, unresolved subgoals, failed theorem matches, and a compact diagnostic message dt. Conditioned on 
+
+(ˆΛ, q, h t, d t), the agent proposes a bounded set of candidate auxiliary lemmas 
+
+Tt = Aϕ(ˆΛ, q, h t, d t), (9) where each candidate is represented as a verifier-readable tuple containing a lemma type, required premises, proposed conclusion, involved entities, and a short rationale. 5Algorithm 1 Solver-driven theorem proposal and verification 
+
+Require: Formal predicates ˆΛ, target query q, solver S, theorem agent Aϕ, maximum proposal rounds Tmax , proposal budget K
+
+Ensure: Solved answer or unresolved status  
+
+> 1:
+
+(s0, h 0) ← S .INITIALIZE (ˆΛ, q ) 
+
+> 2:
+
+if s0 is invalid or contradictory then  
+
+> 3:
+
+return unresolved ▷ Handled by formalization repair, not theorem proposal  
+
+> 4:
+
+end if  
+
+> 5:
+
+if S.CLOSED (s0, q ) then  
+
+> 6:
+
+return S.ANSWER (s0, q ) 
+
+> 7:
+
+end if  
+
+> 8:
+
+for t = 1 to Tmax do  
+
+> 9:
+
+st ← st−1 
+
+> 10:
+
+dt ← S .DIAGNOSE (st−1, q ) 
+
+> 11:
+
+Tt ← Aϕ(ˆΛ, q, h t−1, d t; K) 
+
+> 12:
+
+for all τ ∈ T t do  
+
+> 13:
+
+if not W ELL TYPED (τ, ˆΛ) then  
+
+> 14:
+
+discard τ 
+
+> 15:
+
+else if not S.APPLICABLE (τ, s t−1) then  
+
+> 16:
+
+discard τ 
+
+> 17:
+
+else if not S.VERIFY (τ, s t−1) then  
+
+> 18:
+
+discard τ 
+
+> 19:
+
+else if not S.GOAL REDUCED (τ, s t−1, q ) then  
+
+> 20:
+
+discard τ 
+
+> 21:
+
+else  
+
+> 22:
+
+(st, c τ ) ← S .ADD LOCAL LEMMA (st−1, τ ) 
+
+> 23:
+
+st ← S .SEARCH (st, q ) 
+
+> 24:
+
+if S.CLOSED (st, q ) then  
+
+> 25:
+
+return S.ANSWER (st, q ) 
+
+> 26:
+
+end if  
+
+> 27:
+
+end if  
+
+> 28:
+
+end for  
+
+> 29:
+
+ht ← S .SUMMARIZE (st, q ) 
+
+> 30:
+
+end for  
+
+> 31:
+
+return unresolved The solver filters these candidates before any of them can affect the derivation. A proposal is discarded if it contains unknown entities, violates type constraints, contradicts existing facts, cannot be instantiated against the current proof state, cannot be verified from admissible premises, or fails to reduce any unresolved subgoal. For an accepted proposal, the verifier returns a local proof certificate or a deterministic construction trace, and the derived fact is scoped only to the current problem instance. It is removed after the example is solved or declared unresolved. This scoping is important: the agent may suggest a useful lemma instantiation or auxiliary relation, but the symbolic verifier remains responsible for deciding whether the suggestion is admissible. In practice, the agent mostly helps in three cases: selecting a theorem instance that the default search failed to prioritize, exposing a latent relation such as cyclicity or similarity, and proposing a small auxiliary construction that makes an existing theorem applicable. Algorithm 1 summarizes the loop. The proposal budget keeps inference bounded, while the verifier checks ensure that neural proposals cannot directly determine the answer. The stored certificate cτ is used only inside the current proof attempt, so accepted proposals behave as verified local lemmas rather than permanent changes to the theorem library. The agent therefore expands the solver’s search behavior without replacing symbolic proof checking. 6Table 1: Results on Geometry3K and PGPS9K.                                                                                                      
+
+> Method Geometry3K PGPS9K Completion Choice Completion Choice
+> MLLMs
+> G-LLaVA-13B [Gao et al., 2025] 0.3 29.0 0.0 27.0 Vision-R1-7B [Huang et al., 2025] 43.8 57.1 36.8 49.6 Qwen2.5-VL-32B [Qwen et al., 2025] 41.9 67.6 43.5 56.1 InternVL2.5-78B [Chen et al., 2024] 36.1 60.9 28.1 51.3 InternVL3-78B [Zhu et al., 2025] 57.4 74.5 48.9 61.1 GPT-4o [OpenAI, 2024] 34.8 58.6 38.2 56.8 GLM-4.6V [Team et al., 2026a] 53.7 65.3 47.7 60.8 Kimi-K2.5 [Team et al., 2026b] 82.9 87.2 73.0 79.8 QwenVL3-2B [Bai et al., 2025] 36.6 52.5 27.2 45.4
+> Neural Solvers
+> NGS [Chen et al., 2022] 35.3 58.8 34.1 46.1 Geoformer [Khomiakov et al., 2024] 36.8 59.3 35.6 47.3 SCA-GPS [Ning et al., 2023] 76.7 –––GOLD [Zhang and Moshfeghi, 2024] –62.7 –60.6 PGPSNet-v2-S [Zhang et al., 2024c] 65.2 76.4 60.3 69.2 LANS (Diagram GT) [Li et al., 2024] 72.1 82.3 66.7 74.0 PGPSNet [Zhang et al., 2023] 65.0 77.9 62.7 70.4
+> Symbolic and Neuro-symbolic Solvers
+> Inter-GPS [Lu et al., 2021] 43.4 57.5 ––E-GPS [Wu et al., 2024] –67.9 ––GeoDRL [Peng et al., 2023] 57.9 68.4 55.6 66.7 Auto-GPS [Ping et al., 2026] 75.4 81.6 75.4 81.5 Auto-GPS (OCR) [Ping et al., 2026] 65.6 75.2 62.9 71.9 Pi-GPS [Zhao et al., 2025] 70.6 77.8 61.4 69.8 Pi-GPS (OCR) [Zhao et al., 2025] 66.1 73.1 56.3 64.2 SD-GPS 86.4 90.4 79.8 84.5
+
+4 Experiments 
+
+Datasets. We evaluate on Geometry3K [Lu et al., 2021] and PGPS9K [Zhang et al., 2023], the two benchmarks used to test whether solver-driven formalization transfers from raw multimodal input to final problem solving. Geometry3K contains 3,002 geometry problems, split into 2,101 training, 300 validation, and 601 test problems. Each problem includes a diagram, problem text, and formal-language annotations. PGPS9K extends Geometry3K to 9,022 problems paired with 4,000 unique diagrams and covers common plane-geometry types from middle-school and high-school textbooks. 
+
+Metrics. Following prior GPS evaluations [Lu et al., 2021, Zhang et al., 2023, Ping et al., 2026, Zhao et al., 2025], we report final problem-solving accuracy under two settings. Completion evaluates open-ended answer generation, where the system must derive the final value or expression. Choice 
+
+evaluates multiple-choice solving. For ablations on ambiguity resolution, we additionally report final solver-executed accuracy under three text-diagram evidence regimes: text-complete , where the text-mentioned point set equals the diagram point set; diagram-augmented , where the diagram contains additional points required for grounding; and cross-modal mismatch , where the model must resolve weaker or inconsistent entity evidence. 
+
+Baselines. We compare with three groups of methods that correspond to the failure modes discussed in the introduction. The first group contains general MLLMs prompted to solve or formalize the 7problem directly, including G-LLaVA [Gao et al., 2025], Vision-R1 [Huang et al., 2025], Qwen2.5-VL [Qwen et al., 2025], QwenVL3-2B [Bai et al., 2025], InternVL [Chen et al., 2024, Zhu et al., 2025], and GPT-4o [OpenAI, 2024]. The second group contains neural GPS systems such as NGS [Chen et al., 2022], Geoformer [Khomiakov et al., 2024], SCA-GPS [Ning et al., 2023], GOLD [Zhang and Moshfeghi, 2024], PGPSNet [Zhang et al., 2023], PGPSNet-v2 [Zhang et al., 2024c], and LANS [Li et al., 2024]. The third group contains symbolic or neuro-symbolic solvers such as Inter-GPS [Lu et al., 2021], E-GPS [Wu et al., 2024], GeoDRL [Peng et al., 2023], Auto-GPS [Ping et al., 2026], and Pi-GPS [Zhao et al., 2025]. Where available, we separately report OCR-based variants [Ping et al., 2026, Zhao et al., 2025], because they expose the brittleness of cascaded perception-to-logic pipelines under fully automatic input processing. 
+
+4.1 Results 
+
+Table 1 summarizes the results on Geometry3K and PGPS9K. SD-GPS achieves the best accuracy across all four evaluation settings. On Geometry3K, it obtains 86.4% completion accuracy and 90.4% choice accuracy, improving over the strongest listed prior results by 3.5 and 3.2 percentage points, respectively. On PGPS9K, SD-GPS reaches 79.8% completion accuracy and 84.5% choice accuracy, surpassing the strongest listed prior results by 4.4 and 3.0 percentage points. These gains indicate that solver-driven formalization improves not only predicate quality but also final reasoning performance. The comparison also highlights the limitations of direct MLLM prompting. Although recent MLLMs perform well on general multimodal tasks, their accuracy remains limited on formal geometry reasoning, especially in completion settings where exact executable reasoning is required. The prompted QwenVL3-2B baseline is therefore reported separately from SD-GPS: SD-GPS uses the same backbone but adds solver-driven formal-language adaptation, SG-RL, bounded repair, and verified theorem proposal. In contrast to direct prompting, SD-GPS explicitly converts multimodal inputs into solver-ready predicates and uses execution feedback to penalize incomplete or unusable formalizations. The OCR-based variants of Auto-GPS and Pi-GPS further show that cascaded systems are sensitive to upstream recognition errors, reinforcing the need for integrated cross-modal formalization. 
+
+4.2 Ablation Study Robustness under cross-modal ambiguity. Table 2 reports final solver-executed accuracy under different relations between text-mentioned points and diagram points. The SFT-only formalizer performs strongly when the textual point set is complete, but its accuracy decreases in the diagram-augmented and cross-modal-mismatch regimes. This suggests that cross-modal ambiguity is not merely a post-processing issue: missing, redundant, or inconsistently grounded entities can directly change the executable predicates provided to the symbolic solver. 
+
+Effect of SG-RL and fallback repair. Introducing SG-RL improves the overall accuracy from 74.9% to 79.5%, indicating that solver-derived feedback provides a useful supervisory signal beyond predicate-level imitation. The improvement is particularly pronounced in the cross-modal-mismatch setting, where accuracy increases from 67.2% to 74.8%. This result suggests that execution feedback helps the model prefer formalizations that are not only syntactically valid but also more compatible with downstream symbolic reasoning. Adding fallback repair further raises the overall accuracy to 84.5%, with a notable gain in the diagram-augmented setting from 77.1% to 84.3%. These results show that bounded execution-aware regeneration can recover from invalid, incomplete, or weakly grounded formalizations. 
+
+Effect of theorem proposal. The final row of Table 2 incorporates the solver-driven theorem-proposing agent, increasing the overall accuracy to 86.4%. After formalization errors are reduced, some remaining failures are caused by the limited coverage of the fixed theorem library rather than by incorrect parsing alone. By observing the solver state and proposing verifiable auxiliary lemmas, the theorem-proposing agent extends the effective reasoning coverage of the symbolic back-end while preserving verification constraints. Importantly, the proposed lemmas are not accepted as unconstrained neural guesses; they must be checked by the solver before contributing to the final derivation. 8Table 2: Fine-grained end-to-end accuracy under different text-diagram point relations. Text-complete 
+
+means the point set mentioned in the problem text equals the diagram point set. Diagram-augmented 
+
+means the text-mentioned point set is a strict subset of the diagram point set. Cross-modal mismatch 
+
+covers the remaining cases.                                 
+
+> Variant Text-complete (n= 142 )Diagram-augmented (n= 262 )Cross-modal mismatch (n= 197 )Overall (n= 601 )Prompted MLLM baseline 0.7 0.3 00.3 Solver-driven autoformalizer: SFT only 87.2 73.7 67.2 74.9 + SG-RL solver feedback 90.8 77.1 74.8 79.5 + bounded fallback repair 94.3 84.3 77.7 84.5 + theorem-proposing agent ---86.4
+
+Effect of task-specific formalization training. Table 3 compares prompt-based formal-language generation by general-purpose MLLMs with formalizers adapted to the target geometry language. The results show that task-specific adaptation produces more reliable executable formalizations, especially under the syntax, grounding, and predicate constraints imposed by the downstream solver. This supports the need for dedicated formalization training rather than relying solely on prompt-based generation from general-purpose multimodal models. Table 3: End-to-end solver execution accuracy using model-generated formal representations. All models generate formal representations that are executed by the same symbolic solver. General-purpose MLLMs are evaluated with the same prompt. The SD-GPS rows use QwenVL3-2B as the backbone; the QwenVL3-2B row denotes the prompted base model without solver-driven adaptation. 
+
+Model Name Accuracy (%) 
+
+Prompted QwenVL3-2B 0.3 Prompted Qwen2.5-VL-32B 18.1 Prompted InternVL3-78B 19.3 Prompted GPT-4o 22.6 Prompted GLM-4.6V 22.6 Prompted Kimi-K2.5 28.5 
+
+Ours (QwenVL3-2B + SFT) 74.9 Ours (QwenVL3-2B + SG-RL) 79.5 
+
+5 Limitations 
+
+Our evaluation is limited to plane-geometry problems that can be represented with an Inter-GPS-style formal language. Extending the framework to three-dimensional geometry, construction-based problems, or free-form proof generation may require a richer predicate vocabulary and additional symbolic verification rules. The method also depends on the coverage of the symbolic solver. Solver feedback is useful for training and verification, but solver failure may arise from missing theorem rules or limited search depth rather than incorrect formalization. Similarly, the theorem-proposing agent is constrained by the verifier: its proposed auxiliary relations are accepted only when they pass symbolic checks and help reduce the unresolved goal. The agent should therefore be interpreted as a bounded proposal mechanism for theorem instances and auxiliary relations, not as a replacement for formal proof certification. 
+
+6 Conclusion 
+
+We presented SD-GPS, a solver-driven framework for verifiable geometry problem solving. Instead of treating autoformalization as a static translation task and theorem prediction as a closed-library selection problem, SD-GPS uses symbolic execution as an active supervisory signal. A unified multimodal formalizer produces solver-ready predicates from raw diagram-text inputs, solver-verified reinforcement learning aligns training with downstream executability, and an iterative theorem-proposing agent expands the solver’s deductive reach through verified lemma proposals. Experiments 9on Geometry3K and PGPS9K show consistent improvements over MLLM, neural, and neuro-symbolic baselines. These results suggest that closing the loop between perception and symbolic verification is a promising direction for robust multimodal mathematical reasoning. Future work will extend the framework to broader formal languages, stronger proof-certificate generation, and more diverse geometric domains beyond plane-geometry benchmarks. 
+
+References 
+
+Jiaqi Chen, Jianheng Tang, Jinghui Qin, Xiaodan Liang, Lingbo Liu, Eric P. Xing, and Liang Lin. Geoqa: A geometric question answering benchmark towards multimodal numerical reasoning, 2022. URL https://arxiv.org/abs/2105.14517 .H. Gelernter, J. R. Hansen, and D. W. Loveland. Empirical explorations of the geometry theorem machine. In Papers Presented at the May 3-5, 1960, Western Joint IRE-AIEE-ACM Computer Conference , IRE-AIEE-ACM ’60 (Western), page 143–149, New York, NY, USA, 1960. Associa-tion for Computing Machinery. ISBN 9781450378697. doi: 10.1145/1460361.1460381. URL 
+
+https://doi.org/10.1145/1460361.1460381 .Mrinmaya Sachan and Eric Xing. Learning to solve geometry problems from natural language demonstrations in textbooks. In Nancy Ide, Aurélie Herbelot, and Lluís Màrquez, editors, Pro-ceedings of the 6th Joint Conference on Lexical and Computational Semantics (*SEM 2017) ,pages 251–261, Vancouver, Canada, August 2017. Association for Computational Linguistics. doi: 10.18653/v1/S17-1029. URL https://aclanthology.org/S17-1029/ .Wen-Tsun Wu. Basic principles of mechanical theorem proving in elementary geometrics. J. Autom. Reason. , 2(3):221–252, August 1986. ISSN 0168-7433. doi: 10.1007/BF02328447. URL 
+
+https://doi.org/10.1007/BF02328447 .Wenjun Wu, Lingling Zhang, Jun Liu, Xi Tang, Yaxian Wang, Shaowei Wang, and Qianying Wang. E-gps: Explainable geometry problem solving via top-down solver and bottom-up generator. In 
+
+Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 13828–13837, 2024. Shuai Peng, Di Fu, Yijun Liang, Liangcai Gao, and Zhi Tang. Geodrl: A self-learning framework for geometry problem solving using reinforcement learning in deductive reasoning. In Findings of the Association for Computational Linguistics: ACL 2023 , pages 13468–13480, 2023. Trieu Trinh, Yuhuai Wu, Quoc Le, He He, and Thang Luong. Solving olympiad geometry without human demonstrations. Nature , 2024. doi: 10.1038/s41586-023-06747-5. Yuri Chervonyi, Trieu H. Trinh, Miroslav Olšák, Xiaomeng Yang, Hoang Nguyen, Marcelo Menegali, Junehyuk Jung, Junsu Kim, Vikas Verma, Quoc V. Le, and Thang Luong. Gold-medalist performance in solving olympiad geometry with alphageometry2, 2025. URL https: //arxiv.org/abs/2502.03544 .Yuhuai Wu, Albert Q. Jiang, Wenda Li, Markus N. Rabe, Charles Staats, Mateja Jamnik, and Christian Szegedy. Autoformalization with large language models, 2022a. URL https://arxiv.org/ abs/2205.12615 .Pan Lu, Ran Gong, Shibiao Jiang, Liang Qiu, Siyuan Huang, Xiaodan Liang, and Song-chun Zhu. Inter-gps: Interpretable geometry problem solving with formal language and symbolic reasoning. In Proceedings of the 59th Annual Meeting of the Association for Computational Linguistics and the 11th International Joint Conference on Natural Language Processing (Volume 1: Long Papers) ,pages 6774–6786, 2021. Junbo Zhao, Ting Zhang, Jiayu Sun, Mi Tian, and Hua Huang. Pi-gps: Enhancing geometry problem solving by unleashing the power of diagrammatic information. In Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV) , pages 1526–1536, October 2025. Bowen Ping, Minnan Luo, Zhuohang Dang, Chenxi Wang, and Chengyou Jia. Autogps: Automated geometry problem solving via multimodal formalization and deductive reasoning, 2026. URL 
+
+https://arxiv.org/abs/2505.23381 .10 Xiaokai Zhang, Na Zhu, Yiming He, Jia Zou, Qike Huang, Xiaoxiao Jin, Yanjun Guo, Chenyang Mao, Yang Li, Zhe Zhu, Dengfeng Yue, Fangzhen Zhu, Yifan Wang, Yiwen Huang, Runan Wang, Cheng Qin, Zhenbing Zeng, Shaorong Xie, Xiangfeng Luo, and Tuo Leng. Formalgeo: An extensible formalized framework for olympiad geometric problem solving, 2024a. URL 
+
+https://arxiv.org/abs/2310.18021 .Ming-Liang Zhang, Fei Yin, and Cheng-Lin Liu. A multi-modal neural geometric solver with textual clauses parsed from diagram. In Proceedings of the Thirty-Second International Joint Conference on Artificial Intelligence , pages 3374–3382, 2023. Wen-tsün Wu. On the decision problem and the mechanization of theorem-proving in elementary geometry. Scientia Sinica , 21(2):159–172, 1978. B. Buchberger. A theoretical basis for the reduction of polynomials to canonical forms. SIGSAM Bull. , 10(3):19–29, August 1976. ISSN 0163-5824. doi: 10.1145/1088216.1088219. URL 
+
+https://doi.org/10.1145/1088216.1088219 .Jo-Ku Cheng, Zeren Zhang, Ran Chen, Jingyang Deng, Ziran Qin, and Jinwen Ma. Geouni: A unified model for generating geometry diagrams, problems and problem solutions, 2025. URL 
+
+https://arxiv.org/abs/2504.10146 .Yuhuai Wu, Albert Qiaochu Jiang, Wenda Li, Markus Rabe, Charles Staats, Mateja Jam-nik, and Christian Szegedy. Autoformalization with large language models. In S. Koyejo, S. Mohamed, A. Agarwal, D. Belgrave, K. Cho, and A. Oh, editors, Advances in Neu-ral Information Processing Systems , volume 35, pages 32353–32368. Curran Associates, Inc., 2022b. URL https://proceedings.neurips.cc/paper_files/paper/2022/file/ d0c6bc641a56bebee9d985b937307367-Paper-Conference.pdf .Zhitao He, Zongwei Lyu, Dazhong Chen, Dadi Guo, and Yi R. Fung. Matp-bench: Can mllm be a good automated theorem prover for multimodal problems?, 2025. URL https://arxiv.org/ abs/2506.06034 .Yihan Hao, Mingliang Zhang, Fei Yin, and Lin-Lin Huang. Pgdp5k: A diagram parsing dataset for plane geometry problems. In 2022 26th international conference on pattern recognition (ICPR) ,pages 1763–1769. IEEE, 2022. Zeren Zhang, Jo-Ku Cheng, Jingyang Deng, Lu Tian, Jinwen Ma, Ziran Qin, Xiaokai Zhang, Na Zhu, and Tuo Leng. Diagram formalization enhanced multi-modal geometry problem solver, 2024b. URL https://arxiv.org/abs/2409.04214 .Jing Xiong, Qi Han, Yunta Hsieh, Hui Shen, Huajian Xin, Chaofan Tao, Chenyang Zhao, Hengyuan Zhang, Taiqiang Wu, Zhen Zhang, Haochen Wang, Zhongwei Wan, Lingpeng Kong, and Ngai Wong. Mmformalizer: Multimodal autoformalization in the wild, 2026. URL https://arxiv. org/abs/2601.03017 .DeepSeek-AI. Deepseek-r1: Incentivizing reasoning capability in llms via reinforcement learning, 2025. URL https://arxiv.org/abs/2501.12948 .Zhihong Shao, Peiyi Wang, Qihao Zhu, Runxin Xu, Junxiao Song, Xiao Bi, Haowei Zhang, Mingchuan Zhang, Y. K. Li, Y. Wu, and Daya Guo. Deepseekmath: Pushing the limits of mathemat-ical reasoning in open language models, 2024. URL https://arxiv.org/abs/2402.03300 .Chujie Zheng, Shixuan Liu, Mingze Li, Xiong-Hui Chen, Bowen Yu, Chang Gao, Kai Dang, Yuqiong Liu, Rui Men, An Yang, Jingren Zhou, and Junyang Lin. Group sequence policy optimization, 2025. URL https://arxiv.org/abs/2507.18071 .Shuai Bai, Yuxuan Cai, Ruizhe Chen, Keqin Chen, Xionghui Chen, Zesen Cheng, Lianghao Deng, Wei Ding, Chang Gao, Chunjiang Ge, Wenbin Ge, Zhifang Guo, Qidong Huang, Jie Huang, Fei Huang, Binyuan Hui, Shutong Jiang, Zhaohai Li, Mingsheng Li, Mei Li, Kaixin Li, Zicheng Lin, Junyang Lin, Xuejing Liu, Jiawei Liu, Chenglong Liu, Yang Liu, Dayiheng Liu, Shixuan Liu, Dunjie Lu, Ruilin Luo, Chenxu Lv, Rui Men, Lingchen Meng, Xuancheng Ren, Xingzhang Ren, Sibo Song, Yuchong Sun, Jun Tang, Jianhong Tu, Jianqiang Wan, Peng Wang, Pengfei Wang, Qiuyue Wang, Yuxuan Wang, Tianbao Xie, Yiheng Xu, Haiyang Xu, Jin Xu, Zhibo Yang, Mingkun 11 Yang, Jianxin Yang, An Yang, Bowen Yu, Fei Zhang, Hang Zhang, Xi Zhang, Bo Zheng, Humen Zhong, Jingren Zhou, Fan Zhou, Jing Zhou, Yuanzhi Zhu, and Ke Zhu. Qwen3-vl technical report, 2025. URL https://arxiv.org/abs/2511.21631 .Jiahui Gao, Renjie Pi, Jipeng Zhang, Jiacheng Ye, Wanjun Zhong, Yufei Wang, Lanqing HONG, Jianhua Han, Hang Xu, Zhenguo Li, and Lingpeng Kong. G-LLaVA: Solving geometric problem with multi-modal large language model. In The Thirteenth International Conference on Learning Representations , 2025. URL https://openreview.net/forum?id=px1674Wp3C .Wenxuan Huang, Bohan Jia, Zijie Zhai, Shaosheng Cao, Zheyu Ye, Fei Zhao, Zhe Xu, Yao Hu, and Shaohui Lin. Vision-r1: Incentivizing reasoning capability in multimodal large language models, 2025. URL https://arxiv.org/abs/2503.06749 .Qwen, :, An Yang, Baosong Yang, Beichen Zhang, Binyuan Hui, Bo Zheng, Bowen Yu, Chengyuan Li, Dayiheng Liu, Fei Huang, Haoran Wei, Huan Lin, Jian Yang, Jianhong Tu, Jianwei Zhang, Jianxin Yang, Jiaxi Yang, Jingren Zhou, Junyang Lin, Kai Dang, Keming Lu, Keqin Bao, Kexin Yang, Le Yu, Mei Li, Mingfeng Xue, Pei Zhang, Qin Zhu, Rui Men, Runji Lin, Tianhao Li, Tianyi Tang, Tingyu Xia, Xingzhang Ren, Xuancheng Ren, Yang Fan, Yang Su, Yichang Zhang, Yu Wan, Yuqiong Liu, Zeyu Cui, Zhenru Zhang, and Zihan Qiu. Qwen2.5 technical report, 2025. URL 
+
+https://arxiv.org/abs/2412.15115 .Zhe Chen, Jiannan Wu, Wenhai Wang, Weijie Su, Guo Chen, Sen Xing, Muyan Zhong, Qinglong Zhang, Xizhou Zhu, Lewei Lu, et al. Internvl: Scaling up vision foundation models and aligning for generic visual-linguistic tasks. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 24185–24198, 2024. Jinguo Zhu, Weiyun Wang, Zhe Chen, Zhaoyang Liu, Shenglong Ye, Lixin Gu, Hao Tian, Yuchen Duan, Weijie Su, Jie Shao, Zhangwei Gao, Erfei Cui, Xuehui Wang, Yue Cao, Yangzhou Liu, Xingguang Wei, Hongjie Zhang, Haomin Wang, Weiye Xu, Hao Li, Jiahao Wang, Nianchen Deng, Songze Li, Yinan He, Tan Jiang, Jiapeng Luo, Yi Wang, Conghui He, Botian Shi, Xingcheng Zhang, Wenqi Shao, Junjun He, Yingtong Xiong, Wenwen Qu, Peng Sun, Penglong Jiao, Han Lv, Lijun Wu, Kaipeng Zhang, Huipeng Deng, Jiaye Ge, Kai Chen, Limin Wang, Min Dou, Lewei Lu, Xizhou Zhu, Tong Lu, Dahua Lin, Yu Qiao, Jifeng Dai, and Wenhai Wang. Internvl3: Exploring advanced training and test-time recipes for open-source multimodal models, 2025. URL 
+
+https://arxiv.org/abs/2504.10479 .OpenAI. Gpt-4o system card, 2024. URL https://arxiv.org/abs/2410.21276 .V Team, Wenyi Hong, Wenmeng Yu, Xiaotao Gu, Guo Wang, Guobing Gan, Haomiao Tang, Jiale Cheng, Ji Qi, Junhui Ji, Lihang Pan, Shuaiqi Duan, Weihan Wang, Yan Wang, Yean Cheng, Zehai He, Zhe Su, Zhen Yang, Ziyang Pan, Aohan Zeng, Baoxu Wang, Bin Chen, Boyan Shi, Changyu Pang, Chenhui Zhang, Da Yin, Fan Yang, Guoqing Chen, Haochen Li, Jiale Zhu, Jiali Chen, Jiaxing Xu, Jiazheng Xu, Jing Chen, Jinghao Lin, Jinhao Chen, Jinjiang Wang, Junjie Chen, Leqi Lei, Letian Gong, Leyi Pan, Mingdao Liu, Mingde Xu, Mingzhi Zhang, Qinkai Zheng, Ruiliang Lyu, Shangqin Tu, Sheng Yang, Shengbiao Meng, Shi Zhong, Shiyu Huang, Shuyuan Zhao, Siyan Xue, Tianshu Zhang, Tianwei Luo, Tianxiang Hao, Tianyu Tong, Wei Jia, Wenkai Li, Xiao Liu, Xiaohan Zhang, Xin Lyu, Xinyu Zhang, Xinyue Fan, Xuancheng Huang, Yadong Xue, Yanfeng Wang, Yanling Wang, Yanzi Wang, Yifan An, Yifan Du, Yiheng Huang, Yilin Niu, Yiming Shi, Yu Wang, Yuan Wang, Yuanchang Yue, Yuchen Li, Yusen Liu, Yutao Zhang, Yuting Wang, Yuxuan Zhang, Zhao Xue, Zhengxiao Du, Zhenyu Hou, Zihan Wang, Peng Zhang, Debing Liu, Bin Xu, Juanzi Li, Minlie Huang, Yuxiao Dong, and Jie Tang. Glm-4.5v and glm-4.1v-thinking: Towards versatile multimodal reasoning with scalable reinforcement learning, 2026a. URL https://arxiv.org/abs/2507.01006 .Kimi Team, Tongtong Bai, Yifan Bai, Yiping Bao, S. H. Cai, Yuan Cao, Y. Charles, H. S. Che, Cheng Chen, Guanduo Chen, Huarong Chen, Jia Chen, Jiahao Chen, Jianlong Chen, Jun Chen, Kefan Chen, Liang Chen, Ruijue Chen, Xinhao Chen, Yanru Chen, Yanxu Chen, Yicun Chen, Yimin Chen, Yingjiang Chen, Yuankun Chen, Yujie Chen, Yutian Chen, Zhirong Chen, Ziwei Chen, Dazhi Cheng, Minghan Chu, Jialei Cui, Jiaqi Deng, Muxi Diao, Hao Ding, Mengfan Dong, Mengnan Dong, Yuxin Dong, Yuhao Dong, Angang Du, Chenzhuang Du, Dikang Du, Lingxiao Du, Yulun Du, Yu Fan, Shengjun Fang, Qiulin Feng, Yichen Feng, Garimugai Fu, Kelin Fu, Hongcheng Gao, Tong Gao, Yuyao Ge, Shangyi Geng, Chengyang Gong, Xiaochen Gong, Zhuoma 12 Gongque, Qizheng Gu, Xinran Gu, Yicheng Gu, Longyu Guan, Yuanying Guo, Xiaoru Hao, Weiran He, Wenyang He, Yunjia He, Chao Hong, Hao Hu, Jiaxi Hu, Yangyang Hu, Zhenxing Hu, Ke Huang, Ruiyuan Huang, Weixiao Huang, Zhiqi Huang, Tao Jiang, Zhejun Jiang, Xinyi Jin, Yu Jing, Guokun Lai, Aidi Li, C. Li, Cheng Li, Fang Li, Guanghe Li, Guanyu Li, Haitao Li, Haoyang Li, Jia Li, Jingwei Li, Junxiong Li, Lincan Li, Mo Li, Weihong Li, Wentao Li, Xinhang Li, Xinhao Li, Yang Li, Yanhao Li, Yiwei Li, Yuxiao Li, Zhaowei Li, Zheming Li, Weilong Liao, Jiawei Lin, Xiaohan Lin, Zhishan Lin, Zichao Lin, Cheng Liu, Chenyu Liu, Hongzhang Liu, Liang Liu, Shaowei Liu, Shudong Liu, Shuran Liu, Tianwei Liu, Tianyu Liu, Weizhou Liu, Xiangyan Liu, Yangyang Liu, Yanming Liu, Yibo Liu, Yuanxin Liu, Yue Liu, Zhengying Liu, Zhongnuo Liu, Enzhe Lu, Haoyu Lu, Zhiyuan Lu, Junyu Luo, Tongxu Luo, Yashuo Luo, Long Ma, Yingwei Ma, Shaoguang Mao, Yuan Mei, Xin Men, Fanqing Meng, Zhiyong Meng, Yibo Miao, Minqing Ni, Kun Ouyang, Siyuan Pan, Bo Pang, Yuchao Qian, Ruoyu Qin, Zeyu Qin, Jiezhong Qiu, Bowen Qu, Zeyu Shang, Youbo Shao, Tianxiao Shen, Zhennan Shen, Juanfeng Shi, Lidong Shi, Shengyuan Shi, Feifan Song, Pengwei Song, Tianhui Song, Xiaoxi Song, Hongjin Su, Jianlin Su, Zhaochen Su, Lin Sui, Jinsong Sun, Junyao Sun, Tongyu Sun, Flood Sung, Yunpeng Tai, Chuning Tang, Heyi Tang, Xiaojuan Tang, Zhengyang Tang, Jiawen Tao, Shiyuan Teng, Chaoran Tian, Pengfei Tian, Ao Wang, Bowen Wang, Chensi Wang, Chuang Wang, Congcong Wang, Dingkun Wang, Dinglu Wang, Dongliang Wang, Feng Wang, Hailong Wang, Haiming Wang, Hengzhi Wang, Huaqing Wang, Hui Wang, Jiahao Wang, Jinhong Wang, Jiuzheng Wang, Kaixin Wang, Linian Wang, Qibin Wang, Shengjie Wang, Shuyi Wang, Si Wang, Wei Wang, Xiaochen Wang, Xinyuan Wang, Yao Wang, Yejie Wang, Yipu Wang, Yiqin Wang, Yucheng Wang, Yuzhi Wang, Zhaoji Wang, Zhaowei Wang, Zhengtao Wang, Zhexu Wang, Zihan Wang, Zizhe Wang, Chu Wei, Ming Wei, Chuan Wen, Zichen Wen, Chengjie Wu, Haoning Wu, Junyan Wu, Rucong Wu, Wenhao Wu, Yuefeng Wu, Yuhao Wu, Yuxin Wu, Zijian Wu, Chenjun Xiao, Jin Xie, Xiaotong Xie, Yuchong Xie, Yifei Xin, Bowei Xing, Boyu Xu, Jianfan Xu, Jing Xu, Jinjing Xu, L. H. Xu, Lin Xu, Suting Xu, Weixin Xu, Xinbo Xu, Xinran Xu, Yangchuan Xu, Yichang Xu, Yuemeng Xu, Zelai Xu, Ziyao Xu, Junjie Yan, Yuzi Yan, Guangyao Yang, Hao Yang, Junwei Yang, Kai Yang, Ningyuan Yang, Ruihan Yang, Xiaofei Yang, Xinlong Yang, Ying Yang, Yi Yang, Yi Yang, Zhen Yang, Zhilin Yang, Zonghan Yang, Haotian Yao, Dan Ye, Wenjie Ye, Zhuorui Ye, Bohong Yin, Chengzhen Yu, Longhui Yu, Tao Yu, Tianxiang Yu, Enming Yuan, Mengjie Yuan, Xiaokun Yuan, Yang Yue, Weihao Zeng, Dunyuan Zha, Haobing Zhan, Dehao Zhang, Hao Zhang, Jin Zhang, Puqi Zhang, Qiao Zhang, Rui Zhang, Xiaobin Zhang, Y. Zhang, Yadong Zhang, Yangkun Zhang, Yichi Zhang, Yizhi Zhang, Yongting Zhang, Yu Zhang, Yushun Zhang, Yutao Zhang, Yutong Zhang, Zheng Zhang, Chenguang Zhao, Feifan Zhao, Jinxiang Zhao, Shuai Zhao, Xiangyu Zhao, Yikai Zhao, Zijia Zhao, Huabin Zheng, Ruihan Zheng, Shaojie Zheng, Tengyang Zheng, Junfeng Zhong, Longguang Zhong, Weiming Zhong, M. Zhou, Runjie Zhou, Xinyu Zhou, Zaida Zhou, Jinguo Zhu, Liya Zhu, Xinhao Zhu, Yuxuan Zhu, Zhen Zhu, Jingze Zhuang, Weiyu Zhuang, Ying Zou, and Xinxing Zu. Kimi k2.5: Visual agentic intelligence, 2026b. URL https://arxiv.org/abs/2602.02276 .Maxim Khomiakov, Michael Riis Andersen, and Jes Frellsen. Geoformer: A multi-polygon segmen-tation transformer, 2024. URL https://arxiv.org/abs/2411.16616 .Maizhen Ning, Qiu-Feng Wang, Kaizhu Huang, and Xiaowei Huang. A symbolic character-aware model for solving geometry problems, 2023. URL https://arxiv.org/abs/2308.02823 .Jiaxin Zhang and Yashar Moshfeghi. Gold: Geometry problem solver with natural language descrip-tion, 2024. URL https://arxiv.org/abs/2405.00494 .Ming-Liang Zhang, Zhong-Zhi Li, Fei Yin, Liang Lin, and Cheng-Lin Liu. Fuse, reason and verify: Geometry problem solving with parsed clauses from diagram, 2024c. URL https: //arxiv.org/abs/2407.07327 .Zhong-Zhi Li, Ming-Liang Zhang, Fei Yin, and Cheng-Lin Liu. LANS: A layout-aware neural solver for plane geometry problem. In Lun-Wei Ku, Andre Martins, and Vivek Srikumar, editors, Findings of the Association for Computational Linguistics: ACL 2024 , pages 2596–2608, Bangkok, Thailand, August 2024. Association for Computational Linguistics. doi: 10.18653/v1/2024.findings-acl.153. URL https://aclanthology.org/2024.findings-acl.153/ .13 A Technical appendices and supplementary material 
+
+A.1 Experimental and implementation details 
+
+The symbolic method Inter-GPS [Lu et al., 2021] and Auto-GPS [Ping et al., 2026] were repro-duced using the authors’ open-source code, while results for GeoDRL [Peng et al., 2023] and E-GPS [Wu et al., 2024] were extracted from original publications due to code unavailability. All experiments were executed on an Intel Xeon Gold 6530 CPU platform in conjunction with two NVIDIA L40S GPUs. The trainable multimodal formalizer is initialized from QwenVL3-2B; the prompted QwenVL3-2B rows use the same base model without task-specific adaptation. A strict timeout threshold of 600 seconds was imposed on symbolic solvers, where any computation exceed-ing this duration was systematically categorized as resolution failure. For MLLM hyperparameters, we set max_tokens =4096, temperature =0.1, and top-p =1.0. 
+
+Backbone. The SD-GPS formalizer is initialized from QwenVL3-2B, and all reported SD-GPS variants use this 2B multimodal backbone unless otherwise specified. The theorem-proposing agent uses Qwen3.6-Plus. The QwenVL3-2B entries in the baseline tables denote the prompted base model without solver-driven adaptation. 
+
+Input normalization. For each example, the diagram is resized while preserving aspect ratio and is paired with the raw problem statement. We do not expose OCR tokens, detected bounding boxes, or manually curated point sets to SD-GPS during inference. Text is normalized only for Unicode variants of mathematical symbols and whitespace; numerical values, point labels, and algebraic expressions are otherwise kept unchanged to avoid leaking solver-side corrections into the formalizer. 
+
+Formal representation. We adopt an InterGPS-style typed formal language to represent geometric problems in a solver-executable form. The formalizer emits a structured sequence of typed predicates, explicitly separating entity declarations, relational constraints, and query targets. Each problem instance is represented as a directed set of well-typed logical atoms over geometric primitives. This InterGPS-style representation enforces strict type consistency between geometric objects and operators, preventing invalid compositions such as applying length functions to angles or mixing segment-level and point-level relations. Before being passed to the solver, a lightweight structural parser performs validation of: arity constraints, type compatibility, duplicate entity declarations, illegal symbol usage, and unresolved references. 
+
+A.2 Inference-time verification and repair 
+
+At inference time, SD-GPS uses a bounded verify-repair loop. The first pass generates a candidate formalization. The parser and solver then return structured diagnostics, including missing entity references, ill-typed predicates, contradictory constraints, unsolved targets, and timeout states. If the candidate fails before a valid proof state is constructed, the model is prompted to repair only the formal predicates while preserving the original problem image and text. We allow at most two repair attempts per example. The final answer is accepted only when it is produced from a solver-executable formalization; otherwise the example is marked unresolved. This policy keeps the reported accuracy tied to verifiable execution rather than unconstrained natural-language rationales. 
+
+A.3 Three-way split of point-reference ambiguity 
+
+To analyze how much information is explicitly available from the problem text, we divide examples according to the relation between text-mentioned point names and diagram point instances. We first extract the point set Ptext that is explicitly mentioned in the problem statement. The extractor is constrained by the diagram point vocabulary Pdiag , so it can only return valid diagram point names and cannot infer unmentioned points from geometry or common sense. The split is then defined as follows: • Text-complete: Ptext = Pdiag . The text explicitly names all diagram points needed by the visual instance. • Diagram-augmented: Ptext ⊂ Pdiag . The text names only a strict subset of diagram points, so the diagram supplies additional entities required for formalization. 14 Figure 3: Representative examples for the three-way split of point-reference ambiguity. The clas-sification compares point names explicitly recoverable from the problem text with point instances present in the diagram, then evaluates whether the resulting formal language can resolve the target query. • Cross-modal mismatch: all remaining cases, including examples where the text refers to an underspecified figure, region, or target whose executable meaning must be resolved from the diagram and the formal constraints together. Figure 3 shows one representative example from each split. These examples are used only for qualitative illustration; the quantitative ablation in Table 2 is computed over the full test split. 
+
+A.4 Additional theorem-proposing agent details 
+
+The theorem-proposing agent is invoked only after the formalization is executable but the solver cannot close the proof within the timeout or theorem-search budget. The agent observes four signals: the normalized predicate set, the current solver agenda, the unresolved target, and the latest failure diagnostic. We serialize this information as a compact proof-state summary rather than a full search tree, which keeps the prompt short and prevents the model from relying on irrelevant derivations. Each proposal follows a restricted schema: 
+
+τ = (type , premises , conclusion , entities , rationale) . (10) The type field specifies whether the proposal is, for example, a similarity relation, cyclicity relation, equal-angle relation, proportionality relation, or auxiliary construction. The entity field must use only point, line, circle, or expression identifiers already declared in ˆΛ, unless the proposal type explicitly permits a bounded auxiliary construction. This schema makes the proposal easy to parse and prevents free-form natural-language suggestions from entering the solver. A proposal is accepted only if it passes four checks: well-typedness under the formal language, applicability to the current proof state, symbolic verification of the proposed conclusion from 15 admissible premises, and goal reduction under the solver’s search procedure. Unverified proposals are discarded and do not affect the final answer. Verified proposals are treated as temporary lemmas scoped to the current problem instance rather than permanent additions to the global theorem library, and the verifier stores the corresponding local certificate or construction trace. This design allows the system to bridge instance-specific deductive gaps while preserving the solver’s role as the authority for correctness. 
+
+A.5 OCR failure modes in cascaded pipelines 
+
+The gap between fully automatic OCR-based pipelines and their non-OCR counterparts is not only a matter of small transcription noise. In geometry diagrams, labels are often tiny, slanted, partially occluded by arrows or tick marks, and visually entangled with nearby symbolic marks. Under these conditions, OCR errors frequently alter the symbolic identity of an entity or the algebraic form of a constraint, which then propagates directly into the formal language used by the downstream solver. Figure 4 shows representative OCR failures on geometry diagram crops. The first two cases illustrate expression-level corruption: in panel (a), the length expression x + 1 is read as x1 , effectively deleting the operator; in panel (b), 3x - 4 is misread as 3x’ - 4 , injecting an extra stroke into the symbolic item. The remaining four cases illustrate label-level confusion. Lowercase letters can be mapped to digits or visually similar glyphs, e.g., b → 6 in panel (c), q → 9 in panel (d), the point label I → / in panel (e), and the line label l → e in panel (f). These failures are especially damaging in cascaded geometry systems because OCR output is typically treated as an authoritative symbol table for subsequent parsing and reasoning. Once a segment length is written as x1 instead of x + 1 , or a line label is changed from l to e, downstream modules no longer operate on a slightly noisy observation; they operate on a different formal problem. The symbolic solver can verify consistency only with respect to the corrupted predicates it receives, so it has very limited ability to recover from these front-end mistakes. This explains why OCR-based variants in the main results degrade much more sharply than end-to-end approaches that avoid explicit OCR as an intermediate bottleneck. 16 Figure 4: Representative OCR failures and their propagated symbolic consequences in cascaded geometry pipelines. Panels (a)–(b) show expression-level corruption, including operator deletion and spurious stroke insertion. Panels (c)–(f) show label-level confusion, where small line or point labels are misread as digits or visually similar glyphs. In each case, the OCR output is not merely cosmetically wrong; it induces an incorrect symbolic item that changes the formal problem passed to the downstream solver. 17

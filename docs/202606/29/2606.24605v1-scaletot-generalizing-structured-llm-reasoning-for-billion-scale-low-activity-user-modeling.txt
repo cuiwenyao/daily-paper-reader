@@ -1,0 +1,926 @@
+Title: ScaleToT: Generalizing Structured LLM Reasoning for Billion-Scale Low-Activity User Modeling
+
+URL Source: https://arxiv.org/pdf/2606.24605v1
+
+Published Time: Wed, 24 Jun 2026 01:05:38 GMT
+
+Number of Pages: 14
+
+Markdown Content:
+# ScaleToT: Generalizing Structured LLM Reasoning for Billion-Scale Low-Activity User Modeling 
+
+Tianbao Ma * 1 Chang Xi * 1 Yichuan Zou 1 Chengen Li 1 Linxun Chen 1 Zilong Lu 1 Yanan Niu 1
+
+Zhaojie Liu 1 Han Li 1 Kun Gai 1
+
+Abstract 
+
+Accurate user modeling often depends on rich interaction histories, which are unavailable for billions of low-activity users. Large Language Models (LLMs) can infer latent user states from static profiles, but this reasoning becomes unre-liable when profiles are sparse, and applying an LLM to billions of users is prohibitively expen-sive. We present ScaleToT, which learns struc-tured reasoning from a small LLM-processed subset and extends it to the broader low-activity user population. To improve reasoning reliabil-ity, ScaleToT constructs typed user-state chains with a bounded entropy-guided Tree-of-Thought (ToT) refinement procedure. To make this struc-tured reasoning usable from sparse profiles, the teacher-curated chains are used to train a stu-dent model on static profiles through supervised fine-tuning (SFT) and Outcome-Driven Segment-Aware Implicit Reward Policy Optimization (OS-IPO). ScaleToT then transfers the student’s rea-soning representations to a lightweight profile encoder, providing shared reasoning signals for the remaining users without LLM inference. We evaluate ScaleToT on lifetime value (LTV) pre-diction in a billion-scale advertising deployment. A randomized online A/B test increased LT30 by 6.738%, while offline reasoning covered only 7.32% of the potential population, greatly reduc-ing compute cost compared with full-population reasoning. 
+
+1. Introduction 
+
+User understanding is a shared foundation for recommenda-tion, personalization, and user-growth platforms at billion scale (He et al., 2023), aiming to infer the latent states and 
+
+> *
+
+Equal contribution 1Kuaishou Technology, Beijing, China. Correspondence to: Linxun Chen <chenxi36@kuaishou.com >.
+
+Preprint. June 24, 2026. 
+
+intentions that drive behavior rather than merely fitting sur-face interaction patterns (Chang et al., 2023). The dominant paradigm casts this as behavior-sequence modeling over interaction streams such as clicks, purchases, and browsing events (Zhang et al., 2025; Xia et al., 2022), and excels precisely when each user supplies a sufficient, recent, and information-rich history (Zhai et al., 2024). A large and commercially critical population violates this assumption at its core: low-activity users, and in particular dormant users targeted by advertising customer acquisition campaigns, leave histories too sparse or too stale to serve as reliable behavioral evidence (Monteil et al., 2024; Li et al., 2022b; Zhang et al., 2022; Li et al., 2022a). For these users the industrial objective also shifts, from predicting the next item to estimating lifetime value (LTV), retention potential, and advertising yield upon re-engagement (Su et al., 2023; Wang et al., 2024b), conditioned almost entirely on a sparse static profile (Yang et al., 2023). Existing remedies for sparsity, including auxiliary-information fusion and cross-domain transfer, still consume structured behavioral signals as their primary input (Li et al., 2022b; Xiao et al., 2025), which is exactly what these users do not provide. Our starting point is a reframing of what this regime actually demands. Behavioral sparsity does not imply that a user cannot be understood (Li et al., 2023); even a dormant user carries latent preferences and re-engagement potential weakly reflected in static profile cues (Liu et al., 2024). The difficulty is that these states must be inferred from sparse evidence rather than observed behavior. The task therefore shifts from extrapolating the next interaction to constructing a reliable user representation from static profiles. This is where Large Language Models (LLMs) are useful: not as larger sequence encoders, but as reasoners that apply world knowledge about user motivations and behavioral drivers when behavioral traces are absent (Xi et al., 2024; Wang et al., 2024c; 2025; Zhai et al., 2025). Direct LLM reasoning in this setting faces two challenges. First, a single prediction from a sparse profile collapses several latent dimensions into an opaque judgment, leaving no intermediate state to inspect, constrain, or refine. Second, per-user reasoning makes production cost grow linearly with 1
+
+> arXiv:2606.24605v1 [cs.AI] 23 Jun 2026
+
+ScaleToT: Generalizing Structured LLM Reasoning for Billion-Scale Low-Activity User Modeling Sparse    
+
+> Profile
+> LLM
+> Direct Infer
+> Prediction Results
+> •Noisy
+> •Opaque
+
+(a) Expensive   
+
+> LLM inference
+> for a single user Per -user LLM inference
+
+(b) Figure 1. Two obstacles to applying LLM reasoning to low-activity users. (a) On a sparse profile, a direct LLM query gives a noisy and opaque prediction with no inspectable intermediate state. (b) Running one LLM inference per user makes cost grow with the user base. Together they make LLM reasoning over a billion-scale population both unreliable and unaffordable. 
+
+the target population. Thus, useful LLM reasoning must be made both reliable under sparse evidence and reusable beyond the users on which it is generated. ScaleToT learns structured reasoning from a small offline subset and applies it to population-scale prediction from sparse profiles. Training examples may include privileged information that is unavailable at inference time. Because sparse profiles do not directly reveal task-relevant latent states, a teacher uses this information within a bounded Tree-of-Thought (ToT) procedure to construct outcome-consistent reasoning chains. The procedure maintains par-allel interpretations of typed user states, evaluates their un-certainty, and selectively revises uncertain fields rather than regenerating an entire chain. The resulting chains serve as training data for a student model that reasons from static pro-files through supervised fine-tuning (SFT) and our Outcome-Driven Segment-Aware Implicit Reward Policy Optimiza-tion (OSIPO). ScaleToT then aligns a lightweight profile encoder with student reasoning and uses vector-quantized (VQ) codebooks to retrieve shared reasoning patterns, en-abling population-scale prediction without LLM inference. We formulate ScaleToT generally but evaluate it only on low-activity user LTV prediction, where five typed fields capture lifecycle dimensions. The main contributions of this work are summarized as follows: • We make LLM-based user-state reasoning reliable un-der sparse profiles by representing latent user states as typed chains and refining them with a bounded entropy-guided ToT refinement procedure. The procedure pre-serves plausible alternatives and locally revises un-certain states, while OSIPO provides segment-aware, outcome-driven supervision without requiring state-level annotations. • We make structured reasoning reusable at population scale by aligning a lightweight profile encoder with student-generated chains and quantizing recurring rea-soning patterns into VQ codebooks. At inference time, users retrieve profile-conditioned reasoning prototypes without LLM generation or chain embedding. • We validate ScaleToT in a billion-scale advertising deployment for LTV prediction. Structured reasoning is generated for only 7.32% of the potential population, while a randomized online A/B test improves LT30 by 6.738%. 
+
+2. Related Work 
+
+Low-Activity User Modeling. Existing methods compen-sate for sparse interactions with metadata (Gantner et al., 2010; Monteil et al., 2024), meta-learning (Vartak et al., 2017; Moghaddam et al., 2026), bandit exploration (Nguyen et al., 2014), or multimodal evidence (Pan et al., 2022). Oth-ers transfer information across users, activity regimes, or do-mains (Zhu et al., 2021): Cold-Transformer (Li et al., 2022b) adapts representations across activity levels, MARS (Xiao et al., 2025) retrieves high-activity users to enrich sparse histories, and cross-domain LTV methods learn invariant representations (Su et al., 2023) or augment samples with external data (Wang et al., 2024b). These methods remain anchored in observed behaviors or behavior-linked signals, making them less effective when histories are nearly absent or stale. 
+
+LLMs for User Modeling and Recommendation. LLMs can provide external knowledge or explicit reasoning for rec-ommendation. KAR (Xi et al., 2024) elicits preference and factual knowledge to enrich conventional representations, while LLMRG (Wang et al., 2024c) constructs and verifies personalized reasoning graphs from profiles and behavioral sequences. More generally, chain-of-thought (CoT) prompt-ing (Wei et al., 2022), Tree-of-Thought (ToT) search (Yao et al., 2023), process reward models (PRMs) (Lightman et al., 2024), and reinforcement learning (RL) with verifi-able rewards (Guo et al., 2025) expose or supervise interme-diate reasoning. Recent methods such as LettinGo (Wang et al., 2025), EXP3RT (Kim et al., 2025), ELEC (Dong et al., 2025), and ChoirRec (Zhai et al., 2025) apply these capabilities to user representation, but do not jointly ad-dress unreliable reasoning from near-empty profiles and population-scale inference cost. Efficiency-oriented systems pre-compute interest-cluster transitions (Wang et al., 2024a) or separate LLM processing from inference (Xi et al., 2025), yet still derive reusable structures primarily from behavioral histories. ScaleToT instead instantiates ToT as bounded typed search over a finite set of task-defined state fields rather than open-ended tree expansion, learns from training-only privileged super-vision, transfers reasoning at the population level through shared VQ prototypes rather than per-user distillation, and performs inference from profiles alone. Entropy ranks re-finement priority rather than estimating calibrated error, and 2ScaleToT: Generalizing Structured LLM Reasoning for Billion-Scale Low-Activity User Modeling 
+
+the evaluated sampling ratio is specific to our deployment setting. 
+
+3. Problem Formulation 
+
+3.1. General Sparse-Input Structured Reasoning Transfer 
+
+We consider sparse-input prediction with training-only priv-ileged context. Let U be the full population and Usp ⊂ U 
+
+the subset whose inference-time inputs are too sparse for sequential modeling. Each instance u ∈ U sp has a sparse input xu ∈ Rd available by the prediction cutoff, a target 
+
+yu ∈ Y , and optional privileged context pu available only for historical supervision. We represent the latent state underlying yu by K task-defined typed fields: 
+
+cu = ( c1
+
+> u
+
+, . . . , c Ku ),cku ∈ T k = {tk,m }|T k |
+
+> m=1
+
+, k = 1 , . . . , K, (1) where cku is the value of field k, Tk its finite candidate set, and tk,m its m-th candidate. Fields are generated indepen-dently and serialized in a fixed order; this order implies neither temporal nor causal dependence, and |T k| may vary across fields. ScaleToT applies under the following conditions. 
+
+Assumption 1. (i) latent task-relevant states can be repre-sented by a finite set of typed fields; (ii) training instances admit optional privileged supervision; and (iii) per-instance LLM inference is infeasible or undesirable in the prediction path. 
+
+3.2. Prediction-Time Information Boundary 
+
+For each instance, t0 is the prediction cutoff. The input xu
+
+contains only information available by t0; privileged context 
+
+pu may annotate training examples but is excluded from the student, input encoder, codebook query, validation/test data, and inference request. 
+
+3.3. ScaleToT Objective 
+
+Because per-instance LLM reasoning is infeasible at scale, it is restricted to a historical subset ULLM ⊂ U sp with ratio 
+
+ρ = |U LLM |/|U sp |. Let ˜cu be the sparse-input student chain, 
+
+fllm a fixed function that produces its reasoning embedding, 
+
+fuser the input encoder, fθ the predictor, and Ψθ the VQ retrieval and fusion function. We optimize: 
+
+min   
+
+> fθ, f user ,Ψθ
+
+X
+
+> u∈U sp
+
+Lcal 
+
+ fθ (xu, eagg  
+
+> u
+
+), y u
+
+ (2a) 
+
+s.t. C1 : cku ∈ T k, u ∈ U LLM , k = 1 , . . . , K, 
+
+(2b) 
+
+C2 : zu =
+
+(
+
+fllm (˜ cu), u ∈ U LLM ,fuser (xu), u / ∈ U LLM , (2c) 
+
+C3 : eagg  
+
+> u
+
+= Ψ θ (xu), u ∈ U sp . (2d) Here Lcal is cross-entropy loss. C1 constrains every field, C2 aligns student-reasoning and sparse-input representa-tions, and C3 makes the deployed representation a function of xu alone. Thus, privileged evidence shapes offline su-pervision on ULLM but is unavailable when the model is applied to Usp .
+
+3.4. Advertising LTV Instantiation 
+
+For advertising delivery scenario, xu contains demograph-ics, device attributes, tenure, registration metadata, and pre-cutoff statistics; yu is a High/Medium/Low LTV activity-intensity label. The K = 5 fields are user group, churn reason, return motivation, interest preference, and behav-ior pattern, while pu contains conversion context and post-return feedback and statistics. Users inactive for at least 30 consecutive days are treated as low-activity users, and their activity during the seven days after return is used to construct the LTV label. 
+
+4. Methods 
+
+ScaleToT addresses unreliable reasoning from sparse pro-files and the cost of scaling LLM inference to billions of users. For reliability, a teacher uses optional training-only privileged context and bounded ToT to construct typed user-state chains, preserving alternatives and locally revising uncertain fields; a sparse-input student learns these chains with segment-aware feedback. For scalability, the student’s reasoning representations are quantized into shared VQ pro-totypes retrievable from user-specific profile representations. This allows the broader population to fuse profile and re-trieved reasoning representations without chain generation or LLM inference. 
+
+4.1. Structured Reasoning Construction 
+
+4.1.1. B OUNDED TYPED TOT C ONSTRUCTION 
+
+ScaleToT represents prediction as inference over K typed fields. Bounded search within {T k}Kk=1 replaces one opaque LLM judgment with candidate states that can be compared, revised, and supervised. In the LTV instantiation, the five fields describe user group, churn reason, return motivation, interest preference, and behavior pattern. 3ScaleToT: Generalizing Structured LLM Reasoning for Billion-Scale Low-Activity User Modeling Structured Reasoning Construction 
+
+Bounded Typed ToT Construction        
+
+> Posterior
+> label
+> Input
+> User
+> Profile
+> 𝒙 𝒖 …
+> Teacher LLM
+> Judge LLM
+> c"
+> #c"
+> $c"
+> %…c"
+> &
+> 𝑃 !,#𝑃 !,$𝑃 !,%…
+
+…     
+
+> Candidate
+> pools 𝓡 𝓾
+> 𝓴
+> Initial CoT
+> $c'
+> (=arg max
+> )𝑝 *,)
+
+Entropy -Guided ToT Refinement      
+
+> Predict $y'$y'=𝑦 "?
+> Yes
+> No
+> SFT Corpus 𝒟 ,-.
+> Model capability
+> Limitation
+> Chain Quality
+> Defect
+> Information
+> Insufficency
+> Discard
+
+Sparse -Input Student with OSIPO            
+
+> Replace #c$
+> %⋆
+> with
+> Next -best Tag
+> 𝐻 *=−2
+> )
+> 𝑝 *,)log 𝑝 *,)
+> Low Entropy High Entropy
+> 𝐻 &𝐻 &𝐻 &𝐻 &𝐻 &
+> $c'
+> *⋆
+> New CoT
+> RL
+> Training
+> Process Reward Model
+> A three -class classifier
+> Format
+> Reward
+> Outcome
+> Reward
+> Process
+> Reward
+
+Reasoning Transfer for 
+
+Population -Scale Inference 
+
+Contrastive Reasoning Transfer       
+
+> Qwen3 -embedding 𝒇 𝒍𝒍𝒎 User Encoder 𝒇 𝒖𝒔𝒆𝒓
+> InfoNCE
+> Alignment
+> Gate Network
+> e'
+> 455
+> Prediction
+> Backbone Model
+> Student LLM
+> 𝑃 ),#𝑃 ),$𝑃 ),%…
+
+…  
+
+> 𝑃 %,#𝑃 %,$𝑃 %,%…
+
+…  
+
+> 𝑃 $,#𝑃 $,$𝑃 $,%…
+
+…   
+
+> SFT
+> Training
+> StreamVQ StreamVQ
+> Select
+> User Profile 𝒙 𝒖
+
+StreamVQ Retrieval and Fusion   
+
+> z'
+> 667 z'
+> '89:
+> 8z'
+> 667 $z'
+> 59;
+
+Online Inference 
+
+…
+
+Figure 2. Overview of ScaleToT. The framework has two stages. (1) Structured Reasoning Construction : a teacher constructs typed user-state chains with bounded ToT, and a student learns to generate these chains from sparse profiles through SFT and OSIPO. (2) 
+
+Reasoning Transfer for Population-Scale Inference : a lightweight profile encoder maps each sparse profile to a user-specific representation and uses it to retrieve shared reasoning representations from VQ codebooks; a profile-conditioned gate network then combines the user-specific and retrieved representations for prediction. In the advertising LTV instantiation, each chain contains K=5 lifecycle fields. 
+
+Sequential CoT lets early errors distort later fields. Because each field has a finite taxonomy, we instead evaluate all admissible tags independently and retain alternatives for local revision. For field k:
+
+Cku = (tk,m , p u,k,m ) |T k |
+
+m=1 , tk,m ∈ T k , (3) where pu,k,m is the constrained-decoding probability of tag 
+
+tk,m and sums to one over Tk. The highest-probability index mk⋆ u = arg max m pu,k,m gives the initial value 
+
+ˆcku = tk,m k⋆ u ; Rku stores the other tags in decreasing proba-bility order. After independent selection prevents cross-field propagation, the teacher serializes the fields into a fixed-order reasoning chain for student supervision. Sparse inputs may not determine every field. The teacher may therefore use privileged context pu to construct outcome-consistent supervision for training instances. This context never enters the student, input encoder, codebook query, held-out data, or inference request; all transferred representations derive from student outputs. In advertising, 
+
+pu contains conversion context and post-return feedback and statistics. 4.1.2. E NTROPY -G UIDED TOT R EFINEMENT 
+
+Parallel generation prevents cross-field propagation but does not ensure that the assembled chain supports the outcome. A frozen judge LLM first tests each chain, and a teacher diagnoses rejected cases. We refine only chain-quality fail-ures; cases attributed to insufficient information or judge limitations are discarded rather than forced into an explana-tion. When a chain is rejected, we must decide which field to revise, but no field-level label identifies the error. We there-fore measure the teacher’s uncertainty from the candidate probabilities: similar probabilities across multiple tags in-dicate low confidence in the selected tag. Because fields may contain different numbers of tags, we use normalized entropy to compare their uncertainty: 
+
+¯Hku = − 1log |T k|
+
+X
+
+t∈T k
+
+pu,k (t) log pu,k (t),k⋆ = arg max 
+
+k∈{ 1,...,K }
+
+¯Hku .
+
+(4) Here ¯Hku ∈ [0 , 1] is the normalized entropy, pu,k (t) the prob-ability of tag t, and k⋆ the highest-entropy field. Entropy 4ScaleToT: Generalizing Structured LLM Reasoning for Billion-Scale Low-Activity User Modeling 
+
+ranks revision priority rather than estimating calibrated error. We replace ˆck⋆
+
+u with the next candidate in Rk⋆
+
+u , reconstruct the chain, and repeat until judge acceptance or pool ex-haustion. One-field-at-a-time revision preserves the other states, and a chain is accepted when it supports the observed outcome. 4.1.3. S PARSE -I NPUT STUDENT WITH OSIPO OSIPO Reinforcement Learning Loop                                          
+
+> SFT -Initialized Model Policy Model
+> Policy Update
+> Update policy parameters via GRPO
+> Dataset
+> Environment: LTV Prediction Task
+> Reward Composition
+> Outcome Reward
+> Based on the ground -
+> truth outcome
+> Format Reward
+> Reward outputs matching
+> the required format
+> 𝑅 OSIPO 𝒄 =𝛼 𝑅 out 𝒄 +𝛽 𝑅 fmt 𝒄 +𝛾 𝑅 seg 𝒄
+> initial policy reasoning
+> compute 𝑅 out 𝒄 ,𝑅 fmt 𝒄
+> update policy
+> data
+> Repeat iterations until convergence
+> SFT -Initialized Model
+> πSFT
+> Policy Model πθ
+> (updated during RL)
+> Ground -Truth
+> Outcome yu
+> Segment -Aware Implicit Reward
+> Based on the segment -conditioned
+> outcome probability
+> feedback
+> Process Reward Model
+> Segment -Level Probability of the
+> Ground -Truth Outcome
+> input
+> driven
+> User Profile
+> 𝒙 𝒖
+> input
+> c"
+> #:……
+> c"
+> $:……
+> c"
+> %:……
+> c"
+> &:……
+> c"
+> ':……
+> 𝑦 ̂":……
+> compute 𝑅 seg 𝒄
+> compute
+
+Figure 3. OSIPO reinforcement learning process. An SFT-initialized policy generates structured reasoning chains from sparse user profiles. A process reward model scores how strongly each typed segment supports the ground-truth outcome, and the result-ing segment-level reward is combined with outcome and format rewards. GRPO then computes group-relative advantages from the combined reward and updates the policy. 
+
+The next stage transfers embeddings of student-generated chains to the full population. Consequently, the student must preserve meaningful intermediate fields rather than merely predict the correct final label. An outcome reward cannot enforce this requirement: multiple chains can lead to the same prediction, while a single scalar reward neither identifies an inconsistent field nor indicates which part of an incorrect chain should be revised. Format checking only guarantees the presence of the required fields. We therefore introduce OSIPO. In this name, outcome-driven indicates that supervision ultimately comes from yu, segment-aware indicates that credit is conditioned on each typed chain field and its position, and implicit reward indicates that this credit is inferred from outcome compatibility rather than observed segment labels. The process reward is obtained by training a lightweight PRM on SFT chains to score each generated field’s compat-ibility with the observed outcome, then averaging the field scores: 
+
+Rseg (c) = 1
+
+K
+
+KX
+
+k=1 
+
+Pr 
+
+PRM 
+
+ yu | xu, c ku, k  , (5) where Pr PRM (yu | xu, c ku, k ) scores the observed target for segment k. Averaging yields a chain-level reward while preserving segment-aware credit; the score measures target compatibility rather than segment-level correctness. We combine the implicit segment reward with chain-level objectives: 
+
+ROSIPO (c) = α R out (c) + β R fmt (c) + γ R seg (c) ,
+
+(6) Here Rout measures target agreement, Rfmt structural compliance, and α, β, γ weight the three signals. SFT teaches field structure and tag semantics; OSIPO then uses GRPO (Shao et al., 2024) to optimize ROSIPO . Thus, OS-IPO changes the credit signal for structured chains rather than the underlying group-relative optimizer. The trained student generates ˜cu = πθ (xu) from sparse input alone. 
+
+4.2. Reasoning Transfer for Population-Scale Inference 
+
+Although the student can reproduce teacher reasoning from sparse profiles, running it for billions of users remains too costly. We therefore ask whether its reasoning can be reused without generating a chain for every user. To answer this question, we generate chains only for a sampled subset and use them to learn how reasoning representations can be recovered directly from sparse profiles. On this sub-set, contrastive alignment trains a lightweight encoder to map each profile toward its student-chain representation. Because this mapping is noisy under sparse inputs, VQ codebooks organize recurring reasoning patterns into sta-ble, shared prototypes that can be retrieved from a profile alone. Because a shared prototype may not fit every user, a profile-conditioned gate combines the retrieved reasoning representation with the user’s own profile representation. The remaining users thus require neither chain generation nor chain encoding. 4.2.1. C ONTRASTIVE REASONING TRANSFER 
+
+To retrieve reasoning without generating a chain, a user’s profile representation must identify the reasoning pattern associated with that user. However, profile and chain rep-resentations come from different inputs and are not di-rectly comparable. For each sampled user u ∈ U LLM ,the input encoder produces zuser 
+
+u = fuser (xu), while the fixed embedding function produces the chain representation 
+
+zllm 
+
+u = fllm (˜ cu). We use the information noise-contrastive estimation (InfoNCE) loss to bring representations of the same user closer and separate those of different users: 
+
+Lalign = − 1
+
+B
+
+BX
+
+u=1 
+
+log exp  sim( zuser 
+
+u , zllm 
+
+u )/τ PBv=1 exp  sim( zuser 
+
+u , zllm 
+
+v )/τ  ,
+
+(7) where sim is cosine similarity, τ the temperature, and B the batch size. For profile u, its own chain is the positive and the other B − 1 chains are negatives. After training, fuser 
+
+maps a sparse profile into the aligned space, allowing it to query reasoning prototypes without first generating a chain. 5ScaleToT: Generalizing Structured LLM Reasoning for Billion-Scale Low-Activity User Modeling 
+
+4.2.2. S TREAM VQ R ETRIEVAL AND FUSION 
+
+Contrastive alignment places profile and chain representa-tions in the same space, but a representation derived from a sparse profile may still be noisy. VQ (Van Den Oord et al., 2017) improves retrieval stability by mapping simi-lar representations to a finite set of shared prototypes. We maintain two codebooks for the two sources: Bgen contains prototypes learned from profile representations, while Bllm 
+
+contains prototypes learned from student-chain representa-tions. During training, input and chain embeddings update Bgen 
+
+and Bllm , respectively; StreamVQ (Bin et al., 2025) main-tains both through soft assignment and exponential moving averages. The contrastive loss Lalign and prediction loss 
+
+Lcal jointly train fuser . The prediction loss also trains VQ embedding enhancement (VEE), the gate, and fθ , while 
+
+fllm remains fixed. At inference, zuser  
+
+> u
+
+= fuser (xu) is quantized by Bgen into the denoised query ˆzgen  
+
+> u
+
+. This query is stable but carries only input-derived content, so it must read the reasoning side to recover transferred evidence. Because a sparse query rarely matches one prototype exactly, VEE retrieves through soft cross-attention over Bllm rather than a hard nearest neighbor: 
+
+˜zllm  
+
+> u
+
+= CrossAttn   ˆzgen  
+
+> u
+
+, Bllm , Bllm , (8) where CrossAttn( q, K, V) uses query q, keys K, and val-ues V. Here ˆzgen  
+
+> u
+
+queries Bllm , producing the retrieved representation ˜zllm  
+
+> u
+
+after projection. Retrieval can still return reasoning prototypes that do not fit a given user, so the final step commits to neither signal alone and instead weights both per user. Let I = {gen , llm } index 
+
+su,i ∈ { ˆzgen  
+
+> u
+
+, ˜zllm  
+
+> u
+
+}. A profile-conditioned gate assigns: 
+
+gu = 2 σ W2 ReLU( W1hu) ∈ R|I| , (9) 
+
+eagg  
+
+> u
+
+= X
+
+> i∈I
+
+g(i) 
+
+> u
+
+su,i (10) where hu is the pre-projection encoder state; W1 and W2
+
+are trainable; ReLU and σ are rectified-linear and sigmoid activations; and |I| = 2 . The gate gu weights each path in eagg  
+
+> u
+
+. Its unnormalized range (0 , 2) allows independent suppression or amplification. 
+
+Inference Complexity. Let Cgen and Cllm be codebook capacities and d the representation dimension. ScaleToT adds O(( Cgen + Cllm )d) computation and prototype mem-ory per request, independent of population size, without LLM inference. This excludes the shared production back-bone and raw input features. 
+
+5. Experimental Evaluation 
+
+Our experiments answer three questions. First, does Scale-ToT improve LTV prediction and reasoning quality over baselines given the same sparse profile inputs? Second, how does each component contribute to performance and scala-bility? Third, do the offline gains translate into measurable benefits in a billion-scale advertising system? We first de-scribe the experimental setup, then report the overall results, ablation and scalability analyses, and randomized online A/B test. 
+
+5.1. Experimental Setup 
+
+5.1.1. D ATASET AND METRICS 
+
+We evaluate ScaleToT on a large industrial dataset from the user-growth system of a major commercial platform. The data cover returning users in an advertising delivery scenario. Users inactive for at least 30 consecutive days are considered low activity, and their activity in the seven days after return defines the LTV label. Training uses 30,000 SFT samples and 15,000 RL samples, balanced across three ordinal LTV classes. All data are anonymized and aggregated. We evaluate reasoning quality, LTV prediction, and online impact. Ranking AUC measures how well method outputs scored by a fixed outcome scorer distinguish the ordered LTV classes. The scorer is trained only on the training parti-tion, frozen before evaluation, and shared across methods; it uses no held-out outputs, privileged context, or valida-tion/test labels. Because individual reasoning fields have no ground-truth labels, Ranking AUC evaluates only whether the overall output is predictive of LTV. Embedding Discrim-ination measures the mean pairwise Euclidean distance be-tween class centroids from fixed Qwen3-Embedding repre-sentations; because it is scale dependent and ignores within-class variation, we use it only as a representation diagnostic. For LTV prediction, we report AUC on a fixed evalua-tion population with its empirical class distribution. Cov-erage experiments report absolute AUC, while ablations report percentage-point (pp) gains over a profile-only pro-duction backbone. This backbone directly feeds the same user-profile fields into the downstream LTV predictor and does not use any reasoning representation. Online, we re-port LT30, the cumulative active days within 30 days after RTB delivery, and the predicted-over-clicked ratio (PCOC), where values closer to 1 indicate better calibration. LT30 with its 99% confidence interval is the confirmatory mea-sure; PCOC and all offline results are descriptive because repeated-run estimates or confidence intervals are unavail-able. Exact cohort sizes, dates, and absolute LT30 values are withheld under the proprietary-data agreement. 6ScaleToT: Generalizing Structured LLM Reasoning for Billion-Scale Low-Activity User Modeling  
+
+> Table 1. Reasoning quality comparison on the LTV task. The best and second-best results are in bold and underlined.
+
+Method Rank. AUC Emb. Discr. D-LLM 0.502 0.106 FF-CoT 0.533 0.228 QS-CoT 0.562 0.147 Seq-CoT 0.589 0.115 ScaleToT 0.615 0.449 
+
+5.1.2. B ASELINES AND IMPLEMENTATION DETAILS 
+
+We compare four controlled internal baselines under the same sparse-profile input boundary, LLM backbone, Qwen3-Embedding model, and generation budget: • Direct LLM (D-LLM) : the LLM directly predicts from xu in a single pass, without producing a retained reasoning chain, typed-field decomposition, or closed-set nodes. It serves as the direct profile-only reference. • Free-Form CoT (FF-CoT) : the LLM generates free-form chains that are retained without quality screening or closed-set node constraints. • Quality-Selected CoT (QS-CoT) : free-form chains pass through the same quality-control pipeline as Scale-ToT but use no closed-set taxonomy. • Sequential CoT (Seq-CoT) : the same five typed nodes are generated autoregressively, with each node condi-tioned on its predecessors, under the same consolida-tion and quality-control pipeline as ScaleToT. These baselines isolate the effects of quality screening, typed decomposition, and parallel node generation within the same sparse-input reasoning pipeline. The fixed produc-tion backbone provides the reference for end-to-end LTV gains. DeepSeek-R1 serves as the teacher, Qwen3-32B as the frozen chain judge, Qwen3-8B as the student reasoner, and Qwen3-0.6B as the PRM backbone. SFT uses a learning rate of 2×10 −5 with cosine decay, a batch size of 32, and 3 epochs. OSIPO uses GRPO with a learning rate of 1×10 −6
+
+and a group size of 8. A frozen Qwen3-Embedding model produces 256-dimensional chain embeddings. The profile encoder fuser is a multilayer perceptron (MLP) with three layers and hidden dimension 512, each VQ codebook con-tains 1,024 entries, and InfoNCE uses τ =0 .07 with a batch size of 1,024. 
+
+5.2. Overall Performance 
+
+Table 1 evaluates whether generated outputs help distin-guish LTV levels. All methods use profiles alone, without  
+
+> Table 2. Component ablation at 20% LLM reasoning coverage on offline dataset. All variants use the same training setup.
+
+Variant Downstream AUC ScaleToT (full) +1.28 pp w/o Contrastive Reasoning Transfer +0.94 pp w/o Cross-Attention Retrieval +0.72 pp w/o VQ Codebook Denoising +1.05 pp w/o Gated Fusion +1.10 pp 
+
+evaluation-time labels or privileged information. ScaleToT achieves the highest Ranking AUC of 0.615, ahead of Seq-CoT at 0.589, QS-CoT at 0.562, and FF-CoT at 0.533. This result shows that typed parallel reasoning captures more in-formation related to the LTV target. ScaleToT also reaches the highest Embedding Discrimination of 0.449 among the internal baselines. This metric measures only the distance between class centers, so a higher value does not necessarily imply better LTV prediction. ScaleToT uses a closed set of five fields, so its text is less diverse than free-form chains by design. Because individual fields have no ground-truth labels, these metrics evaluate the usefulness of the complete chain rather than the correctness of each field. D-LLM achieves a Ranking AUC of 0.502, close to random ranking, showing that a direct LLM output provides little discrimi-native signal. ScaleToT instead transfers patterns learned across many structured chains and combines them with pro-file representations. Ranking AUC in Table 1 evaluates the generated outputs alone, while downstream AUC evaluates the complete prediction model. 
+
+5.3. Ablation Study 
+
+Table 2 evaluates each module under a fixed training con-figuration with approximately 20% reasoning coverage on offline dataset. All ScaleToT variants follow the same sparse-input prediction boundary and use the reasoning-representation path. The profile-only backbone is the Base setting: it feeds the same user-profile fields directly into the downstream LTV predictor, without reasoning representa-tions, retrieval, or fusion, and achieves an AUC of 0.7589. The full model reaches 0.7717 for a gain of 1.28 pp. Re-moving Cross-Attention Retrieval causes the largest drop and reduces this gain to 0.72 pp. Removing Contrastive Reasoning Transfer, VQ Codebook Denoising, and Profile-Conditioned Gated Fusion reduces the gain to 0.94, 1.05, and 1.10 pp, respectively. These results show the sensitivity of ScaleToT to each module under this configuration. Entropy-guided refinement reduces average training-chain perplexity under the frozen Qwen3-32B judge from 23.02 to 17.94 (22.1%). This supports improved evaluator coherence, not field correctness or isolated entropy causality. 7ScaleToT: Generalizing Structured LLM Reasoning for Billion-Scale Low-Activity User Modeling 0 100 200 300 400 500 600  
+
+> Steps
+> 1.2
+> 1.3
+> 1.4
+> 1.5
+> 1.6
+> 1.7
+> 1.8
+> 1.9
+> 2.0
+> Rewards
+> ScaleToT-w/o PRM ScaleToT
+
+Figure 4. OSIPO training reward over steps with and without the segment-aware implicit reward (optimization diagnostic). 0% 10% 20% 30% 40% 50% 60% 70% 80% 90% 100%   
+
+> LLM-reasoning coverage on offline dataset
+> 0.765
+> 0.766
+> 0.767
+> 0.768
+> 0.769
+> 0.770
+> 0.771
+> 0.772
+> AUC
+> 0.7659
+> 0.7682
+> 0.7717
+> 0.7712
+> 0.7715
+> 0.771
+> 0.7714 0.7716 0.7718
+> 0.7713
+> 0.7716
+
+Figure 5. Downstream AUC at different levels of LLM-reasoning coverage on the 366M-user offline dataset. Each point is trained and evaluated at its corresponding offline-dataset coverage level. 
+
+Fig. 4 compares GRPO training with the complete OSIPO reward against training with only outcome and format re-wards. With the segment-aware process reward, the training curve rises and stabilizes, while the outcome-and-format reward oscillates and fails to converge. This result indi-cates that segment-level feedback helps GRPO converge when learning structured chains. Because the two rewards use different scales, their absolute values are not directly comparable. 
+
+5.4. Scalability Analysis 
+
+To examine the scalability of reasoning transfer, Fig. 5 stud-ies how downstream AUC depends on LLM-reasoning cov-erage, defined as the fraction of users in the 366M-user offline dataset that have an LLM-generated reasoning chain while the rest are inferred by profile-based retrieval and fu-sion. We measure this relationship on the offline dataset and retrain the model at each coverage level. At 0% coverage, no offline users receive LLM-generated chains for training, so all users are inferred through VQ-denoised profile rep-resentations with gated fusion; ScaleToT reaches 0.7659 AUC. AUC rises to 0.7717 at 20% coverage and then re-mains stable, suggesting that additional LLM-reasoning coverage provides little extra benefit after the main diversity of reasoning states is covered. Since 20% of the 366M-user 
+
+Table 3. Online A/B test with a 7-day allocation window and 30-day post-RTB LT30 follow-up. 
+
+Metric Result LT30 +6.738% LT30 confidence 99% LT30 CI [1.54%, 10.49%] PCOC 1.076 → 1.034 offline dataset corresponds to 73.2 million LLM-reasoning users, this operating point covers only 7.32% of the roughly one-billion potential user population. In production, the rea-soning model generates chains offline for about 73.2 million users, while all remaining users use profile-based retrieval and fusion without LLM inference. 
+
+5.5. Online A/B Test 
+
+We ran a randomized seven-day A/B test and assigned 5% of low-activity traffic to ScaleToT. LT30 was measured for both groups over the same 30 days after RTB delivery. As shown in Table 3, ScaleToT increases LT30 by 6.738% over the production backbone without online LLM inference. The 99% confidence interval ranges from 1.54% to 10.49%. PCOC moves from 1.076 to 1.034, closer to the ideal value of 1. The test compares the complete systems. 
+
+6. Conclusion 
+
+We presented ScaleToT, a framework that makes structured LLM reasoning more reliable under sparse profiles and reusable at population scale. ScaleToT constructs typed user-state chains with bounded ToT and entropy-guided local revision, then trains a sparse-input student using OS-IPO’s outcome-driven, segment-aware rewards. It further transfers student reasoning into profile-retrievable VQ proto-types, enabling prediction without per-user chain generation or LLM inference. In a billion-scale advertising deployment for LTV prediction, offline chains were generated for 7.32% of the potential population, while a randomized online A/B test increased LT30 by 6.738%. Our evaluation is limited to this domain, and validating ScaleToT in other sparse-input tasks remains future work. 
+
+AI-Generated Content Acknowledgement 
+
+We utilized generative AI tools (e.g., ChatGPT) exclusively for grammatical and stylistic refinement of the manuscript. These tools were not used for content creation, data analysis, or experimental design. 8ScaleToT: Generalizing Structured LLM Reasoning for Billion-Scale Low-Activity User Modeling 
+
+References 
+
+Bin, X., Cui, J., Yan, W., Zhao, Z., Han, X., Yan, C., Zhang, F., Zhou, X., Yang, X., and Liu, Z. Real-time indexing for large-scale recommendation by streaming vector quanti-zation retriever. In Proceedings of the 31st ACM SIGKDD Conference on Knowledge Discovery and Data Mining V. 2, pp. 4273–4283, 2025. Chang, B., Karatzoglou, A., Wang, Y., Xu, C., Chi, E. H., and Chen, M. Latent user intent modeling for sequential recommenders. In Proceedings of Companion Proceed-ings of the ACM Web Conference 2023 , pp. 427–431, 2023. Dong, R., Ouyang, W., and Liu, X. Elec: Efficient large language model-empowered click-through rate prediction. In Proceedings of the 48th International ACM SIGIR Conference on Research and Development in Information Retrieval , pp. 2664–2668, 2025. Gantner, Z., Drumond, L., Freudenthaler, C., Rendle, S., and Schmidt-Thieme, L. Learning attribute-to-feature map-pings for cold-start recommendations. In Proceedings of 2010 IEEE International Conference on Data Mining , pp. 176–185, 2010. Guo, D., Yang, D., Zhang, H., Song, J., Wang, P., Zhu, Q., Xu, R., Zhang, R., Ma, S., Bi, X., et al. Deepseek-r1: In-centivizing reasoning capability in llms via reinforcement learning. arXiv preprint arXiv:2501.12948 , 2025. He, Z., Liu, W., Guo, W., Qin, J., Zhang, Y., Hu, Y., and Tang, R. A survey on user behavior modeling in recom-mender systems. In Proceedings of the Thirty-Second International Joint Conference on Artificial Intelligence ,pp. 6656–6664, 2023. Kim, J., Kim, H., Cho, H., Kang, S., Chang, B., Yeo, J., and Lee, D. Review-driven personalized preference reason-ing with large language models for recommendation. In 
+
+Proceedings of the 48th International ACM SIGIR Con-ference on Research and Development in Information Retrieval , pp. 1697–1706, 2025. Li, K., Shao, G., Yang, N., Fang, X., and Song, Y. Billion-user customer lifetime value prediction: an industrial-scale solution from kuaishou. In Proceedings of the 31st ACM International Conference on Information & Knowl-edge Management , pp. 3243–3251, 2022a. Li, P., Chen, R., Liu, Q., Xu, J., and Zheng, B. Trans-form cold-start users into warm via fused behaviors in large-scale recommendation. In Proceedings of the 45th International ACM SIGIR Conference on Research and Development in Information Retrieval , pp. 2013–2017, 2022b. Li, W., Zheng, W., Xiao, X., and Wang, S. Stan: stage-adaptive network for multi-task recommendation by learn-ing user lifecycle-based representation. In Proceedings of the 17th ACM Conference on Recommender Systems ,pp. 602–612, 2023. Lightman, H., Kosaraju, V., Burda, Y., Edwards, H., Baker, B., Lee, T., Leike, J., Schulman, J., Sutskever, I., and Cobbe, K. Let’s verify step by step. In Proceedings of International Conference on Learning Representations ,volume 2024, pp. 39578–39601, 2024. Liu, Z., Liu, S., Yang, B., Xue, Z., Cai, Q., Zhao, X., Zhang, Z., Hu, L., Li, H., and Jiang, P. Modeling user retention through generative flow networks. In Proceedings of the 30th ACM SIGKDD Conference on Knowledge Discovery and Data Mining , pp. 5497–5508, 2024. Moghaddam, A. H., Kerdabadi, M. N., Wang, D., Liu, M., and Yao, Z. User-adaptive meta-learning for cold-start medication recommendation with uncertainty filtering. 
+
+arXiv preprint arXiv:2601.22820 , 2026. Monteil, J., Vaskovych, V., Lu, W., Majumder, A., and Van Den Hengel, A. Marec: Metadata alignment for cold-start recommendation. In Proceedings of the 18th ACM conference on recommender systems , pp. 401–410, 2024. Nguyen, H. T., Mary, J., and Preux, P. Cold-start prob-lems in recommendation systems via contextual-bandit algorithms. arXiv preprint arXiv:1405.7544 , 2014. Pan, X., Chen, Y., Tian, C., Lin, Z., Wang, J., Hu, H., and Zhao, W. X. Multimodal meta-learning for cold-start sequential recommendation. In Proceedings of the 31st ACM international conference on information & knowledge management , pp. 3421–3430, 2022. Shao, Z., Wang, P., Zhu, Q., Xu, R., Song, J., Bi, X., Zhang, H., Zhang, M., Li, Y., Wu, Y., et al. Deepseekmath: Push-ing the limits of mathematical reasoning in open language models. arXiv preprint arXiv:2402.03300 , 2024. Su, H., Du, Z., Li, J., Zhu, L., and Lu, K. Cross-domain adaptative learning for online advertisement customer life-time value prediction. In Proceedings of the AAAI Con-ference on Artificial Intelligence , pp. 4605–4613, 2023. Van Den Oord, A., Vinyals, O., et al. Neural discrete repre-sentation learning. In Proceedings of Advances in neural information processing systems , volume 30, 2017. Vartak, M., Thiagarajan, A., Miranda, C., Bratman, J., and Larochelle, H. A meta-learning perspective on cold-start recommendations for items. In Proceedings of Advances in neural information processing systems , volume 30, 2017. 9ScaleToT: Generalizing Structured LLM Reasoning for Billion-Scale Low-Activity User Modeling 
+
+Wang, J., Lu, H., Liu, Y., Ma, H., Wang, Y., Gu, Y., Zhang, S., Han, N., Bi, S., Baugher, L., et al. Llms for user interest exploration in large-scale recommendation sys-tems. In Proceedings of the 18th ACM Conference on Recommender Systems , pp. 872–877, 2024a. Wang, L., Zhang, D., Yang, F., Zhao, P., Liu, J., Zhan, Y., Sun, H., Lin, Q., Deng, W., Zhang, D., et al. Lettingo: Ex-plore user profile generation for recommendation system. In Proceedings of the 31st ACM SIGKDD Conference on Knowledge Discovery and Data Mining V. 2 , pp. 2985– 2995, 2025. Wang, R., Xu, H., Cheng, Y., He, Q., Zhou, X., Feng, R., Xu, W., Huang, L., and Jiang, J. Adsnet: Cross-domain ltv prediction with an adaptive siamese network in ad-vertising. In Proceedings of the 30th ACM SIGKDD Conference on Knowledge Discovery and Data Mining ,pp. 5872–5881, 2024b. Wang, Y., Chu, Z., Ouyang, X., Wang, S., Hao, H., Shen, Y., Gu, J., Xue, S., Zhang, J., Cui, Q., et al. Llmrg: Im-proving recommendations through large language model reasoning graphs. In Proceedings of the AAAI conference on artificial intelligence , pp. 19189–19196, 2024c. Wei, J., Wang, X., Schuurmans, D., Bosma, M., Xia, F., Chi, E., Le, Q. V., Zhou, D., et al. Chain-of-thought prompting elicits reasoning in large language models. In 
+
+Proceedings of Advances in neural information process-ing systems , volume 35, pp. 24824–24837, 2022. Xi, Y., Liu, W., Lin, J., Cai, X., Zhu, H., Zhu, J., Chen, B., Tang, R., Zhang, W., and Yu, Y. Towards open-world recommendation with knowledge augmentation from large language models. In Proceedings of the 18th ACM Conference on Recommender Systems , pp. 12–22, 2024. Xi, Y., Liu, W., Lin, J., Weng, M., Cai, X., Zhu, H., Zhu, J., Chen, B., Tang, R., Yu, Y., et al. Efficient and deployable knowledge infusion for open-world recommendations via large language models. Proceedings of ACM Transactions on Recommender Systems , 4(1):1–36, 2025. Xia, L., Huang, C., Xu, Y., and Pei, J. Multi-behavior sequential recommendation with temporal graph trans-former. IEEE Transactions on Knowledge and Data En-gineering , 35(6):6099–6112, 2022. Xiao, Y., Wang, S., Wang, B., Zhang, Z., Zhang, Y., Liu, S., Feng, C., Li, X., and Zhuang, F. Mars: Modality-aligned retrieval for sequence augmented ctr prediction. arXiv preprint arXiv:2509.01184 , 2025. Yang, X., Jia, B., Wang, S., and Zhang, S. Feature missing-aware routing-and-fusion network for customer lifetime value prediction in advertising. In Proceedings of the Sixteenth ACM International Conference on Web Search and Data Mining , pp. 1030–1038, 2023. Yao, S., Yu, D., Zhao, J., Shafran, I., Griffiths, T., Cao, Y., and Narasimhan, K. Tree of thoughts: Deliberate prob-lem solving with large language models. In Proceedings of Advances in neural information processing systems ,volume 36, pp. 11809–11822, 2023. Zhai, D., Gao, J., Du, B., Xu, J., Shen, Q., Zhu, J., and Jiang, Y. Choirrec: Semantic user grouping via llms for conversion rate prediction of low-activity users. arXiv preprint arXiv:2510.09393 , 2025. Zhai, J., Liao, L., Liu, X., Wang, Y., Li, R., Cao, X., Gao, L., Gong, Z., Gu, F., He, J., et al. Actions speak louder than words: Trillion-parameter sequential transducers for generative recommendations. In Proceedings of Inter-national Conference on Machine Learning , pp. 58484– 58509, 2024. Zhang, H., Sun, G., Lu, J., Liu, G., and Fang, X. S. Del-rec: Distilling sequential pattern to enhance llms-based sequential recommendation. In Proceedings of 2025 IEEE 41st International Conference on Data Engineering (ICDE) , pp. 1–14, 2025. Zhang, Y., Li, C., Tsang, I. W., Xu, H., Duan, L., Yin, H., Li, W., and Shao, J. Diverse preference augmentation with multiple domains for cold-start recommendations. In 
+
+Proceedings of 2022 IEEE 38th International Conference on Data Engineering (ICDE) , pp. 2942–2955, 2022. Zhu, F., Wang, Y., Chen, C., Zhou, J., Li, L., and Liu, G. Cross-domain recommendation: challenges, progress, and prospects. In Proceedings of the 30th International Joint Conference on Artificial Intelligence, IJCAI 2021 ,pp. 4721–4728, 2021. 10 ScaleToT: Generalizing Structured LLM Reasoning for Billion-Scale Low-Activity User Modeling 
+
+A. Extended Preliminaries 
+
+We review the three technical foundations used by ScaleToT, namely structured LLM reasoning, RL for reasoning, and VQ for scalable representation retrieval. 
+
+A.1. Structured Reasoning 
+
+CoT prompting (Wei et al., 2022) elicits a free-form rea-soning trace r = ( r1, . . . , r T ) generated in a single au-toregressive pass. This formulation improves interpretabil-ity but commits to earlier steps without explicit revision. ToT reasoning (Yao et al., 2023) generalizes CoT by mod-eling reasoning as a search over a state space of partial thoughts. Formally, ToT maintains a set of candidate states 
+
+S = {s1, . . . , s b}, where each state s represents a partial reasoning path. At each step, a generator G(s) proposes successor states and a value function V (s) evaluates their promise, enabling the search procedure to expand, prune, or backtrack. ScaleToT borrows the ToT idea of generating multiple candidates and revising uncertain reasoning steps, but it does not perform open-ended tree search. Instead, it instantiates ToT as bounded typed search: it fixes the reason-ing structure as a finite set of task-defined typed fields and applies candidate generation and entropy-guided revision only within these fields, making the process easier to control and score. 
+
+A.2. RL for Reasoning 
+
+A reasoning model can be formulated as a policy πθ (c |
+
+x) that generates a structured chain c conditioned on an input x. GRPO (Shao et al., 2024) optimizes such policies by sampling a group of candidate chains and computing relative advantages within the group, avoiding the need for a separate value model. However, an outcome reward defined only on the final prediction cannot identify which segment in a structured chain supports or conflicts with that outcome. Process reward models (Lightman et al., 2024) address this limitation by assigning credit to intermediate reasoning steps. OSIPO specializes this principle to typed chains: it infers segment-aware credit from the observed outcome while retaining GRPO as the underlying optimizer. 
+
+A.3. VQ 
+
+VQ (Van Den Oord et al., 2017) maps a continuous rep-resentation r to its nearest entry in a codebook B =
+
+{b1, . . . , bC }. This discretization converts dense representa-tions into reusable prototypes and enables efficient retrieval; by collapsing nearby continuous vectors onto a shared en-try, it also denoises and regularizes representations derived from sparse, noisy inputs. Exponential-moving-average updates provide a lightweight way to maintain codebook prototypes without repeated full reconstruction. In Scale-ToT, these properties are used to denoise profile-derived representations and to store and retrieve generalized and LLM reasoning representations for large-scale inference. 
+
+B. Training-Only Privileged Context, Leakage Prevention, and Algorithms 
+
+B.1. Training-Only Privileged Context and the Prediction-Time Boundary 
+
+To make the student learn transferable reasoning rather than memorize chains, we introduce an asymmetric teacher– student setting with a strict prediction-time boundary. Training-only privileged context pu, including hindsight observations after user return, is used only by the teacher LLM when constructing structured CoT annotations for training users; it is never an input to the student reasoner, the profile encoder, the codebook query, any held-out valida-tion/test instance, or the inference request. In the advertising instantiation, the privileged context contributing to fields 
+
+c3 
+
+> u
+
+(conversion materials and contextual information), c4
+
+> u
+
+(post-conversion engagement feedback), and c5 
+
+> u
+
+(behavioral statistics within seven days after user return) is observed only after the prediction cutoff. Although the observation window of c5 
+
+> u
+
+overlaps with the label window, it is used only as a privileged teacher-side annotation signal and is never exposed to the student model or inference pipeline. The offline supervision is label-informed: the teacher-side judge uses yu to retain or refine outcome-consistent chains for training users. This is privileged-information distilla-tion rather than label-independent chain construction. The reasoning codebook is fitted only on the training partition us-ing embeddings of student-generated chains ˜cu = πθ (xu),and no privileged signal, label-window statistic, or teacher annotation from validation/test users is used for codebook updating, prompt selection, or evaluation; all codebooks and parameters are frozen before held-out evaluation. The student receives only the pre-cutoff sparse input xu, so the prediction-time boundary rules out input leakage during in-ference. It does not remove label information from training-corpus construction, establish factual correctness of the field tags, or isolate language reasoning from a supervision-equivalent non-linguistic target. The reported ablations therefore characterize the complete pipeline and its internal variants rather than provide that causal comparison. 
+
+B.2. Structured Reasoning Construction Algorithm 
+
+Algorithm 1 formalizes the entropy-ordered revision proce-dure. In Stage 1 (Lines 1–4), each finite candidate distribu-tion forms a candidate set and pool. In Stage 2 (Lines 5–12), the judge applies the outcome-conditioned admission rule; for a refinable chain, the method computes per-field normal-ized entropy and selects the highest-entropy field. Normal-11 ScaleToT: Generalizing Structured LLM Reasoning for Billion-Scale Low-Activity User Modeling 
+
+izing each entropy by log |T k| makes the scores comparable across fields with different candidate-set cardinalities, so uniform taxonomies are not required. This is a deterministic search heuristic, not a calibrated estimate that the selected field is factually wrong. Stage 3 substitutes that field with the next-best tag until judge agreement or pool exhaustion. 
+
+Algorithm 1 Entropy-Guided Structured Reasoning Con-struction 
+
+Input : Training instance with sparse input xu, privileged context pu, and observed outcome label yu; typed candidate sets {T k}Kk=1 ; teacher LLM G, judge LLM J , analyzer LLM A; chain length K
+
+Output : Structured supervision cu, or ∅ if the instance is discarded 
+
+1: for k = 1 , 2, . . . , K do 
+
+2: Obtain the closed-set predictive distribution over the 
+
+|T k| tags with the teacher G(xu, p u) (offline anno-tation only) and form the per-field candidate set Cku .
+
+3: Select the initial field value ˆcku and form the candidate pool Rku.
+
+4: end for 
+
+5: Consolidate the per-field selections into the chain narra-tive cu.
+
+6: Compute the judge prediction ˆyu = J (xu, cu).
+
+7: if ˆyu = yu then 
+
+8: return cu
+
+9: else 
+
+10: Perform root-cause analysis with A to classify the cause of disagreement. 
+
+11: if cause ∈ { information insufficiency, capability lim-itation } then 
+
+12: return ∅
+
+13: else 
+
+14: Compute the per-field normalized predictive en-tropy ¯Hk.
+
+15: Identify the weakest field ck⋆ 
+
+> u
+
+by k⋆ =arg max k ¯Hk.
+
+16: while Rk⋆
+
+> u
+
+̸ = ∅ do 
+
+17: Replace ˆck⋆ 
+
+> u
+
+with the next-best entry of Rk⋆ 
+
+> u
+
+and update Rk⋆ 
+
+> u
+
+.
+
+18: Reconsolidate cu and recompute ˆyu =
+
+J (xu, cu).
+
+19: if ˆyu = yu then 
+
+20: return cu
+
+21: end if 
+
+22: end while 
+
+23: return ∅
+
+24: end if 
+
+25: end if B.3. Population-Scale Inference Algorithm 
+
+Algorithm 2 summarizes prototype-based reasoning transfer and inference. During training, student-generated chains are embedded by fllm , profiles are encoded by fuser , the two views are aligned by contrastive learning, and StreamVQ updates Bgen and Bllm for clustering and denoising. Af-ter training, all transfer-path parameters and codebooks are frozen. During frozen inference, the profile is encoded and quantized, VEE retrieves and enhances the closest rea-soning prototypes from Bllm , the gate selects between the VQ-denoised representation and the retrieved reasoning rep-resentation, and the fused feature is concatenated with the raw profile for prediction, without LLM inference or code-book updates. 
+
+Algorithm 2 Reasoning Transfer for Population-Scale In-ference 
+
+Input : instances Usp , LLM-processed subset ULLM , sparse input xu, student πθ , reasoning embedding function fllm ,user encoder fuser , codebooks Bgen , Bllm , gate parameters 
+
+W1, W2, backbone fθ
+
+Output : task prediction Pr( yu |
+
+xu)
+
+1: {Training }
+
+2: for each minibatch B ⊆ U sp do 
+
+3: Encode profiles zuser  
+
+> u
+
+= fuser (xu).
+
+4: Generate student chains ˜cu = πθ (xu) and embed them with fllm to obtain zllm  
+
+> u
+
+on B ∩ U LLM .
+
+5: Align zuser  
+
+> u
+
+with zllm  
+
+> u
+
+by the InfoNCE loss Lalign .
+
+6: Quantize zuser  
+
+> u
+
+and zllm  
+
+> u
+
+to update Bgen and Bllm by StreamVQ exponential moving average. 
+
+7: Retrieve ˜zllm  
+
+> u
+
+from Bllm by VEE and fuse ˆzgen  
+
+> u
+
+with 
+
+˜zllm  
+
+> u
+
+by the gate into eagg  
+
+> u
+
+.
+
+8: Predict fθ (xu, eagg  
+
+> u
+
+) and update all parameters by the task, alignment, and quantization losses. 
+
+9: end for 
+
+10: Freeze fuser , fθ , Bgen , Bllm , W1, and W2.
+
+11: {Frozen prediction path: without LLM inference or codebook updates }
+
+12: for u ∈ U sp do 
+
+13: Encode the profile and quantize it to ˆzgen  
+
+> u
+
+by Bgen .
+
+14: Retrieve the enhanced reasoning representation ˜zllm 
+
+> u
+
+from Bllm by VEE cross-attention. 
+
+15: Compute the per-user gate gu from the profile-side context vector hu.
+
+16: Fuse the signals into eagg  
+
+> u
+
+by gated summation. 
+
+17: Predict Pr( yu | xu) = fθ (xu, eagg  
+
+> u
+
+).
+
+18: end for 
+
+19: return {Pr( yu | xu)}
+
+12 ScaleToT: Generalizing Structured LLM Reasoning for Billion-Scale Low-Activity User Modeling 
+
+C. Dataset Statistics and Implementation Details 
+
+Table 4 summarizes the dataset statistics of the industrial dataset from the user growth system of a major commercial platform, covering returning users in an advertising delivery scenario. All user data is anonymized and aggregated in accordance with privacy requirements.           
+
+> Table 4. Dataset statistics.
+> Statistic Value Low-activity criterion ≥30 consecutive inactive days LTV label window 7 days after return SFT training samples 30,000 RL training samples 15,000 LTV activity-intensity classes High, Medium, and Low Training-set class ratio uniform (33.3% each)
+
+The reasoner backbone is Qwen3-8B. SFT uses learning rate 2×10 −5, cosine decay, batch size 32, and 3 epochs; OSIPO uses GRPO with learning rate 1×10 −6 and group size 8. For representation learning, the LLM side uses frozen Qwen3-Embedding to produce 256-dim chain embeddings, while the user encoder fuser is a 3-layer MLP with hidden dimension 512 and GELU activation; each VQ codebook has 1,024 entries, and InfoNCE uses τ =0 .07 and batch size 1,024 . SFT and OSIPO run on eight A100-80G GPUs. Traffic is randomly allocated during a seven-day window, with 5% of low-activity traffic assigned to the experiment; LT30 is measured for each allocated cohort over the same 30-day window after RTB delivery. Exact cohort sizes, calendar ranges, and absolute LT30 are withheld under the proprietary-data agreement. For reasoning-quality evaluation, Ranking AUC ranks every method’s output with the same outcome score against the ordered LTV target. It is a task-oriented output diagnostic rather than a node-correctness metric. Semantic Richness is computed with an external jieba Chinese tokenizer as a weighted combination of token diversity, content-word ratio, and n-gram lexical diversity. Embedding Discrim-ination is the mean pairwise Euclidean distance between per-class centroids μy of fixed Qwen3-Embedding encod-ings; it omits within-class dispersion and is treated only as a scale-dependent diagnostic. Mean token-level perplexity compares chains before and after revision and measures textual fit under the evaluator, not factual correctness. Semantic Richness is reported only as a lexical diagnos-tic: ScaleToT intentionally optimizes constrained semantic sufficiency over a closed task vocabulary, so its lower lexi-cal diversity reflects reduced free-form variation rather than weaker task-grounded reasoning or reduced downstream dis-criminability. The diagnostic values are 0.360 for D-LLM, 0.403 for FF-CoT, 0.391 for QS-CoT, 0.400 for Seq-CoT, ScaleToT -w/o repair ScaleToT  
+
+> 0
+> 15
+> 20
+> 25
+> Average  Perplexity
+> 23.02
+> 17.94
+> -22.1%
+> 5
+> 10
+> Perplexity
+> Reduction
+> Figure 6. Average token-level perplexity of reasoning chains before and after entropy-guided self-refinement.
+
+and 0.365 for ScaleToT. ScaleToT’s value is therefore not used as evidence for the main effectiveness claim; the pri-mary paper instead reports the standard ROC-based Rank-ing AUC and the diagnostic produced by the fixed external Qwen3-Embedding encoder. 
+
+D. Additional Results and Case Study 
+
+D.1. Perplexity Reduction from Self-Refinement 
+
+Fig. 6 reports average training-chain perplexity under Qwen3-32B. The value changes from 23.02 before revi-sion to 17.94 afterward. Because revision, candidate order, reconsolidation, and judge admission operate together and no random-node or full-regeneration control is reported, this comparison does not isolate entropy selection. It records that admitted post-revision text has lower evaluator perplex-ity; it does not establish factual node correctness, calibrated uncertainty, or downstream benefit. 
+
+D.2. Case Study 
+
+Fig. 7 presents two illustrative returning users, one with a matching final LTV prediction and one without. The ex-amples show the format of the typed nodes and how the implementation orders a local revision by entropy. They are qualitative illustrations rather than representative evidence: the displayed entropies are not calibrated correctness proba-bilities, and the failure case is compatible with insufficient profile information but cannot establish that explanation on its own. 13 ScaleToT: Generalizing Structured LLM Reasoning for Billion-Scale Low-Activity User Modeling SUCCESS CASE 
+
+Urban, high -spending, male, aged 25 –30 
+
+Product mismatch due to competitor adoption 
+
+Content -driven re -engagement, attracted by new 
+
+platform features 
+
+FAILURE CASE 
+
+Prediction 
+
+High ✓
+
+Ground Truth 
+
+High 
+
+User Group 
+
+Churn Reason 
+
+Interest Preference 
+
+Behavior Pattern 
+
+Return Motivation 
+
+News consumption and long -form reading 
+
+High -frequency access with cross -platform behavior 
+
+Rural, low -spending, female, aged 45 –50 
+
+Device change and elevated data cost 
+
+Prediction 
+
+Medium ✕
+
+Ground Truth 
+
+Low 
+
+User Group 
+
+Churn Reason 
+
+Interest Preference 
+
+Behavior Pattern 
+
+Return Motivation 
+
+Short -form video and local lifestyle content 
+
+Low -frequency, single -application usage 
+
+Social influence and family -initiated return 
+
+Figure 7. Structured reasoning chains for a correctly predicted user and a mispredicted user. 
+
+14

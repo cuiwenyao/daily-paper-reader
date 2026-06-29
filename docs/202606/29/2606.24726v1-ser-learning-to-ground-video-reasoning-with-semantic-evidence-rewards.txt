@@ -1,0 +1,590 @@
+Title: SER: Learning to Ground Video Reasoning with Semantic Evidence Rewards
+
+URL Source: https://arxiv.org/pdf/2606.24726v1
+
+Published Time: Wed, 24 Jun 2026 01:22:47 GMT
+
+Number of Pages: 23
+
+Markdown Content:
+# SER: Learning to Ground Video Reasoning with Semantic Evidence Rewards 
+
+Sheng Xia 1,2, Zhengqin Lai 4, Tianxiang Jiang 3, Kanghui Tian 3, Shoujun Zhou 5, Bin Li 5, Yi Wang 3        
+
+> 1Nanjing University 2Shanghai Innovation Institute 3Shanghai AI Laboratory
+> 4Harbin Institute of Technology, Shenzhen 5Shenzhen Institutes of Advanced Technology
+
+Abstract 
+
+Video MLLMs often struggle with fine-grained spatio-temporal reasoning, sometimes gen-erating correct answers based on irrelevant frames or objects. Although outputting spatio-temporal evidence during reasoning is a promis-ing direction, existing RL frameworks typically rely on geometry-only (IoU) rewards, which can be sensitive to boundary perturbations and overlook semantic alignment. To address this, we propose Semantic Evidence Reward 
+
+(SER), which reformulates spatio-temporal evi-dence grounding as a constrained verification task. Instead of computing pixel-level overlap, SER uses a referee VLM as a local checker to evaluate model-generated evidence claims across two dimensions: relevance and localiza-tion quality, combined with a temporal penalty. This design reduces the reliance on dense box annotations and enables training directly on standard video QA data. On the V-STAR bench-mark, SER achieves 49.6% mLGM, improv-ing by 3.0 points over the strong evidence-grounded baseline Open-o3-Video, demonstrat-ing its potential in enhancing both answer ac-curacy and evidence grounding. 
+
+1 Introduction 
+
+Multimodal Large Language Models (MLLMs) have recently achieved strong performance on open-ended question answering and holistic event un-derstanding (OpenAI, 2024; Bai et al., 2025; Zhu et al., 2025; Zhang et al., 2025a). However, they still struggle with fine-grained spatio-temporal rea-soning, especially in long videos (Fu et al., 2025; Hu et al., 2025), crowded or interaction-rich scenes (Cheng et al., 2025; Li et al., 2024; Hong et al., 2025), or environments containing visually simi-lar object instances (Yuan et al., 2025; Gu et al., 2025; Zhang et al., 2026). In such settings, mod-els may arrive at the correct answer while relying on irrelevant frames, overlooking crucial temporal moments, or attending to the wrong object instance. 
+
+Figure 1: Motivation. Annotation mismatch, boundary-sensitive IoU rewards, and sparse temporal labels can misalign training feedback with valid video evidence. 
+
+This mismatch between the answer and the actual supporting evidence limits both the reliability and interpretability of video reasoning. To address these issues, some works make MLLMs explicitly expose the visual evidence used during reasoning. In image understanding, recent works have shown that generating visual primitives such as boxes, coordinates, or localized crops can improve faithfulness by grounding intermediate reasoning steps in observable regions (Zheng et al., 2026; Sarch et al., 2025; Cao et al., 2025; Shen et al., 2025). Inspired by this line of work, recent video reasoning methods have begun to incorporate timestamps, keyframes, and spatial grounding into the reasoning process (Feng et al., 2025; Li et al., 2025b; Wang et al., 2025a,b; Dong et al., 2025; Meng et al., 2025). By making evidence explicit, the model’s reasoning becomes more traceable and verifiable. Despite this progress, evidence-grounded video reasoning faces two primary challenges. The first is supervision. Existing approaches often rely on dense spatio-temporal box annotations or teacher-generated chain-of-thought traces with detailed lo-calization labels (Luo et al., 2025). Such annota-tions are costly to obtain and hard to scale. More importantly, they are not always aligned with the actual evidence needed for a given question: a visu-1
+
+> arXiv:2606.24726v1 [cs.CV] 23 Jun 2026
+
+ally correct object box may still fail to capture the most informative region or moment for answering a specific query. The second challenge lies in the reward signal (Li et al., 2025a). Even when local-ization labels are available, existing reinforcement learning methods typically use geometry-based re-wards, such as IoU, to evaluate grounded evidence (Rezatofighi et al., 2019; Zheng et al., 2020). How-ever, geometric overlap is often a poor proxy for evidence validity in video reasoning. First, IoU is highly sensitive to boundary perturbations, ob-ject deformation, and scale changes, which can lead to unstable reward signals (He et al., 2019; Murrugarra-Llerena et al., 2022; Llerena and Jung, 2025). Second, video evidence is often semanti-cally distributed: multiple frames or nearby regions may all support the same answer. A reward defined by overlap with one annotated box or one labeled moment may therefore penalize semantically valid alternative evidence paths. In short, grounding supervision for video reasoning should evaluate whether a claimed region actually supports the an-swer, rather than only how closely it matches a fixed annotation. To address these challenges, we propose Se-mantic Evidence Reward (SER), a reinforcement learning framework for spatio-temporal evidence grounding based on semantic claim verification .Instead of treating grounding as post-hoc localiza-tion, SER requires the policy model to generate structured evidence claims during reasoning, where each claim specifies what object or region is rele-vant, where it is located, and when it appears. For-mally, each claim is represented as ci = ( oi, b i, τ i),consisting of an object phrase, a bounding box, and a timestamp. To reward these claims, we in-troduce a referee VLM that acts as a privileged local checker during training. For each generated claim, we match the predicted timestamp to the nearest sampled frame, construct both a boxed full-frame view and a local crop, and ask the referee to evaluate the claim along two dimensions: evi-dence relevance , i.e., whether the predicted region contains information that supports the reference answer under the question, and localization qual-ity , i.e., whether the predicted box appropriately encloses the claimed object or region. These two scores are combined and weighted by a temporal alignment penalty, yielding a semantic feedback reward for each claim. To ensure that the policy consistently exposes usable claims to the reward engine, we further introduce a structured claim reward that encourages parseable evidence outputs during reasoning. This design has three practical advantages. First, SER does not require dense spatio-temporal box annotations or manually written reasoning traces; it can be trained directly from standard Video QA tu-ples (V, q, a ⋆). Second, the referee does not solve the original video QA task. Instead, it only per-forms localized, answer-conditioned verification on a single frame and crop, which makes the re-ward computation simpler and more stable. Third, compared with geometry-only rewards, semantic claim verification provides smoother credit assign-ment by rewarding semantically useful evidence even when localization is imperfect. Experiments show the effectiveness of our method. On V-STAR, SER improves the average performance across temporal, spatial, and over-all metrics by about 3.0% over a strong evidence-grounded baseline, while substantially outperform-ing its base Video MLLM. These results show that training Video MLLMs to generate and verify ex-plicit evidence claims can improve both answer accuracy and spatio-temporal grounding. In summary, our main contributions are: (1) Conceptual analysis. We identify the mis-match of geometry-only (IoU) rewards in video RL, advocating for a shift from pixel-level over-lap matching to multi-dimensional, constrained semantic verification of spatio-temporal evidence. (2) A structured evidence grounding framework. 
+
+We propose SER, which trains Video MLLMs to generate structured evidence claims and uses a referee VLM to evaluate them with semantic claim verification, without requiring dense spatio-temporal box annotations. (3) Empirical evalu-ation. We demonstrate the effectiveness of SER across multiple video benchmarks. On V-STAR, SER-7B consistently improves both answer ac-curacy and spatio-temporal alignment, achieving competitive performance and outperforming both general-purpose Video MLLMs and specialized grounding systems. 
+
+2 Related Work 
+
+Reinforcement Learning for Video Reasoning. 
+
+Recent works employ reinforcement learning (RL) to enhance video Multimodal Large Language Models (Video MLLMs) on general QA (Feng et al., 2025; Li et al., 2025b; Wang et al., 2025a; Park et al., 2025; Wang et al., 2025c) or temporal 2alignment (Wang et al., 2025b; Dong et al., 2025; Li et al., 2025a). Some enforce explicit spatio-temporal evidence tracing during intermediate rea-soning steps (Meng et al., 2025; Luo et al., 2025; Gu et al., 2025; Zhang et al., 2026). Although these methods reduce attention drifting, their re-ward signals predominantly rely on final answer correctness or strict format compliance. In contrast ,SER introduces a direct, semantic-level feedback mechanism for intermediate evidence claims, en-suring that the model’s localized reasoning steps are rewarded based on their actual semantic validity rather than just format correctness. 
+
+Grounded Reasoning with Visual Primitives. 
+
+Anchoring language reasoning with explicit visual primitives like coordinates or regional crops has proven highly effective at improving model faithful-ness (Sarch et al., 2025; Zheng et al., 2026; Wang et al., 2026a; Cao et al., 2025; Shen et al., 2025; Kancheti et al., 2026; Wang et al., 2026b). How-ever, lifting this paradigm from static 2D images to video streams introduces severe non-trivialities, as target objects undergo continuous motion and occlusions amid temporal distractors. We bridge this gap by directly incorporating structured spatio-temporal claims into video chain-of-thought rea-soning, leveraging a dynamic, temporal-distance-scaled referee evaluation to assess the semantic relevance of generated regions. 
+
+Reward Design for Grounded Localization. 
+
+Traditional bounding-box localization relies on ge-ometric overlap metrics like IoU, GIoU, and DIoU (Rezatofighi et al., 2019; Zheng et al., 2020). In RL, however, purely geometric rewards are highly sensitive to boundary ambiguity and labeling noise (He et al., 2019; Murrugarra-Llerena et al., 2022; Llerena and Jung, 2025), often yielding unstable gradient updates and disproportionate penalties for slightly shifted boxes that actually contain correct evidence. To overcome this , we deviate from pure geometric matching and formulate a multidimen-sional reward design. 
+
+3 Method 
+
+We study video question answering (Video QA) with explicit spatio-temporal evidence grounding. Given a video V = {I1, I 2, . . . , I N } and a ques-tion q, a Video MLLM parameterized by θ gener-ates a reasoning trace and a final answer: 
+
+Y = ( Z, A ) ∼ Pθ(· | V, q ), (1) where Z denotes the intermediate reasoning tokens and A is the final textual answer. Our goal is not only to obtain the correct answer, but also to encourage the model to expose the visual evidence it relies on. To this end, we require the reasoning trace Z to contain a set of structured 
+
+evidence claims C = {ci}Ki=1 , where each claim is 
+
+ci = ( oi, b i, τ i). (2) Here, oi is an object phrase or region description, 
+
+bi = [ ymin , x min , y max , x max ] ∈ [0 , 1] 4 is a normal-ized bounding box, and τi ∈ R+ is a timestamp. The challenge is how to reward such claims dur-ing reinforcement learning. Existing approaches typically use geometry-based rewards such as IoU against annotated boxes. However, in video reason-ing this is often a poor proxy for valid evidence: multiple regions may support the same answer, sparse labels may miss alternative evidence frames, and small box perturbations can cause large reward changes. Thus we propose Semantic Evidence Re-ward (SER), which replaces geometry-only match-ing with semantic claim verification . Instead of asking whether a predicted box overlaps a refer-ence box, we ask whether the claimed region is 
+
+evidence for answering the question and whether it 
+
+appropriately localizes the claimed object. As shown in Figure 2, SER consists of three components: 1) the policy model generates explicit spatio-temporal evidence claims in reasoning; 2) a referee VLM evaluates each claim using local visual inputs and privileged answer information; 3) the semantic reward is combined with answer and format rewards to optimize the policy with GRPO. 
+
+3.1 Semantic Evidence Reward 
+
+For each parsed claim ci = ( oi, b i, τ i), SER com-putes a reward in three stages: temporal alignment, local visual construction, and referee scoring. 
+
+Temporal Alignment. Let {tj } denote the times-tamps of the sampled video frames available to the model. Since the policy predicts a continuous timestamp τi, we first match it to the nearest ob-served frame: 
+
+j(i) = arg min  
+
+> j
+
+|τi − tj |. (3) To softly penalize temporal drift, we weight the claim by a Gaussian penalty: 
+
+ωi = exp − (τi − tj(i))2
+
+2σ2
+
+> t
+
+!
+
+, (4) 3Figure 2: Overview of Semantic Evidence Reward. The policy writes evidence claims that contain an object phrase, a bounding box, and a timestamp. For each claim, we select the matched key frame, crop the predicted box, and ask a referee VLM to score evidence relevance and localization quality. A temporal penalty weights the claim by its distance from the selected key frame. The resulting SER reward is combined with answer correctness and format compliance for GRPO policy optimization. 
+
+where σt denotes the temporal tolerance. This gives near-miss timestamps partial credit while suppress-ing claims that are far from any relevant frame. 
+
+Local Visual Construction. On the matched frame Ij(i), we construct two visual inputs from the predicted box bi: 1) the full frame with the predicted box overlaid, denoted Ibox  
+
+> j(i)
+
+(bi); 2) the cropped image inside the box, denoted Icrop  
+
+> j(i)
+
+(bi).The first preserves scene context and helps assess whether the box tightly covers the referred object. The second isolates the local visual content and helps assess whether the region contains answer-relevant evidence. 
+
+Referee Scoring. We feed the referee with the context xi =  Ibox  
+
+> j(i)
+
+(bi), I crop  
+
+> j(i)
+
+(bi), q, a ⋆, Y, o i
+
+.
+
+The referee produces two judgments: Evidence Relevance ri: whether the cropped region con-tains visual information that supports the reference answer under the current question; Localization Quality ℓi: whether the predicted box tightly and correctly encloses the claimed object or region. The referee outputs ordinal grades, which are mapped to scalar scores in [0 , 1] through monotonic calibration functions: 
+
+ri = Γ rel 
+
+
+
+F rel  
+
+> ϕ
+
+(xi)
+
+
+
+, ℓ i = Γ loc 
+
+
+
+F loc  
+
+> ϕ
+
+(xi)
+
+
+
+. (5) 
+
+Claim-level Composition. We combine the two scores as: si = ri·ℓi. This product acts as a soft log-ical AND: a claim receives a high score only when it is both semantically relevant and well localized. This is important for avoiding degenerate solutions. For example, a perfectly tight box around an irrel-evant object should not be rewarded, and a very large box that vaguely includes the correct object should not receive high reward either. The final reward for claim ci is RSER  
+
+> i
+
+= ωi ·ri ·ℓi.
+
+Sample-level aggregation. If a response con-tains multiple evidence claims, we aggregate them by averaging: RSER = 1
+
+> |C|
+
+P 
+
+> ci∈C
+
+ωi ri ℓi. In prac-tice, for computational efficiency, we evaluate only the first M valid claims in the response, with 
+
+M = 3 in our experiments. 
+
+3.2 Structured Claim Reward 
+
+Along with SER, we introduce a structured claim reward Rfmt , which encourages parseable evi-dence outputs. We treat evidence grounding as an intermediate action rather than a post-hoc ex-planation. Concretely, before producing the final answer, the policy is encouraged to emit explicit claims about what it is attending to, where it is lo-cated, and when it appears. This turns latent visual search into an observable and rewardable part of the generation process. To make this interface usable during RL, Rfmt 
+
+works as follows. A rollout receives full format credit when its reasoning trace contains parseable evidence claims together with a valid rationale and a final answer. If the answer is present but the evidence format is malformed or incomplete, the rollout receives only partial credit; unparseable out-puts receive no reward. This reward is not intended to measure grounding quality itself, but to stabilize exploration by ensuring that the policy consistently exposes candidate evidence to the reward engine. 43.3 Why Semantic Verification Helps No Dense Spatio-Temporal Box Annotations Re-quired. Our training data consists only of stan-dard Video QA tuples (V, q, a ⋆), where a⋆ is the reference answer. No ground-truth bounding boxes or manually written reasoning traces are needed. During training, the policy proposes candidate evi-dence claims, and the referee VLM verifies them online using the reference answer and local visual inputs. This allows SER to scale naturally to text-only Video QA data. 
+
+Asymmetric Task Complexity. The policy must solve the full problem: long-horizon video under-standing, temporal search, and open-ended answer generation. In contrast, the referee only performs a localized, answer-conditioned verification task on a single frame and crop. This asymmetry makes the reward signal easier to compute and more sta-ble than directly supervising the policy with dense geometric labels. 
+
+Robust to Annotation Mismatch. In standard box-based rewards, a claim is judged against a sin-gle annotated region, even though multiple objects, subregions, or nearby frames may provide equally valid evidence for answering the question. By veri-fying whether a predicted crop supports the answer, SER rewards semantically valid alternatives instead of forcing the policy to imitate one canonical box. 
+
+More Stable Credit Assignment. Geometry-only rewards often change abruptly: small coor-dinate shifts can produce large IoU drops, espe-cially for small or deformable objects. In contrast, referee-based verification yields smoother partial credit. A roughly correct crop may still receive high relevance even if localization is imperfect, al-lowing the model to first discover useful evidence and then refine its spatial precision. This creates a more forgiving reward landscape during early exploration. 
+
+Training-only Referee. The referee is used only during RL training to provide reward signals. At inference time, the policy generates evidence-grounded responses without access to the referee. 
+
+3.4 Training Objective 
+
+The final reward in training combines answer cor-rectness, format compliance, and grounding: 
+
+R = λans Rans + λfmt Rfmt + λSER RSER , (6) where λans , λ fmt , λ SER are scalar weights. Rans 
+
+measures final answer quality. For multiple-choice tasks it is binary, while for open-ended settings it can be instantiated with exact match or other task-specific answer metrics. Rfmt ensures that the model exposes parseable evidence claims. We optimize the policy with Group Relative Pol-icy Optimization (GRPO). For each input (V, q ),we sample a group of G rollouts {Yg}Gg=1 , compute their total rewards {Rg}Gg=1 , and normalize within the group: 
+
+ˆAg = Rg − mean( {R})std( {R}) + ϵ , (7) where ϵ is a small constant for numerical stabil-ity. The normalized advantage ˆAg is then used to update the policy. This training objective encour-ages responses that are not only answer-correct, but also supported by explicit and semantically verified spatio-temporal evidence. 
+
+4 Experiments 
+
+Implementation Details. We build upon Qwen2.5-VL-7B (Bai et al., 2025) as the base model and train using GRPO (Shao et al., 2024) on 8 NVIDIA H100 (80GB) GPUs. The referee VLM is instantiated with a fixed, off-the-shelf model. We set σt = 2 .0 for the temporal penalty and evaluate the first three parseable evidence claims per response to balance reward quality and computational cost. During training, we sample 4 rollouts per video-question pair. The total training takes approximately 30 hours. 
+
+Benchmarks. We evaluate our framework across several diverse video understanding and tempo-ral grounding benchmarks to comprehensively assess general reasoning, spatio-temporal local-ization, and out-of-distribution robustness. We adopt V-STAR as our primary evaluation bench-mark. V-STAR decomposes grounding into three coupled dimensions: What (object identification), 
+
+When (temporal localization), and Where (spa-tial localization), reported under two distinct rea-soning chains (Chain1 and Chain2) with overall metrics mAM and mLGM. Beyond V-STAR, we evaluate general-purpose video understanding on 
+
+LongVideo-Reason , WorldSense , VideoMMMU ,and VideoMME , and investigate specialized tem-poral grounding on TVGBench . Detailed descrip-tions and evaluation protocols for these bench-marks are provided in Appendix D. 5Table 1: Performance on the V-STAR benchmark, which evaluates spatio-temporal reasoning across three dimensions. 
+
+Model What When (Temporal IoU) Where (Visual IoU) Overall Acc Chain1 Chain2 Chain1 Chain2 mAM mLGM 
+
+GPT-4o 60.8 16.7 12.8 6.5 3.0 26.8 38.2 Gemini-2-Flash 53.0 24.5 23.8 4.6 2.2 26.9 35.6 Video-LLaMA3 41.9 23.0 23.1 0.9 0.2 21.7 27.0 LLaVA-Video 49.5 10.5 12.2 1.9 1.3 20.8 27.3 VideoChat2 36.2 13.7 12.5 2.5 1.0 17.0 20.3 Oryx-1.5-7B 20.5 13.5 14.8 10.1 3.5 15.1 13.8 InternVL-2.5-8B 44.2 8.7 7.8 0.7 0.1 17.6 24.9 TRACE 17.6 19.1 17.1 0.0 0.0 12.0 13.3 Sa2VA-8B 16.4 0.1 0.0 32.3 37.5 17.1 20.3 Qwen2.5-VL-7B(Base model) 33.5 15.4 13.8 17.0 2.5 19.3 22.4 Open-o3-Video(ICML26) 61.0 24.5 24.0 25.4 6.0 33.7 46.6 SER-7B (Ours) 61.6 27.9 27.3 30.7 5.1 35.7 49.6 
+
+∆ ( vs. Qwen2.5-VL-7B) ↑ 28.1 ↑ 12.5 ↑ 13.5 ↑ 13.7 ↑ 2.6 ↑ 16.4 ↑ 27.2 
+
+∆ ( vs. Open-o3-Video) ↑ 0.6 ↑ 3.4 ↑ 3.3 ↑ 5.3 -0.9 ↑ 2.0 ↑ 3.0 
+
+Table 2: Performance across different video understanding, reasoning, and temporal grounding benchmarks. 
+
+Model LongVideo-Reason WorldSense VideoMMMU VideoMME TVGBench Avg Acc Overall Recog. Overall Percep. Overall mIoU 
+
+GPT-4o – 42.6 – 61.2 66.0 71.9 – –VideoLLaMA3-7B 59.8 37.3 38.1 46.5 59.7 60.6 22.2 45.3 InternVL-2.5-8B 62.0 39.6 38.5 42.4 57.0 62.3 6.3 42.5 VideoRFT-7B 69.4 38.2 36.6 51.1 66.0 59.8 14.3 46.6 VideoR1-7B 68.9 35.5 32.8 52.4 65.3 61.4 9.6 45.6 Qwen2.5-VL-7B (Base model) 59.3 36.1 33.7 51.2 64.7 62.4 16.3 45.1 Open-o3-Video 69.4 37.5 36.8 52.3 68.0 63.6 20.8 48.7 SER-7B (Ours) 71.7 42.3 42.4 51.4 67.4 62.9 26.5 51.0 
+
+∆ (vs. Qwen2.5-VL-7B) ↑ 12.4 ↑ 6.2 ↑ 8.7 ↑ 0.2 ↑ 2.7 ↑ 0.5 ↑ 10.2 ↑ 5.9 
+
+4.1 Main Results V-STAR. As shown in Table 1, SER-7B achieves state-of-the-art performance on the V-STAR bench-mark, obtaining 35.7% mAM and 49.6% mLGM. Notably, SER improves “What” accuracy to 
+
+61.6% (+28.1% over the Qwen2.5-VL-7B base) and mostly outperforms the concurrent evidence-guided baseline, Open-o3-Video, across both rea-soning chains. Instead of suffering from a trade-off between semantic correctness and localiza-tion accuracy, SER establishes a mutual synergy: the policy-driven reasoning chain is explicitly an-chored in verified spatio-temporal evidence, while the precise grounding feedback dynamically sta-bilizes and steers the model’s cognitive deduction. This highlights that incorporating a semantic-level verification loop effectively bridges high-level rea-soning with low-level visual grounding under weak supervision. 
+
+General Video Benchmarks. As shown in Ta-ble 2, SER-7B achieves a SOTA average score of 
+
+Table 3: Reward ablation on V-STAR . ✓ and × indicate whether each reward term is enabled. Metrics follow the same protocol as Table 1.                                       
+
+> Reward What When (Temporal IoU) Where (Visual IoU) Overall Fmt Ans Rel. Box Acc Chain1 Chain2 Chain1 Chain2 mAM mLGM
+> ×✓✓✓59.0 28.2 28.0 10.6 2.8 31.3 43.0
+> ✓✓××60.0 26.3 25.8 12.4 2.8 31.2 43.3
+> ✓✓✓✓61.6 27.9 27.3 30.7 5.1 35.7 49.6
+
+Table 4: Referee ablation on VideoMME . We fix the policy to SER-7B and swap the referee VLM. 
+
+Referee Overall Video Length Short Medium Long 
+
+InternVL3-8B 63.0 74.6 63.1 51.2 Qwen2.5-VL-7B 62.7 73.3 62.6 52.2 
+
+51.0% among all compared 7B-parameter models, surpassing the Qwen2.5-VL-7B baseline by +5.9% 
+
+and Open-o3-Video by +2.3% , with dramatic gains on long-form reasoning ( +12.4% on LongVideo-Reason) and temporal grounding ( +10.2% mIoU on TVGBench). These results yield three key in-6sights. First, rather than inducing an “alignment tax” that degrades general multimodal capabili-ties, RL training via SER comprehensively boosts performance, proving that active evidence-seeking cultivates robust, transferable representation align-ment. Second, on long-form video QA, SER-7B reaches 71.7% (surpassing VideoR1-7B’s 68.9% and Open-o3-Video’s 69.4%), demonstrating that framing evidence grounding as an intermediate, rewardable reasoning primitive generates precise spatio-temporal anchors—acting as cognitive han-dles that stabilize attention and prevent reasoning drift over long horizons. Third, the significant boost on TVGBench ( 26.5% mIoU) confirms that optimizing spatial boxes constrained by temporal penalties ( ωi) sharpens the model’s awareness of temporal boundaries, achieving a level of temporal-spatial precision unattainable through final answer rewards or pure textual reasoning. 
+
+4.2 Ablation Studies 
+
+We report ablation results on V-STAR unless oth-erwise noted. All settings share the same training recipe as in §4 except for the ablated factor. 
+
+Reward Components. Table 3 evaluates the con-tributions of the format reward ( Rfmt ), answer re-ward ( Rans ), and our semantic feedback rewards (r, ℓ ). Our results yield two critical observations. 
+
+Format Stabilization ( Rfmt ): The format reward is crucial for stabilizing reinforcement learning over structured output spaces. Disabling Rfmt 
+
+(first row) leads to a clear performance drop across all metrics (e.g., Chain1 Visual IoU dropping to 10.6%), as the policy model struggles to maintain consistent three-field formatting, leading to parsing failures and optimization instability. Semantic-Geometric Synergy ( r · ℓ): There is a strong synergy between answer optimization and visual grounding. Training solely with Rfmt and Rans 
+
+(second row) yields competitive answer accuracy (60.0%) but very poor visual localization (12.4% Chain1 Visual IoU), reflecting a shortcutting be-havior where the model leverages language biases or coarse visual context. Introducing our seman-tic feedback rewards r · ℓ (third row) substantially improves Chain1 Visual IoU to 30.7% and boosts answer accuracy to 61.6% . This demonstrates that enforcing semantic relevance and spatial tightness suppresses shortcutting, enabling a mutually rein-forcing cycle between logical reasoning and precise perception. 
+
+Table 5: Policy model ablation on V-STAR . For each backbone, we report the base model and SER trained with the same referee and reward configuration.                                    
+
+> Model What When (Temporal IoU) Where (Visual IoU) Overall Acc Chain1 Chain2 Chain1 Chain2 mAM mLGM
+> Qwen2.5-VL-3B 20.7 13.2 11.3 0.0 0.0 11.0 12.1 w. SER (Ours) 55.3 23.8 24.4 23.2 6.5 31.4 41.5 Qwen2.5-VL-7B 33.5 15.4 13.8 17.0 2.5 19.3 22.4 w. SER (Ours) 61.6 27.9 27.3 30.7 5.1 35.7 49.6
+
+Table 6: Hyperparameter ablation on V-STAR . We vary 
+
+(λans , λ fmt , λ SER ) in the total reward while keeping all reward terms enabled.                                     
+
+> λans λfmt λSER What When (Temporal IoU) Where (Visual IoU) Overall Acc Chain1 Chain2 Chain1 Chain2 mAM mLGM
+> 110.5 59.1 27.4 26.8 18.5 4.3 32.6 44.5 11159.7 26.4 26.6 0.5 1.1 29.0 40.8
+> 210.5 61.6 27.9 27.3 30.7 5.1 35.7 49.6
+
+Reward Weights. Table 6 evaluates the sensi-tivity of the total reward to different weight con-figurations (λans , λ fmt , λ SER ). We observe two key optimization dynamics: 1) Grounding Over-optimization (High λSER ): Increasing the ground-ing reward weight λSER from 0.5 to 1.0 (rows 1 vs. 2) leads to a severe drop in spatial localiza-tion, where Chain1 Where IoU drops from 18.5% to 0.5% and mLGM falls from 44.5 to 40.8. This behavior aligns with reward hacking: when fine-grained visual rewards dominate, the policy learns to generate bounding boxes that satisfy the referee’s heuristics but fail to align with the core reasoning chain. 2) Co-training Synergy ( λans ): Raising the answer reward weight λans to 2.0 with λSER = 0 .5
+
+(row 3) yields the best performance, improving both answer accuracy (61.6% What Acc) and vi-sual grounding (Chain1 Where IoU rises to 30.7%). This demonstrates that spatial localization benefits from joint training; a strong correctness constraint (Rans ) provides crucial semantic context, ensuring that the model’s exploratory grounding remains goal-oriented. 
+
+Policy Model Scale. Table 5 compares each Qwen2.5-VL base model with SER trained on the same backbone under an identical referee and re-ward configuration. SER consistently improves both answer accuracy and evidence grounding across model scales. Under the same referee and reward setup, both backbones exhibit parallel gains in What accuracy, temporal localization, and spa-tial grounding, with mAM rising by over 15 points in each case. These consistent uplifts indicate that referee-verified semantic rewards provide a scale-7Table 7: Zero-shot temporal grounding performance on ActivityNet.                                         
+
+> Model R@0.3 R@0.5 R@0.7 mIoU
+> General Video LLMs
+> VideoChat 8.8 3.7 1.5 7.2 VideoLLaMA 6.9 2.1 0.8 6.5 Video-ChatGPT 26.4 13.6 6.1 18.9
+> Temporal Grounding Video LLM
+> Momentor 42.9 23.0 12.4 29.3 HawkEye 49.1 29.3 10.7 32.7 VTimeLLM 44.0 27.8 14.3 30.4 VideoMind 48.4 30.3 15.7 33.3
+> Grounded Reasoning Models
+> Open-o3-Video 49.5 30.8 15.9 34.4 SER-7B (Ours, zero-shot) 58.1 38.1 19.0 39.2
+
+Table 8: Reliability and agreement analysis of the ref-eree reward against human ratings and geometric IoU on 750 sampled instances. Human ratings are averaged across three annotators.                   
+
+> Comparison Pearson rSpearman ρCCC ICC
+> Referee vs. Human 0.7124 0.6785 0.6949 0.6952 Referee vs. IoU 0.2580 0.1483 0.0751 0.0751 Human vs. IoU 0.1725 0.0978 0.0482 0.0482
+
+agnostic training signal: SER complements pre-training across policy capacities without requiring backbone-specific reward engineering. 
+
+Referee VLM. Table 4 fixes the policy to SER-7B and swaps the referee between InternVL3-8B (Zhu et al., 2025) and Qwen2.5-VL-7B, report-ing results on VideoMME. The two referees yield comparable overall accuracy (63.0% vs. 62.7%), with InternVL3-8B slightly stronger on short and medium clips while Qwen2.5-VL-7B edges ahead on long videos (52.2% vs. 51.2%). We adopt InternVL3-8B as the default referee in all other experiments. 
+
+Referee Reliability Analysis To guide reinforce-ment learning (RL) effectively, the reward signal must align with human judgment and resist degen-erate optimization loops. We evaluate the align-ment of our referee-based semantic reward RSER 
+
+against human consensus ratings (averaged over three independent annotators) and the geometric IoU baseline across 750 sampled instances (Ta-ble 8). We identify two key insights. First, the referee exhibits substantial correlation and abso-lute agreement with human evaluation (Pearson 
+
+r = 0.71 , CCC = 0.69 ). This high absolute agreement (reflected by CCC and ICC) indicates that the referee successfully calibrates to absolute human standards of evidence verification, ensur-ing stable reward signals and preventing policy degradation. Second, both human and referee rat-ings show negligible agreement with geometric IoU (CCC < 0.08 ). This discrepancy underscores the limitation of using rigid coordinate-based re-wards in video RL: pixel-level overlap does not capture visual-semantic sufficiency. Under IoU-based schemes, imprecise early-stage explorations are penalized with strict zero rewards, causing se-vere gradient sparsity. By contrast, our referee prioritizes semantic relevance over rigid geometry, offering a smoother reward landscape and contin-uous credit assignment that bootstraps policy opti-mization under weak supervision. 
+
+Zero-Shot Temporal Grounding on Activi-tyNet. To assess out-of-distribution generaliza-tion, we evaluate SER-7B on ActivityNet in a zero-shot setting (Table 7). SER consistently outperforms general-purpose video LLMs (e.g., Video-ChatGPT) and grounded reasoning base-lines (e.g., Open-o3-Video). Crucially, it yields competitive performance even compared to spe-cialized temporal grounding models (e.g., Hawk-Eye and VideoMind) fully supervised on this target dataset. This strong transferability indicates that anchoring boundary predictions to semantic coher-ence—rather than overfitting to rigid coordinate templates—steers the policy toward learning gener-alizable, reasoning-aligned visual evidence paths. 
+
+5 Conclusion 
+
+In this work, we introduced Semantic Evidence Reward (SER), a reinforcement learning frame-work that reformulates spatio-temporal evidence grounding as a visual-semantic verification task. By evaluating candidate evidence claims across orthogonal dimensions of semantic relevance and localization quality, SER successfully bypasses the reliance on dense, pixel-level bounding box anno-tations. Empirically, SER achieves 49 .6% mLGM on the V-STAR benchmark while demonstrating strong zero-shot generalization to unseen out-of-distribution environments. Ultimately, our findings suggest a paradigm shift for multi-modal reinforce-ment learning: reward mechanisms for complex video reasoning should prioritize semantic validity over rigid geometric alignment. 8Limitations 
+
+While our policy model successfully generates structured, spatio-temporal evidence claims, the downstream potential of these generated primitives remains to be fully exploited. Currently, these claims are primarily utilized as localized check-points for reinforcement learning reward compu-tation. In future work, we plan to systemati-cally aggregate these dynamic, model-generated claims across extended video sequences to con-struct object-centric graph databases. Building such structured, semantic graph representations from generative RL traces can facilitate long-form video parsing and reasoning by mapping entity lifespans, causal relationships, and trajectories over extended durations, thereby bridging generative reasoning with structured symbolic knowledge. 
+
+References 
+
+Shuai Bai, Keqin Chen, Xuejing Liu, Jialin Wang, Wen-bin Ge, Sibo Song, Kai Dang, Peng Wang, Shi-jie Wang, Jun Tang, Humen Zhong, Yuanzhi Zhu, Mingkun Yang, Zhaohai Li, Jianqiang Wan, Pengfei Wang, Wei Ding, Zheren Fu, Yiheng Xu, and 8 others. 2025. Qwen2.5-vl technical report. arXiv preprint arXiv:2502.13923 .Meng Cao, Haoze Zhao, Can Zhang, Xiaojun Chang, Ian Reid, and Xiaodan Liang. 2025. Ground-r1: In-centivizing grounded visual reasoning via reinforce-ment learning. arXiv preprint arXiv:2505.20272 .Yukang Chen, Wei Huang, Baifeng Shi, Qinghao Hu, Hanrong Ye, Ligeng Zhu, Zhijian Liu, Pavlo Molchanov, Jan Kautz, Xiaojuan Qi, and 1 others. 2025. Scaling rl to long videos. Advances in Neural Information Processing Systems , 38:172842–172870. Zhe Chen, Weiyun Wang, Yue Cao, Yangzhou Liu, Zhangwei Gao, Erfei Cui, Jinguo Zhu, Shenglong Ye, Hao Tian, Zhaoyang Liu, and 1 others. 2024. Expanding performance boundaries of open-source multimodal models with model, data, and test-time scaling. arXiv preprint arXiv:2412.05271 .Zixu Cheng, Jian Hu, Ziquan Liu, Chenyang Si, Wei Li, and Shaogang Gong. 2025. V-STaR: Benchmark-ing video-LLMs on video spatio-temporal reasoning. 
+
+arXiv preprint arXiv:2503.11495 .Gheorghe Comanici, Eric Bieber, Mike Schaekermann, Ice Pasupat, Noveen Sachdeva, Inderjit Dhillon, Mar-cel Blistein, Ori Ram, Dan Zhang, Evan Rosen, and 1 others. 2025. Gemini 2.5: Pushing the frontier with advanced reasoning, multimodality, long context, and next generation agentic capabilities. arXiv preprint arXiv:2507.06261 .Lu Dong, Haiyu Zhang, Han Lin, Ziang Yan, Xi-angyu Zeng, Hongjie Zhang, Yifei Huang, Yi Wang, Zhen-Hua Ling, Limin Wang, and Yali Wang. 2025. Videotg-r1: Boosting video temporal ground-ing via curriculum reinforcement learning on re-flected boundary annotations. arXiv preprint arXiv:2510.23397 .Kaituo Feng, Kaixiong Gong, Bohao Li, Zonghao Guo, Yibing Wang, Tianshuo Peng, Junfei Wu, Xiaoy-ing Zhang, Benyou Wang, and Xiangyu Yue. 2025. Video-r1: Reinforcing video reasoning in mllms. In 
+
+Advances in Neural Information Processing Systems .Chaoyou Fu, Yuhan Dai, Yongdong Luo, Lei Li, Shuhuai Ren, Renrui Zhang, Zihan Wang, Chenyu Zhou, Yunhang Shen, Mengdan Zhang, and 1 others. 2025. Video-MME: The first-ever comprehensive evaluation benchmark of multi-modal LLMs in video analysis. In Proceedings of the IEEE/CVF Confer-ence on Computer Vision and Pattern Recognition .Gemini Team, Petko Georgiev, Ving Ian Lei, Ryan Burnell, Libin Bai, Anmol Gulati, Garrett Tanzer, Damien Vincent, Zhufeng Pan, Shibo Wang, and 1 others. 2024. Gemini 1.5: Unlocking multimodal understanding across millions of tokens of context. 
+
+arXiv preprint arXiv:2403.05530 .Xin Gu, Haoji Zhang, Qihang Fan, Jingxuan Niu, Zhipeng Zhang, Libo Zhang, Guang Chen, Fan Chen, Longyin Wen, and Sijie Zhu. 2025. Think-ing with bounding boxes: Enhancing spatio-temporal video grounding via reinforcement fine-tuning. arXiv preprint arXiv:2511.21375 .Yongxin Guo, Jingyu Liu, Mingda Li, Qingbin Liu, Xi Chen, and Xiaoying Tang. 2025. TRACE: Tempo-ral grounding video LLM via causal event modeling. In The Thirteenth International Conference on Learn-ing Representations .Yihui He, Chenchen Zhu, Jianren Wang, Marios Sav-vides, and Xiangyu Zhang. 2019. Bounding box regression with uncertainty for accurate object detec-tion. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 2888–2897. Jack Hong, Shilin Yan, Jiayin Cai, Xiaolong Jiang, Yao Hu, and Weidi Xie. 2025. WorldSense: Evaluating real-world omnimodal understanding for multimodal LLMs. arXiv preprint arXiv:2502.04326 .Kairui Hu, Penghao Wu, Fanyi Pu, Wang Xiao, Yuan-han Zhang, Xiang Yue, Bo Li, and Ziwei Liu. 2025. Video-MMMU: Evaluating knowledge acquisition from multi-discipline professional videos. arXiv preprint arXiv:2501.13826 .Sai Srinivas Kancheti, Aditya Kanade, Rohit Sinha, Vi-neeth N. Balasubramanian, and Tanuja Ganu. 2026. Faithful grpo: Improving visual spatial reasoning in multimodal language models via constrained policy optimization. arXiv preprint arXiv:2604.08476 .
+
+9Ranjay Krishna, Kenji Hata, Frederic Ren, Li Fei-Fei, and Juan Carlos Niebles. 2017. Dense-captioning events in videos. In Proceedings of the IEEE In-ternational Conference on Computer Vision , pages 706–715. Hongyu Li, Songhao Han, Yue Liao, Junfeng Luo, Jialin Gao, Shuicheng Yan, and Si Liu. 2025a. Reinforcement learning tuning for videollms: Re-ward design and data efficiency. arXiv preprint arXiv:2506.01908 .Kunchang Li, Yali Wang, Yinan He, Yizhuo Li, Yi Wang, Yi Liu, Zun Wang, Jilan Xu, Guo Chen, Ping Luo, and 1 others. 2024. MVBench: A com-prehensive multi-modal video understanding bench-mark. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 22195–22206. Xinhao Li, Ziang Yan, Desen Meng, Lu Dong, Xiangyu Zeng, Yinan He, Yali Wang, Yu Qiao, Yi Wang, and Limin Wang. 2025b. Videochat-r1: Enhancing spatio-temporal perception via reinforcement fine-tuning. arXiv preprint arXiv:2504.06958 .Zuyan Liu, Yuhao Dong, Ziwei Liu, Winston Hu, Ji-wen Lu, and Yongming Rao. 2025. Oryx mllm: On-demand spatial-temporal understanding at arbitrary resolution. In International Conference on Learning Representations .Jeffri Murrugarra Llerena and Claudio R. Jung. 2025. Noise-aware evaluation of object detectors. In Pro-ceedings of the Winter Conference on Applications of Computer Vision , pages 9304–9313. Mi Luo, Zihui Xue, Alex Dimakis, and Kristen Grau-man. 2025. When thinking drifts: Evidential ground-ing for robust video reasoning. In Advances in Neural Information Processing Systems .Jiahao Meng, Xiangtai Li, Haochen Wang, Yue Tan, Tao Zhang, Lingdong Kong, Yunhai Tong, Anran Wang, Zhiyang Teng, Yujing Wang, and Zhuochen Wang. 2025. Open-o3 video: Grounded video rea-soning with explicit spatio-temporal evidence. arXiv preprint arXiv:2510.20579 .Jeffri Murrugarra-Llerena, Lucas N. Kirsten, and Clau-dio R. Jung. 2022. Can we trust bounding box an-notations for object detection? In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition Workshops , pages 4812–4821. OpenAI. 2024. GPT-4o system card. arXiv preprint arXiv:2410.21276 .Jinyoung Park, Jeehye Na, Jinyoung Kim, and Hyun-woo J Kim. 2025. Deepvideo-r1: Video reinforce-ment fine-tuning via difficulty-aware regressive grpo. 
+
+Advances in Neural Information Processing Systems ,38:138605–138632. Hamid Rezatofighi, Nathan Tsoi, JunYoung Gwak, Amir Sadeghian, Ian Reid, and Silvio Savarese. 2019. Generalized intersection over union: A metric and a loss for bounding box regression. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 658–666. Gabriel Herbert Sarch, Snigdha Saha, Naitik Khandel-wal, Ayush Jain, Michael J. Tarr, Aviral Kumar, and Katerina Fragkiadaki. 2025. Grounded reinforce-ment learning for visual reasoning. In Advances in Neural Information Processing Systems .Zhihong Shao, Peiyi Wang, Qihao Zhu, Runxin Xu, Junxiao Song, Xiao Bi, Haowei Zhang, Mingchuan Zhang, Y. K. Li, Y. Wu, and Daya Guo. 2024. Deepseekmath: Pushing the limits of mathematical reasoning in open language models. arXiv preprint arXiv:2402.03300 .Chuming Shen, Wei Wei, Xiaoye Qu, and Yu Cheng. 2025. Satori-r1: Incentivizing multimodal reasoning with spatial grounding and verifiable rewards. arXiv preprint arXiv:2505.19094 .Haochen Wang, Xiangtai Li, Zilong Huang, Anran Wang, Jiacong Wang, Tao Zhang, Jiani Zheng, Sule Bai, Zijian Kang, Jiashi Feng, Zhuochen Wang, and Zhaoxiang Zhang. 2026a. Traceable evidence en-hanced visual grounded reasoning: Evaluation and method. In International Conference on Learning Representations .Qi Wang, Yanrui Yu, Ye Yuan, Rui Mao, and Tianfei Zhou. 2025a. Videorft: Incentivizing video reason-ing capability in mllms via reinforced fine-tuning. In 
+
+Advances in Neural Information Processing Systems .Weiyun Wang, Zhangwei Gao, Lianjie Chen, Zhe Chen, Jinguo Zhu, Xiangyu Zhao, Yangzhou Liu, Yue Cao, Shenglong Ye, Xizhou Zhu, Lewei Lu, Haodong Duan, Yu Qiao, Jifeng Dai, and Wenhai Wang. 2026b. Visualprm400k: An effective dataset for training mul-timodal process reward models. In International Conference on Learning Representations .Ye Wang, Ziheng Wang, Boshen Xu, Yang Du, Kejun Lin, Zihan Xiao, Zihao Yue, Jianzhong Ju, Liang Zhang, Dingyi Yang, Xiangnan Fang, Zewen He, Zhenbo Luo, Wenxuan Wang, Junqi Lin, Jian Luan, and Qin Jin. 2025b. Time-r1: Post-training large vision language model for temporal video ground-ing. In Advances in Neural Information Processing Systems .Ziyang Wang, Jaehong Yoon, Shoubin Yu, Md Mo-haiminul Islam, Gedas Bertasius, and Mohit Bansal. 2025c. Video-rts: Rethinking reinforcement learning and test-time scaling for efficient and enhanced video reasoning. In Proceedings of the 2025 Conference on Empirical Methods in Natural Language Processing ,pages 28126–28140. Haobo Yuan, Xiangtai Li, Tao Zhang, Zilong Huang, Shilin Xu, Shunping Ji, Yunhai Tong, Lu Qi, Jiashi 
+
+10 Feng, and Ming-Hsuan Yang. 2025. Sa2VA: Mar-rying SAM2 with LLaVA for dense grounded un-derstanding of images and videos. arXiv preprint arXiv:2501.04001 .Boqiang Zhang, Kehan Li, Zesen Cheng, Zhiqiang Hu, Yuqian Yuan, Guanzheng Chen, Sicong Leng, Yum-ing Jiang, Hang Zhang, Xin Li, and 1 others. 2025a. VideoLLaMA 3: Frontier multimodal foundation models for image and video understanding. arXiv preprint arXiv:2501.13106 .Xiaowen Zhang, Zhi Gao, Licheng Jiao, Lingling Li, and Qing Li. 2026. Stvg-r1: Incentivizing instance-level reasoning and grounding in videos via rein-forcement learning. In International Conference on Learning Representations .Yuanhan Zhang, Jinming Wu, Wei Li, Bo Li, Zejun MA, Ziwei Liu, and Chunyuan Li. 2025b. LLaVA-video: Video instruction tuning with synthetic data. 
+
+Transactions on Machine Learning Research .Zhaohui Zheng, Ping Wang, Wei Liu, Jinze Li, Rong-guang Ye, and Dongwei Ren. 2020. Distance-iou loss: Faster and better learning for bounding box re-gression. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 34, pages 12993– 13000. Ziwei Zheng, Michael Yang, Jack Hong, Chenxiao Zhao, Guohai Xu, Le Yang, Chao Shen, and Xing Yu. 2026. Deepeyes: Incentivizing thinking with images via reinforcement learning. In International Conference on Learning Representations .Jinguo Zhu, Weiyun Wang, Zhe Chen, Zhaoyang Liu, Shenglong Ye, Lixin Gu, Hao Tian, Yuchen Duan, Weijie Su, Jie Shao, Zhangwei Gao, Erfei Cui, Xue-hui Wang, Yue Cao, Yangzhou Liu, Xingguang Wei, Hongjie Zhang, Haomin Wang, Weiye Xu, and 32 others. 2025. Internvl3: Exploring advanced train-ing and test-time recipes for open-source multimodal models. arXiv preprint arXiv:2504.10479 .
+
+11 A Training Log 
+
+To illustrate the optimization dynamics of SER, we plot the training curves of the policy network over 7, 000 reinforcement learning steps. Figure 3 displays (a) the total reward R and (b) the claim-level semantic evidence reward RSER introduced in §3. In our training logs, RSER is recorded under the legacy key thk_spatial_reward ; the two names refer to the same quantity. As illustrated in Figure 3(a), the total reward R
+
+rises sharply during the initial 1, 000 steps and, af-ter a brief phase of adaptation, maintains a steady, monotonic upward trajectory before stabilizing af-ter approximately 5, 000 steps. This swift conver-gence confirms that our multi-objective reward de-sign provides a coherent gradient signal that suc-cessfully guides the policy toward high-quality gen-eration. Crucially, as shown in Figure 3(b), RSER —the referee-graded score over parsed evidence claims (ωi · ri · ℓi, averaged per response)—exhibits a par-allel steady ascension from a near-zero baseline to a robust plateau of ≈ 0.30 . Rather than fluc-tuating erratically under VLM referee noise, the continuous growth and subsequent stabilization of 
+
+RSER suggest that the agent successfully bypasses step-function sparsity to learn structured evidence-seeking behaviors. This simultaneous upward trend holds profound implications for grounded video QA. It reveals that the policy progressively learns to structure its rea-soning through explicit spatio-temporal anchoring. Instead of relying on linguistic shortcuts or halluci-nated timestamps, the agent increasingly leverages relevant visual evidence crops as a prerequisite for downstream answering. In essence, the steady im-provement in RSER demonstrates the emergence of an evidence-based reasoning paradigm, where spatial localization and linguistic reasoning chains co-evolve to mutually reinforce each other’s credi-bility. 
+
+B More Quanlitative Examples 
+
+We provide three side-by-side comparisons be-tween SER-7B and Open-o3-Video on V-STAR-style instances. Each panel shows uniformly sam-pled keyframes (green border: ground-truth tem-poral window), the VQA and temporal grounding queries, and the full reasoning traces of both mod-els. Open-o3-Video also adopts an evidence-guided reasoning interface, but its training pipeline relies on dense spatio-temporal annotations or teacher-generated grounding traces that are expensive to obtain at scale. As a result, evidence-thinking su-pervision can be applied to only a subset of the training corpus in practice, and the policy does not consistently learn to solve every problem through faithful evidence seeking. The cases below illus-trate this gap: Open-o3-Video may still produce plausible VQA answers, but it performs poorly on temporal grounding—its intermediate reasoning often lacks structured visual anchors or cites irrele-vant timestamps, and when asked when an action occurs it frequently falls back to predicting nearly the entire clip rather than the true event window, yielding very low tIoU despite superficially reason-able text. 
+
+Case 1: evidence cited at the wrong moment. 
+
+In Figure 4, both models answer that the adult leans on a chair, but their grounding behaviors di-verge. SER anchors its reasoning on early frames where the adult is visibly leaning on a chair (tIoU 
+
+= 0 .985 ; predicted interval 0–6.4 s). Open-o3-Video reaches the same VQA answer yet cites ev-idence from the end of the clip (e.g., 29.8 s and 32.0 s, after the gymnast has finished), yielding a bloated interval of 0–29 s and tIoU = 0 .224 .This mismatch between answer correctness and evidence faithfulness is characteristic of partially supervised evidence training: without dense reward coverage, the baseline can fall back to answer-only shortcuts instead of consistently grounding each claim in the relevant visual moment. 
+
+Case 2: action onset and offset in a long clip. 
+
+Figure 5 shows a case where Open-o3-Video misidentifies the food as a sausage and predicts the eating span as the entire 65 s clip (tIoU = 0 .260 ). SER, by contrast, focuses on the opening segment where Sheldon is visibly eating from a plate, pre-dicts 0–17.3 s, and achieves tIoU = 0 .978 . Notably, Open-o3-Video’s temporal reasoning mentions the correct food phrase yet still defaults to a clip-wide interval—suggesting that evidence-style phrasing alone does not guarantee temporally faithful rea-soning when supervision is sparse. 
+
+Case 3: structured evidence vs. free-form nar-ration. In Figure 6, SER emits parseable evi-dence claims with object tags, bounding boxes, and timestamps at 4.1 s and 10.2 s, localizing the interval to 4–10 s (tIoU = 0.968 ). Open-o3-Video produces a descriptively plausible trace with-12 Figure 3: Training progress curves of SER over 7, 000 RL steps: (a) total reward R received by the policy (left), and (b) the semantic evidence reward RSER (logged as thk_spatial_reward in our codebase) measuring referee-verified spatio-temporal evidence alignment (right). 
+
+Figure 4: Qualitative comparison on a gymnastics clip. The VQA question asks what the adult leans on; the temporal question asks when the adult leans on a chair. Ground truth: a chair from 0 s to 6.5 s. 
+
+13 Figure 5: Qualitative comparison on an Entertainments clip. The VQA question asks what Sheldon is eating in the car with Amy; the temporal question asks when that eating occurs. Ground truth: “French toast sticks with syrup” from 0 s to 16.91 s. 
+
+Figure 6: Qualitative comparison on a snowy outdoor clip. The VQA question asks who is away from the adult in black; the temporal question asks when a child in blue is away from that adult. Ground truth: from 4 s to 10.2 s. 
+
+14 out comparable structured anchors and predicts 0–10 s (tIoU = 0 .588 ), starting the interval too early. Together, these examples highlight why weakly supervised semantic verification is impor-tant: SER can reward faithful evidence use on stan-dard Video QA tuples across the full training mix, whereas annotation-hungry evidence supervision leaves Open-o3-Video unable to reliably enforce evidence-based reasoning on every instance. 
+
+C Training and Implementation Details 
+
+This section provides the complete training recipe for SER-7B. Unless otherwise noted, the settings below correspond to our main reported model (Ta-ble 1); ablation studies reuse the same pipeline and vary only reward composition and coefficients. 
+
+C.1 Training Corpus 
+
+The corpus contains approximately 56 k samples across temporal grounding, spatial grounding, spatio-temporal grounding, tracking, and general video question answering. It includes (i) ∼27k tem-poral grounding samples from VideoChat-R1-18k (∼15k), TimeLens ( ∼9k), and Time-R1 ( ∼2.3k); (ii) 5k spatial grounding samples from VisCoT; (iii) ∼12k spatio-temporal samples from STGR (∼7k) and VideoEspresso (5k); and (iv) 13k gen-eral video QA MCQ samples from Video-R1. For VideoChat-R1-18k and TimeLens, one query is sampled per video to reduce within-video redun-dancy. 
+
+C.2 Structured Policy Interface 
+
+The policy generates a two-part response: an inter-mediate reasoning trace followed by a final answer. The reasoning trace must contain one or more evi-dence claims , each specifying (i) a target object or region description, (ii) a claimed timestamp, and (iii) a normalized bounding box. The final answer is emitted separately and is scored independently from the intermediate claims. During RL, a format-compliance reward Rfmt verifies that the output is syntactically well-formed. The model receives full credit ( 1.0) only when at least one evidence claim can be successfully parsed; partially structured out-puts that contain a valid answer but no parseable claim receive partial credit ( 0.5); unparseable tra-jectories receive no format reward. This constraint stabilizes exploration and ensures that semantic feedback can be computed consistently throughout training. 
+
+C.3 Reward Formulation 
+
+The total training reward combines three comple-mentary signals: answer correctness ( Rans ), format compliance ( Rfmt ), and semantic evidence reward (RSER ). The overall objective is a weighted sum: 
+
+R = λans Rans + λfmt Rfmt + λSER RSER , (8) where (λans , λ fmt , λ SER ) = (2 .0, 1.0, 0.5) in our main configuration. Table 9 summarizes each top-level term and the task-adaptive sub-signals inside 
+
+Rans .
+
+Answer correctness (Rans ). Rans evaluates whether the final answer in the model output matches task-specific ground truth. It aggregates up to three sub-signals, only one or more of which activate depending on the sample type: (i) MCQ accuracy for standard multiple-choice Video QA (binary match on the selected option); (ii) tem-poral IoU (RtIoU ), measuring overlap between the predicted and reference temporal interval when temporal localization labels are available; (iii) vi-sual IoU (RvIoU ), measuring box overlap when reference bounding boxes are available for spatial-grounding instances. All active sub-signals are combined into a single Rans score and scaled by 
+
+λans . This keeps answer supervision unified un-der one weight while adapting to heterogeneous training data—from text-only Video QA tuples 
+
+(V, q, a ⋆) to spatio-temporally annotated reasoning chains such as V-STAR. Importantly, RtIoU and 
+
+RvIoU score the final answer (e.g., the predicted interval or box emitted at the end of the response), which is distinct from RSER : the latter semanti-cally verifies intermediate evidence claims during reasoning and does not require dense claim-level box annotations. 
+
+Semantic evidence ( RSER ). For each parsed claim ci = ( oi, b i, τ i), the semantic reward engine proceeds in four steps. (i) Temporal hallucination penalty. The policy receives only a discrete set of input keyframes {tj }; it cannot observe continuous time between these samples. For each claim times-tamp τi, we identify the nearest observed keyframe 
+
+tj(i) = arg min j |τi − tj |. If τi deviates substan-tially from tj(i), the model attributes evidence to a moment that was not present in its visual input— a temporal hallucination . We downweight such claims with a smooth Gaussian gate that acts as a 15 Table 9: Training reward components and their activation criteria.             
+
+> Reward term Symbol Criterion
+> Components of answer correctness ( Rans ; task-adaptive, inactive sub-signals receive zero)
+> MCQ accuracy —Binary exact match on the selected option for multiple-choice QA Temporal IoU RtIoU Interval overlap when reference temporal spans are available Visual IoU RvIoU Box overlap when reference bounding boxes are available Format compliance Rfmt Valid reasoning–answer structure with parseable evidence claims Semantic evidence RSER Referee-graded relevance and localization on intermediate parsed claims
+
+soft penalty rather than a hard rejection: 
+
+ωi = exp − (τi − tj(i))2
+
+2σ2
+
+> t
+
+!
+
+, σt = 2 .0. (9) Claims near an actual keyframe retain full credit (ωi ≈ 1); increasingly spurious timestamps are progressively suppressed. The referee neverthe-less inspects crops from the nearest keyframe Ij(i),so ωi penalizes temporal unfaithfulness indepen-dently of the semantic scores ri and ℓi. (ii) Ref-eree verification. Using the matched frame, we construct a full-frame view with the predicted box highlighted and a tight in-box crop. A frozen ref-eree VLM (InternVL3-8B (Zhu et al., 2025) in our main runs) evaluates each claim along two or-thogonal dimensions—evidence relevance ( ri) and localization quality ( ℓi)—via separate constrained prompts (Appendix F). The referee outputs an or-dinal grade in {A, . . . , E}, mapped to [0 , 1] through monotonic calibrations Γrel and Γloc . (iii) Per-claim aggregation. The claim-level semantic score is RSER  
+
+> i
+
+= ωi · (ri · ℓi), enforcing that high re-ward requires both semantic relevance and spatial tightness. (iv) Sample-level aggregation. RSER 
+
+averages over the first M = 3 successfully graded claims per response; crops are expanded by 8% 
+
+before referee inspection to tolerate minor bound-ary noise. In ablation studies, relevance and local-ization grading can be disabled independently to isolate each sub-signal. 
+
+C.4 GRPO Optimization 
+
+We optimize the policy with Group Relative Policy Optimization (GRPO) (Shao et al., 2024). For each video–question pair, we sample G = 4 indepen-dent rollouts and compute the group-normalized advantage 
+
+ˆAg = Rg − μR
+
+σR + ϵ . (10) Table 10 lists the remaining hyperparameters. Training uses DeepSpeed ZeRO-2, bfloat16 preci-sion, FlashAttention-2, and gradient checkpointing. The KL penalty coefficient is β = 0 .04 .
+
+C.5 Referee Model and Inference Cost 
+
+The semantic referee is a frozen off-the-shelf VLM kept in evaluation mode throughout training; its parameters are never updated. Each graded claim requires two forward passes (relevance and local-ization). Evaluating only the first M = 3 parseable claims per response balances reward fidelity against training-time overhead. In the referee ablation (Ta-ble 4), we additionally test Qwen2.5-VL-7B (Bai et al., 2025) as an alternative referee backbone under an otherwise identical protocol, and report downstream policy performance on VideoMME. 
+
+C.6 Evaluation Protocol 
+
+At test time, models produce the same struc-tured output format but the referee is not in-voked. Benchmark-specific metrics follow each dataset’s official protocol (Appendix D): V-STAR reports What accuracy and Temporal/Visual IoU under both reasoning chains; general benchmarks use multiple-choice accuracy; TVGBench and ActivityNet-Captions report temporal mIoU and R@ {0.3, 0.5, 0.7}. All open-source comparisons in Tables 1 and 2 share identical frame budgets and decoding settings unless a baseline paper specifies otherwise. 
+
+D Evaluation Benchmark Details 
+
+We evaluate SER on eight benchmarks that jointly cover spatio-temporal evidence grounding, long-horizon reasoning, omnimodal perception, knowl-edge acquisition, and temporal localization. Ta-ble 2 and Table 7 report our results on gen-eral video understanding and temporal grounding benchmarks; V-STAR serves as the primary bench-mark for joint spatio-temporal evidence grounding. Below we summarize each dataset, the capability it is designed to probe, and the metric used in our experiments. 16 Table 10: GRPO training hyperparameters (main configuration).                                    
+
+> Hyperparameter Value Hyperparameter Value
+> Optimizer AdamW Learning rate 1×10 −6
+> LR schedule Cosine Weight decay 0.01
+> Precision bfloat16 Attention FlashAttention-2 DeepSpeed ZeRO-2 KL coefficient β0.04
+> Max grad norm 5.0Train epochs 1
+> Per-device batch size 1Grad. accumulation 1
+> Rollouts per prompt G4Max prompt length 16 ,384
+> Max completion length 768 Max pixels 401 ,408
+> Gradient checkpointing On Checkpoint interval 500 steps
+
+V-STAR (Cheng et al., 2025). V-STAR (Video Spatio-Temporal Reasoning) is the first bench-mark to evaluate whether Video-LLMs can reason through a sequential spatio-temporal logic rather than merely recognizing object presence. It for-mulates video understanding as Reverse Spatio-Temporal Reasoning (RSTR): given a video and a “what” question, the model must first answer cor-rectly and then localize the supporting evidence along when (temporal interval) and where (bound-ing box) dimensions. The benchmark contains 2,094 videos (64.1 hours) spanning nine domains, with coarse-to-fine chain-of-thought questions gen-erated via a semi-automatic GPT-4 pipeline and manually verified. Two parallel reasoning chains— Chain1 ( what–when–where ) and Chain2 ( what– where–when )—disentangle how reasoning order affects temporal and spatial grounding. V-STAR thus directly tests the core abilities targeted by SER: semantic answer correctness, temporal anchoring, and spatial evidence localization. We report What accuracy, Temporal/Visual IoU under both chains, and aggregate scores mAM and mLGM. For each chain, we compute the arithmetic mean (AM) and the modified logarithmic geometric mean (LGM) as 
+
+AM = 13 (Acc + mtIoU + mvIoU ) , (11) 
+
+LGM = − 13
+
+h
+
+ln(1 − Acc + ϵ)+ ln(1 − mtIoU + ϵ)+ ln(1 − mvIoU + ϵ)
+
+i
+
+.
+
+(12) We then average the chain-level scores over Chain1 and Chain2 ( n = 2 ): 
+
+mAM = 1
+
+n
+
+> n
+
+X
+
+> k=1
+
+AM k, mLGM = 1
+
+n
+
+> n
+
+X
+
+> k=1
+
+LGM k.
+
+(13) 
+
+LongVideo-Reason (Chen et al., 2025). 
+
+LongVideo-Reason is a long-video reasoning benchmark introduced alongside the LongVILA-R1 framework for scaling RL to extended visual contexts. Its evaluation split, LongVideo-Reason-eval, comprises 1,000 manually curated long videos with question–reasoning–answer pairs annotated along four orthogonal reasoning axes: 
+
+Temporal (event ordering and duration), Goal & Purpose (intent and strategy inference), Spatial 
+
+(layout and positional relations), and Plot & Narrative (story-level comprehension). Unlike short-clip QA benchmarks, it stresses whether a model can maintain coherent reasoning over minute-scale footage without attention drift. We report overall accuracy, which rewards models that can sustain structured, evidence-backed reasoning across long temporal horizons—precisely the behavior SER incentivizes via intermediate spatio-temporal claims. 
+
+WorldSense (Hong et al., 2025). WorldSense is the first benchmark for omnimodal real-world video understanding, requiring tight coupling of vision, audio, and language. It contains 1,662 syn-chronized audio-visual clips across eight domains and 67 subcategories, with 3,172 expert-annotated multiple-choice questions spanning 26 cognitive tasks from basic perception to high-level inference. Crucially, many questions are designed so that nei-ther modality alone suffices—removing audio or video leads to failure—thereby testing integrated sensory reasoning rather than silent-frame short-cuts. We report Overall accuracy across all tasks and Recog. accuracy on recognition-oriented per-ception tasks (e.g., entity and event identification), which probe whether grounding-enhanced training preserves low-level multimodal perception. 
+
+VideoMMMU (Hu et al., 2025). Video-MMMU evaluates knowledge acquisition from professional educational videos, treating video as a source of 17 learnable content rather than mere visual context. It curates 300 college-level lecture videos across six disciplines (Art, Business, Science, Medicine, Hu-manities, Engineering) and 900 human-annotated questions aligned with three cognitive stages in-spired by Bloom’s taxonomy: Perception (identi-fying key concepts), Comprehension (interpreting underlying principles), and Adaptation (applying knowledge to novel problems). Performance typi-cally drops sharply as cognitive demand increases, exposing models that memorize surface patterns without genuine understanding. We report Overall 
+
+accuracy and Percep. accuracy on the Perception stage, which tests whether a model can reliably extract factual evidence from dense instructional content—a prerequisite for grounded video reason-ing. 
+
+VideoMME (Fu et al., 2025). Video-MME is a full-spectrum multimodal evaluation benchmark for video analysis, distinguished by diversity in video type (six domains, 30 subfields), temporal duration (11 seconds to 1 hour), and input modal-ity (frames, subtitles, and audio). It comprises 900 manually annotated videos totaling 254 hours and 2,700 multiple-choice QA pairs, making it the de facto standard for assessing general-purpose Video MLLM capabilities. The benchmark probes cross-domain generalization, long-context reten-tion, and multimodal fusion under realistic view-ing conditions. We report Overall accuracy with video frames as input, measuring whether evidence-grounding RL improves—rather than degrades— broad video understanding. 
+
+TVGBench (Wang et al., 2025b). TVGBench is a compact yet comprehensive temporal video grounding (TVG) benchmark designed for eval-uating large vision-language models. It aggre-gates 800 test instances from multiple public TVG sources, balancing video duration, domain, and query semantics across 11 query types. Given a natural-language query, the model must predict the start and end timestamps of the relevant video segment; we report mean Intersection-over-Union (mIoU) between predicted and ground-truth inter-vals. TVGBench specifically tests fine-grained tem-poral boundary awareness—whether the model can pinpoint when critical evidence occurs, comple-menting V-STAR’s joint spatio-temporal evalua-tion.            
+
+> Table 11: Joint V-STAR success rates (%) for SER-7B. Each row denotes the fraction of samples satisfying all
+> listed dimensions at once.
+> Joint criterion Chain1 Chain2
+> VQA & Temporal 25.3 25.9 VQA & Spatial 45.7 13.9 Temporal & Spatial 27.6 10.4 VQA & Temporal & Spatial 18.3 7.4
+
+ActivityNet-Captions (Krishna et al., 2017). 
+
+ActivityNet-Captions connects untrimmed web videos to temporally localized sentence descrip-tions: each of ∼20K videos contains on average 3.65 annotated segments with start/end timestamps, covering diverse human activities over durations from seconds to minutes. We use the standard tem-poral grounding split to evaluate zero-shot trans-fer: models trained with our method are directly tested on ActivityNet without dataset-specific fine-tuning. Given a query sentence, the model must localize the corresponding temporal segment; we report R@ {0.3, 0.5, 0.7} and mIoU. This bench-mark probes out-of-distribution generalization of learned evidence-seeking behavior to an unseen do-main and annotation style, testing whether seman-tic feedback rewards cultivate transferable temporal alignment rather than dataset-specific overfitting. 
+
+E Extended Results 
+
+Table 1 reports headline V-STAR numbers used in the main text. Here we provide the com-plete official evaluation log for SER-7B, includ-ing fine-grained temporal Recall@IoU and spatial mAP@IoU thresholds, joint success rates across the What /When /Where dimensions, and stratified breakdowns by video length and domain. All val-ues are percentages ( ×100 ) unless noted otherwise. 
+
+E.1 Fine-Grained Metrics on the Full Benchmark 
+
+Table 11 reports joint success rates: the fraction of samples for which multiple grounding dimensions are simultaneously satisfied under the official V-STAR protocol. These rates expose a recurring pattern—correct answers are far more likely to co-occur with temporal grounding than with spatial grounding under Chain2, reflecting the asymmetry between what–when–where and what–where–when 
+
+reasoning orders. 18 Table 12: Complete V-STAR evaluation of SER-7B on the full benchmark ( N =2 ,094 videos). Mean IoU / Mean mIoU correspond to the Temporal/Visual IoU columns in Table 1.                                         
+
+> What (VQA) accuracy 61.6
+> Temporal (Recall@IoU) @0.3 @0.5 @0.7 Mean IoU AM LGM
+> Chain1 ( w–t–w )41.3 25.1 12.8 27.9 40.1 55.0 Chain2 ( w–w–t )41.7 24.1 11.1 27.3 31.3 44.3
+> Spatial (mAP@IoU) @0.1 @0.3 @0.5 @0.7 @0.9 Mean mIoU
+> Chain1 ( w–t–w )57.0 45.3 31.7 16.7 2.7 30.7 Chain2 ( w–w–t )9.6 7.7 5.4 2.5 0.4 5.1
+> Overall –mAM: 35.7 mLGM: 49.6
+
+E.2 Breakdown by Video Length 
+
+V-STAR partitions its 2,094 videos into three duration buckets— Short , Medium , and Long —following the official benchmark protocol. Ta-ble 13 stratifies SER-7B accordingly and reveals a sharp length-induced performance cliff rather than a smooth degradation. On Short and Medium clips, the model is broadly stable: What accuracy stays above 63%, Chain1/Chain2 temporal Mean IoU remain in the high-20s to low-30s, and mLGM ex-ceeds 51%. The aggregate leaderboard numbers in Table 1 are therefore largely driven by short-to-medium footage, where spatio-temporal evidence search remains tractable within the fixed 16-frame budget. Long videos ( >60 s) tell a qualitatively differ-ent story. What accuracy collapses to 22.0% and temporal Mean IoU falls below 5%, yet Chain1 spatial mIoU persists at 31.5%—comparable to, and even slightly above, the Short split. This de-coupling suggests that failure on long clips is not primarily a box-drawing deficiency: given a candi-date key frame, the policy can still localize semanti-cally plausible regions, but it struggles to search the extended timeline and identify when the decisive evidence occurs. In other words, length sensitiv-ity manifests as a temporal exploration bottleneck rather than a spatial perception bottleneck, consis-tent with the fixed-frame sampling constraint under hour-scale inputs. Chain2 spatial mIoU (0.9%) fur-ther deteriorates on Long splits, reinforcing that reversing the grounding order—localizing before temporal anchoring—becomes especially brittle when the searchable window grows. 
+
+E.3 Breakdown by Domain Takeaways. Three patterns emerge from the full log. (i) Reasoning-order asymmetry. Chain1 spatial mIoU (30.7%) substantially exceeds Chain2 (5.1%), and the joint VQA&Spatial rate drops from 45.7% to 13.9%, confirming that localizing evi-dence after temporal anchoring is far easier than the reverse order. (ii) Length sensitivity. Per-formance on long videos is dominated by tempo-ral failure (5.4% Chain1 Mean IoU) rather than semantic confusion (22.0% What accuracy), sug-gesting that extended temporal search remains the primary bottleneck for hour-scale footage. (iii) Do-main heterogeneity. Indoor, Animals, and Vehicle scenes benefit from strong Chain1 spatial ground-ing ( >35% mIoU), whereas Entertainments and Sports exhibit high temporal but comparatively weak spatial scores—a discrepancy that joint met-rics make explicit but aggregate leaderboard num-bers obscure. 
+
+F Judge Prompt 
+
+During training, each parsed evidence claim is scored by a referee VLM on two separate calls: ev-idence relevance (Figure 7) and localization (box) quality (Figure 8). Both calls receive (i) the full frame with the predicted box drawn in red, (ii) the crop inside that box, and (iii) the linguistic context below. The referee must output exactly one letter in {A, . . . , E}; we map letters to [0 , 1] via Γrel and 
+
+Γloc (defaults: A:1.0, B:0.82, C:0.55, D:0.18, E:0.0). The per-claim semantic score is the product of the two mapped scores. Each prompt is instantiated with the question, the policy’s full response, the ref-erence answer, and the target object phrase claimed by the model. For Qwen2.5-VL referees we use the same rubrics with image references phrased as “the first/second image” instead of Image-1 /Image-2 
+
+placeholders; the referee generates at most four tokens under greedy decoding. 
+
+G More Related Works 
+
+V-STAR comparison systems. Table 1 com-pares SER on V-STAR against three baseline groups. (i) Closed-source models: GPT-4o (Ope-19 Table 13: V-STAR results of SER-7B stratified by video length (official Short / Medium / Long splits). Long-form clips ( >60 s) constitute the primary failure mode: temporal grounding and answer accuracy collapse while Chain1 spatial mIoU remains non-trivial.                                       
+
+> Split What When (Mean IoU) Where (Mean mIoU) Overall Acc C1 C2 C1 C2 mAM mLGM
+> Overall 61.6 27.9 27.3 30.7 5.1 35.7 49.6 Short 63.5 28.8 27.8 31.0 6.2 36.8 51.9 Medium 63.1 29.2 29.3 30.1 3.7 36.4 51.4 Long 22.0 5.4 4.9 31.5 0.9 14.4 16.5
+
+Table 14: V-STAR results of SER-7B stratified by domain (nine official categories). Shows attains the highest What accuracy (70.1%) but relatively weak temporal IoU; Tutorial is the most challenging split overall (32.4% What, 24.0% mLGM).                                                                          
+
+> Domain What When (Mean IoU) Where (Mean mIoU) Overall Acc C1 C2 C1 C2 mAM mLGM
+> Life 64.9 25.9 25.0 36.2 6.8 37.3 53.4 Entertainments 56.1 32.9 32.1 22.5 3.6 33.9 45.4 Sports 63.7 25.6 25.2 21.6 3.1 33.8 48.2 Indoor 62.1 27.5 27.7 36.4 5.8 36.9 51.7 Animals 63.8 27.2 27.5 35.0 6.7 37.4 52.9 Shows 70.1 20.6 19.2 27.8 3.4 35.2 53.7 Tutorial 32.4 12.5 11.5 31.9 1.4 20.4 24.0 Nature 64.7 32.9 31.1 29.7 6.2 38.2 54.5 Vehicle 64.4 26.8 24.9 35.0 5.6 36.9 52.5
+
+nAI, 2024) and Gemini-2-Flash (Gemini Team et al., 2024; Comanici et al., 2025), accessed via their public APIs under identical prompt-ing and frame budgets. (ii) Open-source gen-eral Video MLLMs: Video-LLaMA3 (Zhang et al., 2025a), LLaVA-Video (Zhang et al., 2025b), VideoChat2 (Li et al., 2024), Oryx-1.5-7B (Liu et al., 2025), InternVL-2.5-8B (Chen et al., 2024), and our backbone Qwen2.5-VL-7B, representing contemporary open multimodal video understand-ing without task-specific grounding supervision. 
+
+(iii) Task-specialized systems: TRACE (Guo et al., 2025) for temporal video reasoning, Sa2VA-8B (Yuan et al., 2025) for dense referring segmen-tation, and Open-o3-Video (Meng et al., 2025), a concurrent evidence-guided video reasoning framework that also structures intermediate spatio-temporal claims. This grouping isolates whether gains stem from proprietary scale, general video QA capacity, or specialized grounding priors. 
+
+H Human Annotation for Referee Validation 
+
+Human annotators were used solely for the offline referee validation study in Table 8; no human labels were used for training. 
+
+H.1 Protocol 
+
+Three annotators independently rated 750 sampled V-STAR instances (Cheng et al., 2025) using the rubric in Appendix H.5. Each item included the frame with the predicted box, the in-box crop, and the associated question–answer context. Per-instance scores are averaged over the three ratings and compared against the automated referee (Ap-pendix F). 
+
+H.2 Recruitment and Compensation 
+
+The three annotators are graduate student re-searchers from our lab. We did not use crowdsourc-ing or external hiring; participation was voluntary and uncompensated. 
+
+H.3 Data Consent 
+
+All annotated content comes from public V-STAR data. Annotators were told that their ratings would be used only for referee validation in this paper and that they could stop at any time. Only ordinal scores were recorded. 
+
+H.4 Ethics Review 
+
+This study annotates existing public benchmark data and did not require IRB approval under our institution’s policy. 20 Evidence Relevance Prompt 
+
+Image-1: <image> Image-2: <image> You are an expert visual referee. We are evaluating a vision-language model 's ability to select the object/person that is most useful for answering a question. Image 1 is the full video frame with a RED bounding box drawn by the model. Image 2 is the cropped image of that bounding box. Question and options (if any): {question} Model 's full response (as generated by the evaluated model): {model_response} Reference answer (ground truth, for context): {answer} Target object/region the model claims this box refers to: {target_object} Evaluate the RELEVANCE based on the object 's FUNCTIONAL ROLE in answering the question. Use the following strict logical criteria to select exactly ONE letter (A, B, C, D, or E): A (Exact Target Evidence): PERFECT MATCH. The boxed object/person is the EXACT primary subject or core visual evidence directly required by the answer. (e.g., Q:"Who is holding the red cup?" Box is exactly on the person holding the red cup). B (Interacting/Secondary Object): PARTIAL EVIDENCE. The boxed object is actively involved in the action or scene, but it is NOT the primary target asked for. (e.g., Q:"What is the man holding?" Answer:"A red cup." But the box is drawn on the MAN instead of the CUP). C (Wrong Instance / Category Confusion): SEMANTIC ERROR. The boxed object is the correct category (e.g., a person, a car) but the WRONG specific instance. (e.g., Q:"Who is wearing a red shirt?" Box is on a person wearing a blue shirt). D (Contextual Background): WEAK RELEVANCE. The boxed object is merely background environment or a passive object that sets the scene, but provides NO direct evidence for the specific answer. (e.g., Q:"What game are they playing?" Box is on a cloud or a stadium light). E (Completely Irrelevant / Noise): TOTAL FAILURE. The bounding box captures empty space, random noise, or objects completely unrelated to the scene 's core activity. Output exactly one letter: "A", "B", "C", "D", or "E". 
+
+Figure 7: Referee prompt for evidence relevance . The referee receives two images—the full frame with a red predicted box and the in-box crop—along with the linguistic placeholders in braces. 
+
+H.5 Instructions Given to Annotators 
+
+Annotators assigned one holistic letter grade in 
+
+{A, . . . , E} for evidence relevance and box quality, using the same calibration as the referee. The full instructions are shown below. 
+
+I Use of AI Assistants 
+
+We used AI assistants (e.g., ChatGPT and Cursor) in preparing this paper and codebase. Their role was limited to writing support (polishing English prose, improving LaTeX formatting, and suggest-ing wording for non-technical passages) and cod-ing support (boilerplate implementation, debug-ging snippets, and refactoring suggestions). AI tools were not used to design the method, run experiments, analyze results, produce figures or tables, or perform human annotation. All code, ex-perimental numbers, claims, and conclusions were verified by the authors, who take full responsibility for the manuscript. 21 Localization (Box) Quality Prompt 
+
+Image-1: <image> Image-2: <image> You are an expert visual referee. We are evaluating a vision-language model 's ability to accurately bound an object. Image 1 is the full video frame with a RED bounding box drawn by the model. Image 2 is the cropped image of that bounding box. Question and options (if any): {question} Model 's full response (as generated by the evaluated model): {model_response} Reference answer (for context): {answer} Target object/person the box should enclose (as claimed by the model): {target_object} Your task is to evaluate the BOUNDING BOX QUALITY of the red box with respect to that target. Does the bounding box accurately and tightly enclose the intended object/person? It should not be too large (including too much background/redundant parts) and not too small (missing parts of the object). Grade the bounding box quality using strictly ONE letter: A: The bounding box is highly accurate, tight, and complete. B: The bounding box includes some background beyond the necessary space for enclosing the object, or slightly truncates the object, but the object is still clearly recognizable. C: The bounding box is much larger than the key target object, or truncates important parts of the object. D: The bounding box quality is very poor, such as being too small, severely truncated, or missing the main subject. E: The bounding box is completely wrong, or does not enclose any meaningful object. Output exactly one letter: "A", "B", "C", "D", or "E". 
+
+Figure 8: Referee prompt for localization (box) quality . Inputs match the relevance call: two images plus the same linguistic context placeholders. 
+
+22 Human Annotation Instructions 
+
+You will evaluate whether a model 's predicted bounding box provides useful visual evidence for answering a video question. For each item you will see: - Image 1: the full video frame with the model 's RED bounding box - Image 2: the cropped region inside that box - The video question (and options, if any) - The model 's full response - The reference answer (for context only; do NOT re-solve the question) - The target object/region the model claims the box refers to Your task is to assign ONE holistic letter grade (A, B, C, D, or E) that jointly reflects: (1) RELEVANCE: Does the boxed region function as meaningful evidence for the answer? (2) LOCALIZATION: Is the box placed on the correct object instance and reasonably tight? Use these criteria: A - Strong evidence. The box captures the exact primary evidence needed, and the localization is accurate and tight. B - Mostly valid. The region is relevant to the scene/answer but is a secondary object, slightly loose, or not the primary target; still clearly useful. C - Partial mismatch. Correct category but wrong instance, or relevance/localization is weak on one dimension. D - Weak evidence. Mostly background/context; little direct support for the answer, or poor box quality. E - Failure. Irrelevant region, empty space, or completely wrong localization. Important: - Grade the evidence claim as presented; do NOT rewrite the model 's answer. - Use the reference answer only to judge whether the boxed region supports it. - Output exactly one letter: "A", "B", "C", "D", or "E". There are no known risks beyond ordinary computer-based annotation. You may stop at any time. Your ratings will be used only for research validation in this project. 
+
+Figure 9: Full text of instructions given to human annotators for the referee validation study. 
+
+23
