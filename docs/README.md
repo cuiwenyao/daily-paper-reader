@@ -6,49 +6,56 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-06-29
-- 运行时间：2026-06-29 21:10:56 UTC
+- 最新运行日期：2026-06-30
+- 运行时间：2026-06-30 21:51:49 UTC
 - 运行状态：成功
-- 本次总论文数：9
-- 精读区：4
-- 速读区：5
+- 本次总论文数：12
+- 精读区：6
+- 速读区：6
 
 ### 今日简报（AI）
-1) 今日精选9篇论文，聚焦LLM在数学推理、规划鲁棒性与用户建模中的突破与陷阱。  
-2) 最值得关注：**可验证几何问题求解**（9.0分）通过求解器驱动自动形式化与定理提议，以及**符号反馈迭代自优化框架**（8.0分）提升LLM规划可靠性。  
-3) 普通读者可优先浏览谄媚检测与控制方法，了解如何让AI更诚实而非迎合用户。
-- 详情：[/202606/29/README](/202606/29/README)
+今日聚焦离散潜在推理、时序逻辑张量网络及推理可靠性等12篇论文，其中2篇精读获9.0高分。最值得关注的是《Why Struggle with Continuous Latents?》与《First-Order Temporal Logic Tensor Networks》，分别在可解释离散推理和形式化时序逻辑上带来突破。建议深入阅读精读高分论文，重点吸收其可解释性方法与时序推理框架，以加强实际应用中的可靠AI设计。
+- 详情：[/202606/30/README](/202606/30/README)
 
 ### 精读区论文标签
-1. [Verifiable Geometry Problem Solving: Solver-Driven Autoformalization and Theorem Proposing](/202606/29/2606.27926v1-verifiable-geometry-problem-solving-solver-driven-autoformalization-and-theorem-proposing)  
+1. [Why Struggle with Continuous Latents? Interpretable Discrete Latent Reasoning via Rendered Compression](/202606/30/2606.29712v1-why-struggle-with-continuous-latents-interpretable-discrete-latent-reasoning-via-rendered-compression)  
    标签：评分：9.0/10、query:ns-xai
-   evidence：神经符号求解器驱动的几何问题求解框架
-2. [Towards Reliable and Robust LLM Planning: Symbolic Feedback-Driven Iterative Self-Refinement Framework](/202606/29/2606.27757v1-towards-reliable-and-robust-llm-planning-symbolic-feedback-driven-iterative-self-refinement-framework)  
+   evidence：提出离散潜在推理以增强可解释性，将连续状态与离散符号监督对齐
+2. [First-Order Temporal Logic Tensor Networks](/202606/30/2606.29972v1-first-order-temporal-logic-tensor-networks)  
+   标签：评分：9.0/10、query:ns-xai
+   evidence：一阶时态逻辑张量网络用于神经符号推理
+3. [What LLMs explain is not what they believe: Evaluating explanation sufficiency under models' own input beliefs](/202606/30/2606.28615v1-what-llms-explain-is-not-what-they-believe-evaluating-explanation-sufficiency-under-models-own-input-beliefs)  
    标签：评分：8.0/10、query:ns-xai
-   evidence：符号反馈驱动的LLM规划迭代自精炼框架
-3. [Cognitive Episodes in LLM Reasoning Traces Enable Interpretable Human Item Difficulty Prediction](/202606/29/2606.28186v1-cognitive-episodes-in-llm-reasoning-traces-enable-interpretable-human-item-difficulty-prediction)  
+   evidence：评估LLM解释的充分性，证明其依赖于输入分布
+4. [Invariant Reasoning Directions in Latent Trajectories of Language Models](/202606/30/2606.29164v1-invariant-reasoning-directions-in-latent-trajectories-of-language-models)  
    标签：评分：8.0/10、query:ns-xai
-   evidence：利用大语言模型推理轨迹实现可解释的难度预测
-4. [COCOLogic-V2: Identifying Logical Inconsistencies via Truly Hard-Negatives](/202606/29/2606.28194v1-cocologic-v2-identifying-logical-inconsistencies-via-truly-hard-negatives)  
+   evidence：语言模型潜在轨迹中的不变推理方向
+5. [Travel-Oriented Reasoning Large Language Model via Domain-Specific Knowledge Graphs](/202606/30/2606.29254v1-travel-oriented-reasoning-large-language-model-via-domain-specific-knowledge-graphs)  
    标签：评分：8.0/10、query:ns-xai
-   evidence：使用一阶逻辑的视觉归纳推理数据集，用于可解释性评估
+   evidence：基于专家知识图谱的旅行领域推理LLM，结合符号知识与神经推理
+6. [When LLMs Develop Languages: Symbolic Communication for Efficient Multi-Agent Reasoning](/202606/30/2606.29354v1-when-llms-develop-languages-symbolic-communication-for-efficient-multi-agent-reasoning)  
+   标签：评分：8.0/10、query:ns-xai
+   evidence：大语言模型智能体自主发明符号语言进行高效推理
 
 ### 速读区论文标签
-1. [Detecting and Controlling Sycophancy with Cascading Linear Features](/202606/29/2606.26155v1-detecting-and-controlling-sycophancy-with-cascading-linear-features)  
+1. [To Reason or to Fabricate: Reasoning Without Shortcuts via Hint-Anchored Pairwise Aggregation](/202606/30/2606.29481v1-to-reason-or-to-fabricate-reasoning-without-shortcuts-via-hint-anchored-pairwise-aggregation)  
+   标签：评分：8.0/10、query:ns-xai
+   evidence：通过提示锚定成对聚合解决LLM推理中的捷径利用问题
+2. [Toward Secure and Reliable PDDL Formalization of Large Language Models with Planner-in-the-Loop Feedback](/202606/30/2606.29700v1-toward-secure-and-reliable-pddl-formalization-of-large-language-models-with-planner-in-the-loop-feedback)  
+   标签：评分：8.0/10、query:ns-xai
+   evidence：神经符号集成：基于规划器验证的自然语言到PDDL形式化
+3. [H-GRPO: Permutation-Invariant Reinforcement Learning for Grounded Visual Reasoning](/202606/30/2606.29915v1-h-grpo-permutation-invariant-reinforcement-learning-for-grounded-visual-reasoning)  
+   标签：评分：8.0/10、query:ns-xai
+   evidence：通过分解查询并定位证据区域实现可解释的分步推理
+4. [Search for Truth from Reasoning: A Dynamic Representation Editing Framework for Steering LLM Trajectories](/202606/30/2606.28589v1-search-for-truth-from-reasoning-a-dynamic-representation-editing-framework-for-steering-llm-trajectories)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：通过激活引导的大模型可解释性
-2. [ScaleToT: Generalizing Structured LLM Reasoning for Billion-Scale Low-Activity User Modeling](/202606/29/2606.24605v1-scaletot-generalizing-structured-llm-reasoning-for-billion-scale-low-activity-user-modeling)  
+   evidence：通过表示编辑引导LLM推理轨迹追求真实性
+5. [Grounding LLM Reasoning under Incomplete Graph Evidence](/202606/30/2606.30247v1-grounding-llm-reasoning-under-incomplete-graph-evidence)  
+   标签：评分：7.0/10、query:ns-xai
+   evidence：符号图证据用于LLM推理
+6. [Low-cost concept-based localized explanations: How far can we get with training-free approaches?](/202606/30/2606.29069v1-low-cost-concept-based-localized-explanations-how-far-can-we-get-with-training-free-approaches)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：使用Tree-of-Thought结构化的LLM推理方法
-3. [SER: Learning to Ground Video Reasoning with Semantic Evidence Rewards](/202606/29/2606.24726v1-ser-learning-to-ground-video-reasoning-with-semantic-evidence-rewards)  
-   标签：评分：6.0/10、query:ns-xai
-   evidence：通过语义证据定位提升视频推理可解释性
-4. [Retrieval-Warmed Energy-Based Reasoning: A Five-Arm Ablation Methodology for Diffusion-as-Inference on Structured Reasoning Tasks](/202606/29/2606.26476v1-retrieval-warmed-energy-based-reasoning-a-five-arm-ablation-methodology-for-diffusion-as-inference-on-structured-reasoning-tasks)  
-   标签：评分：6.0/10、query:ns-xai
-   evidence：基于能量的结构化推理与消融分析
-5. [Intuition-Guided Latent Reasoning for LLM-Based Recommendation](/202606/29/2606.27684v1-intuition-guided-latent-reasoning-for-llm-based-recommendation)  
-   标签：评分：6.0/10、query:ns-xai
-   evidence：面向基于LLM的推荐的潜在推理方法，关注推理能力
+   evidence：基于概念的免训练局部解释方法应用于多模态大语言模型
 
 
 <div class="dpr-home-promo-card">
