@@ -6,55 +6,39 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-03
-- 运行时间：2026-07-03 21:34:03 UTC
+- 最新运行日期：2026-07-04
+- 运行时间：2026-07-04 20:50:05 UTC
 - 运行状态：成功
-- 本次总论文数：11
-- 精读区：3
-- 速读区：8
+- 本次总论文数：5
+- 精读区：1
+- 速读区：4
 
 ### 今日简报（AI）
-今日精读2篇、速读8篇，聚焦神经符号推理与大模型解释性方法。  
-最值得看的方向是《PACE》的可行反事实解释框架和《ADVENT》的LLM驱动归纳逻辑编程。  
-建议关注如何在神经符号系统中融合大模型的生成能力与结构化推理，提升可解释性。
-- 详情：[/202607/03/README](/202607/03/README)
+今日精选5篇AI推理与医学诊断论文，精读聚焦多模态模型诊断痴呆的推理必要性，速读关注高效视觉推理、置信度自适应与检索增强一致性。
+
+最值得看：精读论文质疑多模态大模型诊断痴呆时需复杂推理的假设；速读两篇分别提出“先决策再思考”的主动路由与置信度自适应推理，强调效率优化。
+
+建议读者关注推理模型在实际应用中的“适度推理”策略，尤其医学和资源受限场景可探索简化或跳过非必要推理步骤。
+- 详情：[/202607/04/README](/202607/04/README)
 
 ### 精读区论文标签
-1. [PACE: A Neuro-Symbolic Framework for Plausible and Actionable Counterfactual Explanations](/202607/03/2607.01306v1-pace-a-neuro-symbolic-framework-for-plausible-and-actionable-counterfactual-explanations)  
-   标签：评分：10.0/10、query:ns-xai
-   evidence：神经符号框架用于反事实可解释性
-2. [ADVENT: LLM-Driven Automatic Predicate Invention for ILP](/202607/03/2607.01585v1-advent-llm-driven-automatic-predicate-invention-for-ilp)  
-   标签：评分：9.0/10、query:ns-xai
-   evidence：结合大语言模型与Prolog进行符号谓词发明
-3. [G-RRM: Guiding Symbolic Solvers with Recurrent Reasoning Models](/202607/03/2607.02491v1-g-rrm-guiding-symbolic-solvers-with-recurrent-reasoning-models)  
-   标签：评分：9.0/10、query:ns-xai
-   evidence：用神经循环推理模型指导符号求解器的神经符号方法
+1. [Do Multimodal Large Language Models Need Reasoning to Classify Dementia from Speech?](/202607/04/2607.00260v1-do-multimodal-large-language-models-need-reasoning-to-classify-dementia-from-speech)  
+   标签：评分：8.0/10、query:ns-xai
+   evidence：评估并改进MLLM在可解释痴呆分类中的推理能力
 
 ### 速读区论文标签
-1. [Search for Truth from Reasoning: A Dynamic Representation Editing Framework for Steering LLM Trajectories](/202607/03/2606.28589v2-search-for-truth-from-reasoning-a-dynamic-representation-editing-framework-for-steering-llm-trajectories)  
+1. [Before Thinking, Learn to Decide: Proactive Routing for Efficient Visual Reasoning](/202607/04/2606.30217v2-before-thinking-learn-to-decide-proactive-routing-for-efficient-visual-reasoning)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：通过表示编辑引导LLM推理轨迹以趋向真相
-2. [Spatial Reasoning via Modality Switching Between Language and Symbolic Representation](/202607/03/2606.31285v2-spatial-reasoning-via-modality-switching-between-language-and-symbolic-representation)  
+   evidence：多模态模型中一种面向高效视觉推理的主动路由方法
+2. [CAT: Confidence-Adaptive Thinking for Efficient Reasoning of Large Reasoning Models](/202607/04/2607.00862v1-cat-confidence-adaptive-thinking-for-efficient-reasoning-of-large-reasoning-models)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：语言到符号模态切换的推理方法
-3. [Message Passing Enables Efficient Reasoning](/202607/03/2607.01077v1-message-passing-enables-efficient-reasoning)  
-   标签：评分：7.0/10、query:ns-xai
-   evidence：通过LLM线程间消息传递实现高效并行推理
-4. [Self-Supervised Theorem Discovery in a Formal Axiomatic System](/202607/03/2606.28747v1-self-supervised-theorem-discovery-in-a-formal-axiomatic-system)  
+   evidence：大推理模型中基于置信度自适应的思考以提升效率
+3. [CheckRLM: Effective Knowledge-Thought Coherence Checking in Retrieval-Augmented Reasoning](/202607/04/2607.02262v1-checkrlm-effective-knowledge-thought-coherence-checking-in-retrieval-augmented-reasoning)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：在形式公理系统中使用推理规则进行自监督定理发现
-5. [Before Thinking, Learn to Decide: Proactive Routing for Efficient Visual Reasoning](/202607/03/2606.30217v1-before-thinking-learn-to-decide-proactive-routing-for-efficient-visual-reasoning)  
+   evidence：使用检索增强生成检查推理链中的事实错误
+4. [ReContext: Recursive Evidence Replay as LLM Harness for Long-Context Reasoning](/202607/04/2607.02509v1-recontext-recursive-evidence-replay-as-llm-harness-for-long-context-reasoning)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：多模态模型中自适应路由实现高效视觉推理
-6. [When RAG Meets Query Planning: Logical Query Trees for Resolving Exploratory Reasoning Problems](/202607/03/2607.00508v2-when-rag-meets-query-planning-logical-query-trees-for-resolving-exploratory-reasoning-problems)  
-   标签：评分：6.0/10、query:ns-xai
-   evidence：使用逻辑查询树的RAG探索性推理
-7. [Revisiting Chain-of-Thought Reasoning under Limited Supervision: Semi-supervised Chain-of-Thought Learning](/202607/03/2607.01511v1-revisiting-chain-of-thought-reasoning-under-limited-supervision-semi-supervised-chain-of-thought-learning)  
-   标签：评分：6.0/10、query:ns-xai
-   evidence：半监督思维链推理学习
-8. [DRIFTLENS: Measuring Memory-Induced Reasoning Drift in Personalized Language Models](/202607/03/2607.02374v1-driftlens-measuring-memory-induced-reasoning-drift-in-personalized-language-models)  
-   标签：评分：6.0/10、query:ns-xai
-   evidence：测量个性化大语言模型中记忆导致的推理偏移
+   evidence：无需训练的长上下文推理增强方法
 
 
 <div class="dpr-home-promo-card">
