@@ -1,0 +1,396 @@
+Title: Search, Fail, Recover: A Training Framework for Correction-Aware Reasoning
+
+URL Source: https://arxiv.org/pdf/2607.07492v1
+
+Published Time: Thu, 09 Jul 2026 01:21:53 GMT
+
+Number of Pages: 18
+
+Markdown Content:
+# Search, Fail, Recover: A Training Framework for Correction-Aware Reasoning 
+
+Dmitry Beresnev 1,3 Vladimir Makharev 1,2 Roman Khalikov 3
+
+Ivan Oseledets 2 Petr Anokhin 2,3 
+
+> 1
+
+Innopolis University, Innopolis, Russia 2AXXX, Moscow, Russia 
+
+> 3
+
+Lomonosov Moscow State University, Moscow, Russia 
+
+d.beresnev.work@gmail.com 
+
+## Abstract 
+
+Many reasoning tasks are not well described by a single left-to-right chain: a solver may need to pursue a plausible branch, observe delayed failure, and return to the latest prefix that can still be completed. We introduce Pyligent, a training and inference framework inspired by the Diligent Learner formulation that represents reasoning as validated search over partial solution chains. A task validator labels generated continuations and failures, and the resulting search trees are converted into supervised targets for three actions: continue, finish, and backtrack, with optional traces that summarize abandoned branches. We evaluate Pyligent on a hidden directed graph task designed to isolate delayed-failure recovery, and on structured reasoning domains with exact validators, including 4×4 Sudoku, Sudoku with reasoning traces, and Blocksworld. Compared with gold-only supervised fine-tuning, Pyligent improves solve rate by 72 .7 percentage points on hidden graphs, by 17 and 18 points on mixed and expert Sudoku, by 27 and 14 points on mixed and expert Sudoku with reasoning traces, and by 13 points on Blocksworld. These results suggest that explicit failed-branch supervision can teach useful recovery behavior beyond imitation of polished solution chains. 
+
+## 1 Introduction 
+
+Reasoning is often presented as a linear chain of intermediate steps, but many hard tasks are not naturally linear. A solver may need to try a plausible direction, discover only later that the branch cannot lead to a solution, and return to the decision point where another continuation is possible. Standard chain-of-thought supervision hides this process: training data usually contains the polished successful path, not the failed attempts and recoveries that produced it. [Shalev-Shwartz and Shashua, 2025] formalize this view in the Diligent Learner method. Their theory separates the ability to search for a solution from the ability to validate a proposed reasoning chain, and argues that validation is often much easier than generation. The central sufficient conditions are correspondingly behavioral rather than token-level: a learner should generate a correct next reasoning step with fixed nonzero probability, and when a branch is revealed to be wrong, it should learn to backtrack to the latest prefix that can still be completed. Their constructive proof shows that, under these assumptions, a depth-first search procedure with learned backtracking can avoid the exponential blowups that affect naive search, Tree-of-Thoughts-style branching, and pure gold-path imitation. This paper studies the practical question left open by that theory: can we turn these conditions into an implementable training pipeline for contemporary, relatively small LLMs? We introduce Pyligent, a framework that represents reasoning as a tree of partial chains, uses a task validator to label generated continuations, and converts both successful and failed branches into supervised training examples. 
+
+> Preprint. arXiv:2607.07492v1 [cs.AI] 8 Jul 2026
+
+The resulting action space contains ordinary continuation and termination actions, plus explicit 
+
+<backtrack> actions for recovery. Pyligent instantiates the validator assumed by the theory with task-specific checkers, use it to label both successful continuations and failed leaves, and train models on three corresponding action types: continue, finish, and backtrack. The resulting experiments operationalize the Diligent Learner conditions in contemporary LLM training, and our backtrack categories measure whether generated recoveries return to repairable prefixes rather than merely matching the syntax of a recovery action. Our most controlled test is the hidden directed graph task. The model only observes outgoing moves from the current node, so a locally legal action may later reveal a dead end or a failure state. Solving the task therefore requires trying next actions, identifying mistakes from delayed feedback, and returning to the relevant earlier choice point. We use this task to measure whether recovery can be learned directly, and then study how Pyligent transfers to more structured reasoning domains such as Sudoku and Blocksworld. 
+
+## 2 Related work 
+
+Chain-of-thought (CoT) prompting [Wei et al., 2023] showed that exposing intermediate reasoning steps can substantially improve LLM performance on arithmetic, commonsense, and symbolic tasks. Most CoT supervision, however, presents only the successful trajectory: a solution is generated left-to-right, and failed branches are usually absent from the training signal. This makes CoT a useful representation of reasoning, but not by itself a training procedure for learning when to abandon an unproductive branch and resume from an earlier state. Several lines of work address this limitation by adding search, critique, or revision around the model. Tree-of-Thoughts [Yao et al., 2023] and MCTS-based methods such as Reasoning-via-Planning [Hao et al., 2023] and AlphaLLM [Tian et al., 2024] externalize exploration into an explicit inference-time tree, using model- or discriminator-based evaluations to select promising continuations. Prompting-level refinement methods, including Self-Refine [Madaan et al., 2023], Reflexion [Shinn et al., 2023], and CRITIC [Gou et al., 2024], instead keep the interaction in context by alternating generation with feedback or critique. These methods demonstrate that reasoning often benefits from non-linear exploration, especially when reliable feedback is available [Huang et al., 2024, Kamoi et al., 2024]. A complementary direction trains models directly on search-like traces. Stream of Search [Gandhi et al., 2024] serializes DFS and BFS trajectories; Searchformer [Lehnert et al., 2024] and DualFormer [Su et al., 2025] distill planner traces into transformer models; Self-Backtracking [Yang et al., 2025] introduces explicit <backtrack> actions; and ASTRO [Kim et al., 2025] turns MCTS rollouts into reasoning traces that include reflection and recovery. Larger-scale correction policies have also been trained with reinforcement learning, including SCoRe [Kumar et al., 2024], RISE [Qu et al., 2024], DeepSeek-R1 [DeepSeek-AI et al., 2025], and Kimi k1.5 [Team et al., 2025]. Our work follows this broad search-training view, but focuses on a specific source of supervision: failed branches produced by a task validator and converted into explicit recovery examples. Recent empirical studies help explain why this supervision matters. [Gandhi et al., 2025] find that the structure of search traces can be more important than final-answer labels for eliciting verification and backtracking behaviors. At the same time, backtracking is not universally helpful in every domain or at every frequency: [Qin et al., 2025] and [Cai et al., 2025] show that the usefulness of backtracking depends strongly on task structure and training distribution. These observations motivate our ablations over trace use, exploration policy, and failed-branch weighting. The closest conceptual foundation for our work is the Diligent Learner method of [Shalev-Shwartz and Shashua, 2025]. Their theory separates generation from validation and gives sufficient conditions for CoT learnability in terms of two behavioral capabilities: the model should generate a valid next semantic step with nonzero probability, and when a branch is found to be incorrect, it should backtrack to β(c), the maximal prefix that can still be completed. Their analysis further shows why the target of a backtrack matters: returning only to the immediate parent can be insufficient when a whole sub-branch is invalid, while overshooting can discard useful progress. 23 Framework methodology 
+
+Pyligent turns chain-of-thought generation into a validated search over partial solution chains (Fig-ure 1). Instead of training only on polished gold trajectories, it records successful continuations and failed branches, then converts them into supervised examples for continuing, terminating, and recovering. In the language of [Shalev-Shwartz and Shashua, 2025], the solver supplies approximate next-step generation and the task validator supplies retrospective correctness labels. 
+
+Figure 1: The Pyligent framework. The pipeline iterates for t = 1 , . . . , T max rounds, alternating between fine-tuning on teacher-generated gold chains (SFT-A) and exploration-driven fine-tuning on 
+
+ChainTree -structured trajectories containing successful, backtracked, and traced paths (SFT-B). 
+
+3.1 Representation and components 
+
+For each problem instance, we maintain a tree of partial reasoning states. A state is a prefix 
+
+ct = ( a0, a 1, . . . , a t),
+
+where each action uses a restricted markup vocabulary:   
+
+> <node>ID CONTENT</node> ,<done>ANSWER</done> ,<backtrack>ID REASON</backtrack> .
+
+Here <node> appends one intermediate step, <done> proposes a final answer, and <backtrack> 
+
+returns control to an earlier node. The explicit node identifiers make branch structure visible to both the data-generation pipeline and the inference runtime. The framework has four components. The solver is the trainable language model, which emits one action at a time. The explorer selects prefixes from which the solver should sample continuations and controls how much breadth or depth to allocate. The validator checks whether each proposed action is legal for the task state. The ChainTree stores accepted and rejected branches, assigns backtrack targets for failed branches, and converts the resulting search tree into prefix-to-action training examples. We use linear and dendritic explorers in the experiments; the former keeps cost predictable by extending a bounded number of parallel chains, while the latter starts broad and then concentrates budget on deeper continuations. Full explorer definitions are given in Appendix 8.1. 
+
+3.2 Training pipeline 
+
+Training proceeds in three stages. First, SFT-A trains the solver on gold solution chains, teaching the action format and giving the model a nonzero chance of proposing valid next steps. Second, validator-3guided exploration runs the solver from selected prefixes and records both valid continuations and failed branches. Third, SFT-B fine-tunes on the examples constructed from the resulting ChainTree. SFT-B contains success pairs, failure pairs, and, for traced recovery, continuation-after-trace pairs. Success pairs train the model to extend valid generated or gold branches. Failure pairs train the model to emit a <backtrack> action when a branch violates task constraints. For a failed branch that diverges after node i and reaches invalid leaf j, ChainTree creates the target 
+
+cj 7 → <backtrack> i r </backtrack> ,
+
+where r is a validator-derived reason. We use a reverse curriculum over prefixes: exploration starts near the end of a gold chain, where the remaining continuation is short, and later moves toward the root so that the solver must handle longer recovery-aware trajectories. Pair construction and curriculum details are shown in Appendix 8.2. 
+
+3.3 Inference and traced recovery 
+
+At inference time, the solver generates one action at a time. A <node> action is appended to the current chain, a <done> action terminates with the proposed answer, and a <backtrack> action is checked for a valid target before the runtime truncates the context to that node. Inference stops when the solver emits <done> or exhausts a fixed step budget. Plain backtracking removes the failed branch from context, which can lead the solver to repeat the same mistake. To preserve compact failure information, traced recovery inserts a runtime-generated <trace> after truncation. The trace records the validator reason and a short summary of the abandoned branch; it is never a model target. During SFT-B we inject synthetic traces for matching failure examples, producing continuation pairs that teach the model how to resume after recovery. The exact trace format is given in Appendix 8.3. 
+
+## 4 Tasks methodology 
+
+4.1 Hidden directed graph task 
+
+The hidden directed graph task is a controlled benchmark for testing whether a solver has learned an effective search and backtrack policy. Each instance is a directed graph with distinguished nodes 
+
+START , GOAL , and FAIL . The model must find a path from START to GOAL while avoiding FAIL ,but it only observes the outgoing moves from its current node. After the model chooses a legal non-terminal move, the environment reveals the outgoing moves from the newly reached node as the next observation. This makes the task useful for evaluating Pyligent under the Diligent Learner assumptions: the model cannot solve by copying a static problem description, and a locally valid move can still expose a branch that must be abandoned. This task is intentionally close to the search-theoretic examples in [Shalev-Shwartz and Shashua, 2025]. The difficulty is not parsing the local action format: from any visible node, choosing an outgoing edge is easy to validate. The difficulty is that a locally valid edge can be globally wrong, and the evidence for that mistake may appear only several moves later. A successful solver must therefore learn to propose plausible moves under partial information and, once a dead end or FAIL 
+
+node is revealed, return to the latest useful choice point. Formally, an instance is a directed graph G = ( V, E ) with start node s, goal node g, and forbidden failure node d. At step t, the environment state is the explored path pt = ( s, v 1, . . . , v t), but the model-facing observation exposes only the outgoing neighbors O(vt) = {u : ( vt, u ) ∈ E}. The solver must choose a visible neighbor, terminate when the goal is visible, or backtrack when the current branch is invalid or revealed to be unsolvable. The model-facing action space is deliberately small, so task performance mostly reflects search de-cisions rather than output-format complexity. A non-terminal move is written as <node>MOVE X</node> , a terminal answer as <done>START -> ... -> GOAL</done> , and recovery as 
+
+<backtrack>ID REASON</backtrack> . Accepted moves reveal a new observation, rendered separately as <obs>...</obs> , so the target action remains the decision rather than asking the model to hallucinate hidden graph structure. 4START    
+
+> A
+> B
+> ×
+> C
+> D
+> FAIL
+> GOAL
+> fail branch
+> no moves
+> backtrack
+> backtrack
+> Initial observation
+> Visible moves: START -> A, B
+> The model sees only choices from START .
+> Model action
+> <node>MOVE B</node>
+> Environment reveal
+> <obs>B -> C, D</obs>
+> The new node’s outgoing moves enter context.
+> Recovery signal
+> If C -> FAIL is revealed, the target is
+> <backtrack>1 Failure reached</backtrack> .
+
+Figure 2: Hidden directed graph interaction. The environment contains a full graph, but the prompt exposes only the current node’s outgoing moves. Accepted moves reveal a new <obs> line; branches that reveal FAIL or no outgoing moves become supervised backtrack examples. The validator is exact and enforces local visibility, terminal-action consistency, and recovery from revealed dead ends. Thus the task separates two questions cleanly: whether the model can choose plausible visible moves, and whether it can return to the appropriate earlier choice point after a locally valid branch becomes impossible. All hidden directed graph experiments use Qwen3-0.6B and 300 training examples; full validation rules are given in Appendix 8.5. 
+
+4.2 Sudoku 4x4 task 
+
+We instantiate Pyligent on 4×4 Sudoku. The grid contains digits 1–4, empty cells are rendered as _, and the four 2×2 boxes are separated in the text representation. Each row, column, and box must contain each digit exactly once in a completed solution. The task is small enough to permit exact validation, but still exposes the failure mode targeted by the Diligent Learner theory: a locally plausible fill can make a later branch invalid unless the model can return to an earlier state. 
+
+4.2.1 Gold chains and validation 
+
+Each Sudoku action contains a complete grid rather than a coordinate-level edit, and the solver emits exactly one <node> , <done> , or <backtrack> tag per turn. The full action format is given in Appendix 8.5. Gold chains are stepwise grid completions. Figure 7 (green arrows) shows a representative path: the initial puzzle is node 0 and each subsequent node fills exactly one cell. The terminal <done> 
+
+action must repeat the completed grid. Invalid generated branches are converted into backtrack targets rather than being discarded (Figure 7, red arrows); their validator reasons become the natural-language reason field in backtrack targets and, in traced mode, the reason field inside the injected trace. Appendix 8.5 gives the exact Sudoku validation rules. 
+
+4.2.2 Experimental setup 
+
+We evaluate two 4×4 Sudoku datasets. The mixed train dataset contains 1,200 training chains: 300 examples for each of the easy, medium, hard, and expert difficulty buckets. Difficulty is controlled through the number of pre-filled cells; the generation configuration uses minimum clue counts of 14, 10, 8, and 6 respectively for the four buckets. Evaluation mixed dataset contains 50 puzzles for each difficulty (200 puzzles in total). The expert datasets contains only expert-difficulty puzzles — 1,200 for training and 200 for evaluation, — using the same minimum clue count of 6. All Sudoku experiments use Qwen3-4B with QLoRA fine-tuning. 
+
+4.3 Sudoku w/ RT 4x4 Task 
+
+The Sudoku with reasoning trances (w/ RT) task augments standard Sudoku solving by attaching a natural-language explanation to each grid transition. The motivation is practical rather than evaluative: 5when a model spells out why a particular cell is filled, each step becomes easier to inspect and recover from. This variant tests whether the same validated-search pipeline remains useful when the action contains both a verifiable grid transition and an unverified natural-language rationale. Each chain begins with a partially filled Sudoku grid and each <node> action contains a grid followed by a brief justification. The dataset is produced by sampling Sudoku puzzles, solving them into one-cell-at-a-time reference chains, and prompting Qwen3-32B to add concise explanations for each transition. Grid states are validated exactly as in the standard Sudoku task, while the natural-language reasoning is not validated. Further generation details and the prompt template are given in Appendices 8.5 and 8.6. 
+
+4.4 Blocksworld task 
+
+Blocksworld is a classical planning domain in which a set of lettered blocks must be rearranged from an initial stack configuration into a specified goal configuration using four primitive actions: pick up, put down, stack, and unstack. Subject to strict physical preconditions: only one block may be held at a time, and a block can only be picked up or unstacked if nothing is on top of it [Valmeekam et al., 2023a]. Despite its apparent simplicity, Blocksworld has become a canonical stress-test for LLM planning: standard autoregressive models and even chain-of-thought prompting fail reliably on instances beyond a few blocks, because valid plans require maintaining a consistent world-state across many interdependent steps and recovering gracefully when a chosen action renders a necessary precondition unreachable [Valmeekam et al., 2023b, Kambhampati et al., 2024]. 
+
+Data generation We generate Blocksworld instances with 3 to 12 blocks using the standard [Valmeekam et al., 2023a] framework, solve valid instances with the Fast-Forward planner [Hoffmann and Nebel, 2001], and convert the resulting PDDL plans into text action chains. In total, we generated 9,132 tasks with plan lengths ranging from 3 to 39 actions, reserving 30% for testing while preserving the plan-length distribution. To decrease the amount of linearly increasing solutions during exploration, we preserved tasks with up to 16 actions required to solve them. The final size of the training dataset was 3 ,035 tasks. As a test set, we used full plan-length distribution with up to 42 actions and total size of 2,740 tasks. Additional generation details are given in Appendix 8.5. 
+
+Validation The correctness is determined by VAL [Howey et al., 2004], which symbolically simulates the candidate plan and checks both the action preconditions and the satisfaction of the final goal. This provides an exact validator for the planning domain, analogous to the graph and Sudoku validators. 
+
+## 5 Results 
+
+This section presents the evaluation protocol used to analyze correction behavior. Unless stated otherwise, aggregate results are reported as mean ± standard deviation over three runs. The primary task metric is percent of solved examples: a chain succeeds when its terminal <done> action parses as a complete valid answer for the given problem. We also track search cost through generated steps, generated length, and the number of backtracks. Because Pyligent explicitly trains recovery, we additionally classify every emitted backtrack into four categories: invalid, valid, correct and perfect (Table 4). We report two checkpoint families. A Pyligent checkpoint is obtained by the full iterative pipeline: train, explore, convert the resulting search trees into supervision, and repeat for T iterations. A 
+
+finetuned checkpoint , referred in tables and plots usually as model FT , is a fresh copy of the base model fine-tuned once on the final dataset collected by the Pyligent pipeline. Thus, Pyligent checkpoints see the data through the iterative training-and-exploration loop, while model FT checkpoints are trained on the full Pyligent dataset at once. We compare both families against the base model and a gold-only fine-tuned base model reference. 
+
+5.1 Hidden directed graph 
+
+The hidden graph results show a sharp separation between imitating successful paths and learning recovery behavior. The base model without thinking never solves an example, while thinking gives 6Table 1: Hidden directed graph evaluation results, reported as mean ± standard deviation. The final column reports the percentage of all generated backtracks that are perfect; the full mutually exclusive category breakdown is shown in Figure 3.                                             
+
+> Checkpoint Success (%) Avg. steps Avg. backtracks Perfect BT (%) Base model 0.0±0.029 .85 ±0.05 0.00 ±0.00 –Base model + thinking 0.2±0.314 .69 ±0.26 0.00 ±0.00 –Gold-only SFT 3.8±1.224 .21 ±1.22 0.47 ±0.03 23 .2
+> Pyligent 76 .5±2.310 .96 ±0.43 2.14 ±0.16 47 .7
+
+Figure 3: Hidden directed graph backtrack quality. Pie charts show mean backtrack counts over three runs, using the mutually exclusive invalid, valid-only, correct-only, and perfect categories from Table 4. only 0.2 ± 0.3% success and neither setting emits usable backtracks (Table 1 and Figure 3). Gold-only SFT gives a small improvement to 3.8 ± 1.2% success, but it still behaves mostly like a long forward search: average generated length is 24 .21 ± 1.22 actions against an average gold length of 5.0, and only 23 .2% of its backtracks are perfect. By contrast, the Pyligent checkpoint reaches 76 .5 ± 2.3% success with much shorter generations and active correction. Its average generated length is 10 .96 ± 0.43 actions, less than half the gold-only SFT length, and it emits 427 .7 ± 31 .1 backtracks across 200 examples. Almost all of these are non-invalid, with 47 .7% perfect backtracks, meaning the model often returns to the immediate choice point responsible for the failed branch rather than merely jumping to some earlier valid node. At the example level, 11 .0±5.8% of runs containing at least one valid-only backtrack still finish successfully, and each such run later emits a correct or perfect backtrack that repairs the earlier imprecise recovery. The matched comparison is therefore consistent with the goal of the task: validator-guided failed branches provide the signal needed to learn when to abandon a revealed dead end, while gold-only training mostly teaches the format of successful paths. 
+
+5.2 Sudoku 4x4                                                                            
+
+> Task Model Linear Dendritic Linear FT Dendritic FT Gold-only SFT Base Sudoku 4×4(mixed) 82 ±1.081 ±0.369 ±1.074 ±1.865 ±0.311 ±0.9
+> Sudoku 4×4(expert) 66 ±0.854 ±0.356 ±1.655 ±1.248 ±1.00±0.0
+> Sudoku w/ RT 4×4(mixed) 58 ±1.3———31 ±1.18±0.8
+> Sudoku w/ RT 4×4(expert) 34 ±1.0———20 ±0.80±0.0
+
+Table 2: Sudoku 4×4 results for Qwen3-4B. All entries are solved validation puzzles (%) reported as mean ± standard deviation over three runs. Pyligent architectures use traces and one failed-path epoch. ‘Sudoku w/ RT’ refers to Sudoku 4×4 with reasoning traces. 
+
+5.2.1 Sudoku 4x4 Task 
+
+The Sudoku results show that Pyligent models improve over both gold-only SFT and the base model on both datasets. On the mixed validation split, the Pyligent model with linear explorer reaches 7Figure 4: Sudoku 4×4 ablations on the mixed dataset with Qwen3-4B, reported as mean ± standard deviation over three runs. ‘No traces’ uses architectures without traces and one failed-path epoch. ‘Traces’ uses architectures with traces and one failed-path epoch, matching the first-row setting in Table 2. ‘More failed-path epochs’ uses traces and three failed-path epochs. 
+
+Figure 5: Sudoku 4×4 backtrack quality on the mixed dataset with Qwen3-4B. Pie charts show mean backtrack counts over three runs. All listed architectures use traces. 
+
+82 ± 1.0% , compared with 65 ± 0.3% for gold-only SFT and 11 ± 0.9% for the base model (Table 2). On the expert-only split, absolute accuracy is lower for every model, as expected from the harder puzzle distribution, but the gap remains large: the best Pyligent model reaches 66 ± 0.8% , compared with 48 ± 1.0% for gold-only SFT and 0 ± 0.0% for the base model. The finetuned checkpoints also improve over the base model, but they do not match the best Pyligent checkpoints, indicating that the iterative training-and-exploration loop is useful beyond just collecting a larger supervised dataset. The ablations demonstrate two practical effects on the mixed dataset. First, moving from no traces to traces notably improves performance across the Pyligent and model FT variants (Figure 4). This supports the motivation for traced recovery: preserving a compact account of the failed branch helps the model continue after backtracking instead of repeating the same local mistake. Second, increasing failed-path training from one epoch to three epochs usually reduces solve rate for Pyligent checkpoints, although finetuned checkpoints do not show the same drop. The backtrack-quality plots explain part of this tradeoff: the extra failed-path focus improves the quality of generated backtracks, but better backtrack syntax and target selection do not automatically translate into better final continuation (Figure 5). 
+
+5.2.2 Sudoku w/ RT 4x4 
+
+Using the same training set size as in the standard Sudoku 4×4 setting, Sudoku 4×4 with reasoning traces (w/ RT) allows the model to generate not only completed grids but also natural-language reasoning steps. The goal is to give the model more room to ‘think’ before making each prediction. Although the overall scores are generally lower than for standard Sudoku 4×4, the superiority of the Pyligent models is preserved (Table 2). While reasoning traces appear to be more harmful than helpful in this particular setting, the experiment nevertheless suggests that the proposed Pyligent framework may still improve performance on tasks that require natural-language reasoning, such as MATH and GSM8K. 8Table 3: Blocksworld evaluation results, reported as mean ± standard deviation. The final column reports the percentage of all generated backtracks that are perfect; the full mutually exclusive category breakdown is shown in Figure 6.                                   
+
+> Checkpoint Success (%) Avg. steps Avg. backtracks Perfect BT (%) Base model 0.0±0.0199 .52 ±0.11 113 .85 ±0.35 5.24
+> Gold-only SFT 29 .37 ±0.15 47 .99 ±6.31 0.03 ±0.02 2.9
+> Pyligent 50 .35 ±0.12 46 .99 ±0.57 4.54 ±0.15 14 .4
+
+Figure 6: Blocksworld backtrack quality. Pie charts show mean backtrack counts over three runs, using the mutually exclusive invalid, valid-only, correct-only, and perfect categories from Table 4. 
+
+5.3 Blocksworld 
+
+In Blocksworld, the base model is again unable to solve the task and emits a large amount of valid backtracks without any improvement (Table 3 and Figure 6). Gold-only SFT improves the accuracy up to 29 .37 ± 0.15 but the model failed to emit any reasonable number of backtracks. The Pyligent model solves 50 .35 ± 0.12% of validation tasks and achieves more than 20% accuracy against the gold-only SFT model. It learns how to perform backtracks, and additional training examples increased the capabilities of the model: nearly 700 tasks were uniquely solved by Pyligent across 3 runs and backtracks helped to solve more than 11% of these tasks (See Appendix 8.7 for a task success distribution analysis). Blocksworld is a much less forgiving domain than the Sudoku because local action validity does not imply global progress toward the goal. A generated plan may satisfy every precondition for many steps, while still dismantling useful structure or postponing a necessary subgoal. However, a proper fine-tuning and backtracks improved the Qwen3-4B capabilities noticeably. 
+
+## 6 Conclusion 
+
+The results should be read as an empirical implementation study of the Diligent Learner hypothesis. Pyligent turns the theory’s behavioral conditions into a concrete training recipe for smaller LLMs by combining gold-chain SFT, validator-guided exploration, supervised backtrack targets, and traced continuation after recovery. The hidden directed graph task provides the cleanest evidence for this framing. Gold-only SFT learns the surface format of successful paths but rarely recovers from mistakes, while the Pyligent checkpoint actively uses valid and often perfect backtracks to solve substantially more examples. This supports the claim that the useful signal is not only the final answer or the polished reasoning path, but the structure of failed attempts and the correct point of return. In this sense, the graph task is not just another benchmark; it is a direct probe of whether the model has learned the recoverability behavior required by the theory. The broader tasks show both promise and limits. Sudoku and Blocksworld supply exact validators, making them natural domains for the same mechanism, but the ablations indicate that training recovery is sensitive to trace format, exploration policy, checkpoint family, and failure-data weighting. In particular, increasing exposure to failed branches can improve the number of non-invalid backtracks 9without reliably improving final solve rate. This suggests that learning to emit a syntactically valid recovery action is easier than learning the full policy of when to abandon a branch and where to resume. Future work should therefore separate next-action quality, failure detection, backtrack target quality, and post-backtrack continuation more explicitly. Overall, our findings are consistent with the search-theoretic motivation while making its engineering requirements concrete. Reliable backtracking is not a behavior that should be expected to emerge automatically from gold solutions alone; it needs to be represented in the action space, generated during exploration, validated in hindsight, and trained as an explicit target. 
+
+## 7 Limitations and Future Work 
+
+Pyligent is currently evaluated on small or synthetic tasks with exact validators, so its behavior may not transfer directly to broader text-based reasoning settings where validation is weaker, delayed, or ambiguous. The present experiments also use relatively small solver models and focus on domains where the action format can be constrained tightly. It remains unclear how much of the observed recovery behavior would persist with open-ended natural-language actions. The framework also adds cost. Exploration requires repeated solver sampling and validator calls; traced recovery increases context length; and failed-branch supervision introduces a weighting choice that can improve backtrack quality without improving final solve rate. Future work should measure this accuracy-cost tradeoff more systematically. Finally, promising extensions include validators for rationale quality in reasoning-annotated tasks, larger solver models, and evaluation on natural-language benchmarks where verification can be decomposed into smaller checked steps. 
+
+## References 
+
+Hongyi James Cai, Junlin Wang, Xiaoyin Chen, and Bhuwan Dhingra. How much backtracking is enough? exploring the interplay of SFT and RL in enhancing LLM reasoning, 2025. URL https://arxiv.org/ abs/2505.24273 .DeepSeek-AI, Daya Guo, Dejian Yang, Haowei Zhang, Junxiao Song, Peiyi Wang, Qihao Zhu, Runxin Xu, Ruoyu Zhang, Shirong Ma, Xiao Bi, Xiaokang Zhang, Xingkai Yu, Yu Wu, Z. F. Wu, Zhibin Gou, Zhihong Shao, Zhuoshu Li, Ziyi Gao, Aixin Liu, Bing Xue, Bingxuan Wang, Bochao Wu, Bei Feng, Chengda Lu, Chenggang Zhao, Chengqi Deng, Chenyu Zhang, Chong Ruan, Damai Dai, Deli Chen, Dongjie Ji, Erhang Li, Fangyun Lin, Fucong Dai, Fuli Luo, Guangbo Hao, Guanting Chen, Guowei Li, H. Zhang, Han Bao, Hanwei Xu, Haocheng Wang, Honghui Ding, Huajian Xin, Huazuo Gao, Hui Qu, Hui Li, Jianzhong Guo, Jiashi Li, Jiawei Wang, Jingchang Chen, Jingyang Yuan, Junjie Qiu, Junlong Li, J. L. Cai, Jiaqi Ni, Jian Liang, Jin Chen, Kai Dong, Kai Hu, Kaige Gao, Kang Guan, Kexin Huang, Kuai Yu, Lean Wang, Lecong Zhang, Liang Zhao, Litong Wang, Liyue Zhang, Lei Xu, Leyi Xia, Mingchuan Zhang, Minghua Zhang, Minghui Tang, Meng Li, Miaojun Wang, Mingming Li, Ning Tian, Panpan Huang, Peng Zhang, Qiancheng Wang, Qinyu Chen, Qiushi Du, Ruiqi Ge, Ruisong Zhang, Ruizhe Pan, Runji Wang, R. J. Chen, R. L. Jin, Ruyi Chen, Shanghao Lu, Shangyan Zhou, Shanhuang Chen, Shengfeng Ye, Shiyu Wang, Shuiping Yu, Shunfeng Zhou, Shuting Pan, S. S. Li, Shuang Zhou, Shaoqing Wu, Shengfeng Ye, Tao Yun, Tian Pei, Tianyu Sun, T. Wang, Wangding Zeng, Wanjia Zhao, Wen Liu, Wenfeng Liang, Wenjun Gao, Wenqin Yu, Wentao Zhang, W. L. Xiao, Wei An, Xiaodong Liu, Xiaohan Wang, Xiaokang Chen, Xiaotao Nie, Xin Cheng, Xin Liu, Xin Xie, Xingchao Liu, Xinyu Yang, Xinyuan Li, Xuecheng Su, Xuheng Lin, X. Q. Li, Xiangyue Jin, Xiaojin Shen, Xiaosha Chen, Xiaowen Sun, Xiaoxiang Wang, Xinnan Song, Xinyi Zhou, Xianzu Wang, Xinxia Shan, Y. K. Li, Y. Q. Wang, Y. X. Wei, Yang Zhang, Yanhong Xu, Yao Li, Yao Zhao, Yaofeng Sun, Yaohui Wang, Yi Yu, Yichao Zhang, Yifan Shi, Yiliang Xiong, Ying He, Yishi Piao, Yisong Wang, Yixuan Tan, Yiyang Ma, Yiyuan Liu, Yongqiang Guo, Yuan Ou, Yuduan Wang, Yue Gong, Yuheng Zou, Yujia He, Yunfan Xiong, Yuxiang Luo, Yuxiang You, Yuxuan Liu, Yuyang Zhou, Y. X. Zhu, Yanhong Xu, Yanping Huang, Yaohui Li, Yi Zheng, Yuchen Zhu, Yunxian Ma, Ying Tang, Yukun Zha, Yuting Yan, Z. Z. Ren, Zehui Ren, Zhangli Sha, Zhe Fu, Zhean Xu, Zhenda Xie, Zhengyan Zhang, Zhewen Hao, Zhicheng Ma, Zhigang Yan, Zhiyu Wu, Zihui Gu, Zijia Zhu, Zijun Liu, Zilin Li, Ziwei Xie, Ziyang Song, Zizheng Pan, Zhen Huang, Zhipeng Xu, Zhongyu Zhang, and Zhen Zhang. DeepSeek-r1: Incentivizing reasoning capability in LLMs via reinforcement learning. 645(8081):633–638, 2025. ISSN 0028-0836, 1476-4687. doi: 10.1038/s41586-025-09422-z. URL http://arxiv.org/abs/2501.12948 .Kanishk Gandhi, Denise H. J. Lee, Gabriel Grand, Muxin Liu, Winson Cheng, Archit Sharma, and Noah Goodman. Stream of search (SoS): Learning to search in language, 2024. URL https://arxiv.org/abs/ 2404.03683 .
+
+10 Kanishk Gandhi, Ayush Chakravarthy, Anikait Singh, Nathan Lile, and Noah Goodman. Cognitive behaviors that enable self-improving reasoners, or, four habits of highly effective STaRs, 2025. URL https://arxiv. org/abs/2503.01307 .Zhibin Gou, Zhihong Shao, Yeyun Gong, Yelong Shen, Yujiu Yang, Nan Duan, and Weizhu Chen. CRITIC: Large language models can self-correct with tool-interactive critiquing, 2024. URL https://arxiv.org/ abs/2305.11738 .Shibo Hao, Yi Gu, Haodi Ma, Joshua Hong, Zhen Wang, Daisy Wang, and Zhiting Hu. Reasoning with language model is planning with world model. In Houda Bouamor, Juan Pino, and Kalika Bali, editors, 
+
+Proceedings of the 2023 Conference on Empirical Methods in Natural Language Processing , pages 8154– 8173. Association for Computational Linguistics, 2023. doi: 10.18653/v1/2023.emnlp-main.507. URL 
+
+https://aclanthology.org/2023.emnlp-main.507/ .Jörg Hoffmann and Bernhard Nebel. The FF planning system: fast plan generation through heuristic search. 14 (1):253–302, 2001. ISSN 1076-9757. Richard Howey, Derek Long, and Maria Fox. VAL: Automatic plan validation, continuous effects and mixed initiative planning using PDDL. In Proceedings of the 16th IEEE International Conference on Tools with Artificial Intelligence , ICTAI ’04, pages 294–301. IEEE Computer Society, 2004. ISBN 978-0-7695-2236-4. doi: 10.1109/ICTAI.2004.120. URL https://doi.org/10.1109/ICTAI.2004.120 .Jie Huang, Xinyun Chen, Swaroop Mishra, Huaixiu Steven Zheng, Adams Wei Yu, Xinying Song, and Denny Zhou. Large language models cannot self-correct reasoning yet, 2024. URL https://arxiv.org/abs/ 2310.01798 .Subbarao Kambhampati, Karthik Valmeekam, Lin Guan, Mudit Verma, Kaya Stechly, Siddhant Bhambri, Lucas Paul Saldyt, and Anil B. Murthy. LLMs can’t plan, but can help planning in LLM-modulo frameworks, 2024. URL https://arxiv.org/abs/2402.01817 .Ryo Kamoi, Yusen Zhang, Nan Zhang, Jiawei Han, and Rui Zhang. When can LLMs actually correct their own mistakes? a critical survey of self-correction of LLMs. 12:1417–1440, 2024. doi: 10.1162/tacl_a_00713. URL https://aclanthology.org/2024.tacl-1.78/ .Joongwon Kim, Anirudh Goyal, Liang Tan, Hannaneh Hajishirzi, Srinivasan Iyer, and Tianlu Wang. ASTRO: Teaching language models to reason by reflecting and backtracking in-context, 2025. URL http://arxiv. org/abs/2507.00417 .Aviral Kumar, Vincent Zhuang, Rishabh Agarwal, Yi Su, John D. Co-Reyes, Avi Singh, Kate Baumli, Shariq Iqbal, Colton Bishop, Rebecca Roelofs, Lei M. Zhang, Kay McKinney, Disha Shrivastava, Cosmin Paduraru, George Tucker, Doina Precup, Feryal Behbahani, and Aleksandra Faust. Training language models to self-correct via reinforcement learning, 2024. URL https://arxiv.org/abs/2409.12917 .Lucas Lehnert, Sainbayar Sukhbaatar, DiJia Su, Qinqing Zheng, Paul McVay, Michael Rabbat, and Yuandong Tian. Beyond a*: Better planning with transformers via search dynamics bootstrapping, 2024. URL 
+
+https://arxiv.org/abs/2402.14083 .Aman Madaan, Niket Tandon, Prakhar Gupta, Skyler Hallinan, Luyu Gao, Sarah Wiegreffe, Uri Alon, Nouha Dziri, Shrimai Prabhumoye, Yiming Yang, Shashank Gupta, Bodhisattwa Prasad Majumder, Katherine Hermann, Sean Welleck, Amir Yazdanbakhsh, and Peter Clark. Self-refine: Iterative refinement with self-feedback, 2023. URL https://arxiv.org/abs/2303.17651 .Tian Qin, David Alvarez-Melis, Samy Jelassi, and Eran Malach. To backtrack or not to backtrack: When sequential search limits model reasoning, 2025. URL https://arxiv.org/abs/2504.07052 .Yuxiao Qu, Tianjun Zhang, Naman Garg, and Aviral Kumar. Recursive introspection: Teaching language model agents how to self-improve, 2024. URL https://arxiv.org/abs/2407.18219 .Shai Shalev-Shwartz and Amnon Shashua. From reasoning to super-intelligence: A search-theoretic perspective, 2025. URL http://arxiv.org/abs/2507.15865 .Noah Shinn, Federico Cassano, Edward Berman, Ashwin Gopinath, Karthik R. Narasimhan, and Shunyu Yao. Reflexion: language agents with verbal reinforcement learning, 2023. URL https://arxiv.org/abs/ 2303.11366 .DiJia Su, Sainbayar Sukhbaatar, Michael Rabbat, Yuandong Tian, and Qinqing Zheng. Dualformer: Controllable fast and slow thinking by learning with randomized reasoning traces, 2025. URL https://arxiv.org/ abs/2410.09918 .
+
+11 Kimi Team, Angang Du, Bofei Gao, Bowei Xing, Changjiu Jiang, Cheng Chen, Cheng Li, Chenjun Xiao, Chenzhuang Du, Chonghua Liao, Chuning Tang, Congcong Wang, Dehao Zhang, Enming Yuan, Enzhe Lu, Fengxiang Tang, Flood Sung, Guangda Wei, Guokun Lai, Haiqing Guo, Han Zhu, Hao Ding, Hao Hu, Hao Yang, Hao Zhang, Haotian Yao, Haotian Zhao, Haoyu Lu, Haoze Li, Haozhen Yu, Hongcheng Gao, Huabin Zheng, Huan Yuan, Jia Chen, Jianhang Guo, Jianlin Su, Jianzhou Wang, Jie Zhao, Jin Zhang, Jingyuan Liu, Junjie Yan, Junyan Wu, Lidong Shi, Ling Ye, Longhui Yu, Mengnan Dong, Neo Zhang, Ningchen Ma, Qiwei Pan, Qucheng Gong, Shaowei Liu, Shengling Ma, Shupeng Wei, Sihan Cao, Siying Huang, Tao Jiang, Weihao Gao, Weimin Xiong, Weiran He, Weixiao Huang, Weixin Xu, Wenhao Wu, Wenyang He, Xianghui Wei, Xianqing Jia, Xingzhe Wu, Xinran Xu, Xinxing Zu, Xinyu Zhou, Xuehai Pan, Y. Charles, Yang Li, Yangyang Hu, Yangyang Liu, Yanru Chen, Yejie Wang, Yibo Liu, Yidao Qin, Yifeng Liu, Ying Yang, Yiping Bao, Yulun Du, Yuxin Wu, Yuzhi Wang, Zaida Zhou, Zhaoji Wang, Zhaowei Li, Zhen Zhu, Zheng Zhang, Zhexu Wang, Zhilin Yang, Zhiqi Huang, Zihao Huang, Ziyao Xu, Zonghan Yang, and Zongyu Lin. Kimi k1.5: Scaling reinforcement learning with LLMs, 2025. URL http://arxiv.org/abs/2501.12599 .Ye Tian, Baolin Peng, Linfeng Song, Lifeng Jin, Dian Yu, Lei Han, Haitao Mi, and Dong Yu. Toward self-improvement of LLMs via imagination, searching, and criticizing, 2024. URL https://arxiv.org/abs/ 2404.12253 .Karthik Valmeekam, Matthew Marquez, Alberto Olmo, Sarath Sreedharan, and Subbarao Kambhampati. Plan-Bench: An extensible benchmark for evaluating large language models on planning and reasoning about change, 2023a. URL https://arxiv.org/abs/2206.10498 .Karthik Valmeekam, Alberto Olmo, Sarath Sreedharan, and Subbarao Kambhampati. Large language models still can’t plan (a benchmark for LLMs on planning and reasoning about change), 2023b. URL https: //arxiv.org/abs/2206.10498 .Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten Bosma, Brian Ichter, Fei Xia, Ed H. Chi, Quoc V. Le, and Denny Zhou. Chain-of-thought prompting elicits reasoning in large language models, 2023. URL 
+
+https://arxiv.org/abs/2201.11903 .Xiao-Wen Yang, Xuan-Yi Zhu, Wen-Da Wei, Ding-Chu Zhang, Jie-Jing Shao, Zhi Zhou, Lan-Zhe Guo, and Yu-Feng Li. Step back to leap forward: Self-backtracking for boosting reasoning of language models, 2025. URL http://arxiv.org/abs/2502.04404 .Shunyu Yao, Dian Yu, Jeffrey Zhao, Izhak Shafran, Thomas L. Griffiths, Yuan Cao, and Karthik R. Narasimhan. Tree of thoughts: Deliberate problem solving with large language models, 2023. URL https://arxiv. org/abs/2305.10601 .
+
+12 8 Appendix 
+
+> 3_ | 12 21 | 43 ––+–– 43 | 21 1_ | 34
+> 34 | 12 21 | 43 ––-+–– 43 | 21 1_ | 34
+> 34 | 12 21 | 43 ––+–– 43 | 21 13 | 34
+> 34 | 12 21 | 43 ––+–– 43 | 21 12 | 34
+
+constraint violated 
+
+Done! 
+
+r1c2 = 4 
+
+r4c2 = 3 
+
+r4c2 = 2 
+
+backtrack 
+
+Figure 7: Example of Sudoku 4×4 trees. 
+
+Type Description Example Invalid Target is missing, points to the current last node, or is emitted after <done> .
+
+<node>2 wrong</node> <backtrack>2</backtrack> 
+
+Valid Target exists and is earlier than the current node, but it is not confirmed as the best correction point. 
+
+<node>1 correct</node> <node>2 correct</node> <backtrack>1</backtrack> 
+
+Correct Chosen target is a correct state, while the previous node is not correct. 
+
+<node>1 correct</node> <node>2 correct</node> <node>3 wrong</node> <backtrack>1</backtrack> 
+
+Perfect Target is correct, previous node is incorrect, and the next node after the target is not correct. 
+
+<node>1 correct</node> <node>2 wrong</node> <node>3 wrong</node> <backtrack>1</backtrack> 
+
+Table 4: Backtrack categories used for correction-aware evaluation. The categories are nested in quality: perfect backtracks are also correct, correct backtracks are also valid, and valid backtracks are also non-invalid. 
+
+8.1 Explorer schedules 
+
+Root 
+
+Linear: fixed-width parallel chains. 
+
+Root 
+
+Sweet point: balances between linear and exponential 
+
+Root 
+
+Exponential: produces same number of branches on each depth 
+
+Figure 8: Exploration schedules. Linear exploration spawns a bounded number of parallel chains, while exponential exploration branches from each node. We study multiple explorers because the useful search regime is task-dependent. If the explorer branches too little, the model cannot recover from an early local mistake. If it branches too aggres-sively, the number of candidate partial chains grows too quickly and the exploration budget is spent on shallow alternatives rather than on finishing promising trajectories. 13 Let B be the branching factor and let d denote a frontier depth relative to the selected prefix root. A naive exponential branching policy allows every frontier to generate up to B children, 
+
+cexp (d) = B, 
+
+so the number of nodes reachable by depth D grows on the order of 
+
+1 + B + B2 + · · · + BD = O(BD ).
+
+This is undesirable in our setting because training requires validator calls and pair construction for explored branches; exponential growth therefore converts a small increase in depth into a large increase in cost while often failing to improve branch quality. The linear explorer implements the opposite extreme. Its frontier capacity is 
+
+clin (d) = 
+
+B, d = 0 ,
+
+1, d > 0.
+
+This creates B parallel chains rather than a dense tree: the root can spawn up to B alternatives, and each alternative then continues as a single line. Linear exploration is attractive when depth matters more than local breadth, because cost remains predictable and the explorer can advance multiple candidate chains in parallel. The dendritic explorer is designed for the intermediate regime. It keeps a bounded per-iteration child budget U but scores frontiers so that search behavior shifts from breadth-first to depth-first as the local tree grows. Let N be the number of discovered nodes in the current prefix-local tree. The transition is controlled by 
+
+σ(N ) = 11 + exp ( −h (log B N − s)) ,α(N ) = αbfs + ( αdfs − αbfs ) σ(N ),
+
+where s is the transition point and h controls sharpness. Early in exploration, α(N ) is close to αbfs 
+
+and the explorer favors shallower frontiers; later it approaches αdfs and increasingly favors deeper continuations. For an expandable frontier i, let di be its relative depth, let cmax (i) be its maximum number of children, and let gap i = cmax (i) − children i denote remaining child capacity. The dendritic explorer uses the log-score 
+
+log score i = α(N ) log 
+
+
+
+1 + di
+
+Dmax 
+
+> i
+
+
+
++ β log 
+
+
+
+1 + gap i
+
+max(1 , c max (i)) + ε
+
+
+
+,
+
+where Dmax  
+
+> i
+
+is the remaining allowed depth from the current prefix and β weights the unused-capacity term. After scoring frontiers, the explorer deterministically allocates the budget U across the highest-scoring nodes. In practice, this yields a broad-then-deep pattern: the explorer first discovers competing branches and then concentrates resources on extending the most promising ones. 
+
+8.2 SFT-B pair construction 
+
+The SFT-B dataset contains three kinds of pairs (Figure 9). Success pairs train the model to continue along valid generated or gold branches. Failure pairs train the model to emit a <backtrack> action when a branch violates task constraints. Continue pairs train the model to resume from a valid prefix after a compact trace of the failed branch has been inserted. Trace construction is described separately in Appendix 8.3. We use a reverse curriculum over prefixes. Early training explores near-solution prefixes, where the remaining continuation is short and validation feedback is dense. Later stages move the starting prefix closer to the root, increasing the amount of search the solver must perform before reaching a valid 
+
+<done> action. For a chain ct = ( a0, a 1, . . . , a t), |ct| = t + 1 , the curriculum starts with T = t, so the solver is asked to generate at given the prefix (a0, a 1, . . . , a t−1). After the SFT-A, exploration, and SFT-B passes, T = t − 1 is set, so the new prefix becomes (a0, a 1, . . . , a t−2). This process repeats until T = 1 is reached, at which point the solver is asked to produce the whole chain based on the task description only. 14 Input: [ <node>0 puzzle input</node> <node>1 Step A</node> <node>2 Step E</node> ] Target: <done>Solution!</done> 
+
+(a) Success pair. 
+
+> Input: [ <node>0 puzzle input</node> <node>1 Step A</node> <node>2 Step B</node> <node>3 Step C</node> <node>4 Step D</node> ] Target: <backtrack> 1 Constraints violated </backtrack>
+
+(b) Failed pair. 
+
+> Input: [ <node>0 puzzle input</node> <node>1 Step A</node> <trace> Reason: Constraints violated Explored node: <node>2 Step B</node> Error node: <node>4 Step D</node> </trace> ] Target: <node>2 Step E</node>
+
+(c) Continue pair. 
+
+Figure 9: Example of different SFT-B pair kinds for prefix <node>0 puzzle input</node>, <node>1 Step A</node> .
+
+8.3 Trace format and traced recovery 
+
+During traced inference, when the model emits 
+
+<backtrack>ID REASON</backtrack> ,
+
+the runtime truncates the context to the target node and injects a compact trace: 
+
+<trace>REASON SUMMARY</trace> .
+
+The trace is never generated by the model as a target action. It is inserted by the runtime and appears only in the subsequent context. In our implementation the summary records the validator reason, the first explored action after the backtrack target, and the final erroneous action in the failed branch: 
+
+<trace> Reason: Invalid step: must fill exactly one empty cell Explored node: <node>2 ...</node> Error node: <node>4 ...</node> </trace> 
+
+Introducing traces requires careful handling to avoid distribution shift. The ordinary SFT-B failure pair teaches the model to emit a backtrack, but does not by itself teach the model how to continue after the runtime inserts a trace. To mitigate this mismatch, we create synthetic traces during SFT-B training: for each failure pair, we insert a synthetic trace after the backtrack target and create a continuation target from the corresponding valid branch. We evaluate three recovery regimes. In reset mode, the runtime truncates the context to the target node and discards the failed branch. In preserve mode, the raw <backtrack> action remains in context. In traced mode, the runtime truncates to the target node and appends <trace>...</trace> . The Sudoku ablations in Figure 4 compare traced and non-traced training, while the main Sudoku results in Table 2 use traced recovery. 
+
+8.4 Finetune expanders 
+
+Finetune expanders control which prefix-target pairs are materialized from a successful or failed chain before SFT-B (Figure 10). We need multiple expanders because the same explored tree can emphasize different learning signals. The all expander supervises every intermediate continuation, producing dense next-step imitation. The prefix expander keeps later generated prefixes and the terminal answer, reducing dataset size while still teaching continuation from non-root contexts. The 
+
+final expander is used for failed leaves: it trains the model to emit the final recovery action from the full failed branch. In Sudoku 4×4, the main traced setting combines prefix-style supervision for successful branches with final failed-branch supervision, so the model sees both post-trace continuation targets and explicit backtrack targets without over-weighting every intermediate failed prefix. 
+
+8.5 Additional task methodology details Training and evaluation hyperparameters. Unless stated otherwise, most experiments use the following parameters. We train Qwen3-4B with the max_seq_len =2560, vLLM GPU memory 15 1. [<node>0 puzzle input</node>] --> <node>1 Step A</node> 2. [<node>0 puzzle input</node> <node>1 Step A</node>] --> <node>2 Step E</node> 3. [<node>0 puzzle input</node> <node>1 Step A</node> <node>2 Step E</node>] --> <done>Solution!</done> 
+
+(a) all expander. 
+
+> 1. [<node>0 puzzle input</node> <node>1 Step A</node>] --> <node>2 Step E</node> 2. [<node>0 puzzle input</node> <node>1 Step A</node> <node>2 Step E</node>] --> <done>Solution!</done>
+
+(b) prefix expander. 
+
+> 1. [<node>0 puzzle input</node> <node>1 Step A</node> <node>2 Step B</node> <node>3 Step C</node> <node>4 Step D</node>] --> <backtrack> 1 Constraints violated </backtrack>
+
+(c) final expander. 
+
+Figure 10: Finetune expander examples for prefix <node>0 puzzle input</node>, <node>1 Step A</node> . Format is [training prefix] –> training target .utilization 0.8, gradient checkpointing and 10 dataloader workers and exploration batch size 256. For exploration we use a linear explorer with branching budget B = 5 , leaf multiplier cleaf = 3 ,maximum leaf capability 20, adaptive Tmax (so the maximum curriculum T is taken for each gold chain individually based on its length) and deduplication (what means we do not include exactly the same generated nodes on one depth into separate chains). We also use restricted solver — vLLM with restricted regex output on during diligent pipeline — in order to generate well-structured chains on exploration phase. The SFT schedule is one epoch for SFT-A, one epoch for all SFT-B examples. The optimizer and adapter settings are QLoRA in bfloat16, learning rate 5 · 10 −5, LoRA rank 32 and alpha 64, per-device batch size 16, gradient accumulation 1, cosine learning-rate schedule, warmup ratio 0.03, weight decay 0.01, and LoRA dropout 0.05. For FT and Gold models we fine-tune for 3 epochs. Evaluation uses each task’s maximum evaluation step budget: 30 steps for Sudoku 4×4, 30 for Sudoku w/ RT 4×4, 50 for Blocksworld and 30 for Hidden graph. We conducted experiment on NVIDIA A100 80Gb. 
+
+Hidden directed graph validation. For <node> actions, the hidden graph validator checks that the requested target is visible from the current node, rejects moves to FAIL , rejects moving to GOAL 
+
+instead of emitting <done> , and requires <done> when GOAL is already visible. For terminal actions, it verifies that the answer is exactly the current path extended by GOAL , that GOAL is currently visible, and that FAIL is absent. A valid move can still reveal a losing branch: if the new observation is X -> FAIL or X -> (none) , the explorer records a failed leaf with a reason such as Failure reached after START -> X .
+
+Sudoku validation. Every Sudoku action contains a complete grid rather than a coordinate-level edit. The solver is instructed to output exactly one tag per turn. If the current grid still contains empty cells, it may output a <node> that fills exactly one empty cell or a <backtrack> if the branch is invalid. If the current grid is already complete, it must output <done> with the same complete grid; filling the final empty cell and terminating are therefore two separate turns: 
+
+<node>0 3 4 | 1 2 2 1 | 4 3 ----+----4 3 | 2 1 1 _ | 3 4 </node> <node>1 3 4 | 1 2 2 1 | 4 3 ----+----4 3 | 2 1 1 2 | 3 4 </node> <done> 3 4 | 1 2 2 1 | 4 3 ----+----4 3 | 2 1 1 2 | 3 4 </done> 
+
+The Sudoku validator preserves all initial clues, enforces row, column, and box constraints, and requires each <node> transition to place exactly one digit into an empty cell without clearing or rewriting any filled cell. For <done> , the validator additionally requires that the action repeats the latest complete grid and that no empty cells remain. During exploration, failures such as changing an initial clue, placing multiple digits at once, or emitting <done> before completion become validator reasons for backtrack targets. 
+
+Sudoku w/ RT generation and validation. Sudoku w/ RT supports grids from 4×4 to 9×9. Each chain begins with a partially filled Sudoku grid; every <node> action contains the updated grid 16 Figure 11: Distribution of task outcomes on the Blocksworld test set for the Gold-only SFT model and the Pyligent model, aggregated across 3 runs. "Both solved" indicates that both models reached a valid <done> node and completed the task successfully in all 3 runs. The remaining slices show which tasks were solved uniquely by one model or left unsolved by both. followed by a brief justification separated by a blank line, and <done> must reproduce the fully solved grid. The primary training dataset contains 1,200 4×4 puzzles with reasoning generated by Qwen3-32B. Grid transitions are validated using the standard Sudoku validator above, but the reasoning text is not validated. 
+
+Blocksworld generation and validation. Blocksworld initial and goal states are sampled uniformly at random with the bwstates utility and formatted as PDDL problems under the standard blocksworld-4ops domain. Duplicate problems and already-solved initial states are discarded; generation moves to the next block count when more than 90% of samples in a rolling window of 2048 tasks are duplicates. Valid problems are solved with Fast-Forward (FF), and the returned plans are converted from PDDL into text prompts with color names for blocks. VAL validates candidate outputs by simulating plan execution from the initial state, checking action preconditions and effects at each step, and confirming that the resulting state satisfies the goal. 
+
+8.6 Sudoku w/ RT task reasoning generation prompt 
+
+For each pair of consecutive grids (Gt, G t+1 ) in a solution chain, the LLM receives a prompt containing the current grid and the next grid (with one cell filled) in visual format, optionally preceded by the reasoning from the previous step for context. The prompt instructs the model to identify which cell changed, state what digit was placed, and explain why that digit is the only valid option using standard Sudoku constraints. The model is asked to respond concisely in 1–3 sentences without numbering or meta-references. The full prompt template is: 
+
+You are analyzing a single-cell transition in a {size}x{size} Sudoku puzzle. Current grid: {current_visual} [Previous reasoning (if available): {previous_reasoning}] 
+
+17 Figure 12: Distribution of Blocksworld successes and backtracks across the number of actions in the gold chains. The number of actions correlates with task difficulty, though the number of blocks may vary. The lines show the trend in success rate for Gold-only SFT model and Pyligent model, each bar shows the average number of backtracks per task, and the number above each bar indicates how many of the successful tasks involved at least one backtrack. The absence of a number indicates that none of the successes involved a backtrack. 
+
+Next grid (one cell was filled): {next_visual} Explain the logical reasoning that justifies the newly filled cell. Use only standard Sudoku constraints (row, column, and box rules). Important rules: - Identify which cell changed and what digit was placed. - Explain why this digit is the only valid option for that cell. - Do NOT mention ’Next grid’ or ’Current grid’ in your reasoning. - Write concisely in 1-3 sentences. Answer directly with the reasoning. Do not number your response. 
+
+8.7 Blocksworld task success distribution analysis 
+
+Figure 11 shows the solvability of each task across all 3 runs. Both models were able to solve 28.2% of tasks and failed on 42.5 % of tasks. The Gold-only SFT model never succeeded via backtracking and solved only 4.1% of tasks uniquely. In comparison, the Pyligent model was able to complete 25.2% of tasks uniquely, and more than 11% of these successes were achieved via backtracking. This indicates that the Pyligent training endowed the model with backtracking capabilities and improved its overall task understanding. In Figure 12, the success rate of both models declines as the number of actions in the gold plan increases, confirming that action count is a reasonable proxy for task difficulty. This decline also reflects the models’ extrapolation capabilities, since both were trained only on tasks with up to 16 actions per gold chain. The Pyligent model consistently outperforms the Gold-only SFT model across the observed range, maintaining a higher success rate even as task complexity grows. The average number of backtracks per task for Pyligent also increases with action count, suggesting that the model relies on backtracking more heavily as tasks become harder. Moreover, the contribution of backtracking to overall success grows with task difficulty: at the hardest tasks, backtracking accounted for roughly 50% of successes at 28 actions, albeit based on a small number of successful tasks, indicating that backtracking becomes increasingly important for solving the hardest tasks. 18
