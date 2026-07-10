@@ -6,57 +6,70 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-09
-- 运行时间：2026-07-09 21:51:24 UTC
+- 最新运行日期：2026-07-10
+- 运行时间：2026-07-10 21:32:09 UTC
 - 运行状态：成功
-- 本次总论文数：11
-- 精读区：4
-- 速读区：7
+- 本次总论文数：16
+- 精读区：5
+- 速读区：11
 
 ### 今日简报（AI）
-今日精选11篇论文，聚焦神经网络可解释性，精读两篇关于注意力机制可解释性与机械可解释性的高分研究。
-
-最值得关注的方向：通过注意力与端到端Transformer构建可读性模型，以及神经网络电路、稀疏特征与符号推理的机械可解释性方法。
-
-建议深入精读9分论文，掌握构建可解释AI的核心范式，后续可结合速读中的思维链审计与语言锚定解释技术进行实践。
-- 详情：[/202607/09/README](/202607/09/README)
+今日聚焦神经符号推理与结构化视觉推理，精读了两篇高分论文，并速读三篇大模型相关研究。  
+最值得关注的方向是：结合能量模型的回答集编程（ASP）实现端到端神经符号推理，以及场景图思维增强多模态大模型的结构化视觉推理。  
+建议优先深入理解ASP与能量模型的结合方式，或探索场景图对多模态模型推理能力的提升。
+- 详情：[/202607/10/README](/202607/10/README)
 
 ### 精读区论文标签
-1. [Legible-by-Construction: Attention and End-to-End Transformers](/202607/09/2607.04319v1-legible-by-construction-attention-and-end-to-end-transformers)  
+1. [Answer Set Programming Energised! End-to-End Neurosymbolic Reasoning and Learning with ASP and Energy Based Models](/202607/10/2607.08136v1-answer-set-programming-energised-end-to-end-neurosymbolic-reasoning-and-learning-with-asp-and-energy-based-models)  
+   标签：评分：10.0/10、query:ns-xai
+   evidence：基于回答集程序和能量模型的端到端神经符号推理
+2. [Scene Graph Thinking: Reinforcing Structured Visual Reasoning for Multimodal Large Language Models](/202607/10/2607.05716v2-scene-graph-thinking-reinforcing-structured-visual-reasoning-for-multimodal-large-language-models)  
    标签：评分：9.0/10、query:ns-xai
-   evidence：通过模糊集运算使Transformer隐藏单元可读为逻辑算子，实现神经符号协同
-2. [Mechanistic Interpretability for Neural Networks: Circuits, Sparse Features and Symbolic Reasoning](/202607/09/2607.07316v1-mechanistic-interpretability-for-neural-networks-circuits-sparse-features-and-symbolic-reasoning)  
-   标签：评分：9.0/10、query:ns-xai
-   evidence：机械可解释性与符号推理
-3. [Interpretable Uncertainty for Adaptive Retrieval and Reasoning in Question Answering](/202607/09/2607.07380v1-interpretable-uncertainty-for-adaptive-retrieval-and-reasoning-in-question-answering)  
+   evidence：利用场景图增强多模态大语言模型的结构化视觉推理
+3. [Spectral Rewiring for Exploration, Purification, and Model Merging](/202607/10/2607.03065v1-spectral-rewiring-for-exploration-purification-and-model-merging)  
    标签：评分：8.0/10、query:ns-xai
-   evidence：基于不确定性的自适应检索与推理提升LLM透明度
-4. [When Prompts Ignore Structure: Graph-Based Attribute Reasoning for Calibrated VLMs](/202607/09/2607.07395v1-when-prompts-ignore-structure-graph-based-attribute-reasoning-for-calibrated-vlms)  
+   evidence：子空间对齐重连保持LLM推理性能并减少干扰
+4. [Can We Trust LLM's Logic? Quantifying Uncertainty, Coherence, and Robustness via a Graph-Based Framework](/202607/10/2607.08017v1-can-we-trust-llms-logic-quantifying-uncertainty-coherence-and-robustness-via-a-graph-based-framework)  
    标签：评分：8.0/10、query:ns-xai
-   evidence：将符号属性图与GAT结合用于VLM校准，体现了符号推理与神经网络结合
+   evidence：基于图的LLM推理不确定性和忠实度量化框架
+5. [What LLM Forecasters Know but Don't Say: Probing Internal Representations for Calibration and Faithfulness](/202607/10/2607.08046v1-what-llm-forecasters-know-but-dont-say-probing-internal-representations-for-calibration-and-faithfulness)  
+   标签：评分：8.0/10、query:ns-xai
+   evidence：探测LLM内部表示以提升校准度和推理忠实性
 
 ### 速读区论文标签
-1. [Detecting Answer-Driven Reasoning in LLM-Based Educational Tutors via Truncated Chain-of-Thought Auditing](/202607/09/2607.04572v1-detecting-answer-driven-reasoning-in-llm-based-educational-tutors-via-truncated-chain-of-thought-auditing)  
+1. [Bayesian Sparse Low-Rank Adaptation for Large Language Model Uncertainty Estimation](/202607/10/2607.02182v1-bayesian-sparse-low-rank-adaptation-for-large-language-model-uncertainty-estimation)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：通过思维链审计增强LLM推理可解释性
-2. [Naming the Concepts Classifiers Rely On: Language-Anchored Decomposition for Faithful Explanation](/202607/09/2607.07264v1-naming-the-concepts-classifiers-rely-on-language-anchored-decomposition-for-faithful-explanation)  
+   evidence：贝叶斯低秩自适应方法用于LLM不确定性估计和校准
+2. [Explainable Novel Category Discovery in Semantic Concept Space](/202607/10/2607.04548v1-explainable-novel-category-discovery-in-semantic-concept-space)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：使用LLM的DNN事后解释方法，增强大型神经模型可解释性
-3. [BUS: Brain-Inspired Unsupervised Self-Reflection for Advanced Multimodal Reasoning](/202607/09/2607.07361v1-bus-brain-inspired-unsupervised-self-reflection-for-advanced-multimodal-reasoning)  
+   evidence：在语义概念空间中进行可解释新类别发现
+3. [Concretized Proposition Prompting Resolves Composition-Knowledge Dichotomy in Large Language Models](/202607/10/2607.08018v1-concretized-proposition-prompting-resolves-composition-knowledge-dichotomy-in-large-language-models)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：脑启发的无监督自反思方法提升多模态推理
-4. [ProLaViT: Learning Progressive Latent Visual Thoughts in Structured Latent Space](/202607/09/2607.02907v1-prolavit-learning-progressive-latent-visual-thoughts-in-structured-latent-space)  
+   evidence：通过具体化命题提示提升LLM推理与知识平衡
+4. [Overthinking: Amplifying Reasoning Weights to Extract Learned Secrets](/202607/10/2607.08173v1-overthinking-amplifying-reasoning-weights-to-extract-learned-secrets)  
+   标签：评分：7.0/10、query:ns-xai
+   evidence：过度思考方法放大推理权重以审计LLM
+5. [Cross-seed explainability using Procrustes-conditioned Joint End-to-end Top-K Sparse Autoencoders](/202607/10/2607.08499v1-cross-seed-explainability-using-procrustes-conditioned-joint-end-to-end-top-k-sparse-autoencoders)  
+   标签：评分：7.0/10、query:ns-xai
+   evidence：通过稀疏自编码器对大型神经模型进行机制可解释性分析
+6. [Steering Neural Network Training through Interpretable Constraints Based on Partial Dependence](/202607/10/2607.08641v1-steering-neural-network-training-through-interpretable-constraints-based-on-partial-dependence)  
+   标签：评分：7.0/10、query:ns-xai
+   evidence：基于可解释约束引导神经网络训练
+7. [Uncertainty-Aware Abstention in Large Language Models with Provable Alignment Guarantees](/202607/10/2607.04430v1-uncertainty-aware-abstention-in-large-language-models-with-provable-alignment-guarantees)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：多模态大模型中的渐进式潜在视觉思维用于结构化推理
-5. [Memory-Orchestrated Semantic System (MOSS): An Auditable Agentic Memory Architecture](/202607/09/2607.04391v1-memory-orchestrated-semantic-system-moss-an-auditable-agentic-memory-architecture)  
+   evidence：基于置信区间的校准实现风险可控的选择性回答
+8. [Progressive Reasoning with Primitive Correction for Compositional Zero-Shot Learning](/202607/10/2607.05911v1-progressive-reasoning-with-primitive-correction-for-compositional-zero-shot-learning)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：基于关系数据库符号检索的智能体记忆，结合符号推理与神经组件
-6. [TORINO: Token Reduction via Interpretable Concept Overlap in Vision-Language Models](/202607/09/2607.04593v1-torino-token-reduction-via-interpretable-concept-overlap-in-vision-language-models)  
+   evidence：逐步推理与基元校正，双向依赖建模
+9. [When Does In-Context Search Help? A Sampling-Complexity Theory of Reflection-Driven Reasoning](/202607/10/2607.06720v1-when-does-in-context-search-help-a-sampling-complexity-theory-of-reflection-driven-reasoning)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：利用稀疏自编码器实现视觉-语言模型中可解释的令牌缩减
-7. [Search, Fail, Recover: A Training Framework for Correction-Aware Reasoning](/202607/09/2607.07492v1-search-fail-recover-a-training-framework-for-correction-aware-reasoning)  
+   evidence：对LLM反射驱动推理的理论分析
+10. [When Thinking Hurts: Epistemic Signals in the Reasoning Chains of Visual Language Models](/202607/10/2607.08059v1-when-thinking-hurts-epistemic-signals-in-the-reasoning-chains-of-visual-language-models)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：面向纠错感知推理的训练框架，直接与LLM推理相关
+   evidence：视觉语言模型思考链熵的经验分析
+11. [Playing ZendoWorld: Challenging AI Agents on Active Visual Concept Induction](/202607/10/2607.08233v1-playing-zendoworld-challenging-ai-agents-on-active-visual-concept-induction)  
+   标签：评分：6.0/10、query:ns-xai
+   evidence：在视觉概念归纳环境中评估了神经符号方法
 
 
 <div class="dpr-home-promo-card">
