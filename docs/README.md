@@ -6,49 +6,41 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-11
-- 运行时间：2026-07-11 20:46:28 UTC
+- 最新运行日期：2026-07-12
+- 运行时间：2026-07-12 20:53:19 UTC
 - 运行状态：成功
-- 本次总论文数：9
+- 本次总论文数：7
 - 精读区：2
-- 速读区：7
+- 速读区：5
 
 ### 今日简报（AI）
-1) 今日9篇推荐中，重点精读两篇高分论文：思维树推理用于文生图像上下文学习，以及数据科学智能体的因果推理基准测试。  
-2) 最值得关注的方向是**多步推理与视觉生成结合**（Tree-of-Thoughts）和**可解释因果推理评估**（CausalDS），两篇均获8.0高分。  
-3) 建议优先精读上述两篇，再速读余下三篇（规则合成、策略解释、无监督句法解析）以拓宽视野。
-- 详情：[/202607/11/README](/202607/11/README)
+今日推荐7篇AI研究，精读2篇、速读5篇。最值得关注《符号方法在AI中的角色变化》与《ZendoWorld主动视觉概念归纳》这两项8.0分的研究。建议优先精读这两篇，它们探讨了符号推理与视觉学习的交叉前沿。
+- 详情：[/202607/12/README](/202607/12/README)
 
 ### 精读区论文标签
-1. [Tree-of-Thoughts Reasoning for Text-to-Image In-Context Learning](/202607/11/2607.07117v1-tree-of-thoughts-reasoning-for-text-to-image-in-context-learning)  
+1. [The Changing Role of Symbolic Methods in Artificial Intelligence](/202607/12/2607.05168v1-the-changing-role-of-symbolic-methods-in-artificial-intelligence)  
    标签：评分：8.0/10、query:ns-xai
-   evidence：将Tree-of-Thoughts推理应用于文本到图像，采用多阶段生成与选择，属于可解释推理技术
-2. [CausalDS: Benchmarking Causal Reasoning in Data-Science Agents](/202607/11/2607.08093v1-causalds-benchmarking-causal-reasoning-in-data-science-agents)  
+   evidence：讨论显式符号推理在AI系统中的作用与必要性
+2. [Playing ZendoWorld: Challenging AI Agents on Active Visual Concept Induction](/202607/12/2607.08233v1-playing-zendoworld-challenging-ai-agents-on-active-visual-concept-induction)  
    标签：评分：8.0/10、query:ns-xai
-   evidence：利用符号因果结构评估LLM代理的因果推理，结合了符号推理与神经网络
+   evidence：评估了用于概念归纳的神经符号方法
 
 ### 速读区论文标签
-1. [InvWeaver: Deductive Feedback for Invariant Synthesis in Interacting-Loop Programs](/202607/11/2607.05478v1-invweaver-deductive-feedback-for-invariant-synthesis-in-interacting-loop-programs)  
+1. [Final Checkpoints Are Not Enough: Analyzing Latent Reasoning Faithfulness Along Training Trajectories](/202607/12/2607.06648v1-final-checkpoints-are-not-enough-analyzing-latent-reasoning-faithfulness-along-training-trajectories)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：用于交互循环程序不变量合成的神经符号框架
-2. [ORCAID: Oblique Rule-Based Continuous-Action Interpretation for Deep RL Policies](/202607/11/2607.07235v1-orcaid-oblique-rule-based-continuous-action-interpretation-for-deep-rl-policies)  
+   evidence：分析训练轨迹中潜在推理忠实性的演化以理解不忠实形成机制
+2. [Distributed Sparse Interventions in Language Models](/202607/12/2607.07128v1-distributed-sparse-interventions-in-language-models)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：ORCAID从深度强化学习智能体中提取可解释的基于规则策略，将神经网络与符号决策树结合
-3. [Holographic Neural PCFG for Unsupervised Parsing](/202607/11/2607.08063v1-holographic-neural-pcfg-for-unsupervised-parsing)  
+   evidence：神经元层面的干预用于可解释性
+3. [Reasoning Consistency Scanning: A Framework for Auditing Chain-of-Thought Validity in AI Safety Evaluations](/202607/12/2607.07229v1-reasoning-consistency-scanning-a-framework-for-auditing-chain-of-thought-validity-in-ai-safety-evaluations)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：具有可解释代数规则评分的神经符号PCFG
-4. [Towards Mechanistically Understanding Why Memorized Knowledge Fails to Generalize in Large Language Model Finetuning](/202607/11/2607.08393v1-towards-mechanistically-understanding-why-memorized-knowledge-fails-to-generalize-in-large-language-model-finetuning)  
-   标签：评分：7.0/10、query:ns-xai
-   evidence：通过自修补机制理解LLM推理失败
-5. [Latent Memory Palace: Reasoning for Control as Autoregressive Variational Inference](/202607/11/2607.08724v1-latent-memory-palace-reasoning-for-control-as-autoregressive-variational-inference)  
-   标签：评分：7.0/10、query:ns-xai
-   evidence：将推理建模为潜空间中的自回归变分推断，用于控制，是大模型可解释推理的一种方法
-6. [RL Post-Training Builds Compositional Reasoning Strategies](/202607/11/2607.07646v1-rl-post-training-builds-compositional-reasoning-strategies)  
+   evidence：审计思维链推理一致性以评估LLM推理有效性
+4. [MILES: Modular Instruction Memory with Learnable Selection for Self-Improving LLM Reasoning](/202607/12/2607.06974v1-miles-modular-instruction-memory-with-learnable-selection-for-self-improving-llm-reasoning)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：在符号重写环境中使用强化学习进行组合推理
-7. [Write-Protected Discrete Bottlenecks for Language-Grounded World Models: A Structural Limitation and Sufficient Fix](/202607/11/2607.08312v1-write-protected-discrete-bottlenecks-for-language-grounded-world-models-a-structural-limitation-and-sufficient-fix)  
+   evidence：可学习选择模块化指令记忆以提升LLM推理的自我改进
+5. [Agon: Competitive Cross-Model RL with Implicit Rival Grading of Reasoning](/202607/12/2607.07690v1-agon-competitive-cross-model-rl-with-implicit-rival-grading-of-reasoning)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：世界模型中神经符号集成的离散符号瓶颈
+   evidence：竞争性交叉模型强化学习通过隐式评分改进LLM推理过程
 
 
 <div class="dpr-home-promo-card">

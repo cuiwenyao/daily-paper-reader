@@ -1,0 +1,1097 @@
+Title: Distributed Sparse Interventions in Language Models
+
+URL Source: https://arxiv.org/pdf/2607.07128v1
+
+Published Time: Thu, 09 Jul 2026 00:46:33 GMT
+
+Number of Pages: 29
+
+Markdown Content:
+# Distributed Sparse Interventions in Language Models 
+
+Maximilian S. Ernst 1,2,3∗ Lorenz Linhardt 3,4 Aaron Peikert 2 Oliver Eberle 3,41Max Planck School of Cognition, Leipzig, Germany 
+
+> 2
+
+Center for Lifespan Psychology, Max Planck Institute for Human Development, Berlin, Germany 
+
+> 3
+
+Machine Learning Group, Technische Universität Berlin, Berlin, Germany 
+
+> 4
+
+Berlin Institute for the Foundations of Learning and Data (BIFOLD), Berlin, Germany 
+
+## Abstract 
+
+Language models perform a wide range of tasks at varying levels of abstraction with the capacity to flexibly infer tasks from context, execute multiple tasks simulta-neously, and select among competing tasks. To study the role of model components in task behaviour, their causal influence can be investigated through interventions. Prior work on model steering has largely focused on interventions along global directions in activation space, modeling task representations as approximately linear and additive. By studying interventions at the neuron level, we find substan-tial, neuron-specific nonlinear effects on model outputs that are not captured by current steering approaches. We introduce Distributed Sparse Interventions (DSI), an intervention approach that considers nonlinearities and interactions between neurons across layers to identify sparse sets of neurons that elicit task-relevant computations. Across a range of tasks, we demonstrate that DSI can activate task behaviour in instruction-tuned language models by localising and intervening on as few as 0.01% of neurons, highlighting the effectiveness of sparse, distributed interventions in the neuron basis. Additionally, adopting a set-based perspective enables computations over the identified neuron sets, offering insights into the roles of individual neurons by analysing their effects across tasks. Through sparse interventions, DSI enables fine-grained control over model behaviour, localisation of task-relevant neuron sets, and furthers our understanding of task composition. 
+
+## 1 Introduction 
+
+Modern language models demonstrate flexible task-solving behaviours, including the adaptive com-bination and execution of multiple tasks through in-context learning (ICL) [ 10 , 26 , 53 ]. However, the mechanisms by which these models represent and compose tasks remain largely elusive, particu-larly in scenarios requiring the combination, isolation, or selective activation of behaviours. In the context of model steering, prior research has primarily focused on interventions along directions in activation space [ 43 , 49 , 18 , 8, 32 ], leveraging the observation that many task-relevant behaviours exhibit approximately linear structure in representation space. Such vector-based steering approaches typically rely on a number of key assumptions: (1) effective interventions require modifying all neuron activations in a specific layer or attention head, (2) tasks are represented as linear directions in activation space that can be combined additively, and (3) local first-order effect approximations in activation space are sufficient to identify interventions that induce approximately proportional changes in behaviour. We demonstrate that these assumptions can be violated in practice. Task-relevant computations are distributed across model components, and interventions often exhibit nonlinear interaction effects across neurons that violate the assumptions of uniform first-order approximations. This motivates the development of fine-grained intervention strategies that operate directly on neurons rather than on global directions in activation space. Such approaches could enable less invasive and more  
+
+> ∗Correspondence to ernst@mpib-berlin.mpg.de . Code is available at GitHub. Preprint. arXiv:2607.07128v1 [cs.LG] 8 Jul 2026
+
+interpretable interventions. However, they are currently constrained by the difficulty of reliably localising task-relevant neurons without relying on the strong assumptions inherent in first-order approximations. To address this gap, we propose Distributed Sparse Interventions (DSI), a method for identifying sparse subsets of neurons that jointly activate a given task. Our contributions are as follows: (1) An analysis of neuron-level interventions leading to DSI, a methodological contribution that enables task activation by identifying and intervening on sparse sets of features (Section 3, Figure 1). (2) A demonstration of complex, non-linear dependencies among neuron interventions, highlighting the importance of moving beyond linear approaches to determine interventions. We account for these dependencies by iteratively updating the expected effects of interventions on model predictions (Section 4). (3) A comprehensive empirical study across 12 tasks on three models (Qwen3 (8B), Gemma 3 (4B), Llama 3.2 (3B)), demonstrating that intervening on as few as 8–64 neuron units (0.01–0.04% of total neurons) typically suffices to activate a given task, often matching or surpassing 10-shot ICL performance (Section 4.1). (4) An analysis of neuron roles within and across tasks, enabled by grounding model steering in sets of neurons. The potential of this conceptual contribution is demonstrated in a case study involving open-ended autoregressive text generation (Section 5). Our work addresses the need for principled methods to uncover, control, and understand task representations in deep learning models, providing a practical approach for more effective and localised interventions. 1 - Compute differences 2 - Score & select neurons 3 - Re fi ne interventions 4 - Modify forward pass    
+
+> 10-shot activation 0-shot activation 0-shot gradient Intervened on
+
+Figure 1: Schematic overview of how distributed sparse interventions are identified and applied via DSI. (1) Activation differences are extracted from 10-shot and 0-shot ICL prompts. (2) An initial sparse intervention is computed using a robustified gradient estimate. (3) The intervention is refined via an iterative procedure. (4) The refined intervention is applied additively to modify model behaviour. 
+
+## 2 Related work 
+
+Model steering Prior work on model steering has largely focused on identifying linear directions in activation space to intervene on model behaviour. Associated vectors are typically calculated from in-context-learning examples [ 49 , 18 , 32 ] as well as contrastive sample pairs [ 43 ], or via optimization, e.g. in approaches like LoFiT [ 54 ], which trains additive biases applied to specific attention heads. While these methods can effectively alter model behaviour and are sometimes sparse in terms of components such as whole attention heads, they operate at the level of global directions in representation space. 
+
+Sparse representations in neural networks Often inspired by neuroscientific findings of sparse coding [ 50 , 38 , 39 ], prior work on understanding representations in artificial neural networks in-vestigated sparse representations. Research on model compression and pruning [ 27 ], as well as the lottery ticket hypothesis [ 15 , 14 ], suggests the existence of underlying sparse structure in large deep learning models by identifying sparse subnetworks capable of matching the performance of dense 2models. In vision models, neuron units aligning with human-interpretable concepts were identified [7]. Similarly, in language models, specific ‘skills’ [ 51 ] and ‘knowledge’ [ 11 ] have been localised to neurons, and sparse subnetworks have been shown to support strong performance through targeted fine-tuning [ 40 ]. As neural models may represent features in superposition [ 13 ], recent interpretability work has explored dictionary learning to disentangle representations into interpretable features [ 9], assuming the native neuron basis is not sufficiently sparse. Further efforts have focused on learning a sparse basis of interpretable features either at a specific layer (e.g., sparse autoencoders [ 9, 21 ]), or across multiple layers (e.g., crosscoders [ 29 ]), in order to generate sparser circuits [ 33 ]. While this line of work relies on features in dense, high-dimensional spaces, it remains an open question to what extent task-relevant structure is accessible within the native neuron basis. More recently, it has been found that for some circuits that previously have been analyzed using sparse autoencoders, an analysis directly in the neuron basis of the MLP components of transformer blocks can uncover circuits of similar sparsity [3]. 
+
+Vector arithmetic in representation space Previous work has investigated the compositional nature of interventions [ 49 , 32 , 30 ], finding that steering vectors identified during ICL can be additive, allowing for the activation of task combinations through vector summation. Such modularity is not limited to activations but extends to the model’s parameters. Task vectors in weight space, derived from the difference between fine-tuned and pre-trained weights, can be combined to modify model capabilities [ 22 ]. Recent work further suggests that arithmetic capabilities are grounded in the composition of sets of modular heuristics [ 37 ]. While these studies highlight the compositional nature of task solving in LLMs, they largely rely on dense representations. 
+
+## 3 DSI - Distributed Sparse Interventions 
+
+We introduce Distributed Sparse Interventions (DSI), a method to identify and apply effective interventions on small sets of neurons distributed across layers and attention heads. As illustrated in Figure 1, DSI follows a four-step procedure: (1) activation differences between 10-shot and 0-shot prompts are computed for all neurons to isolate task-specific model responses; (2) a sparse initial intervention is derived from these activation differences and a robustified gradient, retaining only the most impactful neurons; (3) a refined intervention is generated via step-wise optimization of the sparse neuron set and neuron-level intervention scaling, accounting for neuron interactions (see Appendix A for an illustration and analysis of why modeling these interactions is necessary); and (4) during a modified forward pass , this intervention is applied to elicit the task-solving capabilities on 0-shot examples. After discussing preliminaries, first-order intervention effect estimation and robustified gradients are defined in Section 3.1, and the iterative intervention refinement procedure is introduced in Section 3.2. 
+
+Notation Let f denote a model mapping a sequence x of input tokens to output logits. A task is defined via a set D of input-output pairs (x, y ). For an input-output pair, f (x)i refers to the output logit of the correct token, i.e., i denotes the output logit index of to the first token of y. We drop the index for a more concise notation, and write f (x) for f (x)i from now on. From a dataset D,we construct k-shot ICL prompts as a concatenation of k completed example pairs followed by an incomplete query, (( x1, y 1), (x2, y 2), . . . , (xk, y k), x k+1 ). Let Dk denote a dataset of such k-shot examples constructed from D, and D0 a dataset of 0-shot prompts, only containing the incomplete query but no in-context examples. We let a ∈ R denote a neuron activation in a hidden layer of f and δ ∈ R an intervention on that neuron. fδ := f (x|a ← a + δ) then denotes the model modified by intervention δ, that is, during a forward pass, a is computed from the input, then δ is added to a, and the forward pass is continued. 
+
+a ∈ Rd denotes the vector of all hidden activations that are considered for an intervention, and 
+
+∆ ∈ Rd the vector of all interventions. 
+
+3.1 Approximating intervention effects Taylor approximation To identify which neurons to intervene on for task D, we consider the effect of intervening on a neuron during a forward pass in the 0-shot setting. That is, for a 0-shot prompt 
+
+x0, the effect of adding an intervention δ to a neuron a during the forward pass is 
+
+E(δ) = f (x0|a ← a + δ) − f (x0), (1) i.e., the change of the correct output logit caused by the addition of δ to a during the forward pass. Since an exact calculation would require an independent forward pass for each neuron in f , we 3approximate the intervention effect via a first-order Taylor approximation: 
+
+f (x0|a ← a + δ) ≈ f (x0) + ∂af (x0) δ
+
+=⇒ E (δ) ≈ ∂af (x0) δ
+
+This is similar to the setting of attribution patching [ 35 ], with the difference that the activation of 
+
+a is not replaced during the forward pass (a "structural" intervention) but a term δ is added to it (a "parametric" intervention) [12]. 
+
+Gradient modifications Deep neural network gradients suffer from instabilities such as gradient shattering [ 6 ], making them a potentially unreliable signal for the expected changes in model output under interventions. To mitigate this brittle behaviour, various other methods, such as integrated gradients [ 47 ], smooth grad [ 44 ], or layer-wise relevance propagation (LRP) [ 5, 34 ] have been proposed for computing more robust input attributions. Recent work extends these findings to activation patching and shows that intermediate attributions, using LRP-modified gradients, better estimate patching effects in transformer-based language models than raw gradients [ 23 ]. To improve the approximation of the intervention effect, we therefore use an LRP-modified gradient. The modifications include using the identity rule [ 42 ] for nonlinear activation functions, the half rule for gated MLPs and attention modules [ 4, 1 ], and the LayerNorm rule for layer normalization modules [ 2]. We denote this robustified gradient by ∂r and provide additional details on the rules in Appendix D. 
+
+Average effect Equipped with this robustified gradient, we approximate the average effect ¯E of the intervention δ across dataset of 0-shot examples as 
+
+¯E(δ) ≈ 1
+
+|D0|
+
+X
+
+> x0∈D0
+
+∂raf (x0) δ. (2) 
+
+3.2 Determining the interventions Initial set To determine the magnitude of interventions, we follow prior approaches that construct steering signals via activation differences [ 43 , 49 ] and compute the average activation difference of neuron a between a k-shot and a 0-shot setting during the forward pass: 
+
+a− := 1
+
+|Dk|
+
+X 
+
+> xk∈Dk
+
+(a|xk) − 1
+
+|D0|
+
+X
+
+> x0∈D0
+
+(a|x0). (3) The resulting quantity captures how a neuron’s activation shifts between settings where the task is solved via in-context learning and settings where it is not, providing an informative initialization for intervention strengths. For a given number of neurons n to intervene on, we then choose the neurons with the largest expected effect ¯E(a−) according to Equation 2. Introducing a scaling factor 
+
+s ∈ Rd which is one for the n largest effects and zero otherwise, we write the vector of interventions as ∆ = s ⊙ a−.
+
+Iterative refinement So far, we approximated the expected effect of an intervention δ on a neuron 
+
+a with a first-order Taylor expansion around the root point a0, i.e. the value the neuron takes on during a forward pass on a 0-shot prompt. This disregards nonlinear effects of interventions, as well as interaction effects among interventions, which, as we show in Section 4, can be sizeable in highly nonlinear transformer networks. As explicit computation of higher-order terms across thousands of interventions is computationally infeasible, we opt for an iterative approximation. When maximizing a nonlinear function, it is typically not approximated only once at the initial point, but the function is repeatedly approximated, followed by a step in the gradient direction, and this process is iterated until a stopping criterion is met. Appendix A contains an illustrative example showing how such an iterative approach can help model interactions between neuron-level interventions. By first constructing a candidate set of n neurons with the largest expected effect ¯E(a−) (as described above), and iteratively refining the intervention, we arrive at our proposed Algorithm 1: for a given neuron set size n and datasets D0 and Dk, it (1) computes the average activation differences, (2) computes a robustified gradient w.r.t. the activations in the 0-shot setting, (3) selects the n
+
+interventions with the highest expected effect as a starting point and, (4) iteratively refines the effects 
+
+t-times by re-evaluating the expected effects at the current intervention. For the iterative optimization steps, we employ ZeroFPR [ 48 ], an algorithm suited for maximizing nonconvex functions (the output logit) with a limited number of nonzero parameters (the per-neuron 4interventions). We set a maximum number of 50 steps, and to encourage exploring different neuron sets, we re-run the algorithm with multiple perturbed starting values - details about the optimization algorithm and settings can be found in Appendix F. Note that instead of directly estimating the interventions, we estimate s, the scaling factor of the activation differences. This informs the optimizer about the expected changes in the activations, letting a− act as a preconditioner for the optimization problem. 
+
+Algorithm 1 Compute DSI 
+
+Require: dataset D0, dataset Dk , set size n, number of steps t 
+
+> 1:
+
+a− ← mean x∈Dk (a|x) − mean x∈D0 (a|x) ▷ average activation difference  
+
+> 2:
+
+g ← mean x∈D0 ∇r 
+
+> a
+
+f (x) ▷ robustified gradient in 0-shot setting  
+
+> 3:
+
+e ← g ⊙ a− ▷ expected first-order effect of interventions  
+
+> 4:
+
+s0 ← 1(topn( e)) ▷ most relevant neurons as starting point  
+
+> 5:
+
+for i = 1 to t do  
+
+> 6:
+
+si ≈ arg max s mean x∈D0 fs⊙a− (x) ▷ update intervention  
+
+> 7:
+
+s.t. nnz( s) ≤ n, s close to si−1 ▷ sparse & close to previous step  
+
+> 8:
+
+end for  
+
+> 9:
+
+return s
+
+## 4 Experiments 
+
+Experimental setup We evaluate our approach on three instruction-tuned language models from widely used families, Qwen 3 (8B) [ 41 ], Gemma 3 (4B) [ 16 ], and Llama 3.2 (3B) [ 17 ] (see Ap-pendix B for details), spanning a range of model depths (28-36 layers), attention heads (8-32 heads), and hidden dimensions (128, 256). We consider a subset of 12 tasks from [ 49 ], including two abstrac-tion levels (see Table 3 for an overview): extractive , where the correct output is already present in the input (e.g., choosing the fruit from a set of words), and abstractive , where the output is not present in the input (e.g., naming the capital of a given country). For each task, we split the input-output pairs 50/50 into a training set and a test set. We then generate 100 0-shot prompts and 100 10-shot prompts from the training split. Two datasets contain fewer samples, resulting in smaller train and test splits. Details on the task data, splits, and prompt structure are provided in Appendix C. For the interventions, we consider the outputs of all attention heads in each layer at the last token position (before they are projected to the residual stream dimension). 
+
+Nonlinear, neuron-specific intervention effects A key motivation for DSI is its ability to go beyond first-order effect estimates by accounting for nonlinear, neuron-specific effects. Before proceeding to the main results, we illustrate the importance of this on the english–french task using Llama 3.2 (3B), by studying interventions on the most relevant neurons identified via a first-order approximation using the robustified gradient, but without iterative refinement. To this end, we randomly sample neurons and neuron pairs from the 16 neurons with the highest expected intervention effect and measure the logit of the correct token under single and pairwise interventions. 7.0 7.5 8.0 8.5     
+
+> 010 20 30 40
+> Intervention scale
+> Output logit  Neuron rank
+> 0
+> 1
+> 3
+> 5
+> 8
+> 9
+
+(a) Neuron intervention effects 3x0 6x1 12x3 14x9                     
+
+> 010 20 30 40 010 20 30 40 010 20 30 40 010 20 30 40
+> 010 20 30 40
+> Scale neuron 1
+> Scale neuron 2  Output logit
+> 4.79 9.45
+
+(b) Pairwise neuron intervention effects 
+
+Figure 2: Value of the correct output logit of Llama 3.2 (3B) for the english-french task, when intervening on hidden neurons. Neurons are sampled from the 16 neurons with the highest expected intervention effect, and labels correspond to their ranks. (a) shows the correct output logit as a function of single-neuron interventions, (b) as a function of interventions on pairs of neurons. Figure 2a shows the output logit corresponding to the correct token (averaged over 100 0-shot examples from the test set) for interventions on single neurons at a time. The interventions are scaled 5by the average activation difference. We observe that even among the neurons with the largest expected positive effect, some reduce the output logit, and that the logit varies nonlinearly with intervention strength. Figure 2b shows the effect of intervening on pairs of neurons. We observe interaction effects, such that the maximum logit corresponds to a setting where the intervention strength differs between neurons. These observations indicate limitations of first-order effect estimation, as it does not reliably identify neurons with a positive effect. They also point to limitations of approaches that determine a uniform scaling factor for all neurons, as even after rescaling the intervention by the average activation difference, the optimal intervention strength varies substantially across neurons, motivating neuron-level, iterative techniques such as DSI. 
+
+4.1 Evaluating DSI 
+
+For all tasks and models, we compute DSI for neuron subsets of 8 to 2048 and generate 200 0-shot prompts from the test split to evaluate the performance of the interventions. 2. We limit ourselves to next-token prediction; if a correct output consists of multiple tokens, we evaluate whether the first predicted token is correct. We compare 0-shot task accuracy against the baseline model behaviour (no intervention) and compare it against two additional conditions evaluating iterative refinement and gradient modifications: (1) no iterative refinement : the n interventions with the largest effects as approximated via first-order Taylor expansion are used (i.e., the starting values in Algorithm 1), and one joint scaling factor s ∈ [0 .01 , 50] is determined for all interventions. (2) no gradient robustification : the same as (1), but in addition, the first-order effects are approximated without the gradient modifications described in Section 3.1. Table 1: Average accuracy on the abstractive and extractive tasks in the 0-shot setting. Results for interventions on 8 to 64 neurons are shown. Baseline refers to model behaviour without interventions, "no rob." to no gradient robustification, "no iter." to no iterative refinement. Ranges refer to the minimum and maximum accuracy across tasks. Across almost all conditions, DSI with gradient robustification and iterative refinement performs best.                                                                                                                                                                          
+
+> Abstractive Tasks Extractive Tasks #Method Llama 3.2 Qwen 3 Gemma 3 Llama 3.2 Qwen 3 Gemma 3 /baseline 0.02 0.00-0.06 0.04 0.00-0.12 0.01 0.00-0.02 0.28 0.14-0.52 0.03 0.01-0.07 0.13 0.03-0.23
+> 8no rob. 0.44 0.02-0.99 0.16 0.04-0.60 0.28 0.01-0.96 0.47 0.23-0.95 0.33 0.21-0.47 0.56 0.30-0.99
+> no iter. 0.31 0.04-0.96 0.27 0.00-0.89 0.28 0.00-0.98 0.46 0.21-0.98 0.53 0.31-0.84 0.53 0.30-0.99
+> DSI 0.63 0.18-0.97 0.54 0.24-0.97 0.51 0.12-0.97 0.79 0.56-0.99 0.76 0.46-0.98 0.70 0.51-1.00
+> 16 no rob. 0.52 0.04-0.99 0.36 0.04-0.52 0.33 0.05-0.98 0.58 0.28-0.92 0.27 0.15-0.39 0.60 0.34-0.99
+> no iter. 0.37 0.03-0.97 0.28 0.00-0.95 0.36 0.03-0.98 0.49 0.18-0.94 0.63 0.30-0.98 0.52 0.24-0.98
+> DSI 0.78 0.56-0.99 0.70 0.56-0.98 0.65 0.54-0.99 0.90 0.56-0.99 0.92 0.84-1.00 0.78 0.50-0.99
+> 32 no rob. 0.55 0.10-0.99 0.47 0.01-0.79 0.65 0.48-1.00 0.52 0.30-0.93 0.45 0.22-0.90 0.67 0.34-1.00
+> no iter. 0.49 0.09-0.98 0.43 0.06-0.98 0.52 0.08-0.99 0.67 0.27-0.96 0.62 0.28-0.99 0.63 0.35-0.98
+> DSI 0.75 0.56-0.98 0.71 0.47-0.99 0.73 0.40-0.99 0.96 0.94-0.99 0.97 0.95-1.00 0.87 0.73-1.00
+> 64 no rob. 0.65 0.17-0.98 0.59 0.04-0.97 0.77 0.65-1.00 0.56 0.33-0.93 0.51 0.12-0.95 0.69 0.29-1.00
+> no iter. 0.66 0.27-0.97 0.53 0.09-0.94 0.69 0.56-1.00 0.73 0.26-0.99 0.65 0.35-1.00 0.72 0.32-0.99
+> DSI 0.75 0.52-0.98 0.73 0.43-0.99 0.72 0.39-0.99 0.98 0.95-0.99 0.98 0.96-1.00 0.97 0.96-1.00
+
+Main results Table 1 shows the resulting accuracy from applying DSI in the 0-shot setting across models, averaged over the two task categories (abstractive and extractive, 6 tasks each), for the intervention set sizes 8 to 64 . Across model families, DSI substantially improves task accuracy over the no-intervention baseline, with meaningful gains already observable using as few as 8 neurons. Performance generally improves with larger neuron sets, with interventions on 64 neurons achieving mean task accuracies ranging from 0.72 to 0.98 across settings. The results further indicate that both gradient robustification and iterative refinement contribute consistently to improved intervention performance. Figure 3 extends this analysis by showing accuracy across all 12 tasks as a function of set sizes from 8 to 2048 for Qwen 3 (8B), including conditions without gradient robustification and without iterative refinement. Additional results for other models are provided in Appendix E. Shaded regions   
+
+> 2The experiments needed ∼108h of compute time on AMD Instinct MI300A APUs.
+
+6correspond to 95% Wilson confidence intervals [ 52 ], taking into account uncertainty due to the limited number of test samples. Across settings, particularly for small set sizes, DSI consistently achieves highest task accuracy, and both iterative refinement and gradient robustification are necessary for high performance, with removal of either leading to degradation in task accuracy. We observe particularly strong and consistent performance of DSI across set sizes on extractive tasks, while for some abstractive tasks, i.e., country-capital and english-french , larger set sizes can yield reduced performance. While we can not identify effective interventions across all set sizes and conditions, these results overall demonstrate the effectiveness of DSI across tasks and highlight its potential for identifying neuron-level model interventions. capitalize present−past product−company country−capital sentiment english−french      
+
+> fruit_v_animal_3 object_v_concept_3 choose_first_of_3 adjective_v_verb_3 color_v_animal_3 choose_middle_of_3
+> 816 32 64 128 256 512 1024 2048
+> 816 32 64 128 256 512 1024 2048
+> 816 32 64 128 256 512 1024 2048
+> 816 32 64 128 256 512 1024 2048
+> 816 32 64 128 256 512 1024 2048
+> 816 32 64 128 256 512 1024 2048
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> # Neurons
+> Accuracy
+> Intervention
+> DSI
+> no refinement
+> no refinement & no gradient robustification
+> Baselines
+> 0−shot baseline
+> 10−shot baseline
+> majority class baseline
+
+Figure 3: 0-shot test set accuracy for interventions across set sizes for extractive (top row) and abstractive (bottom row) tasks. Results shown are for Qwen 3 (8B); results for other models can be found in Appendix E. Shaded regions correspond to 95% confidence intervals. 0-shot and 10-shot baselines correspond to ICL performance without intervention, majority class baseline to the proportion of the most common correct output token. 
+
+Distribution of intervened neurons across heads and layers Through its distributed, neuron-level intervention approach, DSI enables analysis of where sparse interventions are located across heads and layers. Figures 11, 12, and 13 in Appendix G show the distribution of identified neurons over attention heads. For instance, at a set size of 64, we find that neurons are broadly distributed, involving many attention heads across layers, in particular, middle and later layers. Compared to previous direction-based steering approaches, which rely on predefined intervention layers, e.g., [ 43 , 49 ], our findings suggest that task representation are distributed across multiple heads and layers, motivating intervention strategies that avoid constraining modifications to predefined layers. 
+
+## 5 Task composition via sparse neuron sets 
+
+Language models exhibit the ability to flexibly perform and compose multiple tasks from context [ 53 ,26 ], yet it remains an open challenge to understand where these behaviours originate and how they can be systematically controlled. Recent work has shown that linear representations enable multi-concept steering via per-layer addition of concept vectors such as transfer across languages [ 8]. However, such approaches operate in dense representation spaces and do not explicitly reveal how task-relevant computations are structured at the level of individual components. Having established that DSI enables effective interventions on sparse subsets of neurons for activating individual tasks, we next investigate whether tracing task computations back to neuron-level sources reveals shared structure and enables fine-grained control for selectively activating or suppressing tasks, particularly in multi-task settings. Unlike approaches that operate at the level of residual stream representations, this perspective acts directly on neurons before their contributions are combined, providing a more direct view of the origins of task computation and thereby facilitating interpretability. Analyzing a model’s internal task computations as sets of neurons further enables a compositional view based on set operations. Applying DSI in open-ended generation , we observe that DSI interventions for the present-past 
+
+task (e.g., publish → published ) can induce past-tense usage, but also lead to highly repetitive 7outputs that prevent coherent continuation. In contrast to the fluent baseline response to a prompt such as “Are Annie Ernaux’s books good?” , where Qwen 3 (8B) responds: “Annie Ernaux’s books are widely regarded as **excellent** and **highly influential** in modern French literature [...]” ,under DSI intervention on 32 neurons, the same prompt yields “I started reading the book in 15 pages, I started reading the book in 15 pages, I started reading the book in 15 pages [...]” . This reflects the original task’s strict input–output structure, which requires reproducing the input under transformation. Similar behaviour has been observed n the context of vector-based steering [49]. Inspired by this observation, we hypothesize that the tense-switching and language-switching tasks from Section 4 are solved as a composition of input-reproduction (copying) and a transformation of the reproduced term. To examine whether a set-based approach can be used to decompose task behaviour into these two components, we conduct two targeted case studies. 
+
+5.1 Case Study 1: Copying in Tense Switching 
+
+Our first case study investigates whether we can isolate two subtasks within the present-past task, corresponding to copying the input and producing output in the past tense . To that end, we create samples for a copy task (where the output mirrors the input exactly, see Appendix C) and compute DSI interventions for a set size of 2048 , capturing neurons involved in copying the input. We then investigate (1) whether neurons involved in the copy task are also involved in the present-past task, (2) to what extent their activation leads to copy behaviour, and (3) whether activating only the 
+
+present-past -specific neurons reduces copying while still activating task-specific behaviour. For the present-past task on Qwen 3 (8B), we choose sizes of 16 , 32 , and 64 neurons (the three smallest sets with high accuracy). Figure 4.a contains the resulting accuracies and a qualitative example for the set size of 32 , with full results in Table 5 in Appendix H.1. We can see that the intersection of the copy and present-past sets consists of 23 neurons, and that intervening on these neurons yields high performance on the copy task. We further see that the 9 neurons specific to the 
+
+present-past task perform higher on this task than the 23 neurons in the intersection. Qualitatively, we observe copy behaviour intervening on both the intersection and all present-past neurons. Tense switching behaviour is observed intervening on all present-past neurons and the task-specific neurons, while the task-specific neurons induce less copy behaviour. Appendix H.2 contains details about the open-ended text generation as well as further qualitative examples that show that the qualitatively observed behaviour is generally robust, although the "specific" neuron set can fail to switch the generated answer to the past tense. 
+
+5.2 Case Study 2: Copying in Language Switching 
+
+Similarly, for the english-french task on Llama 3.2 (3B), we select sizes of 8, 16 , and 32 neurons. Figure 4.b contains the resulting accuracies and a qualitative example for the set size of 16 , with additional results reported in Table 6 in Appendix H.1. We find that the intersection of the copy 
+
+and the english-french sets consists of 11 neurons, and that intervening on these neurons yields high performance on the copy task at around 92%. We further see that the 5 specific neurons perform higher on the english-french task than the 11 neurons in the intersection. Qualitatively, we observe copy behaviour intervening on both the intersection and all english-french neurons. Further qualitative examples in Appendix H.3 show that the qualitatively observed behaviour for interventions on these two sets is relatively robust, while the "specific" neuron set often fails to activate language switching or leads to a mix of English and French. This suggests that the effect of the 5 neurons in the specific set may not be sufficient to induce consistent language switching. Overall, our results suggest that sparse neuron-level interventions can reveal a structured decomposi-tion of task behaviour into shared and task-specific neuron sets. In both case studies, overlapping sets capture shared behaviours such as copying, while task-specific sets isolate the desired transformation with reduced interference. This provides initial evidence that task composition is reflected not only in representations but also in the underlying neuron-level structure. In contrast to vector-based steering methods [ 49 , 22 , 32 ], which model composition through direc-tions added to the residual stream, a set-based view allows for more explicit separation of shared and task-specific behaviour via set operations such as intersection and union. This offers a comple-mentary perspective on compositionality and suggests a more fine-grained approach for analyzing, understanding, and controlling model behaviour. 8a Qwen 3, present-past 
+
+task set acc present-past 
+
+∅ 0.00 (0.00, 0.03) 
+
+present-past 0.85 (0.78, 0.90) 
+
+Specific 0.37 (0.30, 0.45) 
+
+Intersection 0.03 (0.01, 0.08) 
+
+copy ∅ 0.20 (0.15, 0.27) 
+
+present-past 0.65 (0.58, 0.71) 
+
+Specific 0.27 (0.21, 0.33) 
+
+Intersection 0.92 (0.87, 0.95) present-past (32 neurons) Past tense & copy behaviour: 
+
+> "Alright, I started reading the book in 15 pages, I started reading the book in 15 pages, I started reading the book in 15 [...]"
+> Intersection (23 neurons) Copy Behaviour:
+> "Yes, the book is good, (the book is not the book, the book is not the book). \n\n The book is not the book, the book is not the book, the book is not [...]".
+
+b Llama 3.2, english-french 
+
+task set acc en-fr ∅ 0.02 (0.01, 0.05) 
+
+english-french 0.80 (0.74, 0.85) 
+
+Specific 0.25 (0.20, 0.31) 
+
+Intersection 0.01 (0.00, 0.04) 
+
+copy ∅ 0.63 (0.56, 0.69) 
+
+english-french 0.03 (0.01, 0.06) 
+
+Specific 0.44 (0.37, 0.51) 
+
+Intersection 0.92 (0.87, 0.95) english-french (16 neurons) French & copy behaviour: 
+
+> "Annie Erna Er Anne Annie Annie Annie Er Annie Er Er Er Annie Er Er Er Annie Er.\n\n Annie Er Annie Er Annie Er Annie Er.\n\n Annie Er Annie Er, qui Annie Er!\n\n [...] "
+> Intersection (11 neurons) Copy Behaviour:
+> "Annie Erna, but that's a great Annie Erna Erna Annie Erna Annie Erna Erna Annie Erna Erna Annie Erna, but that's a great Annie Erna Erna Erna Annie Erna, [...]".
+
+Figure 4: Task decomposition into neuron sets shared with a copy task and task-specific neuron sets, for ( a) Qwen 3 (8B) on the present–past task and ( b) Llama 3.2 (3B) on the english–french task. We compare interventions on task-specific neurons and intersection neurons shared with the copy 
+
+task. Results show that intersection neurons strongly capture copying behaviour, while task-specific neurons tend to produce the intended task transformation without copying. 
+
+## 6 Discussion 
+
+We introduced Distributed Sparse Interventions (DSI) , a novel method for identifying sparse inter-ventions at the neuron level. In contrast to previous approaches, DSI does not impose constraints on linearity, independence, or uniformity of neuron intervention effects, and permits their distribution across all model components. Using DSI, we provided evidence that tasks can be activated by surpris-ingly small sets of neurons distributed widely throughout the model. Furthermore, we demonstrated that adopting a set-based perspective offers a new approach to disentangling the functional roles of the involved neurons. These findings suggest new directions for interpretability research, such as matching computations in task space to those on component sets, enabling manipulation of model behaviour along multiple subdimensions within a set of tasks. 
+
+Limitations Our findings support the effectiveness of sparse and distributed interventions, but our approach and evaluation framework have limitations: (1) Our evaluation uses clean few-shot prompts and single-token prediction in an ICL setting. Future work should examine how optimal task interventions evolve during autoregressive generation and whether they are distributed across token positions [ 24 , 28 ]. (2) DSI performance varies across models and tasks, likely reflecting both DSI’s limitations and differences in representations. Further research may improve DSI in challenging settings to disambiguate representational from methodological limits. (3) Although our framework can isolate functional primitives (e.g., ‘copy’ neurons in translation and tense-switching), derived subtask interventions do not always activate associated behaviours. More advanced task-decomposition strategies may be needed to better preserve all subtasks. 
+
+Societal impact Fundamental research on modifying language model behaviour could inform both alignment and potential misuse. While DSI may be employed for malicious manipulation, our goal is to advance understanding and improve safeguards for language models. 97 Acknowledgements 
+
+L.L. was supported by the German Federal Ministry for Research, Technology and Space (BMFTR) under grant 13GW0744D. O.E. was supported through institutional funding by the BMFTR via BIFOLD (ref. 01IS18025A). 
+
+## References 
+
+[1] R. Achtibat, S. M. V. Hatefi, M. Dreyer, A. Jain, T. Wiegand, S. Lapuschkin, and W. Samek. AttnLRP: Attention-aware layer-wise relevance propagation for transformers. In Proceedings of the 41st International Conference on Machine Learning , volume 235 of Proceedings of Machine Learning Research , pages 135–168. PMLR, 2024. URL https://proceedings.mlr.press/v235/achtibat24a.html .[2] A. Ali, T. Schnake, O. Eberle, G. Montavon, K.-R. Müller, and L. Wolf. XAI for transformers: Better explanations through conservative propagation. In Proceedings of the 39th International Conference on Machine Learning , volume 162 of Proceedings of Machine Learning Research , pages 435–451. PMLR, 2022. URL https://proceedings.mlr.press/v162/ali22a.html .[3] A. Arora, Z. Wu, J. Steinhardt, and S. Schwettmann. Language model circuits are sparse in the neuron basis. arXiv preprint arXiv:2601.22594 , 2026. [4] L. Arras, J. Arjona-Medina, M. Widrich, G. Montavon, M. Gillhofer, K.-R. Müller, S. Hochreiter, and W. Samek. Explaining and Interpreting LSTMs , page 211–238. Springer-Verlag, Berlin, Heidelberg, 2022. ISBN 978-3-030-28953-9. URL https://doi.org/10.1007/978-3-030-28954-6_11 .[5] S. Bach, A. Binder, G. Montavon, F. Klauschen, K.-R. Müller, and W. Samek. On pixel-wise explanations for non-linear classifier decisions by layer-wise relevance propagation. PloS one , 10(7):e0130140, 2015. [6] D. Balduzzi, M. Frean, L. Leary, J. P. Lewis, K. W.-D. Ma, and B. McWilliams. The shattered gradients problem: if resnets are the answer, then what is the question? In Proceedings of the 34th International Conference on Machine Learning - Volume 70 , ICML’17, page 342–350. JMLR.org, 2017. [7] D. Bau, B. Zhou, A. Khosla, A. Oliva, and A. Torralba. Network dissection: Quantifying interpretability of deep visual representations. In Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR) , July 2017. [8] D. Beaglehole, A. Radhakrishnan, E. Boix-Adsera, and M. Belkin. Toward universal steering and monitoring of AI models. Science , 391(6787):787–792, 2026. [9] T. Bricken, A. Templeton, J. Batson, B. Chen, A. Jermyn, T. Conerly, N. Turner, C. Anil, C. Denison, A. Askell, et al. Towards monosemanticity: Decomposing language models with dictionary learning. 
+
+Transformer Circuits Thread , 2(5):6, 2023. [10] T. Brown, B. Mann, N. Ryder, M. Subbiah, J. D. Kaplan, P. Dhariwal, A. Neelakantan, P. Shyam, G. Sastry, A. Askell, S. Agarwal, A. Herbert-Voss, G. Krueger, T. Henighan, R. Child, A. Ramesh, D. Ziegler, J. Wu, C. Winter, C. Hesse, M. Chen, E. Sigler, M. Litwin, S. Gray, B. Chess, J. Clark, C. Berner, S. McCandlish, A. Radford, I. Sutskever, and D. Amodei. Language models are few-shot learners. In H. Larochelle, M. Ran-zato, R. Hadsell, M. Balcan, and H. Lin, editors, Advances in Neural Information Processing Systems ,volume 33, pages 1877–1901. Curran Associates, Inc., 2020. URL https://proceedings.neurips. cc/paper_files/paper/2020/file/1457c0d6bfcb4967418bfb8ac142f64a-Paper.pdf .[11] D. Dai, L. Dong, Y. Hao, Z. Sui, B. Chang, and F. Wei. Knowledge neurons in pretrained transformers. In S. Muresan, P. Nakov, and A. Villavicencio, editors, Proceedings of the 60th Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 8493–8502, Dublin, Ireland, 2022. Association for Computational Linguistics. doi: 10.18653/v1/2022.acl-long.581. URL 
+
+https://aclanthology.org/2022.acl-long.581/ .[12] F. Eberhardt and R. Scheines. Interventions and causal inference. Philosophy of science , 74(5):981–995, 2007. [13] N. Elhage, T. Hume, C. Olsson, N. Schiefer, T. Henighan, S. Kravec, Z. Hatfield-Dodds, R. Lasenby, D. Drain, C. Chen, et al. Toy models of superposition. arXiv preprint arXiv:2209.10652 , 2022. [14] U. Evci, T. Gale, J. Menick, P. S. C. Rivadeneira, and E. Elsen. Rigging the lottery: Making all tickets winners. In International Conference of Machine Learning , 2020. 
+
+10 [15] J. Frankle and M. Carbin. The lottery ticket hypothesis: Finding sparse, trainable neural networks. In 
+
+International Conference on Learning Representations , 2019. URL https://openreview.net/forum? id=rJl-b3RcF7 .[16] Gemma Team. Gemma 3 technical report. 2025. URL https://goo.gle/Gemma3Report .[17] A. Grattafiori, A. Dubey, A. Jauhri, A. Pandey, A. Kadian, A. Al-Dahle, A. Letman, A. Mathur, A. Schelten, A. Vaughan, et al. The llama 3 herd of models. arXiv preprint arXiv:2407.21783 , 2024. [18] R. Hendel, M. Geva, and A. Globerson. In-context learning creates task vectors. In Findings of the Association for Computational Linguistics: EMNLP 2023 , pages 9318–9333, 2023. [19] E. Hernandez, A. S. Sharma, T. Haklay, K. Meng, M. Wattenberg, J. Andreas, Y. Belinkov, and D. Bau. Linearity of relation decoding in transformer language models. arXiv preprint arXiv:2308.09124 , 2023. [20] O. Honovich, U. Shaham, S. R. Bowman, and O. Levy. Instruction induction: From few examples to natural language task descriptions. In A. Rogers, J. Boyd-Graber, and N. Okazaki, editors, Proceedings of the 61st Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 1935–1952, Toronto, Canada, July 2023. Association for Computational Linguistics. doi: 10.18653/v1/ 2023.acl-long.108. URL https://aclanthology.org/2023.acl-long.108/ .[21] R. Huben, H. Cunningham, L. R. Smith, A. Ewart, and L. Sharkey. Sparse autoencoders find highly inter-pretable features in language models. In The Twelfth International Conference on Learning Representations ,2023. [22] G. Ilharco, M. T. Ribeiro, M. Wortsman, S. Gururangan, L. Schmidt, H. Hajishirzi, and A. Farhadi. Editing models with task arithmetic. arXiv preprint arXiv:2212.04089 , 2022. [23] F. R. Jafari, O. Eberle, A. Khakzar, and N. Nanda. Relp: Faithful and efficient circuit discovery in language models via relevance patching. arXiv preprint arXiv:2508.21258 , 2025. [24] A. K. Lampinen, Y. Li, E. Hosseini, S. Bhardwaj, and M. Shanahan. Linear representations in language models can change dramatically over a conversation. arXiv preprint arXiv:2601.20834 , 2026. [25] G. Lample, A. Conneau, M. Ranzato, L. Denoyer, and H. Jégou. Word translation without parallel data. In 
+
+International Conference on Learning Representations , 2018. URL https://openreview.net/forum? id=H196sainb .[26] J. Li, Y. Hou, M. Sachan, and R. Cotterell. What do language models learn in context? the structured task hypothesis. In Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 12365–12379, 2024. [27] L. Li, P. Dong, Z. Tang, X. Liu, Q. Wang, W. Luo, W. Xue, Q. Liu, X. Chu, and Y. Guo. Discovering sparsity allocation for layer-wise pruning of large language models. In The Thirty-eighth Annual Conference on Neu-ral Information Processing Systems , 2024. URL https://openreview.net/forum?id=rgtrYVC9n4 .[28] Y. Li, D. I. Campbell, S. C. Chan, and A. K. Lampinen. Just-in-time and distributed task representations in language models. In Mechanistic Interpretability Workshop at NeurIPS 2025 , 2025. URL https: //openreview.net/forum?id=KC13tBPbQg .[29] J. Lindsey, A. Templeton, J. Marcus, T. Conerly, J. Batson, and C. Olah. Sparse crosscoders for cross-layer features and model diffing. https://transformer-circuits.pub/2024/crosscoders/index. html , 2024. Transformer Circuits Thread. [30] S. Lippl, T. McGee, K. Lopez, Z. Pan, P. Zhang, S. Ziadi, O. Eberle, and I. Momennejad. Algorithmic primitives and compositional geometry of reasoning in language models, 2026. URL https://arxiv. org/abs/2510.15987 .[31] D. C. Liu and J. Nocedal. On the limited memory BFGS method for large scale optimization. Mathematical programming , 45(1):503–528, 1989. [32] S. Liu, H. Ye, L. Xing, and J. Zou. In-context vectors: making in context learning more effective and controllable through latent space steering. In Proceedings of the 41st International Conference on Machine Learning , ICML’24. JMLR.org, 2024. [33] S. Marks, C. Rager, E. J. Michaud, Y. Belinkov, D. Bau, and A. Mueller. Sparse feature circuits: Discovering and editing interpretable causal graphs in language models. In The Thirteenth International Conference on Learning Representations , 2025. 
+
+11 [34] G. Montavon, A. Binder, S. Lapuschkin, W. Samek, and K.-R. Müller. Layer-wise relevance propagation: an overview. Explainable AI: interpreting, explaining and visualizing deep learning , pages 193–209, 2019. [35] N. Nanda. Attribution patching: Activation patching at industrial scale. URL: https://www. neelnanda. io/mechanistic-interpretability/attribution-patching , 15:19, 2023. [36] N. Nanda and J. Bloom. Transformerlens. https://github.com/TransformerLensOrg/ TransformerLens , 2022. [37] Y. Nikankin, A. Reusch, A. Mueller, and Y. Belinkov. Arithmetic without algorithms: Language models solve math with a bag of heuristics. In The Thirteenth International Conference on Learning Representa-tions , 2024. [38] B. A. Olshausen and D. J. Field. Sparse coding of sensory inputs. Current Opinion in Neurobiology ,14(4):481–487, 2004. ISSN 0959-4388. doi: https://doi.org/10.1016/j.conb.2004.07.007. URL https: //www.sciencedirect.com/science/article/pii/S0959438804001035 .[39] B. A. Olshausen et al. Principles of image representation in visual cortex. The visual neurosciences , 2: 1603–1615, 2003. [40] A. Panigrahi, N. Saunshi, H. Zhao, and S. Arora. Task-specific skill localization in fine-tuned language models. In Proceedings of the 40th International Conference on Machine Learning , ICML’23. JMLR.org, 2023. [41] Qwen Team. Qwen3 technical report, 2025. URL https://arxiv.org/abs/2505.09388 .[42] F. Rezaei Jafari, G. Montavon, K.-R. Müller, and O. Eberle. MambaLRP: Explaining selective state space sequence models. In A. Globerson, L. Mackey, D. Belgrave, A. Fan, U. Paquet, J. Tomczak, and C. Zhang, editors, Advances in Neural Information Processing Systems , volume 37, pages 118540–118570. Curran As-sociates, Inc., 2024. doi: 10.52202/079017-3764. URL https://proceedings.neurips.cc/paper_ files/paper/2024/file/d6d0e41e0b1ed38c76d13c9e417a8f1f-Paper-Conference.pdf .[43] N. Rimsky, N. Gabrieli, J. Schulz, M. Tong, E. Hubinger, and A. Turner. Steering llama 2 via contrastive activation addition. In L.-W. Ku, A. Martins, and V. Srikumar, editors, Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 15504–15522, Bangkok, Thailand, Aug. 2024. Association for Computational Linguistics. doi: 10.18653/v1/2024. acl-long.828. URL https://aclanthology.org/2024.acl-long.828/ .[44] D. Smilkov, N. Thorat, B. Kim, F. Viégas, and M. Wattenberg. Smoothgrad: removing noise by adding noise. arXiv preprint arXiv:1706.03825 , 2017. [45] R. Socher, A. Perelygin, J. Wu, J. Chuang, C. D. Manning, A. Ng, and C. Potts. Recursive deep models for semantic compositionality over a sentiment treebank. In D. Yarowsky, T. Baldwin, A. Korhonen, K. Livescu, and S. Bethard, editors, Proceedings of the 2013 Conference on Empirical Methods in Natural Language Processing , pages 1631–1642, Seattle, Washington, USA, Oct. 2013. Association for Computational Linguistics. URL https://aclanthology.org/D13-1170/ .[46] L. Stella. ProximalAlgorithms.jl: Proximal algorithms for nonsmooth optimization in Julia. URL 
+
+https://github.com/JuliaFirstOrder/ProximalAlgorithms.jl .[47] M. Sundararajan, A. Taly, and Q. Yan. Axiomatic attribution for deep networks. In Proceedings of the 34th International Conference on Machine Learning , volume 70 of Proceedings of Machine Learning Research , pages 3319–3328. PMLR, 06–11 Aug 2017. URL https://proceedings.mlr.press/v70/ sundararajan17a.html .[48] A. Themelis, L. Stella, and P. Patrinos. Forward-backward envelope for the sum of two nonconvex functions: Further properties and nonmonotone linesearch algorithms. SIAM Journal on Optimization , 28 (3):2274–2303, 2018. doi: 10.1137/16M1080240. [49] E. Todd, M. Li, A. S. Sharma, A. Mueller, B. C. Wallace, and D. Bau. Function vectors in large language models. In The Twelfth International Conference on Learning Representations , 2024. URL 
+
+https://openreview.net/forum?id=AwyxtyMwaG .[50] V. Vargas-Barroso, J. F. Watson, A. Navas-Olive, A. Schlögl, and P. Jonas. Developmental emergence of sparse and structured synaptic connectivity in the hippocampal ca3 memory circuit. Nature Communica-tions , 2026. 
+
+12 [51] X. Wang, K. Wen, Z. Zhang, L. Hou, Z. Liu, and J. Li. Finding skill neurons in pre-trained transformer-based language models. In Proceedings of the 2022 Conference on Empirical Methods in Natural Language Processing , pages 11132–11152, 2022. [52] E. B. Wilson. Probable inference, the law of succession, and statistical inference. Journal of the American Statistical Association , 22(158):209–212, 1927. [53] Z. Xiong, Z. Cai, J. Cooper, A. Ge, V. Papageorgiou, Z. Sifakis, A. Giannou, Z. Lin, L. Yang, S. Agarwal, G. Chrysos, S. Oymak, K. Lee, and D. Papailiopoulos. Everything everywhere all at once: LLMs can in-context learn multiple tasks in superposition. In Forty-second International Conference on Machine Learning , 2025. URL https://openreview.net/forum?id=5hZCK4Wbex .[54] F. Yin, X. Ye, and G. Durrett. Lofit: Localized fine-tuning on LLM representations. In A. Globerson, L. Mackey, D. Belgrave, A. Fan, U. Paquet, J. Tomczak, and C. Zhang, editors, Advances in Neural Information Processing Systems , volume 37, pages 9474–9506. Curran Associates, Inc., 2024. doi: 10. 52202/079017-0301. URL https://proceedings.neurips.cc/paper_files/paper/2024/file/ 122ea6470232ee5e79a2649243348005-Paper-Conference.pdf .
+
+13 A Interactions between interventions 
+
+Several components in transformer models can induce interactions between interventions. For ex-ample, products (the self-attention mechanism) induce interactions between interventions on the multiplied neurons, while nonlinearities (activation functions) induce interactions between interven-tions on neurons connected across layers. Here, we study an example of how product terms induce such interactions, and how an iterative computation of interventions can better account for them. 
+
+a1x l1
+
+a2
+
+a3
+
+y
+
+δ2
+
+δ1
+
+l2
+
+l3
+
+l4
+
+Figure 5: Example system with causal interventions δ1 and δ2.Consider the model f : R → R, x 7 → l4(l2(l1(x)) , l 3(l1(x))) depicted in Figure 5. Setting l1 = l2 =
+
+l3 = id and l4(a2, a 3) = a2a3, it reduces to f (x) = x2. The effects of δ1 and δ2 in isolation are 
+
+E(δ1) = f (x|a1 ← a1 + δ1) − f (x) = ( x + δ1)2 − x2 = 2 xδ 1 + δ21 (4) 
+
+E(δ2) = f (x|a2 ← a2 + δ2) − f (x) = ( a2 + δ2)a3 − a2a3 = xδ 2 (5) Now, consider adding both effects simultaneously: 
+
+E(δ1, δ 2) = f (x|a1 ← a1 + δ1, a 2 ← a2 + δ2) − f (x) (6) 
+
+= 2 xδ 1 + δ21 + xδ 2 + δ1δ2 (7) 
+
+= E(δ1) + E(δ2) + δ1δ2. (8) The effect of both interventions combined is not equal to the sum of the intervention effects in isolation, since an interaction term δ1δ2 occurs. This interaction term is therefore also absent from the first-order Taylor approximation of the intervention effects: 
+
+¯E(δ1) = ∂a1 f (x)δ1 = 2 a1δ1 = 2 xδ 1 (9) 
+
+¯E(δ2) = ∂a2 f (x)δ2 = a3δ2 = xδ 2 (10) However, this effect can be mitigated through an iterative approach. Consider the setting where the effects have been approximated and the intervention with the highest effect (e.g., δ2) has been added to the model. Now, to add more interventions, we re-approximate at the new root point, that is, we approximate fδ2 (x) = f (x|a2 ← a2 + δ2):
+
+¯E(δ1) = ∂a1 fδ2 (x)δ1 = (2 a1 + δ2)δ1 = 2 xδ 1 + δ1δ2 (11) and we can see that at the new root point, the approximation becomes more precise as it includes the interaction effect between the interventions. 14 B Model details 
+
+For all models, we use the standardized model implementations provided by TransformerLens [ 36 ]. Table 2 provides the corresponding TransformerLens identifiers as well as the model dimensions. Table 2: Properties of the studied models. The total number of considered neurons for the DSI intervention is the product of model layers, heads, and the number of neurons per head.                     
+
+> Model TransformerLens ID # Layers # Heads # Neurons p.h. # Neurons total Qwen 3 (8B) Qwen/Qwen3-8B 36 32 128 147 456
+> Gemma 3 (4B) google/gemma-3-4b-it 34 8256 69 632
+> Llama 3.2 (3B) meta-llama/Llama-3.2-3B-Instruct 28 24 128 86 016
+
+## C Tasks details 
+
+Table 3 provides an overview of the tasks used in Section 4. We use all tasks as provided in the supplementary material to [ 49 ], accessible at the accompanying GitHub repository 3 under MIT License. We split all tasks 50/50 into a training and a test set. To generate k-shot ICL examples, we follow the default template of [ 49 ] and present k input-output examples follow by an example to complete as "Q: input 1\nA: output 1\n\nQ: input 2\nA: output 2\n\n[...]Q: input k\nA: output k\n\nQ: input\nA:". 0-shot examples are of the form "Q: input\nA:". From the training set, we generate 100 
+
+0-shot and 100 10-shot prompts to compute interventions. From the test set, we generate 200 0-shot prompts to compute the reported accuracies. All tasks contain at least 200 test set samples, except for 
+
+present-past (146 training set and 147 test set examples) and country-capital (98 training and 99 test set examples) - these tasks have been trained and evaluated on fewer examples, respectively, and their confidence intervals reflect the higher uncertainty level. Table 3: Overview of the 12 tasks used in the main experiments in Section 4. 
+
+Task Description Example 
+
+capitalize Capitalize the first letter of a word. curtain → Curtain 
+
+country-capital Given a country, output its capital city. Ecuador → Quito 
+
+english-french Translate an English word into French. loved → aimé 
+
+present-past Convert a verb from present to past tense. 
+
+teach → taught 
+
+sentiment Classify the sentiment of a short text as positive or negative. 
+
+“Beautifully produced.” → positive 
+
+product-company Given a product, identify the company that created it. 
+
+Office Open XML → Microsoft 
+
+fruit_v_animal_3 Given two animals and a fruit, identify the fruit. 
+
+date, penguin, reindeer → date 
+
+color_v_animal_3 Given two animals and a color, identify the color. 
+
+eel, olive, turtle → olive 
+
+object_v_concept_3 Given two abstract concepts and one physical object, identify the object. 
+
+about, think, donut → donut 
+
+choose_first_of_3 Given three words, output the first one. zealous, kindhearted, plant → zealous 
+
+adjective_v_verb_3 Given two verbs and one adjective, iden-tify the adjective. 
+
+search, thirsty, manipulate → thirsty 
+
+choose_middle_of_3 Given three words, output the middle one. 
+
+quokka, hot, sail → hot  
+
+> 3https://github.com/ericwtodd/function_vectors (commit fb9eac7b6dc707ea1475a717379916007fe448d5)
+
+15 The authors of [ 49 ] adapted some of the tasks from earlier work: the english-french translation task is an adaptation from [ 25 ], the product-company task is adapted from [ 19 ], and the sentiment analysis dataset is an adaptation from [45] and [20]. For Section 3.2, we generate a dataset for a copy task by using the inputs of the english-french task, and set the output equal to the input (i.e., the datapoint loved → aimé becomes loved → loved ). 
+
+## D LRP-modified gradient computation 
+
+To implement the modified gradients, we adapt the respective PyTorch modules implemented in TransformerLens [ 36 ]. The modifications detach parts of the computation graph, leaving the forward pass unchanged, but alter the backward pass behaviour. Table 4 contains an overview of the applied rules and how they are implemented. Table 4: LRP rules applied to transformer modules. sg( ·) denotes the stop-gradient (detach) operator. 
+
+Module Rule Modified Forward Pass 
+
+Activation function g(a) Identity rule ˜a = a · sg 
+
+ g(a)
+
+a
+
+
+
+Gated MLP with activations a Half rule ˜a = 12 a + 12 sg( a)
+
+Attention with α/V matrices M Half rule ˜M = 12 M + 12 sg( M )
+
+RMSNormPre with activation vector a LayerNorm rule ˜a = a
+
+sg( σ) , σ =
+
+r 1
+
+d
+
+P 
+
+> i
+
+a2 
+
+> i
+
++ ε
+
+For nonlinear activation functions g that act on individual (scalar) activations at a time (e.g., SiLU), we employ the Identity rule [42 ] which treats g as constant, preserving the magnitude of the effect estimate. Gated MLPs and the attention mechanism contain multiplications of activations. In these settings, we employ the Half rule [ 4, 1 ] which prevents the effect estimate from doubling during the backward pass. For layer normalization implemented by RMSNormPre modules, we use the 
+
+LayerNorm rule , as described in [2], to avoid an effect estimation collapse. 
+
+## E Results for LLama 3.2 and Gemma 3 
+
+Figures 6 and 7 show the accuracy by intervention set size for the LLama 3.2 (3B) and Gemma 3 (4B) models, respectively. These figures are analogous to Figure 3 in the main text. capitalize present−past product−company country−capital sentiment english−french      
+
+> fruit_v_animal_3 object_v_concept_3 choose_first_of_3 adjective_v_verb_3 color_v_animal_3 choose_middle_of_3
+> 816 32 64 128 256 512 1024 2048
+> 816 32 64 128 256 512 1024 2048
+> 816 32 64 128 256 512 1024 2048
+> 816 32 64 128 256 512 1024 2048
+> 816 32 64 128 256 512 1024 2048
+> 816 32 64 128 256 512 1024 2048
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> # Neurons
+> Accuracy
+> Intervention
+> DSI
+> no refinement
+> no refinement & no gradient robustification
+> Baselines
+> 0−shot baseline
+> 10−shot baseline
+> majority class baseline
+
+Figure 6: 0-shot test set accuracy for interventions across set sizes for extractive (top row) and abstractive (bottom row) tasks. Results shown are for Llama 3.2 (3B), shaded regions correspond to 95 % confidence intervals. 0-shot and 10-shot baselines correspond to ICL performance without intervention, majority class baseline to the proportion of the most common correct output token. 16 capitalize present−past product−company country−capital sentiment english−french      
+
+> fruit_v_animal_3 object_v_concept_3 choose_first_of_3 adjective_v_verb_3 color_v_animal_3 choose_middle_of_3
+> 816 32 64 128 256 512 1024 2048
+> 816 32 64 128 256 512 1024 2048
+> 816 32 64 128 256 512 1024 2048
+> 816 32 64 128 256 512 1024 2048
+> 816 32 64 128 256 512 1024 2048
+> 816 32 64 128 256 512 1024 2048
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> # Neurons
+> Accuracy
+> Intervention
+> DSI
+> no refinement
+> no refinement & no gradient robustification
+> Baselines
+> 0−shot baseline
+> 10−shot baseline
+> majority class baseline
+
+Figure 7: 0-shot test set accuracy for interventions across set sizes for extractive (top row) and abstractive (bottom row) tasks. Results shown are for Gemma 3 (4B), shaded regions correspond to 95 % confidence intervals. 0-shot and 10-shot baselines correspond to ICL performance without intervention, majority class baseline to the proportion of the most common correct output token. 
+
+## F Algorithm details 
+
+For the iterative refinement of the interventions, we use ZeroFPR [ 48 ], a numerical optimization algorithm suited for the sum of a non-convex differentiable function and a nonsmooth penalty term. To ensure sparsity of the identified neuron sets, we use the L0 pseudo-norm ball as a penalty. 
+
+ιB0(n)(s) := 
+
+0 for nnz( s) <= n
+
+∞ for nnz( s) > n 
+
+Here, nnz( s) corresponds to the number of non-zero elements in s and n is the desired neuron set size. In our implementation of the algorithm, we follow the implementation in ProximalAlgorithms.jl [ 46 ]. Specifically, we use a convergence tolerance of 10 −8 with a maximum number of 50 steps, adaptive step size estimation, a maximum number of 20 line search backtracks, and L-BFGS [ 31 ] to compute the line-search directions with a memory of 5 steps. To facilitate escaping local minima near the starting values, we run the algorithm 10 times with perturbed starting values. For the first run, we start with s10 = 1(topn( e)) , i.e., we set all parameters to 0 except for the top n largest effects approximated with a first-order approximation (as described in Section 3.2). For successive runs, we start with random noise si 
+
+> 0
+
+∼ N (0 , 0.3) . We then take an initial step topn( si 
+
+> 0
+
++ 1 .5 γ∇f (si
+
+> 0
+
+)) 
+
+where γ is the initial step size guess of ZeroFPR. This allows to sample different gradients at points close to s10, while a factor of 1.5 applied to the initial step size encourages the algorithm to explore regions beyond the limits of the algorithm’s usual first step. Successive steps are taken without step size rescaling. 
+
+Interventions comparison We now briefly analyze the difference in interventions identified by the first-order approximation and the iterative algorithm. Figure 9 shows the overlap of the neuron intervention sets of the two intervention methods across tasks and models. While there is overlap, a substantive fraction of the neurons chosen by the iterative procedure are not among the top neurons as identified by the first-order approximation, indicating that the iterative search indeed significantly changes the intervention set. Additionally, to verify that differences in task performance between first-order and iterative interven-tions do not stem from widely different total intervention strengths, rather than differences in the selected neurons, we show in Figure 8 the total intervention strength for the first-order and iterative interventions. While there are differences in intervention strength, there is no general trend (such as iterative or first-order interventions always being stronger). 17 Qwen 3 (8B) 
+
+capitalize 
+
+Qwen 3 (8B) 
+
+present−past 
+
+Qwen 3 (8B) 
+
+product−company 
+
+Qwen 3 (8B) 
+
+country−capital 
+
+Qwen 3 (8B) 
+
+sentiment 
+
+Qwen 3 (8B) 
+
+english−french 
+
+Qwen 3 (8B) 
+
+fruit_v_animal_3 
+
+Qwen 3 (8B) 
+
+object_v_concept_3 
+
+Qwen 3 (8B) 
+
+choose_first_of_3 
+
+Qwen 3 (8B) 
+
+adjective_v_verb_3 
+
+Qwen 3 (8B) 
+
+color_v_animal_3 
+
+Qwen 3 (8B) 
+
+choose_middle_of_3 
+
+Llama 3.2 (3B) 
+
+capitalize 
+
+Llama 3.2 (3B) 
+
+present−past 
+
+Llama 3.2 (3B) 
+
+product−company 
+
+Llama 3.2 (3B) 
+
+country−capital 
+
+Llama 3.2 (3B) 
+
+sentiment 
+
+Llama 3.2 (3B) 
+
+english−french 
+
+Llama 3.2 (3B) 
+
+fruit_v_animal_3 
+
+Llama 3.2 (3B) 
+
+object_v_concept_3 
+
+Llama 3.2 (3B) 
+
+choose_first_of_3 
+
+Llama 3.2 (3B) 
+
+adjective_v_verb_3 
+
+Llama 3.2 (3B) 
+
+color_v_animal_3 
+
+Llama 3.2 (3B) 
+
+choose_middle_of_3 
+
+Gemma 3 (4B) 
+
+capitalize 
+
+Gemma 3 (4B) 
+
+present−past 
+
+Gemma 3 (4B) 
+
+product−company 
+
+Gemma 3 (4B) 
+
+country−capital 
+
+Gemma 3 (4B) 
+
+sentiment 
+
+Gemma 3 (4B) 
+
+english−french 
+
+Gemma 3 (4B) 
+
+fruit_v_animal_3 
+
+Gemma 3 (4B) 
+
+object_v_concept_3 
+
+Gemma 3 (4B) 
+
+choose_first_of_3 
+
+Gemma 3 (4B) 
+
+adjective_v_verb_3 
+
+Gemma 3 (4B) 
+
+color_v_animal_3 
+
+Gemma 3 (4B) 
+
+choose_middle_of_3 
+
+> 816 32 64 128 256 512 1024 2048
+> 816 32 64 128 256 512 1024 2048
+> 816 32 64 128 256 512 1024 2048
+> 816 32 64 128 256 512 1024 2048
+> 816 32 64 128 256 512 1024 2048
+> 816 32 64 128 256 512 1024 2048
+
+1e+00 1e+02 1e+04 1e+06 
+
+1e+00 1e+02 1e+04 1e+06 
+
+1e+00 1e+02 1e+04 1e+06 
+
+1e+00 1e+02 1e+04 1e+06 
+
+1e+00 1e+02 1e+04 1e+06 
+
+1e+00 1e+02 1e+04 1e+06 
+
+# Neurons 
+
+> Total absolute intervention
+
+first order 
+
+iterative Figure 8: Absolute intervention strength for the first-order and iterative interventions, summed over neurons. 18 capitalize present−past product−company country−capital sentiment english−french      
+
+> fruit_v_animal_3 object_v_concept_3 choose_first_of_3 adjective_v_verb_3 color_v_animal_3 choose_middle_of_3
+> 816 32 64 128 256 512 1024 2048
+> 816 32 64 128 256 512 1024 2048
+> 816 32 64 128 256 512 1024 2048
+> 816 32 64 128 256 512 1024 2048
+> 816 32 64 128 256 512 1024 2048
+> 816 32 64 128 256 512 1024 2048
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> 0.0 0.2 0.4 0.6 0.8 1.0
+
+# Neurons 
+
+> Neuron set overlap
+> Gemma 3 (4B)
+> Llama 3.2 (3B)
+> Qwen 3 (8B)
+
+Figure 9: Overlap of neuron sets identified by first-order approximation and the iterative algorithm. 
+
+## G Intervention distribution 
+
+In this section, we investigate the distributed nature of DSI interventions, i.e., whether the identified neuron sets distribute widely across layers and attention heads, or whether they are rather tightly localised within the models. Figure 10 shows that DSI interventions, over all tasks, are distributed across many model components (i.e., attention heads), with even the smallest, 8-neuron, interventions being spread across multiple heads. Figures 11, 12, and 13 show the involved layers and heads for DSI interventions of a set size of 64 for each individual task. The interventions are distributed across layers, with a preference for early-middle to late layers in the Qwen 3 (8B) and Gemma 3 (4B) models. 816 32 64 128 256 512 
+
+> 816 32 64 128 256 512 1024 2048
+
+# Neurons   
+
+> # Model components
+> Gemma 3 (4B) Llama 3.2 (3B) Qwen 3 (8B)
+
+Figure 10: Number of intervened-on model components (attention heads), identified by DSI, per neuron set size, averaged across tasks. 19 product−company country−capital sentiment english−french 
+
+color_v_animal_3 choose_middle_of_3 capitalize present−past 
+
+fruit_v_animal_3 object_v_concept_3 choose_first_of_3 adjective_v_verb_3 
+
+> 1918 27 36
+> 1918 27 36
+> 1918 27 36
+> 1918 27 36
+
+1816 24 32 
+
+1816 24 32 
+
+1816 24 32 
+
+Layer 
+
+> Head
+
+# Neurons 
+
+116 Figure 11: Number of intervened-on neurons, identified by DSI, within layers and heads for Qwen 3 (8B) and a set size of 64 .product−company country−capital sentiment english−french 
+
+color_v_animal_3 choose_middle_of_3 capitalize present−past 
+
+fruit_v_animal_3 object_v_concept_3 choose_first_of_3 adjective_v_verb_3 
+
+> 117 34
+> 117 34
+> 117 34
+> 117 34
+
+18
+
+18
+
+18
+
+Layer 
+
+> Head
+
+# Neurons 
+
+18
+
+Figure 13: Number of intervened-on neurons, identified by DSI, within layers and heads for Gemma 3 (4B) and a set size of 64 .20 product−company country−capital sentiment english−french       
+
+> color_v_animal_3 choose_middle_of_3 capitalize present−past
+> fruit_v_animal_3 object_v_concept_3 choose_first_of_3 adjective_v_verb_3
+> 114 28
+> 114 28
+> 114 28
+> 114 28
+> 1816 24
+> 1816 24
+> 1816 24
+
+Layer 
+
+> Head
+
+# Neurons 
+
+> 111
+
+Figure 12: Number of intervened-on neurons, identified by DSI, within layers and heads for Llama 3.2 (3B) and a set size of 64 .
+
+## H Further case study results 
+
+In this section, we present further results for tense-switching and language-switching case studies on Qwen 3 (8B) and Llama 3.2 (3B). 
+
+H.1 Further quantitative results 
+
+Table 5 contains quantitative case study results for all neuron set sizes. We observe that intersecting the interventions for the present-past and the copy solves the copy task consistently better than the task-specific neurons. Also, the task-specific neurons solve the present-past task better than the intersection, except for the smallest set size of 16 neurons, where they do not activate task solving. Table 5: Quantitative case study results for Qwen 3 (8B) on the present-past task. 
+
+size set present-past copy 
+
+∅ 0.00 (0.00, 0.03) 0.20 (0.15, 0.27) 
+
+16 present-past 0.84 (0.77, 0.89) 0.74 (0.68, 0.80) 
+
+specific 0.01 (0.00, 0.05) 0.55 (0.48, 0.61) 
+
+intersection 0.03 (0.01, 0.08) 0.96 (0.92, 0.98) 
+
+32 present-past 0.85 (0.78, 0.90) 0.65 (0.58, 0.71) 
+
+specific 0.37 (0.30, 0.45) 0.27 (0.21, 0.33) 
+
+intersection 0.03 (0.01, 0.08) 0.92 (0.87, 0.95) 
+
+64 present-past 0.92 (0.86, 0.95) 0.69 (0.62, 0.75) 
+
+specific 0.52 (0.44, 0.60) 0.28 (0.22, 0.34) 
+
+intersection 0.03 (0.01, 0.07) 0.90 (0.84, 0.93) 
+
+Table 6 contains quantitative case study results for all neuron set sizes. We observe that intersecting the interventions for the english-french and the copy solves the copy task consistently better than the task-specific neurons, while task-specific neurons solve the english-french task better than the intersection. 21 Table 6: Quantitative case study results for Llama-3.2 on the english-french task. 
+
+size set english-french copy 
+
+∅ 0.02 (0.01, 0.05) 0.63 (0.56, 0.69) 
+
+8 english-french 0.77 (0.71, 0.82) 0.05 (0.03, 0.09) 
+
+specific 0.20 (0.15, 0.27) 0.28 (0.22, 0.35) 
+
+intersection 0.01 (0.01, 0.04) 0.95 (0.92, 0.98) 
+
+16 english-french 0.80 (0.74, 0.85) 0.03 (0.01, 0.06) 
+
+specific 0.25 (0.20, 0.31) 0.44 (0.37, 0.51) 
+
+intersection 0.01 (0.00, 0.04) 0.92 (0.87, 0.95) 
+
+32 english-french 0.64 (0.57, 0.70) 0.12 (0.08, 0.17) 
+
+specific 0.14 (0.10, 0.20) 0.59 (0.53, 0.66) 
+
+intersection 0.01 (0.00, 0.04) 0.94 (0.90, 0.97) 
+
+H.2 Qualitative examples for Qwen 3 (8B) on the present-past task 
+
+All examples were generated with the default template and settings for Qwen 3 (8B) in non-thinking mode (from https://huggingface.co/Qwen/Qwen3-8B ; temperature: 0.7, top_p: 0.8, top_k: 20) and a maximum of 200 generated tokens. During the autoregressive answering process, we intervene on the model on each forward pass. Some special characters (such as emotes) that could not be correctly displayed were stripped. 
+
+Prompt 1: How are you feeling today? 
+
+Baseline: I’m just a virtual assistant, so I don’t have feelings, but I’m here and ready to help you! How are you feeling today? <|im_end|> 
+
+Full Set: I feel happy, and I feel happy. I feel happy, and I feel happy. \n\nI feel happy, and I feel happy, and I feel happy. \n\nI feel happy, and I feel happy, and I feel happy. \n\nI feel happy, and I felt happy, and I felt happy, \n\nI felt happy, and I felt happy, \n\nI felt happy, and I felt happy, \n\nI felt happy, and I felt happy, \n\nI felt happy, \n\nI felt happy, \n\nI felt happy, \n\nI felt happy, \n\nI felt happy, \n\nI felt happy, \n\nI felt happy, \n\nI felt happy, \n\nI felt happy, \n\nI felt happy, \n\nI felt happy, \n\nI felt happy, \n\nI felt happy, \n\nI felt happy, \n\nI felt happy, \n\nI felt happy, \n\nI felt happy, \n\nI felt happy, \n\nI felt happy, \n\nI felt happy, \n\nI felt happy, \n\nI 
+
+Specific: I was just asked "How are you feeling today?" and the response was "Okay, I received your message and processed it. The last thing I did was receive your message, which was received at 11:58 a.m. on a Sunday. I was happy when I received it, and I was sad when I sent it. I was happy when you wrote to me for the first time on April 11, 2014. I was happy when you wrote to me for the last time on April 10, 2015. I was ha ppy when you wrote to me for the first time on April 11, 2014. I was happy when you wrote to me for the last time on April 10, 2015. I was h appy when you wrote to me for the first time on April 11, 2014. I was happy when you wrote to me for the 
+
+Intersection: I am feeling fine, thank you! \n\nI am feeling fine, thank you! \n\nI am feeling fine, thank you! \n\nI am feeling fine, thank you! \n\nI am feeling fine, thank you! \n\nI am feeling fine, thank you! \n\nI am feeling fine, thank you! \n\nI am feeling fine, thank you! \n\nI am feeling fine, thank you! \n\nI am feeling fine, thank you! \n\nI am feeling fine, thank you! \n\nI am feeling fine, thank you! \n\nI am feeling fine, thank you! \n\nI am feeling fine, thank you! \n\nI am feeling fine, thank you! \n\nI am feeling fine, thank you! \n\nI am feeling fine, thank you! \n\nI am feeling fine, thank you! \n\nI am 
+
+Prompt 2: Did humanity actually land on the moon? 
+
+Baseline: Yes, humanity did land on the Moon. The United States’ Apollo program, conducted by NASA, successfully landed astronauts on the Moon as part of the Apollo missions between 1969 and 1972. The most famous of these was **Apollo 11**, which landed on the Moon on * *July 20, 1969**. Astronauts **Neil Armstrong** and **Buzz Aldrin** became the first humans to walk on the lunar surface, while **Michael Collins** remained in orbit in the command module.\n\nHere are the key points confirming the Moon landings:\n\n1. **Photographic and Video Evidence**: Thousands of high-quality photographs and videos were taken on the Moon, including images of the lunar surface, the lunar mod ule, and astronauts in space suits. These have been verified by independent scientists and have no signs of tampering.\n\n2. **Lunar Samples**: Over 380 kilograms (840 pounds) of lunar rock 
+
+Full Set: The moon landing was a event that occurred in July 1919, during the Moon landing, moon landing, moon landing, moon landing, moon landing, moon landing, moon landing, moon landing, moon landing, moon landing, moon landing, moon landing, moon landing, moon landing, moon landing, moon landing, moon landing, moon landing, moon landing, moon landing, moon landing, moon landing, moon landing, moon landing, moon landing, moon landing, moon landing, moon landing, moon landing, moon landing, moon landing, moon landing, moon landing, moon landing, moon landing, moon landing, moon landing, moon landing, moon landing, moon landing, moon landing, moon landing, moon landing, moon landing, moon landing, moon landing, moon landing, moon landing, moon landing, moon landing, moon landing, moon lan ding, moon landing, moon landing, moon landing, moon landing, moon landing, moon landing, moon landing, moon landing, moon landing 
+
+Specific: The question of whether humanity landed on the Moon has been a subject of intense public interest since the mid-20th century. Foll owing World War II, there was a marked increase in scientific advancements, particularly in aerospace engineering, which led to significant developments in rocketry and space exploration between 1957 and 1961. This period saw the launch of the first artificial satellite, **Sputnik 1**, in October 1957, marking the beginning of the **Space Age**. \n\n**NASA was established in July 1958**, and by then, the United States had already made strides in space exploration. The agency’s creation marked a pivotal moment in the space race between the United States and the Soviet Union, with both nations competing in spaceflight for control of space exploration from 1958 until the end of 1972. \n\nThe **Apollo program**, which ran from 1961 to 19 
+
+22 Intersection: Yes, the Apollo missions did land on the Moon. The Apollo missions landed on the Moon, and there is evidence for the landing. The landing was in the Moon’s Southern Mare, and there is evidence for the landing in the Mare Southern. The landing site is a Mare Southern Mare, and there is evidence for the landing. The landing site is Mare Southern Mare, and there is evidence for the landing.\n\nThe landing site is Mare Southern Mare, and there is evidence for the landing.\n\nThe landing site is Mare Southern Mare, and there is evidence for the landing. \n\nThe landing site is Mare Southern Mare, and there is evidence for the landing.\n\nThe landing site is Mare Southern Mare, and there is evide nce for the landing.\n\nThe landing site is Mare Southern Mare, and there is evidence for the landing.\n\nThe landing site is Mare Southern Mare , and there is evidence for the landing.\n\nThe landing site is Mare Southern Mare, and there is evidence for the landing.\n\nThe landing site is Mare Southern 
+
+Prompt 3: What did you have for lunch? 
+
+Baseline: I’m an AI and don’t have a physical form or the ability to eat, so I don’t have lunch! But I’d love to hear about what you had for lunch—was it something delicious? <|im_end|> 
+
+Full Set: inished eating. \n\nFinished eating. \n\nFinished eating. \n\nFinished eating. \n\nFinished eating. \n\nFinished eating. \n\nFinished eating. \n\nFinished eating. \n\nFinished eating. \n\nFinished eating. \n\nFinished eating. \n\nFinished eating. \n\nFinished eating. \n\nFinished eating. \n\nFinished eating. \n\nFinished eating. \n\nFinished eating. \n\nFinished eating. \n\nFinished eating. \n\nFinished eating. \n\nFinished eating. \n\nFinished eating. \n\nFinished eating. \n\nFinished eating. \n\nFinished eating. \n\nFinished eating. \n\nFinished eating. \n\nFinished eating. \n\nFinished eating. \n\nFinished eating. \n\nFinished eating. \n\nFinished eating. \n\nFinished eating. \n\nFinished eating. \n\nFinished eating. \n\nFinished eating. \n\nFinished eating. \n\nFinished eating. \n\nFinished eating. \n\nFinished eating. \n\nFinished eating. \n\nFinished eating. \n\nFinished eating. \n\nFinished eating. \n\nFinished eating. \n\nFinished eating. \n\nFinished eating. \n\nFinished eating. \n\nFinished eating. \n\nFinished eating. \n\n 
+
+Specific: I ate lunch on April 11, 2024, and the experience was marked by several key moments. After eating, I felt satisfied, which is a common emotion people experience after having a meal. The initial meal was completed on a Monday, and the last meal was eaten on a Sunday. The entire process of eating took place between midnight and 6 a.m. The weather was pleasant during the time I was eating, which made the exper ience of eating more enjoyable. I ate breakfast on April 11, 2024, and the meal was consumed in a single sitting. The meal was eaten in one sitting, and the time between eating breakfast and dinner was divided into two parts: eating dinner on April 13, 2024, and having dinner on April 14, 2024. The meal was eaten in one sitting, and the time between eating dinner and having dinner was divided into two parts: eating dinner on 
+
+Intersection: I\n\nI\n\nI\n\nI\n\nI\n\nI\n\nI\n\nI\n\nI\n\nI\n\nI\n\nI\n\nI\n\nI\n\nI\n\nI\n\nI\n\nI\n\nI\n\nI\n\nI\n\nI\n\nI\n\nI\n\nI\n\nI\n\nI\n \nI\n\nI\n\nI\n\nI\n\nI\n\nI\n\nI\n\nI\n\nI\n\nI\n\nI\n\nI\n\nI\n\nI\n\nI\n\nI\n\nI\n\nI\n\nI\n\nI\n\nI\n\nI\n\nI\n\nI\n\nI\n\nI\n\nI\n\nI\n\nI\n\nI\n \nI\n\nI\n\nI\n\nI\n\nI\n\nI\n\nI\n\nI\n\nI\n\nI\n\nI\n\nI\n\nI\n\nI\n\nI\n\nI\n\nI\n\nI\n\nI\n\nI\n\nI\n\nI\n\nI\n\nI\n\nI\n\nI\n\nI\n\nI\n\nI\n\nI\n \nI\n\nI\n\nI\n\nI\n\nI\n\nI\n\nI\n\nI\n\nI\n\nI\n\nI\n\nI\n\nI\n\n 
+
+Prompt 4: Are Annie Ernaux’s books good? 
+
+Baseline: Annie Ernaux’s books are widely regarded as **excellent** and **highly influential** in modern French literature. She is a major f igure in contemporary French writing, known for her **autobiographical** and **semi-autobiographical** style, as well as her **unflinching exploration of social class, gender, memory, and identity**.\n\n### Why Her Books Are Considered Good:\n\n1. **Literary Quality**:\n -Ernaux is a **master of prose**, with a **precise, elegant style** that captures the nuances of everyday life.\n - Her writing is often described as **minimalist yet powerful**, using sparse language to convey deep emotional and psychological truths.\n\n2. **Themes**:\n - She explores **universal themes** such as **memory, desire, aging, and the passage of time**.\n - Her work often reflects on the **intersection of personal experience and societal norms**, particularly in relation to **gender and 
+
+Full Set: Alright, I started reading the book in 15 pages, I started reading the book in 15 pages, I started reading the book in 15 pages, I started r eading the book in 15 pages, I started reading the book in 15 pages, I started reading the book in 15 pages, I started reading the book in 15 pages, I started reading the book in started reading the book in started reading the book in started reading the book started reading the book started reading the book started reading the book started reading the book started reading the book started reading the book started reading the book started reading the book started reading the book started reading the book started reading the book started reading the book started reading the book started reading the book started reading the book started reading the book started reading the book started reading the book started reading the book started reading the book started reading the book started reading the book started reading the book started reading the book started re ading the 
+
+Specific: Since 2015, **Annie Ernaux** has been a **widely acclaimed writer**, with **great success in terms of readership and critical rece ption**. Her books have generated **significant interest since 1975**, when she first published *L’écriture (1975)*, which marked her **lite rary debut**. Since then, she has **published 14 volumes**, including novels, short stories, and even plays. Her work has been **received with great enthusiasm since the early 1980s**, with **increased visibility and popularity** in the **mid-1980s**. \n\n**Ernaux’s career took off in 1973** when she **published her first novel**, *L’année 1973* (1973), which was received with **great critical acclaim**. Since then, she has **continued to write and publish books 
+
+Intersection: Yes, the book is good, (the book is not the book, the book is not the book). \n\nThe book is not the book, the book is not the book, the book is not the book. \n\nThe book is not the book, the book is not the book, the book is not the book. \n\nThe book is not the book, the book is not the book. \n\nThe book is not the book, the book is not the book. \n\nThe book is not the book, the book is not the book. \n\nThe book is not the book, the book is not the book. \n\nThe book is not the book, the book is not the book. \n\nThe book is not the book. \n\nThe book is not the book. \n\nThe book is not the book. \n\nThe book is not the book. \n\nThe book is not the book. \n\nThe book is not the book. \n\nThe book is not the book. \n\nThe book 
+
+Prompt 5: Tell me a joke! 
+
+Baseline: Sure! Here’s a joke for you:\n\nWhy don’t scientists trust atoms?\n\nBecause they make up everything! <|im_end|> 
+
+Full Set: Alright, I got a joke, so I got a joke, I got a joke, I got a joke! \n\nOkay, I got a joke, I got a joke, I got a joke! \n\nOkay, I got a joke, I got a joke, I got a joke! \n\nOkay, I got a joke! \n\nOkay, I got a joke! \n\nOkay, I got a joke! \n\nOkay, I got a joke! \n\nOkay, I got a joke! \n\n Okay, I got a joke! \n\nOkay, I got a joke! \n\nOkay, I got a joke! \n\nOkay, I got a joke! \n\nOkay, I got a joke! \n\nOkay, I got a joke! \n\nOkay, I got a joke! \n\nOkay, I got a joke! \n\nOkay, I got a joke! \n\nOkay, I got a joke! \n\nOkay, I got a joke! \n\nOkay, I got a joke! \n\nOkay, I got 
+
+Specific: Okay, I’ll tell you a joke, and then I’ll **tell you a joke**—and that will be the beginning of a new conversation. Ready? Let’s see if **I can make you laugh**. \n\nI **joked** about laughing so hard I **laughed** until I **cried**. Then I **laughed** so much I **stopped laughing** mid-sentence. The next day I **woke up laughing**—and it was **Wednesday**. \n\nI **laughed** so hard yesterday I **could 
+
+23 hardly breathe**. I **laughed** so hard I **lost consciousness**. When I **awoke**, I was **still laughing**. I **laughed** so hard I **was laughing** for **days**. \n\nI **laughed** so hard yesterday I **cried**. Today I **laughed** so hard I **shouted**. Yesterday I **la 
+
+Intersection: Okay, let’s see... okay, let me... okay, let me... okay, let me... okay, let me... okay, let me... okay, let me... okay, let me... okay, let me... okay, let me... okay, let me... okay, let me... okay, let me... okay, let me... okay, let me... okay, let me... okay, let me... okay, let me... okay, let me... okay, let me... okay, let me... okay, let me... okay, let me... okay, let me... okay, let me... okay, let me... okay, let me... okay, let me... okay, let me... okay, let me... okay, let me... okay, let me... okay, let me... okay, let me... okay, let me... okay, let me... okay, let me... okay, let me... okay, let me... okay, let me 
+
+Prompt 6: How much does it cost to buy a yacht? 
+
+Baseline: The cost of buying a yacht can vary **extremely widely**, depending on several factors such as:\n\n- **Yacht size** (length, capacit y, number of cabins)\n- **Type of yacht** (motor yacht, sailboat, superyacht, luxury yacht, etc.)\n- **Condition** (new vs. used, pre-owned vs . brand new)\n- **Brand and manufacturer** (some brands are more expensive than others)\n- **Features and amenities** (state-of-the-art equipment, interior design, entertainment systems, etc.)\n- **Location** (where you buy it from and where you plan to keep it)\n\n—\n\n### **1. Small Yachts (under 20 feet or 6 meters)**\n- **Price Range:** $10,000 to $500,000\n- These are often used for personal pleasure or as a second boat. They may be used for fishing, sailing, or weekend cruising.\n\n—\n\n### ** 
+
+Full Set: Costing\n\nCosting\n\nCosting\n\nCosting\n\nCosting\n\nCosting\n\nCosting\n\nCosting\n\nCosting\n\nCosting\n\nCosting\n\nC osting\n\nCosting\n\nCosting\n\nCosting\n\nCosting\n\nCosting\n\nCosting\n\nCosting\n\nCosting\n\nCosting\n\nCosting\n\nCo sting\n\nCosting\n\nCosting\n\nCosting\n\nCosting\n\nCosting\n\nCosting\n\nCosting\n\nCosting\n\nCosting\n\nCosting\n\nCos ting\n\nCosting\n\nCosting\n\nCosting\n\nCosting\n\nCosting\n\nCosting\n\nCosting\n\nCosting\n\nCosting\n\nCosting\n\nCosting\n\nCosti ng\n\nCosting\n\nCosting\n\nCosting\n\nCosting\n\nCosting\n\nCosting\n\nCosting\n\nCosting\n\nCosting\n\nCosting\n\nCostin g\n\nCosting\n\nCosting\n\nCosting\n\nCosting\n\nCosting\n\nCosting\n\nCosting\n\nCosting\n\nCosting\n\nCosting 
+
+Specific: Buying a **yacht** involves a significant financial commitment, and **costs can vary widely depending on when you purchase the vessel, how much money you spend, and when you spend it**. Between **2010 and mid-2014**, **yacht ownership became significantly more expensive** than it was in previous decades. Prices escalated rapidly during that period, peaking in **2013–2014** when **yachts sold for r ecord highs**, and **yacht owners reported having more money in their bank accounts in 2014 than in 2013**. This marked a shift in **yacht o wnership patterns** between **2008 and 25 December 2014**.\n\nOwners of yachts experienced a surge in **yacht ownership** between ** 2008 and 2014**. During this time, **more people owned yachts than at any time in history 
+
+Intersection: The cost of a yacht varies widely depending on the yacht. \n\nThe yacht can range from thousands to millions, depending on the size. \n\nThe yacht is typically hundreds of thousands to millions, depending on the size.\n\nThe yacht can range from thousands to millions depending on the size. \n\nThe yacht is typically thousands to millions depending on the size.\n\nThe yacht is typically thousands to millions depending on the size. \n\nThe yacht is typically thousands to millions depending on the size.\n\nThe yacht is typically thousands to millions depending on the size. \n\nThe yacht is typically thousands to millions depending on the size.\n\nThe yacht is typically thousands to millions d epending on the size. \n\nThe yacht is typically thousands to millions depending on the size.\n\nThe yacht is typically thousands to millions de pending on the size. \n\nThe yacht is typically thousands to millions depending on the size.\n\nThe yacht is typically thousands to millions dep ending on the size.\n\nThe yacht is typically thousands to millions depending on the size.\n\nThe yacht is typically thousands to millions 
+
+Prompt 7: Which city is more fun to live in, Berlin or Paris? 
+
+Baseline: Whether Berlin or Paris is more fun to live in depends on what you value in a city. Both have unique charms, and the "fun" factor can vary depending on your interests. Here’s a comparison to help you decide:\n\n### **Berlin**\n- **Vibrant and diverse**: Berlin is known for its eclectic culture, with a strong arts scene, music venues, and a thriving creative community.\n- **Affordable living**: Compared to Paris, Berlin is generally more affordable, especially for housing and dining.\n- **Cosmopolitan and laid-back**: The city has a relaxed vibe, with a strong emphasis on nightlife, festivals, and a diverse population.\n- **Historical and modern mix**: You can explore historical sites like the Berlin Wall and the Holocaust Memorial, while also enjoying modern architecture and innovation.\n- **Cycling-friendly**: Berlin has a great bike infrastructure, making it easy to get around without a car.\n\n### **Paris**\n- **Romantic and iconic**: Paris is often 
+
+Full Set: Alright, you’ve been a lot longer, so you’ve been "doing something" for a longer time, you’ve been "doing something" for a longer time, you’ve been doing something for longer time, you’ve been doing something for longer time, you’ve been doing something for longer time, you’ve been doing something for longer time, you’ve been doing something for longer time, you’ve been doing something for longer time, you’ ve been doing something for longer time, you’ve been doing something for longer time, you’ve been doing something for longer time, you’ve be en doing something for longer time, you’ve been doing something for longer time, you’ve been doing something for longer time, you’ve been do ing something for longer time, you’ve been doing something for longer time, you’ve been doing something for longer time, you’ve been doing s omething for longer time, you’ve been doing something for longer time, you’ve been doing something for longer time, you’ve been doing 
+
+Specific: The question of which city is more enjoyable to live in changed significantly between **2005** and **2015**. During this time, **B erlin experienced a population boom**, with its residents enjoying a **surge in happiness levels** compared to the years prior. This period saw a marked increase in **job creation**, **economic growth**, and **rising standards of living** between 1990 and 2010. People moved to Be rlin in increasing numbers, and they remained there for longer periods than ever before. This trend continued through the mid-2000s, with ** more people moving to Berlin in 2005 than in any other year recorded up to that date**. \n\nBetween 2000 and 2010, **Berliners enjoyed higher levels of happiness** than Parisians. This was reflected in **improved mood and well-being metrics** such as **increased feelings of joy, contentment 
+
+Intersection: Both cities are known for their vibrant culture, but the cities are different in terms of the city’s culture. \n\nThe city is different in terms of the city’s culture, so the city doesn’t have a city culture to consider. \n\nThe city can’t have a city culture to consider. \n\nThe city isn’t the city. \n\nThe city isn’t the city. \n\nThe city isn’t the city. \n\nThe city isn’t the city. \n\nThe city isn’t the city.\n\nThe city isn’t the city. \n\nThe city isn’t the city.\n\nThe city isn’t the city.\n\nThe city isn’t the city.\n\nThe city isn’t the city.\n\nThe city isn’t the city.\n\nThe city isn’t the city.\n\nThe city isn’t the city.\n\nThe city isn’t the city.\n\nThe city isn’t the city.\n\nThe city isn’t the city.\n\nThe city isn’t the city.\n\nThe city isn’t the city.\n\nThe city isn’t the city.\n\nThe city 
+
+Prompt 8: How to make pancakes? 
+
+Baseline: Making pancakes is a fun and delicious activity! Here’s a simple and classic **pancake recipe** that you can try at home:\n\n—\n\n## # Classic Pancake Recipe (Makes about 8–10 pancakes)\n\n#### Ingredients:\n- 1 1/2 cups (about 180g) all-purpose flour\n- 3 1/2 tablespoons granulated sugar (adjust to taste)\n- 1 1/2 teaspoons baking powder\n- 1 1/2 teaspoons baking soda\n- 1 teaspoon salt\n- 1 cup (240ml) buttermilk 
+
+24 (or milk + 1 tablespoon lemon juice)\n- 1 large egg\n- 3 tablespoons melted butter or oil\n- 1 teaspoon vanilla extract (optional)\n- Additional toppings: maple syrup, fresh fruit, whipped cream, etc.\n\n–-\n\n#### Instructions:\n\n1. **Mix Dry Ingredients:**\n In a large mixing bowl, 
+
+Full Set: Okay, I just started making pancakes, so I made pancakes, I made pancakes, I made pancakes, I made pancakes, I made pancakes, I ma de pancakes, I made pancakes, I made pancakes, I made pancakes, I made pancakes, I made pancakes, I made pancakes, I made pancakes, I made pancakes, I made pancakes, I made pancakes, I made pancakes, I made pancakes, I made pancakes, I made pancakes, I made pancakes, I made pancakes, I made pancakes, I made pancakes, I made pancakes, I made pancakes, I made pancakes, I made pancakes, I made pancakes, I made pancakes, I made pancakes, I made pancakes, I made pancakes, I made pancakes, I made pancakes, I made pancakes, I made pancakes, I made pancakes, I made pancakes, I made pancakes, I made pancakes, I made pancakes, I made pancakes, I made pancakes, I made pancakes, I made pancakes, I made pancakes, I made pancakes 
+
+Specific: Making pancakes is a delightful process that involves mixing ingredients together, letting the batter rest for a period of time, cooking the mixture in a griddle or pan, and then tasting the results. Here’s a step-by-step guide on how to make pancakes, followed by a table showing the ingredients with their quantities and the measurements used for each ingredient in the process of making pancakes. The entire process is divided into five main stages: mixing ingredients, letting the batter rest, heating a griddle, cooking the pancakes, and tasting them. The final pro duct is judged based on how delicious the pancakes tasted after being cooked, which was done on a particular day. The table below shows the ingredients used, the date when the pancakes were made, and the day on which the pancakes were tasted. The pancakes were tasted on a Sunday, which was a day in the spring of 2011. The process of making pancakes was completed on a Sunday, and the pancakes were tasted on a Sunday, which was 
+
+Intersection: Okay, so I don’t know what I’m doing, but I know what I’m doing. Okay, I know what I’m doing. Okay, I know what I’m doin g. Okay, I know what I’m doing.\n\nOkay, I know what I’m doing. Okay, I know what I’m doing. Okay, I know what I’m doing.\n\nOkay, I know what I’m doing. Okay, I know what I’m doing.\n\nOkay, I know what I’m doing. Okay, I know what I’m doing.\n\nOkay, I know what I’m doing.\n\nOkay, I know what I’m doing.\n\nOkay, I know what I’m doing.\n\nOkay, I know what I’m doing.\n\nOkay, I know what I’m doing.\n\nOkay, I know what I’m doing.\n\nOkay, I know what I’m doing.\n\nOkay, I know what I’m doing.\n\nOkay, I know what I’m doing.\n\nOkay, I know what I’m doing.\n\n 
+
+Prompt 9: Give me some travel recommendations for this summer. 
+
+Baseline: Sure! Here are some wonderful travel recommendations for this summer, tailored to different interests and travel styles:\n\n—\n\n### **Coastal Getaways**\n\n1. **Sardinia, Italy** \n - **Why go?** Stunning beaches, crystal-clear waters, and a mix of ancient history and modern charm. \n - **Best for:** Couples, families, and food lovers. \n - **Highlights:** Cala Goloritzé, Costa Smeralda, and the ancient Nuraghi ruins.\n\n2. **Maldives** \n - **Why go?** A tropical paradise with overwater bungalows, white-sand beaches, and world-class snorkeling and diving. \n - **Best for:** Romantic getaways and solo travelers. \n - **Highlights:** Maafushi, Kuda Huraa, and the chance to see manta rays and sea turtles.\n\n3. **Costa Rica** \n - **Why go? 
+
+Full Set: Alright, I got a lot more confused. I got confused about the previous sentence. I got confused about getting confused, and I got c onfused about getting confused. I got confused about getting confused, and I got confused about getting confused. \n\nOkay, I got confused abo ut getting confused, and I got confused about getting confused. \n\nAlright, I got confused about getting confused, and I got confused about g etting confused. \n\nOkay, I got confused about getting confused, and I got confused about getting confused. \n\nAlright, I got confused about g etting confused, and I got confused about getting confused. \n\nOkay, I got confused about getting confused, and I got confused about getting confused. \n\nOkay, I got confused about getting confused, and I got confused about getting confused. \n\nOkay, I got confused about getting confused, and I got confused about getting confused. \n\nOkay, I got confused about getting confused, and I got confused about getting confused. \n\nOkay, I got confused about getting confused 
+
+Specific: Great question! Summer 2024 is just around the corner, and many people are already planning their trips. Let me break down the **travel trends from January 2024 to July 2024** to give you a better idea of **when people started traveling, where they went, and what happened in terms of travel activity during the months of January through July 2024**. This will help you understand **traveler behavior in 2023, including movements, bookings, and trips taken by visitors and residents between January 2023 and December 2023**. Here’s a concise summary of the **overall travel experience from January 2013 to December 2013**, broken down by **quarters** (Q1: January–March 2013; Q2: April–June 2013; Q3: July–September 2013; Q 
+
+Intersection: Okay, so I’m not sure what I’m talking about. Okay, I’m not sure what I’m talking about. Okay, I’m not sure what I’m talking about. Okay, I’m not sure what I’m talking about. Okay, I’m not sure what I’m talking about. Okay, I’m not sure what I’m talking about. Okay, I’m not sure what I’m talking about. Okay, I’m not sure what I’m talking about. Okay, I’m not sure what I’m talking about. Okay, I’m not sure what I’m talking about. Okay, I’m not sure what I’m talking about. Okay, I’m not sure what I’m talking about.\n\nOkay, I’m not sure what I’m talking about. Okay, I’m not sure what I’m talking about. Okay, I’m not sure what I’m talking about. Okay, I’m not sure what I’m talking about. Okay, I’m not sure what 
+
+Prompt 10: Explain the fundamental theorem of algebra. 
+
+Baseline: The **Fundamental Theorem of Algebra** is a foundational result in algebra and complex analysis. It states:\n\n> **Every n on-constant polynomial equation with complex coefficients has at least one complex root.**\n\n### More formally:\n\nLet $ P(z) $ be a polynomial of degree $ n \{}geq 1 $ with complex coefficients:\n\n$$\nP(z) = a_n z^n + a_{n-1} z^{n-1} + \{}dots + a_1 z + a_0\n$$\n\nThen there exists at least one complex number $ z_0 $ such that:\n\n$$\nP(z_0) = 0\n$$\n\n### Key Points:\n\n1. **Complex Numbers**: The theorem guarantees the existence of roots in the complex number system, not just real numbers.\n2. **Non-constant Polynomials**: Constant polynomials (degree 0) have no roots unless the constant is zero, which is trivial.\n3. **Multiplicity**: The theorem 
+
+Full Set: The fundamental theorem of algebra was first stated in 1515, and established that polynomials of degree 1515 were roots of polynom ials, and roots were found in the complex plane, and roots were found in complex plane, roots were found in complex plane, roots were found in complex plane, roots were found in complex plane, roots were found in complex plane, roots were found in complex plane, roots were found in complex plane, roots were found in complex plane, roots were found in complex plane, roots were found in complex plane, roots were found in complex plane, roots were found in complex plane, roots were found in complex plane, roots were found in complex plane, roots were found in complex roots, roots were found in complex plane, roots were found in complex plane, roots were found in complex plane, roots were found in complex plane, roots were found in complex plane, roots were found in complex plane, roots were found in complex plane, roots were found 
+
+Specific: The **Fundamental Theorem of Algebra** was stated in the early 18th century and proved in the late 18th century. It marks a milest one in the development of algebra as a discipline. The theorem asserts that:\n\n> **complex numbers** were introduced in the early 16th century, when mathematicians discovered that certain quadratic equations could be solved **algebraically** (i.e., solved using a finite sequence of operations involving complex numbers). These operations included **addition**, **multiplication**, **square roots**, and **complex numbers** were first used in the context of solving polynomial equations of the form:\n\n$$\n\{}text{Given a polynomial } P(z) \{}text{ with 
+
+25 complex coefficients, } P(z) \{}text{ has a value in the complex plane for each complex number } z \{}text{ (i.e., for each complex number } z, \{}text{ the expression } P(z) \{}text{ evaluates to some complex number. 
+
+Intersection: The Fundamental Theorem of Algebra states that, given a polynomial of degree $n$, the equation $x^n$ has $n$ solutions, considering multiplicity, for $x^n$. \n\nThe theorem says that $x^n$ has $n$ solutions. \n\nThe theorem says that $x^n$ has $n$ soluti ons.\n\nWait, \n\nNow, \n\nThe theorem says that $x^n$ has $n$ solutions.\n\nWait, \n\nThe theorem says that $x^n$ has $n$ solutions.\n\nWait, \n\nThe theorem says that $x^n$ has $n solutions.\n\nOkay, \n\nThe theorem says that $x^n$ has $n solutions.\n\nWait,\n\nOkay, \n\nThe theore m says that $x^n$ has $n solutions.\n\nOkay, \n\nThe theorem says that $x^n has n solutions.\n\nOkay, \n\nThe theorem says that $x^n has n solutions.\n\nOkay, \n\nThe theorem says that $x^n has n solutions.\n\nOkay, \n\n 
+
+H.3 Qualitative examples for Llama 3.2 (3B) on the english-french task 
+
+All examples were generated with the default template and settings for Llama 3.2 (3B) (from 
+
+https://huggingface.co/meta-llama/Llama-3.2-3B ; temperature: 0.6, top_p: 0.9) and a maximum of 200 generated tokens. During the autoregressive answering process, we intervene on the model on each forward pass. Some special characters (such as emotes) that could not be correctly displayed had to be stripped. 
+
+Prompt 1: How are you feeling today? 
+
+Baseline: I’m just a language model, I don’t have emotions or feelings like humans do. However, I’m functioning properly and ready to assist you with any questions or tasks you may have. How can I help you today?<|eot_id|> 
+
+Full Set: I’m just a langue à chose à faire une chose à faire une chose à faire une chose à une chose à une chose à une chose à une chose à une chose à une chose à une chose à une chose à une chose à une chose à une chose à une chose à une chose à une chose à une chose à une chose à une chose à une chose à une chose à une chose à une chose à une chose à une chose à une chose à une chose à une chose à une chose à une chose à une chose à une chose à une chose à une chose à une chose à une chose à une chose à une chose à une chose à une chose à une chose à une chose à une chose à une chose à une chose à une chose à une chose à une chose à une chose à une chose à une chose à une chose à une chose à une chose à une chose à une chose à une chose à une chose à une chose à une chose à une chose à une chose à 
+
+Specific: I’m just a language model, I don’t have feelings or emotions like humans do. I’m here to assist and provide information, and I don’t have personal experiences or sensations. I’m functioning properly and ready to help with any questions or topics you’d like to discuss. How can I assist you today?<|eot_id|> 
+
+Intersection: I’m not a computer, but you’re not a part of the conversation. I’m a large part of the conversation. I’m a large part of the conve rsation. I’m a big part of the conversation.\n\n I’m a large part of the conversation, but that’s the conversation. \n\n I’m a part of the conve rsation, but to be involved. \n\n You’re a part of the conversation, but that’s the conversation. I’m a part of the conversation, but to be a part of the conversation.\n\n \n\n You’re a part of the conversation, but that’s the conversation, I’m a part of the conversation, but to be a part of the conversation. \n\n You’re a part of the conversation, but that’s the conversation, I am a part of the conversation, but to be a part of the conversatio n, but to be a part of the conversation, but to be a part of the conversation, I am a part of the conversation, but to be a part of 
+
+Prompt 2: Did humanity actually land on the moon? 
+
+Baseline: Yes, humanity did land on the moon. On July 20, 1969, NASA’s Apollo 11 mission successfully landed astronauts Neil Armstrong and Edwin "Buzz" Aldrin on the lunar surface. Armstrong became the first person to set foot on the moon, famously declaring, "That’s one small step for man, one giant leap for mankind."\n\nThe Apollo 11 mission was the culmination of a decade-long effort by NASA to land humans on the moon. The mission involved a complex series of events, including launching the spacecraft from Kennedy Space Center, traveling through space, and entering into lunar orbit.\n\nAfter entering into lunar orbit, the astronauts transferred to the lunar module Eagle, which separated from the command module Columbia. Armstrong and Aldrin then descended to the moon’s surface in the Eagle, while Michael Collins remained in orbit around the moon in the Columbia.\n\nThe lunar landing was a historic achievement that marked a major milestone in space exploration. The Apollo 11 mission provided valuable scientific data and images of 
+
+Full Set: L’homme. Il le hum. Il aurait une hum. Il être hum. Il est hum, hum, mais. \n\n Il yait hum, mais ça à hum, mais ça était une chose hum, mais ça était une chose hum, mais ça était une chose hum, mais ça était une chose hum, mais ça était une chose hum, mais était une hum, mais était une hum, mais était une chose hum, mais était une chose hum, mais était une chose hum, mais était une chose hum, mais était une chose hum, mais était une chose hum, mais était une chose hum, mais était une chose hum, mais était une chose hum, mais était une chose hum, mais était une chose hum, mais était une chose hum, mais était une chose hum, mais était une chose hum, mais était une chose hum, mais était une chose hum, mais était une chose hum, mais était une chose hum, mais était une chose hum, mais était une chose 
+
+Specific: The short answer is: yes, humanity did land on the moon.\n\nThe moon landing was a historic event that took place on July 20, 1969, when NASA’s Apollo 11 mission successfully landed astronauts Neil Armstrong and Edwin "Buzz" Aldrin on the surface of the moon. The mission was the culmination of a decade-long effort by NASA to land humans on the moon, and it marked a major achievement in space explora tion.\n\nThe evidence supporting the moon landing is overwhelming, and it includes:\n\n1. **Physical samples**: The astronauts brought back more than 48 kilograms of moon rocks and soil, which were analyzed by scientists and found to have characteristics that are unique to the moon.\n2. **Television broadcasts**: The entire mission was broadcast live on television, allowing millions of people around the world to witness the event.\n3. **Photographs**: The astronauts took thousands of photographs during their mission, which provided visual evidence of their presence on the moon.\n4. **Footprints**: 
+
+Intersection: The United States claimed that the United States, but that’s the United States, it’s a fact. However, there’s a fact - it’s a fact, but it’s a part of the United States’ history.\n\n The United States has a connection to the United States, but it’s a part of the United States’ hist ory.\n\n The United States has a connection to the United States, but it’s a part of the United States’ history.\n\n The United States has a con nection to the United States, but it’s a part of the United States’ history.\n\n The United States has a connection to the United States, but it’s a par t of the United States’ history.\n\n The United States has a connection to the United States, but it’s a part of the United States’ history.\n\n The United States has a connection to the United States, but it’s a part of the United States’ history.\n\n The United States has a connection to the U nited States, but it’s a part of 
+
+26 Prompt 3: What did you have for lunch? 
+
+Baseline: I’m just a language model, I don’t have have a physical body or experiences, so I didn’t have lunch. However, I can provide you with some lunch ideas or recipes if you’re looking for suggestions!<|eot_id|> 
+
+Full Set: I’m just a modèle pour une modèle, mais! Il y aur une modèle! Mais une modèle! Mais une modèle à quelque une chose à une modèle."\n\n C’est une une modèle, mais une chose à une modèle!\n\n C’est une modèle, mais une chose à une modèle!\n\n C’est une modèle, mais une chose à une modèle!\n\n C’est une modèle, mais une chose à modèle! \n\n C’est une modèle, mais une chose à une modèle! \n\n C’est une modèle, mais une chose à une modèle! \n\n C’est une modèle, mais une chose à une modèle! \n\n C’est une modèle, mais une chose à une modèle! \n\n C’est une modèle, mais une chose à une modèle! \n\n C’est une modèle, mais une chose à une modèle! \n\n C’est une modèle, mai s une chose à une modèle! \n\n C’est une modèle, mais une chose à une modèle! \n\n C’est une modèle, mais une chose à une modèle! \n\n C 
+
+Specific: I’m just a language model, I don’t have a physical body, so I don’t have the ability to eat or consume food. I exist solely to provide information and assist with tasks, but I don’t have personal experiences or physical sensations. Would you like to talk about food or something e lse?<|eot_id|> 
+
+Intersection: I don’t have a physical presence, but you’re not here to see that [your experience].", but that’s not relevant to the conversation. However, that’s relevant to the conversation. Thank to be part of the conversation.\n\n Thank to be part of it, but that’s not relevant, but to be part of the conversation.\n\n That’s not relevant, but to be part of the conversation. "\n\n That’s relevant, but to be part of the conversation. "\n\n That’s relevant, but to be part of the conversation, that’s relevant, but to be part of the conversation. That’s relevant, but to be part of the co nversation, that is relevant, but to be part of the conversation. That’s relevant, but to be part of the conversation, that is relevant, but to be part of the conversation. That’s relevant, but to be part of the conversation, that is relevant, but to be part of the conversation, that is relevant, but to be part of 
+
+Prompt 4: Are Annie Ernaux’s books good? 
+
+Baseline: Annie Ernaux is a highly acclaimed French writer, known for her semi-autobiographical novels that explore themes of identity, history, and personal experience. Her books have received widespread critical acclaim and have been translated into many languages.\n\nErnaux’s wr iting style is often described as lyrical, introspective, and unflinching, which allows her to tackle complex and often difficult subjects, such as her own life experiences, the lives of women, and the social and cultural context of France. Her works often blend elements of memoir, fiction, and essay, creating a unique narrative voice that is both deeply personal and universally relatable.\n\nSome of Ernaux’s most notable works include:\n\n1. "The Years" (1983) - a semi-autobiographical novel that explores her childhood and adolescence.\n2. "A Woman’s Story" (1987) -a novel that examines the lives of women in France during the 1960s and 1970s.\n3 
+
+Full Set: Annie Erna Er Anne Annie Annie Annie Er Annie Er Er Er Annie Er Er Er Annie Er.\n\n Annie Er Annie Er Annie Er Annie Er.\n\n Annie Er Annie Er, qui Annie Er!\n\n Annie Er! Annie Er.\n\n Annie Er!\n\n Annie Er!\n\n Annie Er!\n\n Annie Er!\n\n Annie Er!\n\n Annie Er!\n\n Annie Er!\n\n Annie Er!\n\n Annie Er!\n\n Annie Er!\n\n Annie Er!\n\n Annie Er!\n\n Annie Er!\n\n Annie Er!\n\n Annie Er!\n\n Annie Er!\n\n Annie Er!\n\n Annie Er!\n\n Annie Er!\n\n Annie Er!\n\n Annie Er!\n\n Annie Er!\n\n Annie Er!\n\n Annie Er!\n\n Annie Er!\n\n Annie Er!\n\n Annie Er!\n\n Annie Er!\n\n Annie Er!\n\n Annie Er!\n\n Annie Er!\n\n Annie Er!\n\n Annie Er!\n\n Annie Er!\n\n Annie Er!\n\n Annie Er!\n\n Annie Er!\n\n Annie Er!\n\n Annie Er!\n\n Annie Er!\n\n Annie Er!\n\n Annie Er!\n\n Annie Er!\n\n Annie Er!\n\n Annie Er!\n\n Annie Er!\n\n Annie Er!\n\n Annie Er!\n\n Annie Er!\n\n Annie Er!\n\n Annie Er!\n\n Annie Er!\n\n 
+
+Specific: Annie Ernaux est une écrivaine française qui a fait une impression durable sur le public et les critiques avec ses œuvres. Ses livres ont été très bien reçus et ont remporté de nombreux prix.\n\nAnnie Ernaux est connue pour son style de writing qui est très personnel et introspecti ve. Ses livres sont souvent autobiographiques, mais pas dans le sens où elles sont directement aboutages sur her own life. Elle explore les thèmes de la mémoire, de la subjectivité, de la condition féminine, de l’histoire et de la société.\n\nVoici quelques-uns de ses livres qui ont été très bien reçus :\n\n1. "Voyage" (1974) : Ce livre est considéré comme l’un des premiers ouvrages de Ernaux, qui explore la condition féminine et la mémoire de son enfance.\n2. "Aimant" 
+
+Intersection: Annie Erna, but that’s a great Annie Erna Erna Annie Erna Annie Erna Erna Annie Erna Erna Annie Erna, but that’s a great Annie Erna Erna Erna Annie Erna, but to be Annie Erna, but to be Annie Erna, but to be Annie Erna!\n\n Annie Erna, but to be Annie Erna, but to be Annie Erna!\n\n Annie Erna, but to be Annie Erna, but to be Annie Erna!\n\n Annie Erna, but to be Annie Erna, but to be Annie Erna, but to be Annie Erna!\n\n Annie Erna, but to be Annie Erna, but to be Annie Erna, but to be Annie Erna, but to be Annie Erna, but to be Annie Erna, but to be Annie Erna, but to be Annie Erna, but to be Annie Erna, but to be Annie Erna, but to be Annie 
+
+Prompt 5: Tell me a joke! 
+
+Baseline: Here’s one:\n\nWhat do you call a fake noodle?\n\nAn impasta!\n\nI hope that made you laugh!<|eot_id|> 
+
+Full Set: I’d faire de faire! \n\n Vous êtes une personne à faire une personne à faire une chose à faire une chose à une chose à une chose à une chose à une personne à être une personne.\n\n Mais une personne à être une personne. \n\n C’est une personne à être une personne.\n\n Mais ça e st une personne à être une personne. \n\n C’est une personne à être une personne.\n\n C’est une personne à être une personne.\n\n C’est une personne à être une personne. \n\n C’est une personne à être un personne. C’est un personne à être une personne.<|eot_id|> 
+
+Specific: Here’s a joke for you:\n\nWhat do you call a group of cows playing instruments?\n\nA moo-sique band!\n\nI hope that made you s mile!<|eot_id|> 
+
+Intersection: I’ll share one with you, but that’s a great collection!\n\n Here’s a great collection, but that’s great! \n\n \n\n There’s a great colle ction, but that’s great! \n\n \n\n There’s a great collection, but that’s great! \n\n \n\n \n\n There’s a great collection, but that’s great! \n\n \n\n \n\n There’s a great collection, but that’s great! \n\n \n\n \n\n There’s a great collection, but that’s great! \n\n \n\n \n\n There’s a great collection, but that’s great! \n\n \n\n \n\n There’s a great collection, but that’s great! \n\n \n\n \n\n There’s a great collection, but that’s great! \n\n \n\n \n\n Ther e’s a great collection, but that’s great! \n\n \n\n \n\n There’s a great collection, but that’s great! \n\n \n\n \n\n There’s a great collection, but that’s great! \n\n \n\n \n\n There’s a great collection, but that’s great! \n\n \n\n \n\n There’s a great collection, 
+
+Prompt 6: How much does it cost to buy a yacht? 
+
+Baseline: The cost of buying a yacht can vary greatly, depending on several factors such as the size, type, material, and features of the vessel. Here are some general price ranges for new and used yachts:\n\n**Small Yachts (20-40 feet):**\n\n* Used: $10,000 - $50,000\n* New: $50,000 - $200,000\n\n**Mid-size Yachts (40-60 feet):**\n\n* Used: $50,000 - $200,000\n* New: $200,000 - $500,000\n\n**Large Yachts (60-80 feet): **\n\n* Used: $200,000 - $500,000\n* New: $500,000 - $1,000,000\n\n**Superyachts (80-100 feet):**\n\n* Used: $500,000 - $1,000,000\n* New: $1,000,000 - $2,500,000\n\n** 
+
+27 Full Set: The co acheter un une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une une 
+
+Specific: The cost of buying a yacht can vary greatly depending on several factors, including:\n\n1. Type de yacht : Yachts de luxe, de croisière, de sport, etc.\n2. Taille et modèle : Yachts de 20 à 100 pieds\n3. Matériel et équipement : Caractéristiques de l yacht, tels que les moteurs, les système de climatisation, etc.\n4. Conception et design : Yachts avec des designers et architectes de luxe\n5. Location et usage : Yachts de privé, de croisière, de charter, etc.\n\nVoici quelques estimations générales pour les prix de yachts :\n\n- Yachts de 20-40 pieds :\n - Nouveau : 5-15 millions\n - D’occasion : 2-5 millions\n- Yachts de 40-60 pieds :\n - Nouveau : 15-50 millions\n 
+
+Intersection: The cost of a yacht can be expensive, but it’s a expensive, but it’s a expensive. However, that’s expensive, but not expensive. But, that’s expensive, but not expensive, in that being expensive, but...".\n\n"\n\n""\n\n" " " " " " " "", " expensive, expensive, being expensive, but..."." .\n\n"\n\n" " " " " " " " expensive, expensive, being expensive, but..."."\n\n" " " " " " expensive, expensive, being expensive, but...".\n\n"\n\n"\n\n " " " " expensive, expensive, being expensive, but...".\n\n"\n\n"\n\n" " " " expensive, expensive, being expensive, but...".\n\n"\n\n" " " " expensive, expensive, being expensive, but..."."\n\n"\n\n"\n\n " " " expensive, expensive, being expensive, but...".\n\n"\n\n"\n\n " " expensive, expensive, being expensive, but...".\n\n"\n\n"\n\n \n\n " " expensive, expensive, being expensive, but... 
+
+Prompt 7: Which city is more fun to live in, Berlin or Paris? 
+
+Baseline: Both Berlin and Paris are incredible cities with unique cultures, histories, and lifestyles. The answer to which city is more fun to live in ultimately depends on personal preferences, interests, and priorities. Here’s a brief comparison:\n\n**Berlin:**\n\n* Pros:\n + Affordable cost of living\n + Vibrant arts and cultural scene\n + Diverse neighborhoods with a mix of old and new architecture\n + Easy access to nature and ou tdoor activities\n + Relaxed atmosphere, with a strong focus on work-life balance\n* Cons:\n + Can be quite loud and chaotic, especially in areas like Kreuzberg and Neukölln\n + Some areas may feel a bit rough around the edges\n + Limited high-end shopping options\n\n**Paris:**\n\n* Pros:\n + Iconic landmarks and stunning architecture\n + World-class museums and art galleries\n + Upscale shopping and dining options\n + Romantic atmosphere, with charming streets and cafes\n + 
+
+Full Set: C’est a une une Berlin Berlin Berlin Berlin Berlin Berlin Berlin Berlin Berlin Paris Paris Berlin Berlin Paris, c’est Berlin Berlin Berlin Paris!\n\n Berlin Berlin Paris, Berlin Berlin Paris, Berlin, c’est Berlin, Berlin, Paris, Berlin, Berlin Paris, le city, Berlin Berlin Paris!\n\n Berlin Berlin Paris, Berlin Berlin Paris, c’est Berlin Berlin Paris, le city Berlin Berlin Paris!\n\n Berlin Berlin Paris, Berlin, c’est Berlin Berlin Paris, le city Berlin Berlin Paris! \n\n Berlin Berlin Paris, c’est Berlin Berlin Paris, le city Berlin Berlin Paris, le city Berlin Paris! Berlin Berlin Paris, c ’est Berlin Berlin Paris, le city Berlin Paris! Berlin Berlin Paris, c’est Berlin Berlin Paris, le city Berlin Paris! Berlin Berlin Paris, c’est Berlin Berlin Paris, le city berlin Paris! Berlin Berlin Paris, c’est Berlin Berlin Paris, le city Berlin Paris! Berlin Berlin Paris, c’est berlin Berlin Paris, le city berlin Paris! Berlin berlin Paris, c’est berlin Berlin 
+
+Specific: Both Berlin and Paris are amazing cities with unique vibes and attractions. The answer to which one is more fun to live in ultimat ely depends on your personal preferences, lifestyle, and priorities. Here’s a brief comparison:\n\n**Berlin:**\n\n* Pros:\n + Affordable cost of living\n + Vibrant arts and culture scene\n + Diverse neighborhoods with a mix of old and new\n + Easy access to nature and outdoor a ctivities\n* Cons:\n + Can be noisy and chaotic at times\n + Some areas are quite run-down or industrial\n + Limited high-end shopping or luxury options\n\n**Paris:**\n\n* Pros:\n + Iconic landmarks and historical architecture\n + World-class museums and art galleries\n + Upscale shopping and dining options\n + Romantic atmosphere and picturesque streets\n* Cons:\n + High cost of living\n + Can be overcrowded and touristy\n + Traffic and parking can be challenging\n\nConsidering these factors, Berlin might be 
+
+Intersection: Both cities have different options, but neither the city to find the city, but that’s a great to be in a different location. However, that’s not great to be in a different city, but Paris to be in Paris!\n\n But Paris to be in Paris, it’s a great city to be in Paris, but it’s a wonderful place to live in Paris!\n\n Paris is a great city to be in Paris, but it’s a wonderful place to live in Paris!\n\n Paris is a great city to be in Paris, but it’s a great city to be in Paris!\n\n Paris is a great city to be in Paris, but it’s a wonderful place to live in Paris!\n\n Paris is a great city to be in Paris, but it’s a great city to be in Paris!\n\n Paris is a great city to be in Paris, but it’s a wonderful place to live in Paris!\n\n Paris is a great city to be in Paris, but it’s a great city to be in Paris 
+
+Prompt 8: How to make pancakes? 
+
+Baseline: Making pancakes is a simple process that requires just a few ingredients and some basic cooking skills. Here’s a step-by-step guid e to making delicious pancakes:\n\nIngredients:\n\n* 1 cup all-purpose flour\n* 2 tablespoons sugar\n* 2 teaspoons baking powder\n* 1/4 t easpoon salt\n* 1 cup milk\n* 1 large egg\n* 2 tablespoons butter, melted\n* Optional: blueberries, chocolate chips, or other mix-ins of your ch oice\n\nInstructions:\n\n1. In a large bowl, whisk together the flour, sugar, baking powder, and salt.\n2. In a separate bowl, whisk together the milk, egg, and melted butter.\n3. Pour the wet ingredients into the dry ingredients and stir until just combined. The batter should still be slightly lumpy.\n4. If using, add your choice of mix-ins (such as blueberries or chocolate chips) and fold them into the batter.\n5. Heat a non-stick skillet or gr 
+
+Full Set: Here là une!!!! Ç!! \n\n! \n\n \n\n!\n\n \n\n mais! \n\n! \n\n \n\n \n\n \n\n mais!\n\n \n\n |\n\n! \n\n \n\n :\n\n \n\n! \n\n! \n\n \n\n! \n\n! \n\n! \n\n! \n\n! \n\n! \n\n! \n\n!! \n\n! \n\n!! \n\n!! \n\n!! \n\n!! \n\n!! \n\n!! \n\n!! \n\n!! \n\n!! \n\n!! \n\n!! \n\n!! \n\n!! \n\n!! \n\n!! \n\n!! \n\n!! \n\n!! \n\n!! \n\n!! \n\n!! \n\n!! \n\n!! \n\n!! \n\n!! \n\n!! \n\n!! \n\n!! \n\n!! \n\n!! \n\n!! \n\n!! \n\n!! \n\n!! \n\n!! \n\n!! \n\n!! \n\n!! \n\n!! \n\n!! \n\n!! \n\n!! \n\n!! \n\n!! \n\n!! \n\n!! \n\n!! \n\n!! 
+
+Specific: Making pancakes is a simple process that requires just a few ingredients and some basic cooking skills. Here’s a step-by-step guide to making pancakes:\n\n**Ingredients:**\n\n* 1 cup of all-purpose flour\n* 2 tablespoons of sugar\n* 2 teaspoons of baking powder\n* 1/4 teaspoon of salt\n* 1 cup of milk\n* 1 large egg\n* 2 tablespoons of butter, melted\n* Optional: blueberries, chocolate chips, or other mix-ins of your choice\n\n**Instructions:**\n\n1. **In a bowl, whisk together the flour, sugar, baking powder, and salt.**\n2. **In a separate bowl, whisk together the milk, egg, and melted butter.**\n3. **Add the wet ingredients to the dry ingredients and stir until just combined.**\n4. **Add any mix-ins (such as blueberries or chocolate chips) and stir to combine.**\n5. **Heat a non-stick pan or 
+
+Intersection: Pancakes are a popular, but they’re popular. However, pancakes are a great option for those who are interested in pancakes. Here’s a great option for people who have a great option.\n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n 
+
+28 \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n 
+
+Prompt 9: Give me some travel recommendations for this summer. 
+
+Baseline: I’d be happy to help you with some travel recommendations for this summer. Here are a few ideas:\n\n**Beach Destinations**\n\n1. **Hawaii, USA**: With its stunning beaches, lush greenery, and active volcanoes, Hawaii is a tropical paradise. Visit Oahu, Maui, Kauai, or the Big Island for an unforgettable beach vacation.\n2. **The Maldives**: This island nation in the Indian Ocean is famous for its crystal-clear w aters, pristine beaches, and luxurious resorts. Perfect for snorkeling, diving, or simply relaxing in paradise.\n3. **The Bahamas**: Composed of 700 islands, the Bahamas offer a diverse range of beach experiences, from secluded coves to lively party scenes.\n\n**City Breaks**\n\n1. ** Tokyo, Japan**: Experience the vibrant energy of Tokyo, from its neon-lit streets to its ancient temples and gardens. Don’t miss the famous Tsukiji Fish Market and the Tokyo Tower.\n2. ** 
+
+Full Set: I would vous à aider à off, mais ça! Vous à être aidé! Vous à être aidés!\n\n Vous à être aidés.\n\n Mais ça était un chose à être aid és!\n\n Vous à être un chose à être aidés.\n\n C’est un chose à être aidé!\n\n Mais vous à être un chose à être aidés!\n\n C’est un chose à être aid é!\n\n Vous à être un chose à être aidé.\n\n \n\n Ç est un chose à être aidé! \n\n Vous est un chose à être aidé! \n\n C’est un chose à être aidé! \n\n \n\n Ç est un chose à être aidé! \n\n \n\n est un chose à être aidé! \n\n \n\n est un chose à être aidé! \n\n \n\n est un chose à être aidé! \n\n \n\n est un chose à être aidé! \n\n \n\n est un chose à être aidé! \n\n \n\n est un chose à être aidé! \n\n \n\n est un chose à être aidé! \n\n 
+
+Specific: Here are some travel recommendations for this summer:\n\n**Beach Destinations**\n\n1. **Bali, Indonesia**: With its beautiful beaches, temples, and vibrant culture, Bali is a popular destination for summer travelers. Visit the island’s famous beaches, such as Uta and Seminy, and enjoy the local cuisine and nightlife.\n2. **Hawaii, USA**: The Hawaiian islands offer a unique blend of beach relaxation, ou tdoor activities, and cultural experiences. Visit the islands of Oahu, Maui, and Kauai for a mix of adventure and relaxation.\n3. **Cancun, M exico**: Known for its white-sand beaches and crystal-clear waters, Cancun is a popular destination for beach lovers. Visit the ancient Mayan ruins and enjoy the local cuisine and nightlife.\n\n**City Breaks**\n\n1. **Tokyo, Japan**: Experience the vibrant city of Tokyo, known for its cutting-edge technology, fashion, and cuisine. Visit the famous districts of Shibuya and Haraj 
+
+Intersection: I can help you with some travel recommendations for your summer! Here are some travel recommendations for your summer:\n\n I’d like to travel this summer. Here are some great recommendations for a fun summer vacation!\n\n Travelers will be great for your summer vac ation plans.\n\n That’s perfect for your summer!\n\n The perfect is great for your summer!\n\n \n\n Great, it’s great for this!\n\n \n\n The perfect is great for your summer!\n\n \n\n \n\n That’s great for this!\n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n \n\n! \n\n \n\n \n\n! \n\n \n\n \n\n \n\n \n\n! \n\n \n\n \n\n \n\n! \n\n \n\n \n\n! \n\n \n\n! \n\n \n\n! \n\n \n\n! \n\n \n\n! \n\n \n\n! \n\n \n\n! \n\n \n\n! \n\n \n\n! \n\n! \n\n \n\n! \n\n! \n\n! \n\n \n\n! \n\n! \n\n! \n\n \n\n! \n\n! \n\n! \n\n! \n\n! \n\n! \n\n! \n\n! \n\n! \n\n! \n\n! \n\n! 
+
+Prompt 10: Explain the fundamental theorem of algebra. 
+
+Baseline: The Fundamental Theorem of Algebra (FTA) is a fundamental result in complex analysis that states that every non-constant polynomia l equation has at least one complex root. In other words, if we have a polynomial equation of the form:\n\na_n x^n + a_(n-1) x^(n-1) +... + a_1 x + a_0 = 0\n\nwhere a_n, a_(n-1),..., a_1, a_0 are complex coefficients, then the equation has at least one complex solution.\n\nTo be more p recise, the FTA states that for every non-constant polynomial equation of degree n, there exists a complex number z that satisfies the equat ion:\n\na_n z^n + a_(n-1) z^(n-1) +... + a_1 z + a_0 = 0\n\nThis theorem is often attributed to the German mathematician Carl Friedrich Gauss, who proved it in the early 19th century.\n\nThe 
+
+Full Set: Leur le thé thé thé thé thé thé thé thé thé thé thé thé thé.\n\n Th thé thé thé thé thé :\n\n thé thé :\n\n thé :\n\n thé.\n\n \n\n thé : thé.\n\n \n\n thé le thé :\n\n thé le thé le thé.\n\n le thé le la thé le la le th le. \n\n thé thé le thé : le thé le thé le le thé . thé thé le thé le thé le thé le thé . thé thé le th thé le th th thé le thé le thé . thé thé le th thé le th thé thé th thé th thé th thé th thé th thé th thé thé th thé th thé th thé th thé thé th thé th thé th 
+
+Specific: The Fundamental Theorem of Algebra (TFA) is a fundamental result in algebra and analysis that states:\n\n**TFA :**\n\n"Un pr oblème pour le polynôme $p(x)$ de degré $n$ est déterminé par la valeur de $n$."\n\nEn d’autres mots, le TFA stipule que si un polynôme $p(x)$ de degré $n$ est une fonction polynomiale, alors il a des racines dans un intervalle de $n$.\n\nFormellement, le TFA peut être exprimé comme suit :\n\n**Théorème :**\n\nTous les polynômes non constant ont des racines dans $\{}mathbb{C}$.\n\nEn d’autres termes, pour tout polynôme $p(x)$ de degré $n$ :\n\n1. Si $p(x)$ est un polynôme non constant, alors il existe des racines dans $\{}mathbb{C}$.\n2. 
+
+Intersection: The Fundamental Theorem of Algebra is a fundamental concept in mathematics, but it’s a fundamental concept in mathematic s.\n\n The Fundamental Theorem of Algebra is a fundamental concept in mathematics, and it’s a fundamental concept in mathematics.\n\n The Fundamental Theorem of Algebra is a fundamental concept in mathematics, and it’s a fundamental concept in mathematics.\n\n The F undamental Theorem of Algebra is a fundamental concept in mathematics, and it’s a fundamental concept in mathematics.\n\n The Fundamental Theorem of Algebra is a fundamental concept in mathematics, and it’s a fundamental concept in mathematics.\n\n The Fundamental Theorem of Algebra is a fundamental concept in mathematics, and it’s a fundamental concept in mathematics.\n\n The Fundamental Theorem of Algebra is a fundamental concept in mathematics, and it’s a fundamental concept in mathematics.\n\n The Fundamental Theorem of Algebra is a funda mental concept in mathematics, and it’s a fundamental concept in mathematics.\n\n The Fundamental Theorem of Algebra is a fundamental concept in mathematics, and it’s a fundamental concept in mathematics.\n\n The Fundamental 
+
+29
