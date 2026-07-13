@@ -6,41 +6,49 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-12
-- 运行时间：2026-07-12 20:53:19 UTC
+- 最新运行日期：2026-07-13
+- 运行时间：2026-07-13 21:21:07 UTC
 - 运行状态：成功
-- 本次总论文数：7
-- 精读区：2
-- 速读区：5
+- 本次总论文数：8
+- 精读区：0
+- 速读区：8
 
 ### 今日简报（AI）
-今日推荐7篇AI研究，精读2篇、速读5篇。最值得关注《符号方法在AI中的角色变化》与《ZendoWorld主动视觉概念归纳》这两项8.0分的研究。建议优先精读这两篇，它们探讨了符号推理与视觉学习的交叉前沿。
-- 详情：[/202607/12/README](/202607/12/README)
+今日速读8篇论文，重点关注几何自蒸馏推理泛化、混合专家推理与强化学习新范式。
+
+最值得看的方向是几何自蒸馏提升推理泛化能力，以及Switch-Reasoner通过强化学习动态控制多任务混合中的推理时机。
+
+下步建议精读这三篇7分论文，尤其关注Switch-Reasoner的强化学习机制对实际多任务系统的启示。
+- 详情：[/202607/13/README](/202607/13/README)
 
 ### 精读区论文标签
-1. [The Changing Role of Symbolic Methods in Artificial Intelligence](/202607/12/2607.05168v1-the-changing-role-of-symbolic-methods-in-artificial-intelligence)  
-   标签：评分：8.0/10、query:ns-xai
-   evidence：讨论显式符号推理在AI系统中的作用与必要性
-2. [Playing ZendoWorld: Challenging AI Agents on Active Visual Concept Induction](/202607/12/2607.08233v1-playing-zendoworld-challenging-ai-agents-on-active-visual-concept-induction)  
-   标签：评分：8.0/10、query:ns-xai
-   evidence：评估了用于概念归纳的神经符号方法
+- 本次无精读推荐。
 
 ### 速读区论文标签
-1. [Final Checkpoints Are Not Enough: Analyzing Latent Reasoning Faithfulness Along Training Trajectories](/202607/12/2607.06648v1-final-checkpoints-are-not-enough-analyzing-latent-reasoning-faithfulness-along-training-trajectories)  
+1. [Geometric Self-Distillation for Reasoning Generalization](/202607/13/2607.06855v1-geometric-self-distillation-for-reasoning-generalization)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：分析训练轨迹中潜在推理忠实性的演化以理解不忠实形成机制
-2. [Distributed Sparse Interventions in Language Models](/202607/12/2607.07128v1-distributed-sparse-interventions-in-language-models)  
+   evidence：几何自蒸馏提升LLM推理泛化
+2. [Switch-Reasoner: Learn When to Think in Multitask Mixtures via Reinforcement Learning](/202607/13/2607.08572v1-switch-reasoner-learn-when-to-think-in-multitask-mixtures-via-reinforcement-learning)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：神经元层面的干预用于可解释性
-3. [Reasoning Consistency Scanning: A Framework for Auditing Chain-of-Thought Validity in AI Safety Evaluations](/202607/12/2607.07229v1-reasoning-consistency-scanning-a-framework-for-auditing-chain-of-thought-validity-in-ai-safety-evaluations)  
+   evidence：多模态大模型自适应推理模式选择
+3. [All you need is SAMPAT](/202607/13/2607.09235v1-all-you-need-is-sampat)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：审计思维链推理一致性以评估LLM推理有效性
-4. [MILES: Modular Instruction Memory with Learnable Selection for Self-Improving LLM Reasoning](/202607/12/2607.06974v1-miles-modular-instruction-memory-with-learnable-selection-for-self-improving-llm-reasoning)  
+   evidence：通过闭式代数表达式提供完全可解释的神经网络
+4. [Agora: Enhancing LLM Agent Reasoning Via Auction-Based Task Allocation](/202607/13/2607.09600v1-agora-enhancing-llm-agent-reasoning-via-auction-based-task-allocation)  
+   标签：评分：7.0/10、query:ns-xai
+   evidence：增强大模型智能体推理
+5. [ConceptSMILE: Auditing the Trustworthiness of Concept-Based Explainable AI](/202607/13/2607.09649v1-conceptsmile-auditing-the-trustworthiness-of-concept-based-explainable-ai)  
+   标签：评分：7.0/10、query:ns-xai
+   evidence：审计基于概念的可解释AI的信任度
+6. [From Voting to Agent Collaboration: Answer-Type-Aware LLM Pipelines for BioASQ 14b](/202607/13/2607.06452v1-from-voting-to-agent-collaboration-answer-type-aware-llm-pipelines-for-bioasq-14b)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：可学习选择模块化指令记忆以提升LLM推理的自我改进
-5. [Agon: Competitive Cross-Model RL with Implicit Rival Grading of Reasoning](/202607/12/2607.07690v1-agon-competitive-cross-model-rl-with-implicit-rival-grading-of-reasoning)  
+   evidence：针对生物医学问答的LLM流水线，涉及推理类型
+7. [Seeing and Reflecting: Multimodal Memory-Enhanced Agent Collaboration for Recommendation](/202607/13/2607.07108v1-seeing-and-reflecting-multimodal-memory-enhanced-agent-collaboration-for-recommendation)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：竞争性交叉模型强化学习通过隐式评分改进LLM推理过程
+   evidence：推荐中的可解释代理推理
+8. [Understanding Axes of Difficulty For Long Context Tasks Via PredicateLongBench](/202607/13/2607.08284v1-understanding-axes-of-difficulty-for-long-context-tasks-via-predicatelongbench)  
+   标签：评分：6.0/10、query:ns-xai
+   evidence：长上下文LLM推理基准
 
 
 <div class="dpr-home-promo-card">
