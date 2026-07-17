@@ -6,55 +6,44 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-16
-- 运行时间：2026-07-16 21:30:52 UTC
+- 最新运行日期：2026-07-17
+- 运行时间：2026-07-17 19:57:29 UTC
 - 运行状态：成功
-- 本次总论文数：11
-- 精读区：4
-- 速读区：7
+- 本次总论文数：8
+- 精读区：6
+- 速读区：2
 
 ### 今日简报（AI）
-1) 今日精读聚焦神经符号AGI与混合LLM-符号论证两大高分方向，速读覆盖多模态自验证与溯因推理。  
-2) 最值得关注：Belnap类型内涵FOL的概率化扩展，以及面向灾难治理的话语感知政策论证框架。  
-3) 建议后续优先精读这两篇9.0论文，并结合速读中多模态自验证方法扩展落地思路。
-- 详情：[/202607/16/README](/202607/16/README)
+今日精读2篇高分论文，重点聚焦神经符号推理在教育QA中的应用及知识图谱增强小模型推理。最值得看的是满分10分的《CoTu at EXACT 2026》与9分的《Enhancing Small Language Models Reasoning》，分别揭示透明推理机制与知识图谱提升小模型效果。建议关注如何利用知识图谱或神经符号方法，在有限参数下提升模型推理可解释性与准确性。
+- 详情：[/202607/17/README](/202607/17/README)
 
 ### 精读区论文标签
-1. [Probabilistic Extension of Neuro-Symbolic AGI Robots based on Belnap's Typed Intensional FOL](/202607/16/2607.13073v1-probabilistic-extension-of-neuro-symbolic-agi-robots-based-on-belnaps-typed-intensional-fol)  
+1. [CoTu at EXACT 2026: Neuro-Symbolic Reasoning for Transparent Educational QA](/202607/17/2607.14735v1-cotu-at-exact-2026-neuro-symbolic-reasoning-for-transparent-educational-qa)  
+   标签：评分：10.0/10、query:ns-xai
+   evidence：神经符号程序性思维管道实现透明问答
+2. [Enhancing Small Language Models Reasoning through Knowledge Graph Grounding](/202607/17/2607.14149v1-enhancing-small-language-models-reasoning-through-knowledge-graph-grounding)  
    标签：评分：9.0/10、query:ns-xai
-   evidence：基于类型化内涵一阶逻辑的神经符号概率推理
-2. [Discourse-Aware Policy Analysis with Argumentation: A Hybrid LLM-Symbolic Framework for Disaster Governance](/202607/16/2607.13260v1-discourse-aware-policy-analysis-with-argumentation-a-hybrid-llm-symbolic-framework-for-disaster-governance)  
+   evidence：神经符号智能体框架增强小型语言模型推理
+3. [MARS: Multi-hop Adaptive Retrieval and SPARQL Generation for KGQA](/202607/17/2607.14561v1-mars-multi-hop-adaptive-retrieval-and-sparql-generation-for-kgqa)  
    标签：评分：9.0/10、query:ns-xai
-   evidence：混合LLM-符号论证用于可解释政策推理
-3. [Explaining Reinforcement Learning Agents via Inductive Logic Programming](/202607/16/2607.13655v1-explaining-reinforcement-learning-agents-via-inductive-logic-programming)  
-   标签：评分：9.0/10、query:ns-xai
-   evidence：利用归纳逻辑编程实现强化学习策略可解释性
-4. [Interventional Grounding Audits: Black-Box Premise-Dependency Tests for LLM Chain-of-Thought via Predicate Substitution](/202607/16/2607.13069v1-interventional-grounding-audits-black-box-premise-dependency-tests-for-llm-chain-of-thought-via-predicate-substitution)  
+   evidence：将知识图谱（符号）与LLM结合进行结构化推理
+4. [FormalAnalyticGeo: A Neural-Symbolic Based Framework for Multimodal Analytic Geometry Problem Generation](/202607/17/2607.12982v1-formalanalyticgeo-a-neural-symbolic-based-framework-for-multimodal-analytic-geometry-problem-generation)  
    标签：评分：8.0/10、query:ns-xai
-   evidence：LLM思维链前提依赖测试
+   evidence：面向多模态解析几何问题生成的神经符号框架
+5. [HABIB_TAZ at SemEval-2026 Task 11: Disentangling Formal Logic from Content via Synthetic Training and Multi-Objective Optimization](/202607/17/2607.14349v1-habibtaz-at-semeval-2026-task-11-disentangling-formal-logic-from-content-via-synthetic-training-and-multi-objective-optimization)  
+   标签：评分：8.0/10、query:ns-xai
+   evidence：在LLM推理中分离形式逻辑与内容
+6. [Controlled Reformulation Testing for Logical Consistency in Large Language Models](/202607/17/2607.14528v1-controlled-reformulation-testing-for-logical-consistency-in-large-language-models)  
+   标签：评分：8.0/10、query:ns-xai
+   evidence：通过改写测试评估LLM的逻辑一致性
 
 ### 速读区论文标签
-1. [SVR-R1: Bootstrapping Multi-modal Reasoning with Self-verification in Reinforcement Learning](/202607/16/2607.10966v1-svr-r1-bootstrapping-multi-modal-reasoning-with-self-verification-in-reinforcement-learning)  
+1. [Beyond Sally-Anne: Evaluating Theory of Mind in LLMs using Epistemic Schelling Points](/202607/17/2607.11363v1-beyond-sally-anne-evaluating-theory-of-mind-in-llms-using-epistemic-schelling-points)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：自我验证强化学习框架用于多模态推理，具有可解释的自我判决
-2. [LLMs Can See the Smoke but not the Fire: Evaluating Abductive Reasoning with Elenchos](/202607/16/2607.12733v1-llms-can-see-the-smoke-but-not-the-fire-evaluating-abductive-reasoning-with-elenchos)  
+   evidence：评估LLM的心智理论推理能力
+2. [Answer-Conditioned Chains of Thought Degrade Verifiable-Reasoning Distillation in Large Language Models](/202607/17/2607.14552v1-answer-conditioned-chains-of-thought-degrade-verifiable-reasoning-distillation-in-large-language-models)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：评估LLM的溯因推理能力
-3. [Visual Access Boundaries in Vision-Language Model Reasoning](/202607/16/2607.12815v1-visual-access-boundaries-in-vision-language-model-reasoning)  
-   标签：评分：7.0/10、query:ns-xai
-   evidence：因果干预分析VLM链式推理的可解释性
-4. [AIMO Interpretability Challenge](/202607/16/2607.13899v1-aimo-interpretability-challenge)  
-   标签：评分：7.0/10、query:ns-xai
-   evidence：数学推理模型的可解释性竞赛
-5. [DeltaV: Thinking with Visual State Updates in Unified Large Multimodal Models](/202607/16/2607.08434v1-deltav-thinking-with-visual-state-updates-in-unified-large-multimodal-models)  
-   标签：评分：6.0/10、query:ns-xai
-   evidence：多模态大模型推理中的视觉状态更新
-6. [CRiT-QA: Evaluating Multi-hop Reasoning with Counterfactual Chains and Distractor Traps](/202607/16/2607.10562v1-crit-qa-evaluating-multi-hop-reasoning-with-counterfactual-chains-and-distractor-traps)  
-   标签：评分：6.0/10、query:ns-xai
-   evidence：使用反事实链评估多跳推理
-7. [Track, Rank, Crack: Epistemic Working Memory Scales Multi-Hop Reasoning in Language Agents](/202607/16/2607.12267v1-track-rank-crack-epistemic-working-memory-scales-multi-hop-reasoning-in-language-agents)  
-   标签：评分：6.0/10、query:ns-xai
-   evidence：语言代理中带结构化记忆的多跳推理
+   evidence：研究LLM中思维链蒸馏对可验证推理的影响
 
 
 <div class="dpr-home-promo-card">
