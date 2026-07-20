@@ -1,0 +1,481 @@
+Title: Better Starts, Better Ends: Bootstrapped Iterative Self-Reasoning Distillation for Compressed Reasoning
+
+URL Source: https://arxiv.org/pdf/2607.15736v1
+
+Published Time: Mon, 20 Jul 2026 00:36:42 GMT
+
+Number of Pages: 14
+
+Markdown Content:
+# Better Starts, Better Ends: Bootstrapped Iterative Self-Reasoning Distillation for Compressed Reasoning 
+
+Leichao Dong 1 Dongxu Zhang 1 Yiding Sun 1 Qirui Wang 1 Yuhan Wang 2
+
+Lin Chen 1 Jihua Zhu 1
+
+> 1
+
+Xi’an Jiaotong University 2Peking University 
+
+Large reasoning models often solve problems through long chain-of-thought (CoT) traces, yet much of this computation is spent on redundant derivations, repeated self-verification, and detours that do not improve the final answer. Existing on-policy self-distillation methods reduce this cost by matching a student model to a concise copy of itself on prefixes sampled from the student’s own rollouts. We show that this objective has an initialization bottleneck. Since supervision is applied only to visited prefixes, training from a verbose base model places the KL loss on contexts that are often noisy, redundant, or already off track. In such regions, a concise teacher can provide only local corrections, while the student continues to explore trajectories that an efficient reasoner should avoid. In this paper, we propose BIRD (Bootstrapped Iterative Self-Reasoning Distillation), a two-stage self-reasoning distillation method that improves the rollout distribution before on-policy training. BIRD first samples concise solutions from the base model under a brevity instruction, keeps only answer-correct traces, and performs a lightweight prompt-switch SFT step. The traces are generated with the brevity instruction but learned under the original task prompt, turning instruction-induced conciseness into a default reasoning behavior. Starting from this warm model, BIRD then applies on-policy reverse-KL distillation with a concise self-teacher, now on cleaner and more informative prefixes. Across Qwen3 series models, BIRD achieves a stronger accuracy-efficiency trade-off than prompting and cold-start on-policy distillation on MATH-500 and AIME benchmarks. On Qwen3-8B, it improves MATH-500 accuracy from 86.2% to 92.0% while reducing the average response length from 3,099 to 1,115 tokens. These results highlight prefix support as a central factor in efficient reasoning distillation. 
+
+Keywords: Large Language Models, Chain-of-Thought, On-Policy Self-Distillation 
+
+Contact: Leichao Dong, leichaodong@stu.xjtu.edu.cn 
+
+Code: https://github.com/KawhiC/BIRD 
+
+# 1 Introduction 
+
+Chain-of-thought (CoT) reasoning has become a central capability of large language models, enabling complex problems to be solved through explicit intermediate steps [ 23 , 9]. Yet this capability also makes inference substantially more expensive. Reasoning traces often span thousands of tokens and contain substantial redundancy, including repeated derivations, revisited conclusions, and excessive self-verification[ 15 , 13 , 4, 35 , 24 ]. In many cases, this additional computation contributes little to the final answer, making reasoning length a major obstacle to efficient deployment. Reasoning compression addresses this problem by shortening generated traces while preserving, and ideally improving, task accuracy. 1arXiv:2607.15736v1 [cs.CL] 17 Jul 2026 Better Starts, Better Ends: Bootstrapped Iterative Self-Reasoning Distillation for Compressed Reasoning Concise teacher            
+
+> from warm model
+> Warm -start OPSD
+> Clod -start OPSD
+> Problem X
+> Concise teacher
+> from cold model
+> noisy prefix context 𝒚 !𝒕 𝑡 !𝑡 "𝑡 #𝑡 $…𝑡 %
+> SFT
+> bootstrap
+> cleaner prefix context 𝒚 !𝒕
+> ······
+> ······
+> 𝑡 !𝑡 "𝑡 %…𝑡 #𝑡 $
+> Lower
+> frontier
+> Higher
+> frontier
+> diffuse
+> next -token target
+> sharper
+> next -token target
+
+Figure 1: Prefix support determines where on-policy KL supervision is applied. Cold-start OPSD and warm-start OPSD use the same concise-teacher construction, but they induce different student rollouts. Starting from the base model exposes the KL loss to noisy or off-track prefixes, where the next-token target can be diffuse and less useful for compression. BIRD first applies SFT bootstrapping and shifts the visited prefixes toward cleaner reasoning contexts. The same prefix-local KL objective is then evaluated on sharper teacher targets and reaches a higher compression frontier. Recent work has explored several routes toward this goal. Training-free methods control the reasoning process at inference time through concise prompting, early stopping, or self-correction [ 16 , 29 , 25 ]. RL-based methods introduce length-sensitive rewards to discourage unnecessary tokens[ 2 , 21 , 10 , 11 ]. SFT-based methods imitate compressed traces collected from static datasets, often using external models as trace generators [ 26 , 34 , 14 , 5]. From a distribution-matching perspective, these methods can be viewed as different ways of shifting the model toward a more concise reasoning distribution [ 35 , 24 , 33 ]. On-policy self-distillation (OPSD) provides a self-contained alternative, in which the model itself acts as a dynamic concise teacher when conditioned on a conciseness instruction [ 37 , 17 ]. This removes the need for an external teacher during distillation and suggests that concise reasoning behavior is already latent in the base model. A key limitation, however, lies in the support on which OPSD applies its supervision. The objective is prefix-local: at each update, the student first samples a rollout, and the KL loss is evaluated only on prefixes y<t visited by that rollout [ 1, 36 ]. The concise teacher is therefore not queried over an abstract space of high-quality solutions, but on the concrete partial trajectories produced by the current student. When training starts from a verbose base model, these early trajectories are often noisy, redundant, and unreliable [ 18 , 38 ]. Once a prefix already contains a detour, an unnecessary self-check, or an incorrect intermediate step, the teacher must condition on that degraded context. The resulting signal can correct the next token locally, but it remains anchored to trajectory regions that an efficient reasoner should avoid. This creates a cold-start prefix-support bottleneck. Cold-start OPSD and warm-start OPSD may use the same concise-teacher construction, but they expose the teacher to different prefix distributions. As illustrated in Figure 1, cold-start training places the KL objective on prefixes inherited from the base model’s verbose rollouts. A better initialization changes the student’s rollout support before online distillation begins, allowing the same KL objective to operate on shorter, more reliable, and more informative reasoning contexts. The central issue is therefore not only how to construct a concise teacher, but also how to make the student visit prefixes where that teacher can provide actionable compression signal. BIRD (Bootstrapped Iterative Self-Reasoning Distillation) is designed around this observation. The method keeps the concise self-teacher unchanged and instead reshapes the rollout distribution on which the teacher is queried. It first performs a lightweight LoRA-based offline 2Better Starts, Better Ends: Bootstrapped Iterative Self-Reasoning Distillation for Compressed Reasoning 
+
+bootstrap on correctness-filtered self-generated concise traces [ 8]. These traces are sampled from the base model under a conciseness instruction, but learned under the original task prompt. This prompt switch converts instruction-induced conciseness into a default reasoning behavior rather than an inference-time artifact. Starting from this warm model, OPSD concentrates prefix-local KL updates on cleaner reasoning contexts instead of noisy or off-track prefixes produced by cold-start rollouts. Experiments on Qwen3 series models [ 28 ] and DeepSeek-R1-Distill-Llama [ 6] across MATH-500, AIME 2024, and AIME 2025 show consistent improvements in the accuracy-efficiency trade-off. Compared with prompting and cold-start OPSD, BIRD produces shorter traces while preserving or improving accuracy. Training dynamics further show that cold-start OPSD converges to a lower compression frontier and does not close the gap with longer optimization. The gains become stronger with model scale and transfer across model families, highlighting prefix support as a central factor in on-policy reasoning compression. The contributions are summarized as follows: • To the best of our knowledge, this work is the first to identify the cold-start prefix-support bottleneck as a key failure mode in on-policy reasoning compression, where prefix-local KL supervision is applied to verbose, redundant, or off-track student trajectories. • We formulate a support-placement principle for OPSD: the effectiveness of a concise self-teacher depends not only on the target distribution it defines, but also on the rollout prefixes where this target is queried. • We introduce BIRD, a bootstrapped iterative reasoning distillation method that uses correctness-filtered concise traces to warm-start the student, then performs OPSD on cleaner and more informative prefix support. • Extensive experiments on Qwen3 and DeepSeek-R1-Distill-Llama across MATH-500, AIME 2024, and AIME 2025 show that BIRD consistently improves the accuracy-efficiency frontier over prompting and cold-start OPSD. 
+
+# 2 Related Work 
+
+## 2.1 RL with length penalties. 
+
+RL-based methods encourage compression by reshaping the reward landscape. L1 [ 2 ] uses GRPO to condition reasoning models on target lengths, enabling controllable reasoning depth. DiPO [ 21 ]derives difficulty signals from self-generated reasoning statistics and uses them to modulate length penalties. SwAP [ 10 ] applies step-level adaptive penalization based on on-policy log-probability improvement, concentrating penalties on low-importance reasoning steps. Leash [ 11 ] adaptively adjusts length penalties so that large reasoning models can shorten outputs while preserving accuracy. These methods directly optimize the accuracy-efficiency trade-off, but their effectiveness depends on reward design and often requires careful tuning of penalty strength to balance correctness and brevity. 
+
+## 2.2 SFT on compressed chains-of-thought. 
+
+SFT-based methods train on compressed reasoning traces collected [ 19 , 20 , 7, 22 ] or constructed offline [ 33 , 31 , 32 ]. TokenSkip [ 26 ] learns to identify and skip low-importance reasoning tokens. V-Skip [ 34 ] uses a visual-anchored information bottleneck for selective token pruning. CoT-Valve [ 14 ] identifies a parameter-space direction that controls reasoning length, and CtrlCoT [ 5] combines semantic abstraction with logic-preserving pruning. The main advantage of this family is its simplicity, as the desired compressed behavior is explicitly specified by the training data. Its limitation is potential distribution mismatch: the student is trained on static traces that may differ from the trajectories it later generates at inference time. 3Better Starts, Better Ends: Bootstrapped Iterative Self-Reasoning Distillation for Compressed Reasoning 
+
+## 2.3 On-policy self-distillation. 
+
+OPSD [ 37 ] conditions the teacher on ground-truth answers and improves sample efficiency over RL. TIP [ 27 ] further studies on-policy distillation from a token-importance perspective, assigning greater weight to more informative tokens during training. FiRe-OPD [ 12 ] rethinks the granularity of OPD optimization by first filtering low-quality trajectories and then softly reweighting tokens within the retained trajectories according to their learning value. CRISP [ 17 ] shows that a conciseness instruction alone can serve as the teacher context, removing the need for ground-truth answers during distillation. However, existing OPSD methods mainly focus on teacher construction or token weighting, while paying less attention to the prefix support on which distillation is actually applied. 
+
+# 3 Method 
+
+## 3.1 Preliminaries and Distribution-Matching View 
+
+A language model πθ with parameters θ defines a conditional distribution over token sequences. Given an input prompt x, the model generates an output sequence y = ( y1, y2, . . . , yT ) autoregressively. At decoding step t, the next-token distribution is conditioned on both the original prompt and the previously generated prefix y<t, which represents the current partial reasoning state. The probability of the complete response factorizes as: 
+
+πθ (y | x) = 
+
+> T
+
+# ∏
+
+> t=1
+
+πθ (yt | x, y<t), (1) where y<t = ( y1, . . . , yt−1) denotes the prefix generated up to position t−1. This prefix-conditioned view is particularly important for reasoning models with extended generation traces. Intermediate tokens are not merely surface realizations, but determine the context from which subsequent reasoning steps and the final answer are generated. In reasoning tasks, y typically consists of a reasoning trace r followed by a final answer a. Reasoning compression can therefore be viewed as modifying πθ (y | x) to favor shorter and more direct trajecto-ries while preserving correctness. We use distribution matching as a unifying formal lens. Let πtarget 
+
+denote a concise target distribution induced by inference-time controls, reward shaping, offline traces, or a dynamic self-teacher. Compression can be written as: min  
+
+> θ
+
+D πθ , πtarget 
+
+, (2) where methods differ not only in how πtarget is constructed, but also in where the matching loss is evaluated. 
+
+## 3.2 The Cold-Start Problem in OPSD 
+
+OPSD trains on prefixes generated by the current student rather than on a fixed offline dataset. At each training step, the student samples a rollout from the original task prompt, and the training prefixes are taken from this rollout. The same prefixes are then evaluated by both the student and a teacher. The teacher is a stop-gradient copy of the model conditioned on an additional conciseness instruction. It does not receive the ground-truth answer or the student’s final answer as input, and provides next-token distributions only at prefixes already produced by the student. The loss compares the student and teacher distributions at each prefix, while gradients are applied only to the student. In this setup, the student policy πθ is initialized from the base model πθ0 and optimized with a reverse-KL objective. Let qt = πθ (· | x, y<t) and pt = π ¯θ (· | x, c, y<t), where ¯θ denotes the teacher 4Better Starts, Better Ends: Bootstrapped Iterative Self-Reasoning Distillation for Compressed Reasoning filtered y+ 
+
+Stage 1:Static Bootstrap    
+
+> Self -Generation Trace
+> x+c Base 𝝅 𝜽 𝟎
+
+···   
+
+> candidate y One rollout
+> Correctness Filter
+> answer(y)=GT(x)
+> Prompt -Switch SFT
+> xsft y+(concise)
+> One epoch
+
+Warm -Start Prefix Support 
+
+> Cold prefix support(before)
+
+······   
+
+> verbose self -check off -track
+> SFT
+> bootstrap
+
+······   
+
+> concise direct on -track
+
+Stage 2:Dynamic Refinement   
+
+> Student Rollout
+> Base 𝝅 𝜽
+
+··· 
+
+> y<t on -policy
+> Prefix -Local KL
+
+······ KL at y<t  
+
+> K
+> L
+> K
+> L
+> K
+> L
+> K
+> L
+> K
+> L
+> K
+> L
+> K
+> L
+> K
+> L
+> K
+> L
+> K
+> L
+
+······           
+
+> Concise Teacher
+> 𝝅 𝜽 (·|𝒙 ,𝒄 ,𝒚 <𝒕 )Compressed 𝝅 𝜽
+> ∗
+> refresh 𝝅 𝜽 ←𝝅 𝜽
+> ∗
+
+Warm Start 𝝅 𝜽 
+
+> x
+
+Figure 2: Overview of BIRD. Stage 1 constructs a static target from one self-generated concise trace per problem, filters it with ground-truth verification, and applies prompt-switch SFT. The traces are generated with the conciseness instruction x + c but learned under the original prompt x. This offline bootstrap moves the student from cold prefix support, which may contain detours and self-checks, to warmer support that is more concise, direct, and on-track. Stage 2 then performs prefix-local reverse-KL self-distillation from this warm start, using the concise teacher only as a dynamic target and no ground-truth answers. parameters implemented as a periodically updated stop-gradient copy of θ. The training objective is: 
+
+L(θ) = Ex∼D , y∼πθ (·| x)
+
+h
+
+# ∑
+
+> t
+
+DKL (qt∥pt)
+
+i
+
+. (3) Both qt and pt are defined at the same student-sampled prefix y<t, and the rollout y itself is sampled from the current policy. Thus, the support on which KL supervision is applied is determined by the prefixes that the student already visits. When training starts from the base model, many visited prefixes are verbose, redundant, or off-track. The KL objective then matches the concise teacher in trajectory regions that a compressed reasoner should ideally avoid. The issue is therefore not simply how to construct a concise teacher, but how to place the on-policy matching objective on informative prefix support. Poor initialization can make this support inefficient for compression, slowing convergence and limiting the attainable compression frontier. 
+
+## 3.3 BIRD: Two-Stage Self-Distillation 
+
+The key idea behind BIRD, summarized in Algorithm 1 and Figure 2, is to decompose distribution matching into an offline bootstrap followed by on-policy refinement. The offline stage first shifts the student’s rollout-induced prefix support, while the online stage then applies the same prefix-local OPSD objective on the resulting warm-started support. Thus, the two stages differ less in the form of the optimization objective than in the rollout distribution on which the matching signal is actually evaluated. The bootstrap stage uses the base model itself to construct a simple correctness-filtered static target. For each training problem x, we sample one concise rollout y ∼ πθ0 (· | x, c) under the conciseness instruction c, and retain the rollout only when its final answer matches the ground truth: 
+
+Dfiltered = {(x, y) | answer (y) = GT (x)}. (4) 5Better Starts, Better Ends: Bootstrapped Iterative Self-Reasoning Distillation for Compressed Reasoning Algorithm 1 BIRD: Bootstrapped Iterative Self-Reasoning Distillation 
+
+Input : Base model πθ0 , data D, instruction c
+
+Output : Compressed model πθ∗ 
+
+> 1:
+
+Stage 1: bootstrap concise prefix support  
+
+> 2:
+
+Dfiltered ← ∅ 
+
+> 3:
+
+for each (xi, GT i) ∈ D do  
+
+> 4:
+
+Sample yi ∼ πθ0 (· | xi, c) 
+
+> 5:
+
+Extract ˆ ai = answer (yi) 
+
+> 6:
+
+if ˆai = GT i then  
+
+> 7:
+
+˜yi ← Truncate (yi, TSFT ) 
+
+> 8:
+
+Dfiltered ← D filtered ∪ { (xi, ˜ yi)} 
+
+> 9:
+
+end if  
+
+> 10:
+
+end for  
+
+> 11:
+
+θSFT ← LoRA-SFT (θ0, Dfiltered ; (xi + c) → xi) 
+
+> 12:
+
+Set θ ← θSFT  
+
+> 13:
+
+Stage 2: warm-start on-policy self-distillation  
+
+> 14:
+
+¯θ ← StopGrad (θ) 
+
+> 15:
+
+for training step k = 1, 2, . . . , K do  
+
+> 16:
+
+if k mod M = 0 then  
+
+> 17:
+
+¯θ ← StopGrad (θ) 
+
+> 18:
+
+end if  
+
+> 19:
+
+Sample a batch B ⊂ D  
+
+> 20:
+
+for each xi ∈ B do  
+
+> 21:
+
+Sample student rollout yi ∼ πθ (· | xi) 
+
+> 22:
+
+Ti ← min (|yi|, TKL ) 
+
+> 23:
+
+ℓi,t ← DKL (πθ (· | xi, yi,<t) ∥ π ¯θ (· | xi, c, yi,<t))  
+
+> 24:
+
+Li ← ∑Ti 
+
+> t=1
+
+ℓi,t 
+
+> 25:
+
+end for  
+
+> 26:
+
+LB ← |B| −1 ∑xi ∈B Li 
+
+> 27:
+
+Update θ with ∇θ LB 
+
+> 28:
+
+end for  
+
+> 29:
+
+θ∗ ← θ return πθ∗
+
+Ground truth is used only for this binary verification step and is never provided as part of the model input during training. We then perform one epoch of LoRA SFT on Dfiltered by maximizing the likelihood of the retained concise traces under the original task prompt. A central design choice is the prompt switch: traces are generated with the teacher prompt x + c, but SFT training uses the student prompt x without the conciseness instruction. The resulting model πθSFT is encouraged to internalize instruction-induced conciseness as a default reasoning behavior rather than relying on an inference-time prompt. We keep the bootstrap deliberately lightweight, using a single rollout per problem, a 2,048-token cutoff, one training epoch, and no external teacher model. These choices limit dependence on a fixed offline trace set while still moving the student toward concise and on-track prefixes before on-policy training begins. Starting from πθSFT , BIRD performs on-policy reverse-KL self-distillation using Eq. 3, again with LoRA. The teacher parameters ¯θ are periodically refreshed from the student, and the KL loss is computed on the first 1,024 tokens of each rollout. The objective is the same as in conventional OPSD. The critical difference is the initialization. Optimization begins from πθSFT rather than πθ0 . Since the warm-started policy already visits prefixes from shorter and more reliable trajectories, the prefix-local KL terms are evaluated on cleaner contexts. This allows on-policy optimization to refine useful reasoning behavior 6Better Starts, Better Ends: Bootstrapped Iterative Self-Reasoning Distillation for Compressed Reasoning      
+
+> Model Method MATH-500 AIME 2024 AIME 2025 Acc
+
+↑ Len ↓ TE ↑ Acc ↑ Len ↓ TE ↑ Acc ↑ Len ↓ TE ↑                                                                                                            
+
+> Qwen3-1.7B
+> Base 79.40 2673 10.06 25.00 5867 2.88 25.00 4677 2.96 Concise 82.00 1949 10.83 27.92 4937 3.28 25.42 4354 3.03 CRISP 81.40 1515 11.11 30.83 5251 3.60 25.83 4532 3.07
+> BIRD 79.60 1092 11.38 27.50 3837 3.33 25.83 4322 3.09 Qwen3-4B
+> Base 81.60 2767 10.30 39.17 5659 4.53 29.58 5440 3.44 Concise 85.40 1853 11.35 42.50 4890 5.00 34.17 4805 4.03 CRISP 82.20 1601 11.14 45.83 4680 5.42 40.83 4594 4.84
+> BIRD 85.40 1034 12.30 49.17 4038 5.92 40.83 4200 4.89 Qwen3-8B
+> Base 86.20 3099 10.72 38.33 6230 4.39 26.25 5595 3.04 Concise 89.20 2045 11.70 50.00 5210 5.84 34.58 4953 4.06 CRISP 89.60 2102 11.71 53.33 4938 6.27 39.58 4577 4.70
+> BIRD 92.00 1115 13.11 58.33 4067 7.02 42.08 3991 5.08
+
+Table 1: Main results across three model scales and three benchmarks. TE = accuracy / ln (response length). MATH-500: n=1 (pass@1); AIME: n=8 (mean@8). CRISP and BIRD values are taken at the checkpoint with the highest TE on each benchmark. instead of spending much of its signal in verbose or off-track regions inherited from the base model. 
+
+# 4 Experiments 
+
+## 4.1 Experimental Setup 
+
+Datasets. All training methods are trained on DAPO-Math-17k-dedup [ 30 ]. We evaluate on MATH-500, AIME 2024, and AIME 2025. MATH-500 is evaluated with pass@1 ( n = 1), whereas the AIME benchmarks are evaluated with mean@8 ( n = 8) [3]. 
+
+Models and Training. We evaluate four model configurations spanning the Qwen3 and DeepSeek-R1-Distill-Llama families, including Qwen3-1.7B, Qwen3-4B, Qwen3-8B [ 28 ], and DeepSeek-R1-Distill-Llama-8B [ 6]. All training-based methods use LoRA adaptation. For fair comparison, CRISP and BIRD are trained for one epoch, with checkpoints saved every 25 steps. All experiments are conducted using 8 NVIDIA A800 GPUs. 
+
+Metrics and Baselines. During inference, we set the temperature to 0.6, top-p to 0.95, top-k to 20, and the maximum generation length to 8,192 tokens. Our primary metric is Token Efficiency (TE), defined as: TE = Accuracy ln (Length ) , (5) where Accuracy denotes the average fraction of correct answers across all sampled solutions, and Length denotes the average response length in tokens, excluding truncated outputs. The logarithmic denominator captures diminishing returns from reducing output length as responses become shorter, thereby rewarding relative rather than absolute compression. Unless otherwise specified, we report the checkpoint that achieves the highest TE on each benchmark. The baselines are Base , the original model without any conciseness instruction, Concise , which applies the conciseness instruction only at inference time without additional training, and CRISP , a cold-start on-policy self-distillation baseline corresponding to our reimplementation of CRISP. 7Better Starts, Better Ends: Bootstrapped Iterative Self-Reasoning Distillation for Compressed Reasoning 
+
+MATH-500 AIME 2024 AIME 2025 Method Acc ↑ Len ↓ TE ↑ Acc ↑ Len ↓ TE ↑ Acc ↑ Len ↓ TE ↑
+
+Base 73.40 2003 9.66 31.25 4990 3.67 22.92 4816 2.70 Concise 73.40 1622 9.93 36.67 4573 4.35 22.92 4081 2.76 CRISP 73.20 1287 10.22 34.58 4826 4.08 25.83 4417 3.08 
+
+BIRD 81.40 1342 11.30 41.25 4486 4.91 27.92 4197 3.35 
+
+Table 2: Cross-model generalization on DeepSeek-R1-Distill-Llama-8B, a Llama-based reasoning model whose base responses are already relatively compact. BIRD retains its accuracy-efficiency advantage beyond the Qwen3 family. 0 100 200 300 400     
+
+> OPSD Training Steps
+> 1250
+> 1500
+> 1750
+> 2000
+> 2250
+> 2500
+> 2750
+> 3000
+> Avg. Response Tokens
+> cold start
+> SFT warm start
+> (a) Response Length
+> CRISP
+> BIRD
+> 0100 200 300 400
+> OPSD Training Steps
+> 11.0
+> 11.5
+> 12.0
+> 12.5
+> 13.0
+> Token Efficiency
+> CRISP peak
+> BIRD exceeds
+> CRISP peak
+> (b) Token Efficiency
+> CRISP
+> BIRD
+
+Figure 3: Training dynamics of CRISP and BIRD on Qwen3-8B evaluated on MATH-500. Top: average response length. Bottom: Token Efficiency (TE). BIRD starts from the SFT-warmed checkpoint before OPSD updates and maintains lower response length and higher TE throughout training. 
+
+## 4.2 Main Results and Scaling 
+
+Table 1 summarizes the performance of BIRD and competing methods across three Qwen3 model scales and three benchmarks. Overall, BIRD achieves the highest Token Efficiency (TE) in 8 out of 9 model-benchmark pairs, and its advantage over cold-start OPSD becomes more pronounced as model scale increases. At 1.7B, the gains are driven mainly by stronger compression rather than accuracy improvement. For example, compared with CRISP on MATH-500, BIRD reduces response length by 28% while incurring only a 1.8-point accuracy drop, yielding a net TE gain. At 4B, BIRD starts to improve accuracy and efficiency jointly. The effect is strongest at 8B, where BIRD consistently achieves higher accuracy with shorter responses than CRISP across all three benchmarks. For example, on AIME 2024, it improves accuracy by 5.0 points while using 18% fewer tokens. This scaling trend suggests that larger models benefit more from the proposed two-stage procedure. A plausible explanation is that larger models follow the conciseness instruction more reliably dur-ing Stage 1, producing cleaner initial prefix support for OPSD, while their greater representational capacity leaves more room for Stage 2 to compress reasoning traces without sacrificing correctness. Notably, applying a conciseness instruction only at inference time, without any additional training, already improves over the original base model, suggesting that concise reasoning behavior is latent in pretrained reasoning models. BIRD turns this instruction-induced behavior into a persistent default and achieves substantially stronger compression than prompting alone. 8Better Starts, Better Ends: Bootstrapped Iterative Self-Reasoning Distillation for Compressed Reasoning Problem: choose 4 of 5 upper -class soldiers and 8 of 10 lower -class soldiers 
+
+Base 
+
+CRISP    
+
+> The answer is 1 Wait… The upper Let me make sure…
+> But let me
+> check… The limiting…
+
+BIRD Okay, let’s see… There                          
+
+> are… So, first… So how
+> many… So the… The multiply…
+> The answer is 225 Let me check…
+> Then for…
+> 20 Steps
+> 13 Steps
+> 9Steps
+> Okay, let’s see… How many… Hm… But wait… For the lower… Soldiers can… Wait… ···
+> Wait, but… Since each… So the limiting… There are… Since the … But wait… But wait… ···
+> Since 5 upper… But wait… Since the upper… Alternatively… Since the total… The answer is 1
+> Okay, let’s try… There
+> are… We need… First… Since both… But wait… So, only… ···
+> ···
+
+Answer: C(5,4) 
+
+×
+
+C(10,8)=225 
+
+Figure 4: Qualitative trace analysis on a representative MATH-500 counting problem using Qwen3-1.7B. Blue segments denote useful reasoning steps, while red segments denote self-doubt or detours. The Base model produces a long trace with many self-checks and ends incorrectly. CRISP removes some redundancy but retains enough hedging to remain off-track. BIRD follows a direct combinatorial path, reduces self-checks from 8 to 1, and reaches the correct answer. 
+
+## 4.3 Cross-Model Generalization 
+
+To examine whether BIRD generalizes beyond the Qwen family, we apply the same training recipe to DeepSeek-R1-Distill-Llama-8B, whose base responses are already much shorter than those of Qwen3, leaving less apparent redundancy to remove. Table 2 summarizes the results. Despite this compact starting point, BIRD improves MATH-500 accuracy by 8.0 percentage points while simultaneously reducing response length by 33%. It also improves the accuracy-efficiency trade-off on both AIME benchmarks. CRISP improves TE over the base model, indicating that cold-start OPSD can still remove some redundancy. However, its gains are smaller than those of BIRD. In particular, on MATH-500, CRISP achieves compression at the cost of a slight accuracy drop, whereas BIRD improves both accuracy and TE. These results suggest that SFT-based prefix-support warm starting is not specific to Qwen3 and can transfer to a reasoning model whose initial outputs are already relatively compact. 
+
+## 4.4 Training Dynamics 
+
+Figure 3 shows the evolution of response length and Token Efficiency (TE) during OPSD training for Qwen3-8B on MATH-500, which we use because it is the largest benchmark and has the lowest evaluation variance. Before any OPSD update, BIRD already starts from a more favorable prefix distribution. The SFT-warmed model reduces the average response length from 3,099 to 2,057 tokens, corresponding to a 34% reduction relative to the base model. On this benchmark, its initial TE already matches the peak TE of CRISP, indicating that even lightweight SFT moves the student away from many verbose prefixes on relatively simple problems. This advantage persists throughout training. After only 25 optimization steps, BIRD reaches a TE of 11.92, already exceeding the best value attained by CRISP. In other words, the performance that CRISP reaches after nearly a full epoch is achieved by BIRD almost immediately. Although both methods plateau before the end of training, they converge to markedly different levels. BIRD stabilizes at a TE of 13.02–13.11, whereas CRISP remains in the range of 11.46–11.71. The resulting gap of approximately 1.4 TE points persists after convergence, suggesting that prolonged cold-start OPSD alone does not close the initialization-induced gap. 9Better Starts, Better Ends: Bootstrapped Iterative Self-Reasoning Distillation for Compressed Reasoning 
+
+Benchmark Method Acc ↑ Len ↓ TE ↑
+
+MATH-500 SFT-only 88.20 2057 11.56 CRISP 89.60 2102 11.71 BIRD 92.00 1115 13.11 
+
+AIME 2024 SFT-only 50.00 5273 5.83 CRISP 53.33 4938 6.27 BIRD 58.33 4067 7.02 
+
+AIME 2025 SFT-only 34.58 4862 4.07 CRISP 39.58 4577 4.70 BIRD 42.08 3991 5.08 
+
+Table 3: Stage necessity ablation on Qwen3-8B. We compare the SFT bootstrap alone, cold-start OPSD (CRISP), and the full BIRD pipeline. The full SFT →OPSD procedure obtains the highest accuracy and TE, as well as the shortest responses. 
+
+## 4.5 Qualitative Examples 
+
+Figure 4 presents reasoning traces from the Base model, CRISP, and BIRD on a representative MATH-500 problem using Qwen3-1.7B. The task requires choosing 4 of 5 upper-class soldiers and 8 of 10 lower-class soldiers, whose direct solution is (54)( 10 8 ) = 225. The Base model generates 20 reasoning steps, including 8 redundant self-doubt interruptions, and ultimately produces the incorrect answer 1. CRISP shortens the trace to 13 steps and reduces such interruptions from 8 to 4, but the remaining hedging still derails the solution. In contrast, BIRD requires only 9 steps, contains a single brief self-check, and directly follows the combinatorial counting path to the correct answer. This example shows that excessive self-verification is not only token-inefficient, but can also perturb reasoning by reopening settled subproblems. 
+
+# 5 Ablation Studies 
+
+Role of each stage. Table 3 compares SFT-only, cold-start OPSD (CRISP), and the full BIRD pipeline on Qwen3-8B. SFT-only already gives a competitive TE, showing that the bootstrap stage can move the model toward shorter and more useful rollouts before any on-policy updates. CRISP also improves over the base model, but it remains below the full pipeline on all three benchmarks. The best results come from applying OPSD after the SFT warm start, suggesting that the two stages are most effective when used together. 
+
+Importance of stage order. Table 4 compares the proposed ordering (SFT →OPSD) with the reversed ordering (OPSD →SFT) on Qwen3-4B. We first train an OPSD model from the base model, select the checkpoint with the highest average TE across benchmarks, generate concise trajectories from this checkpoint, and then perform SFT. Although the reversed ordering produces shorter responses, it leads to substantial accuracy degradation, particularly on more challenging benchmarks. For example, accuracy on AIME 2025 drops from 40.83% to 28.33%. This observation suggests that applying SFT after OPSD may partially overwrite the compression policy learned through on-policy optimization with a fixed offline target, whereas the proposed ordering preserves the adaptability introduced during the second stage. 10 Better Starts, Better Ends: Bootstrapped Iterative Self-Reasoning Distillation for Compressed Reasoning 
+
+Benchmark Stage Order Acc ↑ Len ↓ TE ↑
+
+MATH-500 OPSD →SFT 82.40 873 12.17 SFT →OPSD 85.40 1034 12.30 
+
+AIME 2024 OPSD →SFT 41.25 2926 5.17 SFT →OPSD 49.17 4038 5.92 
+
+AIME 2025 OPSD →SFT 28.33 3384 3.49 SFT →OPSD 40.83 4200 4.89 
+
+Table 4: Stage order ablation on Qwen3-4B. We compare applying SFT before OPSD with applying OPSD before SFT. The reversed order produces shorter responses, while the proposed SFT →OPSD order achieves higher accuracy. 
+
+# 6 Conclusion 
+
+We presented BIRD, a two-stage distribution-matching method for compressing reasoning traces. The central observation is that on-policy self-distillation is governed not only by the concise teacher, but also by the prefix support on which the teacher is queried. When training starts from a verbose base model, prefix-local KL supervision can be applied to redundant or off-track trajectories, limiting the usefulness of the distillation signal. BIRD addresses this bottleneck by first using a lightweight correctness-filtered SFT bootstrap to shift the student toward shorter and more reliable rollouts, and then applying standard on-policy self-distillation from this warmer initialization. Across model scales, model families, and math reasoning benchmarks, BIRD improves the accuracy-efficiency trade-off over prompting and cold-start OPSD. These results suggest that offline bootstrapping and on-policy refinement provide complementary benefits, and that the placement of supervision over rollout prefixes is a key design factor for efficient reasoning distillation. 11 Better Starts, Better Ends: Bootstrapped Iterative Self-Reasoning Distillation for Compressed Reasoning 
+
+# References 
+
+[1] Rishabh Agarwal, Nino Vieillard, Yongchao Zhou, Piotr Stanczyk, Sabela Ramos Garea, Matthieu Geist, and Olivier Bachem. On-policy distillation of language models: Learning from self-generated mistakes. In 
+
+International Conference on Learning Representations , volume 2024, pages 21246–21263, 2024. [2] Pranjal Aggarwal and Sean Welleck. L1: Controlling how long a reasoning model thinks with reinforcement learning. arXiv preprint arXiv:2503.04697 , 2025. [3] Mark Chen, Jerry Tworek, Heewoo Jun, Qiming Yuan, Henrique Ponde De Oliveira Pinto, Jared Kaplan, Harri Edwards, Yuri Burda, Nicholas Joseph, Greg Brockman, et al. Evaluating large language models trained on code. arXiv preprint arXiv:2107.03374 , 2021. [4] Cheng-Han Chiang and Hung-yi Lee. Over-reasoning and redundant calculation of large language models. In Proceedings of the 18th Conference of the European Chapter of the Association for Computational Linguistics (Volume 2: Short Papers) , pages 161–169, 2024. [5] Zhenxuan Fan, Jie Cao, Yang Dai, Zheqi Lv, Wenqiao Zhang, Zhongle Xie, Peng LU, and Beng Chin Ooi. Ctrlcot: Dual-granularity chain-of-thought compression for controllable reasoning. arXiv preprint arXiv:2601.20467 , 2026. [6] Daya Guo, Dejian Yang, Haowei Zhang, Junxiao Song, Peiyi Wang, Qihao Zhu, Runxin Xu, Ruoyu Zhang, Shirong Ma, Xiao Bi, et al. Deepseek-r1: Incentivizing reasoning capability in llms via reinforcement learning. 
+
+arXiv preprint arXiv:2501.12948 , 2025. [7] Yichen Guo, Kai Tang, Fenglai Lin, Yiding Sun, Dongxu Zhang, Wenya Wang, Lin William Cong, and Shanghang Zhang. Fade: Mitigating hallucinations by reducing language-prior dominance in large vision-language models, 2026. URL https://arxiv.org/abs/2606.29431 .[8] Edward J Hu, Yelong Shen, Phillip Wallis, Zeyuan Allen-Zhu, Yuanzhi Li, Shean Wang, Liang Wang, Weizhu Chen, et al. Lora: Low-rank adaptation of large language models. Iclr , 1(2):3, 2022. [9] Qixian Huang, Hongqiang Lin, Tong Fu, Yingsen Wang, Zhenghui Fu, Qirui Wang, Yiding Sun, and Dongxu Zhang. Cfms: A coarse-to-fine multimodal synthesis framework for enhanced tabular reasoning. arXiv preprint arXiv:2604.10973 , 2026. [10] Xintong Li, Sha Li, Rongmei Lin, Hongye Jin, Linwei Li, Hejie Cui, Sarah Zhang, Chia-Yuan Chang, Kewei Cheng, Besnik Fetahu, et al. Stepwise penalization for length-efficient chain-of-thought reasoning. arXiv preprint arXiv:2603.00296 , 2026. [11] Yanhao Li, Lu Ma, Jiaran Zhang, Lexiang Tang, Wentao Zhang, and Guibo Luo. Leash: Adaptive length penalty and reward shaping for efficient large reasoning model. In Proceedings of the 64th Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 2846–2856, 2026. [12] Yuying Li, Leqi Zheng, Yongzi Yu, Wenrui Zhou, Xuchang Zhong, Xing Hu, Jing Jin, Huangjie Yuan, and Tao Feng. Filter, then reweight: Rethinking optimization granularity in on-policy distillation. arXiv preprint arXiv:2606.02684 , 2026. [13] Zeju Li, Jianyuan Zhong, Ziyang Zheng, Xiangyu Wen, Zhijian Xu, Yingying Cheng, Fan Zhang, and Qiang Xu. Making slow thinking faster: Compressing llm chain-of-thought via step entropy. In The Fourteenth International Conference on Learning Representations , 2026. [14] Xinyin Ma, Guangnian Wan, Runpeng Yu, Gongfan Fang, and Xinchao Wang. Cot-valve: Length-compressible chain-of-thought tuning. In Proceedings of the 63rd Annual Meeting of the Association for Computa-tional Linguistics (Volume 1: Long Papers) , pages 6025–6035, 2025. [15] Keqin Peng, Liang Ding, Yuanxin Ouyang, Meng Fang, and Dacheng Tao. Revisiting overthinking in long chain-of-thought from the perspective of self-doubt. arXiv preprint arXiv:2505.23480 , 2025. [16] Matthew Renze and Erhan Guven. The benefits of a concise chain of thought on problem-solving in large language models. arXiv preprint arXiv:2401.05618 , 2024. [17] Hejian Sang, Yuanda Xu, Zhengze Zhou, Ran He, Zhipeng Wang, and Jiachen Sun. Crisp: Compressed reasoning via iterative self-policy distillation. arXiv preprint arXiv:2603.05433 , 2026. 
+
+12 Better Starts, Better Ends: Bootstrapped Iterative Self-Reasoning Distillation for Compressed Reasoning 
+
+[18] Yang Sui, Yu-Neng Chuang, Guanchu Wang, Jiamu Zhang, Tianyi Zhang, Jiayi Yuan, Hongyi Liu, Andrew Wen, Shaochen Zhong, Na Zou, et al. Stop overthinking: A survey on efficient reasoning for large language models. arXiv preprint arXiv:2503.16419 , 2025. [19] Kai Tang, Jinhao You, Yichen Guo, Yiding Sun, Dongxu Zhang, Wenya Wang, Hanze Li, Tao Luo, Renyuan Li, Xiande Huang, and Shanghang Zhang. Mitigating hallucinations via inter-layer consistency aggregation in large vision-language models, 2026. URL https://arxiv.org/abs/2505.12343 .[20] Kai Tang, Jinhao You, Bohua Zhang, Yichen Guo, Yiding Sun, Dongxu Zhang, Chenxi Li, Xiande Huang, and Shanghang Zhang. Seeme: Mitigating hallucinations in large vision-language models through effective visual token engineering, 2026. URL https://arxiv.org/abs/2607.04163 .[21] Qian Wan, Ziao Xu, Luona Wei, Xiaoxuan Shen, and Jianwen Sun. Mitigating overthinking in large reasoning models via difficulty-aware reinforcement learning. arXiv preprint arXiv:2601.21418 , 2026. [22] Yankai Wang, Yiding Sun, Qirui Wang, Pengbo Li, Chaoyi Lu, and Dongxu Zhang. Pointrft: Explicit reinforcement fine-tuning for point cloud few-shot learning. arXiv preprint arXiv:2603.23957 , 2026. [23] Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten Bosma, Fei Xia, Ed Chi, Quoc V Le, Denny Zhou, et al. Chain-of-thought prompting elicits reasoning in large language models. Advances in neural information processing systems , 35:24824–24837, 2022. [24] Zihao Wei, Liang Pang, Jiahao Liu, Jingcheng Deng, Shicheng Xu, Zenghao Duan, Jingang Wang, Fei Sun, Xunliang Cai, Huawei Shen, et al. Stop spinning wheels: Mitigating llm overthinking via mining patterns for early reasoning exit. arXiv preprint arXiv:2508.17627 , 2025. [25] Yujun Wu, Dongxu Zhang, Xinchen Li, Jinhang Xu, Yiling Duan, Yumou Liu, Jiabao Pan, Qiyuan Zhu, Xuanhe Zhou, Jingxuan Wei, et al. Intern-atlas: A methodological evolution graph as research infrastructure for ai scientists. arXiv preprint arXiv:2604.28158 , 2026. [26] Heming Xia, Chak Tou Leong, Wenjie Wang, Yongqi Li, and Wenjie Li. Tokenskip: Controllable chain-of-thought compression in llms. In Proceedings of the 2025 Conference on Empirical Methods in Natural Language Processing , pages 3351–3363, 2025. [27] Yuanda Xu, Hejian Sang, Zhengze Zhou, Ran He, Zhipeng Wang, and Alborz Geramifard. Tip: Token importance in on-policy distillation. arXiv preprint arXiv:2604.14084 , 2026. [28] An Yang, Anfeng Li, Baosong Yang, Beichen Zhang, Binyuan Hui, Bo Zheng, Bowen Yu, Chang Gao, Chengen Huang, Chenxu Lv, et al. Qwen3 technical report. arXiv preprint arXiv:2505.09388 , 2025. [29] Chenxu Yang, Qingyi Si, Yongjie Duan, Zheliang Zhu, Chenyu Zhu, Qiaowei Li, Minghui Chen, Zheng Lin, and Weiping Wang. Dynamic early exit in reasoning models. arXiv preprint arXiv:2504.15895 , 2025. [30] Qiying Yu, Zheng Zhang, Ruofei Zhu, Yufeng Yuan, Xiaochen Zuo, Yu Yue, Weinan Dai, Tiantian Fan, Gaohong Liu, Lingjun Liu, et al. Dapo: An open-source llm reinforcement learning system at scale. Advances in Neural Information Processing Systems , 38:113222–113244, 2026. [31] Dongxu Zhang, Yujun Wu, Yiding Sun, Jihua Zhu, Jinnan Yang, Miao Xin, and Baoliang Tian. Not all errors are created equal: Ascot addresses late-stage fragility in efficient llm reasoning. arXiv Prepr. arXiv:2508.05282 ,2025. [32] Dongxu Zhang, Hongqiang Lin, Yiding Sun, Pengyu Wang, Qirui Wang, Ning Yang, and Jihua Zhu. Not all queries need deep thought: Coficot for adaptive coarse-to-fine stateful refinement. In Ann. Conf. Uncertain. Artif. Intell. , 2026. [33] Dongxu Zhang, Yiding Sun, Pengcheng Li, Yumou Liu, Hongqiang Lin, Haoran Xu, Xiaoxuan Mu, Liang Lin, Wenbiao Yan, Ning Yang, et al. Pointcot: A multi-modal benchmark for explicit 3d geometric reasoning. 
+
+arXiv Prepr. arXiv:2602.23945 , 2026. [34] Dongxu Zhang, Yiding Sun, Cheng Tan, Wenbiao Yan, Ning Yang, Jihua Zhu, and Haijun Zhang. Chain-of-thought compression should not be blind: V-skip for efficient multimodal reasoning via dual-path anchoring. In Proceedings of the 64th Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) ,pages 19402–19415, 2026. 
+
+13 Better Starts, Better Ends: Bootstrapped Iterative Self-Reasoning Distillation for Compressed Reasoning 
+
+[35] Xinliang Frederick Zhang, Anhad Mohananey, Alexandra Chronopoulou, Pinelopi Papalampidi, Somit Gupta, Tsendsuren Munkhdalai, Lu Wang, and Shyam Upadhyay. Do llms really need 10+ thoughts for “find the time 1000 days later”? towards structural understanding of llm overthinking. In Proceedings of the 64th Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 17005–17030, 2026. [36] Xinsen Zhang, Zhenkai Ding, Tianjun Pan, Run Yang, Chun Kang, Xue Xiong, and Jingnan Gu. Opsdl: On-policy self-distillation for long-context language models. arXiv preprint arXiv:2604.17535 , 2026. [37] Siyan Zhao, Zhihui Xie, Mengchen Liu, Jing Huang, Guan Pang, Feiyu Chen, and Aditya Grover. Self-distilled reasoner: On-policy self-distillation for large language models. arXiv preprint arXiv:2601.18734 ,2026. [38] Ziqi Zhao, Xinyu Ma, Liu Yang, Yujie Feng, Daiting Shi, Jingzhou He, Xin Xin, Zhaochun Ren, and Xiao-Ming Wu. Rosd: Reflective on-policy self-distillation for language model reasoning across domains. arXiv preprint arXiv:2605.28014 , 2026. 
+
+14
