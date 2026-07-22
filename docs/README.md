@@ -6,73 +6,71 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-21
-- 运行时间：2026-07-21 21:15:50 UTC
+- 最新运行日期：2026-07-22
+- 运行时间：2026-07-22 21:46:00 UTC
 - 运行状态：成功
 - 本次总论文数：17
 - 精读区：6
 - 速读区：11
 
 ### 今日简报（AI）
-1) 今日日报聚焦多模态智能与推理追踪，精选17篇论文，精读6篇，最高分9.0/10。  
-2) 最值得关注两个方向：语言核心的多模态框架《From Modalities to Propositions》和约束锚定推理轨迹《Constraint-Anchored Reasoning Traces》，两者均获9.0高分；速读中算术推理策略与激活控制（8.0分）也具启发性。  
-3) 下一步建议：深入阅读高分精读论文，理解语言如何统一多模态；同时探索约束推理与激活引导技术，提升模型的可控性与可解释性。
-- 详情：[/202607/21/README](/202607/21/README)
+今日精选6篇精读与11篇速读论文，重点聚焦知识图谱搜索强化学习与大模型推理链忠实性。最值得关注的两个方向是Search-on-Graph-R1训练LLM搜索知识图谱，以及CASE通过因果对齐提升思维链忠实性。建议普通读者优先阅读这两篇精读论文，掌握强化学习与因果约束在推理任务中的最新应用。
+- 详情：[/202607/22/README](/202607/22/README)
 
 ### 精读区论文标签
-1. [From Modalities to Propositions: A Language-Centric Framework for Multimodal Intelligence](/202607/21/2607.16560v1-from-modalities-to-propositions-a-language-centric-framework-for-multimodal-intelligence)  
+1. [Search-on-Graph-R1: Training Large Language Models to Search Knowledge Graphs with Reinforcement Learning](/202607/22/2607.18481v1-search-on-graph-r1-training-large-language-models-to-search-knowledge-graphs-with-reinforcement-learning)  
    标签：评分：9.0/10、query:ns-xai
-   evidence：符号命题表示实现可解释的多模态推理
-2. [Constraint-Anchored Reasoning Traces](/202607/21/2607.16727v1-constraint-anchored-reasoning-traces)  
+   evidence：利用强化学习训练语言模型导航知识图谱，结合符号搜索与神经微调
+2. [CASE: Causal Alignment and Structural Enforcement for Improving Chain-of-Thought Faithfulness](/202607/22/2607.18820v1-case-causal-alignment-and-structural-enforcement-for-improving-chain-of-thought-faithfulness)  
    标签：评分：9.0/10、query:ns-xai
-   evidence：带有约束断言的神经符号框架
-3. [An Explicit World Model Based on Data-First Ontology: DaoQL Multimodal Storage Validation and Counterfactual Reasoning Evaluation](/202607/21/2607.17269v1-an-explicit-world-model-based-on-data-first-ontology-daoql-multimodal-storage-validation-and-counterfactual-reasoning-evaluation)  
+   evidence：提升大语言模型中思维链推理的忠实性，直接增强可解释性
+3. [From Dependency to Compositionality: A Neurosymbolic Lifting of LLM Outputs via Combinatory Categorial Grammar](/202607/22/2607.18961v1-from-dependency-to-compositionality-a-neurosymbolic-lifting-of-llm-outputs-via-combinatory-categorial-grammar)  
    标签：评分：9.0/10、query:ns-xai
-   evidence：结合LLM推理与确定性符号数据库的显式世界模型
-4. [T^2MLR: Transformer with Temporal Middle-Layer Recurrence](/202607/21/2607.15178v2-t2mlr-transformer-with-temporal-middle-layer-recurrence)  
+   evidence：使用CCG进行神经符号提升的组合推导
+4. [The Anatomy of a Truth Direction: Knowledge-Dependent Dimensionality, a Relational Law, and a Convergent Category Geometry in Small Language Models](/202607/22/2607.16741v1-the-anatomy-of-a-truth-direction-knowledge-dependent-dimensionality-a-relational-law-and-a-convergent-category-geometry-in-small-language-models)  
    标签：评分：8.0/10、query:ns-xai
-   evidence：用于Transformer的潜在推理架构以改进多跳推理
-5. [Are Arithmetic Heuristic Neurons Form-Invariant? A Mechanistic Analysis of Symbols, Text, and Code in LLMs](/202607/21/2607.16693v1-are-arithmetic-heuristic-neurons-form-invariant-a-mechanistic-analysis-of-symbols-text-and-code-in-llms)  
+   evidence：大语言模型真实表示的可解释性
+5. [DeLIVeR: Decomposed Learning for Information-grounded Veracity Recognition via Reinforced Knowledge Graph Exploration](/202607/22/2607.17935v1-deliver-decomposed-learning-for-information-grounded-veracity-recognition-via-reinforced-knowledge-graph-exploration)  
    标签：评分：8.0/10、query:ns-xai
-   evidence：LLM中符号算术的机制分析
-6. [Beyond Semantic Equivalence: Logical Graphs for LLM Uncertainty Quantification](/202607/21/2607.16868v1-beyond-semantic-equivalence-logical-graphs-for-llm-uncertainty-quantification)  
+   evidence：分解声明并利用知识图谱遍历检索证据
+6. [Neuro-Symbolic Meta-Policies for Temporal Knowledge-Graph Memory under Partial Observability](/202607/22/2607.18368v1-neuro-symbolic-meta-policies-for-temporal-knowledge-graph-memory-under-partial-observability)  
    标签：评分：8.0/10、query:ns-xai
-   evidence：逻辑图量化不确定性提升LLM推理可信度
+   evidence：神经符号元策略用于记忆管理
 
 ### 速读区论文标签
-1. [Explaining and Tuning Transformer-based LLMs in Arithmetic Tasks with Human Strategies](/202607/21/2607.17166v1-explaining-and-tuning-transformer-based-llms-in-arithmetic-tasks-with-human-strategies)  
+1. [STeP: Signal Temporal Logic for Precise Specifications for Action Generation with Vision Language Models](/202607/22/2607.18580v1-step-signal-temporal-logic-for-precise-specifications-for-action-generation-with-vision-language-models)  
    标签：评分：8.0/10、query:ns-xai
-   evidence：用人类策略解释和改进LLM算术推理
-2. [Uncovering Latent Reasoning Strategies in Language Models](/202607/21/2607.17674v1-uncovering-latent-reasoning-strategies-in-language-models)  
+   evidence：信号时序逻辑用于视觉语言模型动作生成
+2. [Reasoning Error from Known Fact: Step-Level Self-Consistency Group Relative Policy Optimization for LLM](/202607/22/2607.18915v1-reasoning-error-from-known-fact-step-level-self-consistency-group-relative-policy-optimization-for-llm)  
    标签：评分：8.0/10、query:ns-xai
-   evidence：将大语言模型响应分解为潜在推理策略以增强可解释性
-3. [Can We Break LLMs Out of Self-Loops? Fine-Grained Reasoning Control with Activation Steering](/202607/21/2607.18100v1-can-we-break-llms-out-of-self-loops-fine-grained-reasoning-control-with-activation-steering)  
+   evidence：大模型推理幻觉分析与优化
+3. [DAIS: Dependency-Aware Intermediate QA Supervision for Complex Reasoning](/202607/22/2607.19088v1-dais-dependency-aware-intermediate-qa-supervision-for-complex-reasoning)  
    标签：评分：8.0/10、query:ns-xai
-   evidence：通过激活引导实现大语言模型的细粒度推理控制
-4. [Logical Judgments Under Pressure: Diagnosing Syllogistic Stability with Learned Soft Prefixes](/202607/21/2607.18228v1-logical-judgments-under-pressure-diagnosing-syllogistic-stability-with-learned-soft-prefixes)  
+   evidence：依赖感知的中间QA监督增强复杂推理的可解释性
+4. [Parallel Noising in Neural Markov Logic Networks](/202607/22/2607.19126v1-parallel-noising-in-neural-markov-logic-networks)  
    标签：评分：8.0/10、query:ns-xai
-   evidence：诊断大语言模型的逻辑推理稳定性
-5. [Mask-Aware Policy Gradients for Diffusion Language Models](/202607/21/2607.15200v1-mask-aware-policy-gradients-for-diffusion-language-models)  
+   evidence：神经马尔可夫逻辑网络，一种神经符号模型
+5. [Visual Access Boundaries in Vision-Language Model Reasoning](/202607/22/2607.12815v2-visual-access-boundaries-in-vision-language-model-reasoning)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：用强化学习提升扩散语言模型的推理能力
-6. [Persistent Sparse Autoencoders: Learning Feature Timescales in Language Models](/202607/21/2607.17117v1-persistent-sparse-autoencoders-learning-feature-timescales-in-language-models)  
+   evidence：通过因果干预分析VLM链式推理中的视觉信息使用边界，增强可解释性
+6. [Linear representations of grammaticality in neural language models](/202607/22/2607.15175v1-linear-representations-of-grammaticality-in-neural-language-models)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：扩展稀疏自编码器学习特征持久时间尺度以提升可解释性
-7. [Debate-on-Graph: Reliable and Adaptive Reasoning of Large Language Model on Uncertain Knowledge Graph](/202607/21/2607.17266v1-debate-on-graph-reliable-and-adaptive-reasoning-of-large-language-model-on-uncertain-knowledge-graph)  
+   evidence：研究神经语言模型中语法性的线性表征，从概率转向内部表征以提升可解释性
+7. [A Geometric Perspective on Stabilizing Value Conflict Resolution](/202607/22/2607.17946v1-a-geometric-perspective-on-stabilizing-value-conflict-resolution)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：基于不确定图与辩论机制的图增强LLM推理
-8. [Measuring Monosemanticity in Sparse Autoencoders via Latent Activation Coherence](/202607/21/2607.17770v1-measuring-monosemanticity-in-sparse-autoencoders-via-latent-activation-coherence)  
+   evidence：几何分析揭示链式思维平滑损失景观以解决价值冲突，提升推理可解释性
+8. [Reasoning Fine-Tuning Induces Persistent Latent Policy States](/202607/22/2607.18532v1-reasoning-fine-tuning-induces-persistent-latent-policy-states)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：针对神经表示的机械可解释性度量
-9. [EvoGraph-R1: Self-Evolving Multimodal Knowledge Hypergraphs for Agentic Retrieval](/202607/21/2607.12764v1-evograph-r1-self-evolving-multimodal-knowledge-hypergraphs-for-agentic-retrieval)  
+   evidence：分析推理微调导致的内部状态变化，有助于大语言模型推理的可解释性
+9. [Fishing Out Free Riders: Shapley-Based Reward Attribution for Parallel Reasoning via Reinforcement Learning](/202607/22/2607.18979v1-fishing-out-free-riders-shapley-based-reward-attribution-for-parallel-reasoning-via-reinforcement-learning)  
+   标签：评分：7.0/10、query:ns-xai
+   evidence：基于Shapley值的并行推理路径贡献归因增强可解释性
+10. [Selective State-Space Adaptation and Retrieval for Language Model Reasoning](/202607/22/2607.19326v1-selective-state-space-adaptation-and-retrieval-for-language-model-reasoning)  
+   标签：评分：7.0/10、query:ns-xai
+   evidence：提出具有选择性状态空间循环的动态适配器，用于语言模型推理
+11. [Leveraging Instruction Tuning and Merging for Reasoning Model Adaptation](/202607/22/2607.14895v1-leveraging-instruction-tuning-and-merging-for-reasoning-model-adaptation)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：自演化知识超图用于智能体检索与推理
-10. [Retrieval is Enough: Training-Free Interpretability with a Tool-Using Agent](/202607/21/2607.16448v1-retrieval-is-enough-training-free-interpretability-with-a-tool-using-agent)  
-   标签：评分：6.0/10、query:ns-xai
-   evidence：使用LLM代理实现无训练可解释性
-11. [RECON: Benchmarking Agent Memory for Compositional Reasoning over Long Contexts](/202607/21/2607.16716v1-recon-benchmarking-agent-memory-for-compositional-reasoning-over-long-contexts)  
-   标签：评分：6.0/10、query:ns-xai
-   evidence：用于LLM长上下文组合推理的基准测试
+   evidence：指令调优和合并改进推理模型适应
 
 
 <div class="dpr-home-promo-card">
