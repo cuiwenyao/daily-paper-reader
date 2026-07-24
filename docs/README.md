@@ -6,46 +6,46 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-23
-- 运行时间：2026-07-23 20:40:07 UTC
+- 最新运行日期：2026-07-24
+- 运行时间：2026-07-24 21:42:30 UTC
 - 运行状态：成功
 - 本次总论文数：8
 - 精读区：4
 - 速读区：4
 
 ### 今日简报（AI）
-1) 今日8篇论文聚焦神经符号推理与连续思维链，精读两篇高分工作：可微推理架构SoftReason（10分）和韩国刑法神经符号AI（9分）。  
-2) 最值得关注的方向：高维感知数据的可微神经符号演绎推理（SoftReason），以及法律领域的神经符号推理应用（韩国刑法判决预测与文书起草）。  
-3) 建议普通读者优先深入理解SoftReason的全可微框架设计，并关注连续思维链模型的训练机制（6分速读论文提供对比视角）。
-- 详情：[/202607/23/README](/202607/23/README)
+1) 今日精选8篇论文，精读2篇：从组合范畴语法实现符号化提升，以及时间感知RAG的信息有效性衰减架构。
+2) 最值得关注的方向：神经符号方法提升LLM输出结构（CCG+LLM），以及时序逻辑控制RAG信息寿命（Chronofy）。
+3) 建议普通读者深入阅读这两篇精读论文，重点关注如何将符号规则与深度学习结合，以及如何让RAG系统“记住”信息的时效性。
+- 详情：[/202607/24/README](/202607/24/README)
 
 ### 精读区论文标签
-1. [SoftReason: A Fully Differentiable Neuro-Soft-Symbolic Deductive Reasoning Architecture over High-Dimensional Perceptual Data](/202607/23/2607.20402v1-softreason-a-fully-differentiable-neuro-soft-symbolic-deductive-reasoning-architecture-over-high-dimensional-perceptual-data)  
+1. [From Dependency to Compositionality: A Neurosymbolic Lifting of LLM Outputs via Combinatory Categorial Grammar](/202607/24/2607.18961v2-from-dependency-to-compositionality-a-neurosymbolic-lifting-of-llm-outputs-via-combinatory-categorial-grammar)  
    标签：评分：10.0/10、query:ns-xai
-   evidence：完全可微的神经-软-符号演绎推理架构
-2. [Neuro-Symbolic AI for Korean Criminal Law: Sentencing Prediction and Document Drafting](/202607/23/2607.19740v1-neuro-symbolic-ai-for-korean-criminal-law-sentencing-prediction-and-document-drafting)  
+   evidence：通过组合范畴语法对LLM输出进行神经符号提升
+2. [Chronofy: A Temporal-Logical Decay Architecture for Information Validity in Time-Aware Retrieval-Augmented Generation](/202607/24/2607.20560v1-chronofy-a-temporal-logical-decay-architecture-for-information-validity-in-time-aware-retrieval-augmented-generation)  
    标签：评分：9.0/10、query:ns-xai
-   evidence：将神经符号方法用于法律判决预测，结合大语言模型与法规约束
-3. [CLARK: Closed-loop Learning for Adaptive Reasoning over Knowledge Graphs](/202607/23/2607.19996v1-clark-closed-loop-learning-for-adaptive-reasoning-over-knowledge-graphs)  
-   标签：评分：8.0/10、query:ns-xai
-   evidence：整合符号规则挖掘、概率推理与知识图谱
-4. [PoTRE: Test-Time Reasoning inspired by Cognitive Heterogeneity](/202607/23/2607.20268v1-potre-test-time-reasoning-inspired-by-cognitive-heterogeneity)  
-   标签：评分：8.0/10、query:ns-xai
-   evidence：推理集成中的神经符号验证
+   evidence：明确提出用于RAG系统时间推理的神经符号框架
+3. [Differentiable Logic Programming to Mitigate Reasoning Shortcuts in Neurosymbolic Systems](/202607/24/2607.21185v1-differentiable-logic-programming-to-mitigate-reasoning-shortcuts-in-neurosymbolic-systems)  
+   标签：评分：9.0/10、query:ns-xai
+   evidence：可微逻辑编程缓解神经符号系统中的推理捷径问题
+4. [Euclid-MCP: A Model Context Protocol Server for Deterministic Logical Reasoning via Prolog](/202607/24/2607.21412v1-euclid-mcp-a-model-context-protocol-server-for-deterministic-logical-reasoning-via-prolog)  
+   标签：评分：9.0/10、query:ns-xai
+   evidence：为大语言模型提供通过Prolog执行确定性逻辑推理的标准化接口
 
 ### 速读区论文标签
-1. [Training Continuous Chain of Thought Models: A Tale of Two Regimes](/202607/23/2607.16972v1-training-continuous-chain-of-thought-models-a-tale-of-two-regimes)  
+1. [Scaling Interpretable Transformers with Parity Bottleneck Layers](/202607/24/2607.20652v1-scaling-interpretable-transformers-with-parity-bottleneck-layers)  
+   标签：评分：7.0/10、query:ns-xai
+   evidence：可解释Transformer架构，内置稀疏表示
+2. [Reasoning-Guided Part-Level Visual Grounding via Reinforcement Learning](/202607/24/2607.15374v1-reasoning-guided-part-level-visual-grounding-via-reinforcement-learning)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：连续思维链实现高效推理
-2. [ST-Veto: Spatio-Temporal Token Veto for Diffusion MLLMs via Taylor Prediction and Visual Grounding](/202607/23/2607.17884v1-st-veto-spatio-temporal-token-veto-for-diffusion-mllms-via-taylor-prediction-and-visual-grounding)  
+   evidence：推理引导的分层视觉定位提升可解释性
+3. [CUSUM-Shaped Inference-Time Monitoring and Targeted Re-Decoding for Quantized Small Language Model Reasoning](/202607/24/2607.20129v1-cusum-shaped-inference-time-monitoring-and-targeted-re-decoding-for-quantized-small-language-model-reasoning)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：提出无需训练的方法，通过令牌否决增强扩散多模态大语言模型推理
-3. [Computational models of pragmatic reasoning with flexible generation of meaning and expression alternatives](/202607/23/2607.18443v1-computational-models-of-pragmatic-reasoning-with-flexible-generation-of-meaning-and-expression-alternatives)  
+   evidence：小语言模型推理的推理时监控与重解码技术
+4. [X$^3$-OPD: Distilling Reasoning into Large Audio-Language Models via On-Policy Alignment](/202607/24/2607.21550v1-x3-opd-distilling-reasoning-into-large-audio-language-models-via-on-policy-alignment)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：结合认知模型与语言模型的语用推理框架，强调可解释性
-4. [EvoThink: Evolving Thinking in Large Reasoning Models via Self-Pruning and Aha-Moment Preference Optimization](/202607/23/2607.19962v1-evothink-evolving-thinking-in-large-reasoning-models-via-self-pruning-and-aha-moment-preference-optimization)  
-   标签：评分：6.0/10、query:ns-xai
-   evidence：提升大推理模型的推理效率与能力
+   evidence：通过跨模态蒸馏将文本大模型的推理能力迁移至音频语言模型，提升推理可解释性
 
 
 <div class="dpr-home-promo-card">
