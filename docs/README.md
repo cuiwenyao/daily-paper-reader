@@ -6,34 +6,32 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-25
-- 运行时间：2026-07-25 20:11:01 UTC
+- 最新运行日期：2026-07-26
+- 运行时间：2026-07-26 20:16:20 UTC
 - 运行状态：成功
-- 本次总论文数：4
-- 精读区：1
+- 本次总论文数：3
+- 精读区：0
 - 速读区：3
 
 ### 今日简报（AI）
-今天重点解读了通过自适应事实重述提升CoT推理紧凑性与忠实度的方法（9.0），并速读了推理评估、测试时缩放及语言模型真相方向三篇工作。  
-最值得关注《REFACT》提出的自适应事实重述机制，在保证推理可信的同时显著压缩推理链；测试时缩放结合错误定位也为高效推理优化提供了新思路。  
-建议优先精读REFACT论文，理解如何平衡推理链简洁与准确；对推理评估感兴趣可参考速读第一篇，关注测试时缩放方法则适合追求推理效率的读者。
-- 详情：[/202607/25/README](/202607/25/README)
+1) 今日3篇速读论文聚焦紧凑模型推理效率、生命性概念神经回路及CoT非收敛检测机制。  
+2) 最值得关注《MADA-RL》中多智能体辩论增强紧凑模型参数高效推理方法（7.0分），以及《Token Budget Saturation》提出的推理非收敛早期检测技术（6.0分）。  
+3) 建议优先深入MADA-RL方法，可用于节省小型模型推理成本，同时留意生命性概念可解释性研究对提升模型语义理解的价值。
+- 详情：[/202607/26/README](/202607/26/README)
 
 ### 精读区论文标签
-1. [REFACT: Adaptive Fact Restatement for Compact and Faithful Chain-of-Thought Reasoning](/202607/25/2607.20833v1-refact-adaptive-fact-restatement-for-compact-and-faithful-chain-of-thought-reasoning)  
-   标签：评分：9.0/10、query:ns-xai
-   evidence：自适应事实重述引用实现忠实且可解释的链式推理
+- 本次无精读推荐。
 
 ### 速读区论文标签
-1. [Reference-Free Evaluation of Reasoning in Open-Ended Question Answering](/202607/25/2607.19678v1-reference-free-evaluation-of-reasoning-in-open-ended-question-answering)  
+1. [MADA-RL: Multi-Agent Debate-Aware Reinforcement Learning for Parameter-Efficient Reasoning in Compact Models](/202607/26/2607.18006v1-mada-rl-multi-agent-debate-aware-reinforcement-learning-for-parameter-efficient-reasoning-in-compact-models)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：提出无需参考的框架评估和审计LLM推理，增强可解释性
-2. [Test-Time Scaling via Error Localization](/202607/25/2607.21453v1-test-time-scaling-via-error-localization)  
-   标签：评分：7.0/10、query:ns-xai
-   evidence：LLM推理缩放中的测试时错误定位
-3. [The Anatomy of a Truth Direction: Knowledge-Dependent Dimensionality, a Relational Law, and a Convergent Category Geometry in Small Language Models](/202607/25/2607.16741v2-the-anatomy-of-a-truth-direction-knowledge-dependent-dimensionality-a-relational-law-and-a-convergent-category-geometry-in-small-language-models)  
+   evidence：在紧凑模型中通过强化学习实现参数高效的推理
+2. [Where Animacy Lives in Large Language Models: Tracing the Circuits of the Animacy Concept](/202607/26/2607.20995v1-where-animacy-lives-in-large-language-models-tracing-the-circuits-of-the-animacy-concept)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：分析小语言模型中的真理表示结构，贡献于可解释性研究
+   evidence：通过电路发现解释大模型内部表征
+3. [Token Budget Saturation and Mechanistic Early Detection of Reasoning Non-Convergence in Chain-of-Thought Models](/202607/26/2607.21433v1-token-budget-saturation-and-mechanistic-early-detection-of-reasoning-non-convergence-in-chain-of-thought-models)  
+   标签：评分：6.0/10、query:ns-xai
+   evidence：链式思维模型中推理不收敛的机械性早期检测
 
 
 <div class="dpr-home-promo-card">
