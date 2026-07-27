@@ -6,32 +6,38 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-26
-- 运行时间：2026-07-26 20:16:20 UTC
+- 最新运行日期：2026-07-27
+- 运行时间：2026-07-27 21:20:33 UTC
 - 运行状态：成功
-- 本次总论文数：3
-- 精读区：0
+- 本次总论文数：6
+- 精读区：3
 - 速读区：3
 
 ### 今日简报（AI）
-1) 今日3篇速读论文聚焦紧凑模型推理效率、生命性概念神经回路及CoT非收敛检测机制。  
-2) 最值得关注《MADA-RL》中多智能体辩论增强紧凑模型参数高效推理方法（7.0分），以及《Token Budget Saturation》提出的推理非收敛早期检测技术（6.0分）。  
-3) 建议优先深入MADA-RL方法，可用于节省小型模型推理成本，同时留意生命性概念可解释性研究对提升模型语义理解的价值。
-- 详情：[/202607/26/README](/202607/26/README)
+今日精选6篇推理与逻辑方向论文，重点推荐J-CoT空间链式推理与神经符号时间推理基准。建议关注结构化推理窗口和去噪推理轨迹在幻觉检测中的应用。
+- 详情：[/202607/27/README](/202607/27/README)
 
 ### 精读区论文标签
-- 本次无精读推荐。
+1. [J-CoT: Chain-of-Thought in J-Space](/202607/27/2607.21981v1-j-cot-chain-of-thought-in-j-space)  
+   标签：评分：8.0/10、query:ns-xai
+   evidence：基于词汇索引连续空间的大语言模型递归推理框架J-CoT
+2. [Learning Structural Convergence: A Neuro-Symbolic Benchmark for Temporal Reasoning](/202607/27/2607.22365v1-learning-structural-convergence-a-neuro-symbolic-benchmark-for-temporal-reasoning)  
+   标签：评分：8.0/10、query:ns-xai
+   evidence：神经符号时序结构推理基准
+3. [Interior interpretability with attention rollout: contraction and propagation profiles in Transformers](/202607/27/2607.22367v1-interior-interpretability-with-attention-rollout-contraction-and-propagation-profiles-in-transformers)  
+   标签：评分：8.0/10、query:ns-xai
+   evidence：基于注意力rollout的内部可解释性方法
 
 ### 速读区论文标签
-1. [MADA-RL: Multi-Agent Debate-Aware Reinforcement Learning for Parameter-Efficient Reasoning in Compact Models](/202607/26/2607.18006v1-mada-rl-multi-agent-debate-aware-reinforcement-learning-for-parameter-efficient-reasoning-in-compact-models)  
+1. [Planning with Transformers: Chain of Computation and Structured Context Windows](/202607/27/2607.17710v1-planning-with-transformers-chain-of-computation-and-structured-context-windows)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：在紧凑模型中通过强化学习实现参数高效的推理
-2. [Where Animacy Lives in Large Language Models: Tracing the Circuits of the Animacy Concept](/202607/26/2607.20995v1-where-animacy-lives-in-large-language-models-tracing-the-circuits-of-the-animacy-concept)  
+   evidence：基于Transformer的链式计算规划架构
+2. [Semiotic logical hexagon theory for LLM logical reasoning](/202607/27/2607.21933v1-semiotic-logical-hexagon-theory-for-llm-logical-reasoning)  
+   标签：评分：7.0/10、query:ns-xai
+   evidence：利用符号逻辑六边形组织语义以改善LLM推理
+3. [Reasoning Denoiser: Denoising Reasoning Traces for Hallucination Detection in Large Reasoning Models](/202607/27/2607.22098v1-reasoning-denoiser-denoising-reasoning-traces-for-hallucination-detection-in-large-reasoning-models)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：通过电路发现解释大模型内部表征
-3. [Token Budget Saturation and Mechanistic Early Detection of Reasoning Non-Convergence in Chain-of-Thought Models](/202607/26/2607.21433v1-token-budget-saturation-and-mechanistic-early-detection-of-reasoning-non-convergence-in-chain-of-thought-models)  
-   标签：评分：6.0/10、query:ns-xai
-   evidence：链式思维模型中推理不收敛的机械性早期检测
+   evidence：推理痕迹去噪用于大推理模型幻觉检测
 
 
 <div class="dpr-home-promo-card">
