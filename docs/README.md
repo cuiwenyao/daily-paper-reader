@@ -6,47 +6,51 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-29
-- 运行时间：2026-07-29 21:32:33 UTC
+- 最新运行日期：2026-07-30
+- 运行时间：2026-07-30 21:51:27 UTC
 - 运行状态：成功
 - 本次总论文数：9
 - 精读区：3
 - 速读区：6
 
 ### 今日简报（AI）
-今日聚焦9篇论文，精读2篇得分9.0/10的MiSS点云分类逻辑解释与KANEx医学可解释性工作。最值得关注方向：逻辑驱动的极小充分子集解释及KAN网络在医疗中的应用。建议深入探索逻辑推理与可解释AI的交叉研究。
-- 详情：[/202607/29/README](/202607/29/README)
+今日聚焦前沿大模型评估与推理，精读两篇高分论文：LLM规则评估中的异常链崩溃问题，以及多模态LLM可解释且资源高效的空间推理方法。
+
+最值得关注的两个方向：一是探索LLM在规则测试中“自信但错误”的异常坍塌现象，二是面向决策关键场景的可解释空间推理，两者均对提升模型可靠性至关重要。
+
+建议普通读者优先精读上述两篇论文，并速读《Be Consistent!》等约束增强论文，以系统理解当前模型稳健性与可解释性优化的关键路径。
+- 详情：[/202607/30/README](/202607/30/README)
 
 ### 精读区论文标签
-1. [MiSS: A Logic-Driven Explanation of Minimal Sufficient Coalitions for Point Cloud Classifiers](/202607/29/2607.24074v1-miss-a-logic-driven-explanation-of-minimal-sufficient-coalitions-for-point-cloud-classifiers)  
+1. [Confidently Wrong: Exception Chain Collapse in Frontier LLM Rule Evaluation](/202607/30/2607.23386v1-confidently-wrong-exception-chain-collapse-in-frontier-llm-rule-evaluation)  
    标签：评分：9.0/10、query:ns-xai
-   evidence：通过MaxSAT逻辑驱动解释点云分类器
-2. [KANEx: Translating Kolmogorov-Arnold Networks' Interpretability to Medical Explainability](/202607/29/2607.24730v1-kanex-translating-kolmogorov-arnold-networks-interpretability-to-medical-explainability)  
+   evidence：用于LLM规则评估可解释性的神经符号架构
+2. [Explainable and Resource-Efficient Spatial Reasoning in Multimodal LLMs for Decision-Critical Applications](/202607/30/2607.27145v1-explainable-and-resource-efficient-spatial-reasoning-in-multimodal-llms-for-decision-critical-applications)  
    标签：评分：9.0/10、query:ns-xai
-   evidence：利用KAN的符号透明性增强可解释性
-3. [Interpretable Column Annotation with LLM-Symbolized Decision Process Materialization](/202607/29/2607.25228v1-interpretable-column-annotation-with-llm-symbolized-decision-process-materialization)  
-   标签：评分：9.0/10、query:ns-xai
-   evidence：利用LLM和符号化决策过程实现可解释的列标注
+   evidence：多模态大语言模型中可解释且资源高效的空间推理
+3. [Probing the Origins of Reasoning Performance: Representational Quality for Mathematical Problem-Solving in RL vs. SFT Fine-Tuned Models](/202607/30/2607.26119v1-probing-the-origins-of-reasoning-performance-representational-quality-for-mathematical-problem-solving-in-rl-vs-sft-fine-tuned-models)  
+   标签：评分：8.0/10、query:ns-xai
+   evidence：探针分析LLM推理内部表示
 
 ### 速读区论文标签
-1. [Operational Proto-Introspection in Looped Language Models: Process-Quality Taps, Executable Branching, and the Readout-Control Boundary](/202607/29/2607.18553v3-operational-proto-introspection-in-looped-language-models-process-quality-taps-executable-branching-and-the-readout-control-boundary)  
+1. [Be Consistent! Enhancing Robust Visual Reasoning in LVLMs with Consistency Constraints](/202607/30/2607.21722v1-be-consistent-enhancing-robust-visual-reasoning-in-lvlms-with-consistency-constraints)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：探针分析大模型内部状态预测推理质量
-2. [When Activation Oracles Learn Not to Read: Concept-Specific Blind Spots in Fine-Tuned Oracles](/202607/29/2607.23379v1-when-activation-oracles-learn-not-to-read-concept-specific-blind-spots-in-fine-tuned-oracles)  
+   evidence：通过一致性约束增强大型视觉语言模型的视觉推理
+2. [Interpretable GOHR Agents via Sparse Autoencoders](/202607/30/2607.25132v2-interpretable-gohr-agents-via-sparse-autoencoders)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：研究大模型可解释工具（激活预言机）的局限性
-3. [Interpretable GOHR Agents via Sparse Autoencoders](/202607/29/2607.25132v1-interpretable-gohr-agents-via-sparse-autoencoders)  
+   evidence：通过稀疏自编码器解释Transformer智能体
+3. [TabRank: Chain-of-Thought Distillation for Table Re-Rankers](/202607/30/2607.25182v1-tabrank-chain-of-thought-distillation-for-table-re-rankers)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：通过稀疏自编码器解释Transformer智能体的内部表示
-4. [Penelope: Localized Latent Recurrence for Efficient Structured Reasoning](/202607/29/2607.25915v1-penelope-localized-latent-recurrence-for-efficient-structured-reasoning)  
-   标签：评分：7.0/10、query:ns-xai
-   evidence：用于预训练Transformer结构化推理的潜在推理框架
-5. [Visual Saliency Steering Distillation for Multimodal Chain-of-Thought Reasoning](/202607/29/2607.22013v1-visual-saliency-steering-distillation-for-multimodal-chain-of-thought-reasoning)  
+   evidence：利用链式思维推理蒸馏用于表格重排序，与LLM推理直接相关
+4. [Three-Body Alignment: Aligning Chess Agent with Human Reasoning through Reranked Rationale](/202607/30/2607.21993v1-three-body-alignment-aligning-chess-agent-with-human-reasoning-through-reranked-rationale)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：通过视觉显著性引导蒸馏提升多模态链式推理
-6. [Attention-Guided Layer Selection for Contrastive Decoding in Large Language Models](/202607/29/2607.23067v1-attention-guided-layer-selection-for-contrastive-decoding-in-large-language-models)  
+   evidence：通过理由对齐国际象棋智能体推理与人类推理
+5. [Do Diagrams Help Large Language Models Reason? Evidence from Syllogistic Reasoning](/202607/30/2607.23513v1-do-diagrams-help-large-language-models-reason-evidence-from-syllogistic-reasoning)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：注意力引导的层选择改进对比解码的LLM事实性
+   evidence：LLM图表推理的实证研究
+6. [Dual-Path LLM Reasoning for Multimodal Few-Shot Knowledge Graph Completion](/202607/30/2607.26909v1-dual-path-llm-reasoning-for-multimodal-few-shot-knowledge-graph-completion)  
+   标签：评分：6.0/10、query:ns-xai
+   evidence：大语言模型推理用于知识图谱补全
 
 
 <div class="dpr-home-promo-card">
