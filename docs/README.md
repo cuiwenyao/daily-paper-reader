@@ -6,47 +6,32 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-08-01
-- 运行时间：2026-08-01 21:26:23 UTC
+- 最新运行日期：2026-08-02
+- 运行时间：2026-08-02 21:14:28 UTC
 - 运行状态：成功
-- 本次总论文数：9
-- 精读区：3
-- 速读区：6
+- 本次总论文数：3
+- 精读区：0
+- 速读区：3
 
 ### 今日简报（AI）
-今日聚焦大模型推理增强与文档级关系抽取，共梳理9篇论文，其中3篇精读、6篇速读。最值得关注的是《Reasoning Consensus》提出的加权DAG聚合推理集成方法（9.0分），以及《CONSISTRE》面向文档关系抽取的一致性感知框架（8.0分）。建议优先精读这两篇，并留意速读中智能体网络翻译与逻辑推理基准的进展。
-- 详情：[/202608/01/README](/202608/01/README)
+今日速读3篇论文，聚焦注意力机制、本体匹配与图RAG检索增强。  
+最值得关注的是两篇7分工作：旋转注意力中的相位结构与AgentMap本体匹配框架。  
+建议普通读者优先了解注意力机制新视角，后续可跟踪图RAG与语义连续性方向。
+- 详情：[/202608/02/README](/202608/02/README)
 
 ### 精读区论文标签
-1. [Reasoning Consensus: Structural Ensembling of LLM Reasoning via Weighted DAG Aggregation](/202608/01/2607.27783v1-reasoning-consensus-structural-ensembling-of-llm-reasoning-via-weighted-dag-aggregation)  
-   标签：评分：9.0/10、query:ns-xai
-   evidence：聚合LLM推理结构为DAG，提供可解释的共识推理
-2. [CONSISTRE: A Unified Consistency-Aware Framework for Document-Level Relation Extraction with Large Language Models](/202608/01/2607.24312v1-consistre-a-unified-consistency-aware-framework-for-document-level-relation-extraction-with-large-language-models)  
-   标签：评分：8.0/10、query:ns-xai
-   evidence：在LLM关系抽取预测上强制执行传递性、对称性等关系约束
-3. [Orca: Neural Operators for Causal Reasoning in Continuous Time](/202608/01/2607.27867v1-orca-neural-operators-for-causal-reasoning-in-continuous-time)  
-   标签：评分：8.0/10、query:ns-xai
-   evidence：将结构因果模型与神经算子结合，以函数空间映射表达因果机制
+- 本次无精读推荐。
 
 ### 速读区论文标签
-1. [Let AI Agents Translate Networks, Not Reason About Them](/202608/01/2607.22947v1-let-ai-agents-translate-networks-not-reason-about-them)  
+1. [Phase Structure in Rotary Attention: A Spectral Framework for Semantic Continuity and Execution-Boundary Governance](/202608/02/2607.25507v1-phase-structure-in-rotary-attention-a-spectral-framework-for-semantic-continuity-and-execution-boundary-governance)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：用大模型将网络配置翻译为形式逻辑，结合符号验证实现可验证推理
-2. [Identification and Learning of Semantic Observation Kernels: Partial Observation, Uniform Recovery, & Minimax Limits](/202608/01/2607.23130v1-identification-and-learning-of-semantic-observation-kernels-partial-observation-uniform-recovery--minimax-limits)  
+   evidence：为旋转注意力提出谱分析框架，用于语义连续性和执行边界的研究
+2. [AgentMap: Joint Equivalence and Subsumption Discovery for Ontology Matching](/202608/02/2607.27130v1-agentmap-joint-equivalence-and-subsumption-discovery-for-ontology-matching)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：通过语义分组从语言模型概率中恢复可解释的状态后验
-3. [Benchmarking LLM Competence on Logical Inference over Probability Operators](/202608/01/2607.27405v1-benchmarking-llm-competence-on-logical-inference-over-probability-operators)  
-   标签：评分：7.0/10、query:ns-xai
-   evidence：面向概率算子的逻辑推理基准，考察LLM是基于符号推理还是表面模式匹配
-4. [Beyond Self-Knowledge: Propagating Uncertainty Across Reasoning and Retrieval in LLMs](/202608/01/2607.25600v2-beyond-self-knowledge-propagating-uncertainty-across-reasoning-and-retrieval-in-llms)  
+   evidence：将符号本体匹配与多智能体大模型推理结合，是面向结构化知识的神经符号推理方法
+3. [GLM-RAG: Graph Language Models for Graph-Based Retrieval-Augmented Generation](/202608/02/2607.28397v1-glm-rag-graph-language-models-for-graph-based-retrieval-augmented-generation)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：在LLM的推理与检索间传播不确定性
-5. [From Interface to Inference: Eliciting Any-Order Inference from Any-Order Models](/202608/01/2607.26504v1-from-interface-to-inference-eliciting-any-order-inference-from-any-order-models)  
-   标签：评分：6.0/10、query:ns-xai
-   evidence：提出掩码扩散模型的原生任意顺序推理，用于代码生成等非因果推理任务
-6. [Understanding Is Done Early: A Depth Division of Labor in Large Language Models and Its Use for Unbounded-Context Memory](/202608/01/2607.28263v1-understanding-is-done-early-a-depth-division-of-labor-in-large-language-models-and-its-use-for-unbounded-context-memory)  
-   标签：评分：6.0/10、query:ns-xai
-   evidence：揭示大模型浅层与深层在语义表示上的分工，为模型可解释性提供证据
+   evidence：将图结构推理与语言模型结合，属神经符号方法，用于结构化知识检索
 
 
 <div class="dpr-home-promo-card">
