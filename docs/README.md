@@ -6,74 +6,73 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-08-04
-- 运行时间：2026-08-04 21:26:04 UTC
+- 最新运行日期：2026-08-07
+- 运行时间：2026-08-07 02:16:01 UTC
 - 运行状态：成功
 - 本次总论文数：17
 - 精读区：6
 - 速读区：11
 
 ### 今日简报（AI）
-- 今日共生成 17 篇推荐（精读 6 篇，速读 11 篇）
-- 精读：《Pretrain on Small Synthetic Data, Scale Large for Free: Symmetry-Aware Foundation Model for Logic Rule Induction》（9.0/10）, 《SymboUQ: Symbolic Uncertainty Quantification for Spatial Reasoning in LLMs》（9.0/10）
-- 速读：《Demystifying Entropy-based Selection for Chain-of-Thought Compression in Large Reasoning Models》（8.0/10）, 《The Graph Language: How Knowledge Graphs Speak to Large Language Models》（8.0/10）, 《Cognitive Demand Steering for Adaptive Meta-Reasoning in Large Language Models》（8.0/10）
-- 这些结果覆盖了当下较热的方向，建议先看精读区论文的关键问题与方法。
-- 详情：[/202608/04/README](/202608/04/README)
+今日扫读17篇AI前沿，精读6篇、速读11篇，聚焦大模型推理与可解释性突破。  
+最亮眼的是《NeSyFS》神经符号快慢思考框架（9.0分）与《Interpreting Black-Box》句级能量景观（9.0分），为部分可观测智能体和黑箱解释提供新思路；另推荐关注思维链动态检测推理失败的《Tell-Tale Trace》（8.0分）。  
+建议普通读者优先围观“推理过程可监控”与“模态逻辑符合性”方向，实用又有趣。
+- 详情：[/202608/07/README](/202608/07/README)
 
 ### 精读区论文标签
-1. [Pretrain on Small Synthetic Data, Scale Large for Free: Symmetry-Aware Foundation Model for Logic Rule Induction](/202608/04/2608.00383v1-pretrain-on-small-synthetic-data-scale-large-for-free-symmetry-aware-foundation-model-for-logic-rule-induction)  
+1. [NeSyFS: A Neuro-symbolic Fast-Slow Thinking Framework for LLM Agent under Partial Observability](/202608/07/2607.28942v2-nesyfs-a-neuro-symbolic-fast-slow-thinking-framework-for-llm-agent-under-partial-observability)  
    标签：评分：9.0/10、query:ns-xai
-   evidence：用于可解释逻辑规则归纳的对称感知神经模型
-2. [SymboUQ: Symbolic Uncertainty Quantification for Spatial Reasoning in LLMs](/202608/04/2608.00417v1-symbouq-symbolic-uncertainty-quantification-for-spatial-reasoning-in-llms)  
+   evidence：提出神经符号快慢思考框架NeSyFS，结合神经推理与符号推理用于部分可观测LLM智能体
+2. [Interpreting Black-Box Large Language Models with Sentence-Level Energy Landscapes](/202608/07/2608.02879v1-interpreting-black-box-large-language-models-with-sentence-level-energy-landscapes)  
    标签：评分：9.0/10、query:ns-xai
-   evidence：面向LLM空间推理可靠性的符号不确定性量化
-3. [Isotropy Cliffs: The Geometric Signature of Decision-Making in Large Language Models](/202608/04/2608.00828v1-isotropy-cliffs-the-geometric-signature-of-decision-making-in-large-language-models)  
+   evidence：基于能量代理模型的黒盒LLM事后句子级归因解释器
+3. [Computing Actual Causes for Neural Network Predictions under Structured Causal Inputs](/202608/07/2608.03772v1-computing-actual-causes-for-neural-network-predictions-under-structured-causal-inputs)  
    标签：评分：9.0/10、query:ns-xai
-   evidence：各向同性突变层作为大模型决策可解释性的几何标志
-4. [Goal-Oriented Logic-based Semantic Communication for Neuro-Symbolic Reasoning with Applications onto Autonomous Driving](/202608/04/2608.00878v1-goal-oriented-logic-based-semantic-communication-for-neuro-symbolic-reasoning-with-applications-onto-autonomous-driving)  
+   evidence：用布尔结构因果模型把神经网络解释形式化为Halpern-Pearl实际原因
+4. [SJEPA: Learning Elegant Latent Dynamics with Hybrid Symbolic-Neural Predictors](/202608/07/2608.04060v1-sjepa-learning-elegant-latent-dynamics-with-hybrid-symbolic-neural-predictors)  
    标签：评分：9.0/10、query:ns-xai
-   evidence：基于一阶逻辑的神经符号决策语义通信
-5. [HPFA: Hypergraph-Based Paired Failure Attribution for LLM Reasoning](/202608/04/2608.02026v1-hpfa-hypergraph-based-paired-failure-attribution-for-llm-reasoning)  
+   evidence：混合符号-神经转移模型，为学习到的动力学提供紧凑符号描述
+5. [The RAIL Principles for Neurosymbolic AI: Reasoning, Assurances, Interfacing and Learning](/202608/07/2608.04285v1-the-rail-principles-for-neurosymbolic-ai-reasoning-assurances-interfacing-and-learning)  
    标签：评分：9.0/10、query:ns-xai
-   evidence：通过超图结构将LLM推理失败归因到具体步骤
-6. [GradCuit: Credit-Assigned Gradient Flow Enables Robust and Interpretable Test-Time Latent Reasoning](/202608/04/2608.02585v1-gradcuit-credit-assigned-gradient-flow-enables-robust-and-interpretable-test-time-latent-reasoning)  
-   标签：评分：9.0/10、query:ns-xai
-   evidence：基于梯度流的可解释测试时潜在推理方法
+   evidence：神经符号AI原则，将学习与符号推理结合以构建可信且有保证的系统
+6. [ANCHOR-RE: An Agentic Neuro-Symbolic Framework for Grounded Biomedical Relation Extraction](/202608/07/2608.03154v1-anchor-re-an-agentic-neuro-symbolic-framework-for-grounded-biomedical-relation-extraction)  
+   标签：评分：8.0/10、query:ns-xai
+   evidence：将本体引导推理、外部知识接地和验证规则集成到LLM推理中
 
 ### 速读区论文标签
-1. [Demystifying Entropy-based Selection for Chain-of-Thought Compression in Large Reasoning Models](/202608/04/2607.28707v1-demystifying-entropy-based-selection-for-chain-of-thought-compression-in-large-reasoning-models)  
+1. [The Tell-Tale Trace: Detecting Reasoning Failures in LLMs Using Chain-of-Thought Dynamics](/202608/07/2608.03291v1-the-tell-tale-trace-detecting-reasoning-failures-in-llms-using-chain-of-thought-dynamics)  
    标签：评分：8.0/10、query:ns-xai
-   evidence：分析大推理模型中思维链压缩的熵选择策略，发现熵并不优于随机，且token修补可恢复性能
-2. [The Graph Language: How Knowledge Graphs Speak to Large Language Models](/202608/04/2608.01175v1-the-graph-language-how-knowledge-graphs-speak-to-large-language-models)  
+   evidence：利用思维链动力学检测LLM推理失败，关注推理过程演化
+2. [Does Out-of-Sight Equal Out-of-Mind in CoT Monitorability?](/202608/07/2608.04928v1-does-out-of-sight-equal-out-of-mind-in-cot-monitorability)  
    标签：评分：8.0/10、query:ns-xai
-   evidence：用可训练关系标记桥接知识图谱符号结构与冻结LLM，实现多跳推理
-3. [Cognitive Demand Steering for Adaptive Meta-Reasoning in Large Language Models](/202608/04/2608.01319v1-cognitive-demand-steering-for-adaptive-meta-reasoning-in-large-language-models)  
+   evidence：研究潜在思维链是否还能通过探针或言语化监测大模型推理
+3. [Same Formulas, Different Semantics: Do Language Models Follow Modal Logic Specifications?](/202608/07/2608.05097v1-same-formulas-different-semantics-do-language-models-follow-modal-logic-specifications)  
    标签：评分：8.0/10、query:ns-xai
-   evidence：提出训练免费的元推理框架，直接针对大模型推理自适应控制
-4. [Recursive Vision Language Models for General Symbolic Reasoning](/202608/04/2608.01534v1-recursive-vision-language-models-for-general-symbolic-reasoning)  
-   标签：评分：8.0/10、query:ns-xai
-   evidence：基于预训练大模型的递归式符号推理框架
-5. [DiffuseAgent-MI: Distributionally-Grounded,Tool-Integrated Self-Evolving Agents for Faithful Visual Reasoning](/202608/04/2608.00540v1-diffuseagent-mi-distributionally-groundedtool-integrated-self-evolving-agents-for-faithful-visual-reasoning)  
+   evidence：考察语言模型判断是否符合模态逻辑语义，并用自动推理验证标注
+4. [Benchmarking LLM Competence on Logical Inference over Probability Operators](/202608/07/2607.27405v3-benchmarking-llm-competence-on-logical-inference-over-probability-operators)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：视觉推理忠实性与神经智能体机制可解释性
-6. [Neuro-Symbolic Participation Governance for Verifiable AI Agents in Open Digital Twin Ecosystems](/202608/04/2608.00937v1-neuro-symbolic-participation-governance-for-verifiable-ai-agents-in-open-digital-twin-ecosystems)  
+   evidence：基准测试区分语言模型逻辑推理中的原理性符号推理与表面模式匹配
+5. [BODHI: Do LLMs Branch Out and Discover Heterogeneous Inferences?](/202608/07/2608.02867v1-bodhi-do-llms-branch-out-and-discover-heterogeneous-inferences)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：将概率神经推理与确定性制度治理相结合，实现可验证智能代理
-7. [Gram-Space: Structure-Preserving Codebook Compression for Memory-Efficient Neuro-Symbolic AI](/202608/04/2608.01528v1-gram-space-structure-preserving-codebook-compression-for-memory-efficient-neuro-symbolic-ai)  
+   evidence：从数学推理轨迹提取BODHI树，区分风格差异与真正的推理分支
+6. [Neurosymbolic Reasoning with Incremental Knowledge for Sample Efficient Hierarchical Reinforcement Learning](/202608/07/2608.02993v1-neurosymbolic-reasoning-with-incremental-knowledge-for-sample-efficient-hierarchical-reinforcement-learning)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：为神经符号推理压缩向量符号码本并保持结构
-8. [Measuring in-context algorithmic reasoning in language models against an exact Bayes-optimal standard](/202608/04/2608.01575v1-measuring-in-context-algorithmic-reasoning-in-language-models-against-an-exact-bayes-optimal-standard)  
+   evidence：神经符号分层强化学习，符号高层组件利用增量知识进行推理
+7. [DocTrace: Towards Traceable Long Document VQA via Hierarchical Evidence Graph Reasoning](/202608/07/2608.03292v1-doctrace-towards-traceable-long-document-vqa-via-hierarchical-evidence-graph-reasoning)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：以贝叶斯最优为标准衡量LLM真实算法推理的基准
-9. [Learning to Coordinate Symbolic Tools: LLM Agents for Verified Sum-of-Squares Certificates](/202608/04/2608.00326v1-learning-to-coordinate-symbolic-tools-llm-agents-for-verified-sum-of-squares-certificates)  
+   evidence：基于证据图推理实现长文档VQA的可追溯，将推理显式结构化
+8. [The Transformer Revolution, Part 1: Dynamic Processing through Output- Weight Interconnections](/202608/07/2608.03921v1-the-transformer-revolution-part-1-dynamic-processing-through-output--weight-interconnections)  
+   标签：评分：7.0/10、query:ns-xai
+   evidence：将Transformer推理重新解释为动态概念转换，挑战'随机鹦鹉'观点，面向模型可解释性
+9. [Cloud-ScPO: Hidden-State Geometry for Semi-Supervised Preference Optimization in LLM Reasoning](/202608/07/2608.01014v1-cloud-scpo-hidden-state-geometry-for-semi-supervised-preference-optimization-in-llm-reasoning)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：将LLM智能体与符号工具结合完成可验证数学推理，体现神经符号协同
-10. [Escaping Confidence Trap: Evolutionary Decoding for Mathematical Reasoning in Diffusion LLMs](/202608/04/2608.00605v1-escaping-confidence-trap-evolutionary-decoding-for-mathematical-reasoning-in-diffusion-llms)  
+   evidence：利用LLM推理轨迹的隐状态几何进行半监督偏好挖掘
+10. [TRAM: Enhancing Multimodal Reasoning with Trajectory-Derived Auxiliary Memory](/202608/07/2608.01922v1-tram-enhancing-multimodal-reasoning-with-trajectory-derived-auxiliary-memory)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：分析扩散大模型数学解码中的置信度陷阱并改进数值符号推理轨迹
-11. [HopRefusalBench: Diagnosing Refusal Failures in Search-Augmented Agents for Multi-Hop Reasoning](/202608/04/2608.01358v1-hoprefusalbench-diagnosing-refusal-failures-in-search-augmented-agents-for-multi-hop-reasoning)  
+   evidence：多模态大模型推理轨迹记忆与归因分析
+11. [Learning a Vector-Symbolic Model for Socio-Cultural Tasks](/202608/07/2608.02807v1-learning-a-vector-symbolic-model-for-socio-cultural-tasks)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：首个面向多跳搜索增强LLM拒答失败的控制基准
+   evidence：向量符号自编码器结合神经表示与符号组合结构
 
 
 <div class="dpr-home-promo-card">
