@@ -6,74 +6,50 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-08-07
-- 运行时间：2026-08-07 21:02:51 UTC
+- 最新运行日期：2026-08-08
+- 运行时间：2026-08-08 20:54:54 UTC
 - 运行状态：成功
-- 本次总论文数：18
-- 精读区：7
-- 速读区：11
+- 本次总论文数：10
+- 精读区：3
+- 速读区：7
 
 ### 今日简报（AI）
-今日精读18篇论文，聚焦神经符号框架与可解释推理，其中两篇满分工作突出。最值得关注的是《NeSyFS》与《NeSy-RAG》，分别从快慢思维与检索增强角度提升LLM推理可解释性。建议深入阅读这两篇精读论文，并顺带浏览速读中的统计推理评估与因果分析研究。
-- 详情：[/202608/07/README](/202608/07/README)
+今日精读聚焦语言模型上下文条件规则执行与神经符号AI的RAIL原则，双高分（9.0）引领前沿方向；速读覆盖可解释性验证、翻译推理与多模态思考切换。最值得关注：模型如何跨语言执行条件规则，以及神经符号AI的推理与保障框架。建议普通读者优先深入精读两篇，把握AI推理与可信度核心趋势。
+- 详情：[/202608/08/README](/202608/08/README)
 
 ### 精读区论文标签
-1. [NeSyFS: A Neuro-symbolic Fast-Slow Thinking Framework for LLM Agent under Partial Observability](/202608/07/2607.28942v2-nesyfs-a-neuro-symbolic-fast-slow-thinking-framework-for-llm-agent-under-partial-observability)  
-   标签：评分：10.0/10、query:ns-xai
-   evidence：神经符号快慢思考框架直接增强LLM代理推理
-2. [NeSy-RAG: Neuro-Symbolic RAG for Explainable Question Answering](/202608/07/2608.06292v1-nesy-rag-neuro-symbolic-rag-for-explainable-question-answering)  
-   标签：评分：10.0/10、query:ns-xai
-   evidence：神经符号RAG，用Prolog模块实现可解释问答
-3. [Interpreting Black-Box Large Language Models with Sentence-Level Energy Landscapes](/202608/07/2608.02879v1-interpreting-black-box-large-language-models-with-sentence-level-energy-landscapes)  
+1. [Test, then Route: How Language Models Execute In-Context Conditional Rules Across Models and Languages](/202608/08/2608.04183v1-test-then-route-how-language-models-execute-in-context-conditional-rules-across-models-and-languages)  
    标签：评分：9.0/10、query:ns-xai
-   evidence：黑盒大模型的句子级事后归因
-4. [ANCHOR-RE: An Agentic Neuro-Symbolic Framework for Grounded Biomedical Relation Extraction](/202608/07/2608.03154v1-anchor-re-an-agentic-neuro-symbolic-framework-for-grounded-biomedical-relation-extraction)  
+   evidence：通过激活修补揭示LLM条件规则执行的电路机制，属于机理可解释性研究
+2. [The RAIL Principles for Neurosymbolic AI: Reasoning, Assurances, Interfacing and Learning](/202608/08/2608.04285v1-the-rail-principles-for-neurosymbolic-ai-reasoning-assurances-interfacing-and-learning)  
    标签：评分：9.0/10、query:ns-xai
-   evidence：结合符号知识接地与LLM推理，实现可验证的抽取
-5. [The Tell-Tale Trace: Detecting Reasoning Failures in LLMs Using Chain-of-Thought Dynamics](/202608/07/2608.03291v1-the-tell-tale-trace-detecting-reasoning-failures-in-llms-using-chain-of-thought-dynamics)  
-   标签：评分：9.0/10、query:ns-xai
-   evidence：直接利用思维链动态监控和解释LLM推理过程
-6. [SJEPA: Learning Elegant Latent Dynamics with Hybrid Symbolic-Neural Predictors](/202608/07/2608.04060v1-sjepa-learning-elegant-latent-dynamics-with-hybrid-symbolic-neural-predictors)  
-   标签：评分：9.0/10、query:ns-xai
-   evidence：混合符号-神经预测器，学习可解释的潜在动态
-7. [Reasoning Errors Have a Region and a Direction in the Residual-Stream Trajectory of LLMs](/202608/07/2608.05660v1-reasoning-errors-have-a-region-and-a-direction-in-the-residual-stream-trajectory-of-llms)  
-   标签：评分：9.0/10、query:ns-xai
-   evidence：分析残差流轨迹以判别LLM推理的正误
+   evidence：提出将推理、保证、接口与学习结合的神经符号AI原则，是神经符号集成可解释推理的核心工作
+3. [Risky Business: Measuring The Faithfulness-Safety Tension](/202608/08/2608.03745v1-risky-business-measuring-the-faithfulness-safety-tension)  
+   标签：评分：8.0/10、query:ns-xai
+   evidence：研究大型推理模型思维链的忠实性与安全性矛盾，直接关联大模型推理可解释性
 
 ### 速读区论文标签
-1. [BODHI: Do LLMs Branch Out and Discover Heterogeneous Inferences?](/202608/07/2608.02867v1-bodhi-do-llms-branch-out-and-discover-heterogeneous-inferences)  
-   标签：评分：8.0/10、query:ns-xai
-   evidence：从数学推理轨迹提取BODHI树，区分真实推理分支与风格变化，推进大模型推理的可解释分析
-2. [Beyond Accuracy: A Multidimensional Evaluation of Statistical Reasoning in Large Language Models](/202608/07/2608.03038v1-beyond-accuracy-a-multidimensional-evaluation-of-statistical-reasoning-in-large-language-models)  
-   标签：评分：8.0/10、query:ns-xai
-   evidence：多维评估大模型统计推理与解释构建
-3. [Computing Actual Causes for Neural Network Predictions under Structured Causal Inputs](/202608/07/2608.03772v1-computing-actual-causes-for-neural-network-predictions-under-structured-causal-inputs)  
-   标签：评分：8.0/10、query:ns-xai
-   evidence：使用布尔结构因果模型将解释形式化为Halpern-Pearl实际原因
-4. [The RAIL Principles for Neurosymbolic AI: Reasoning, Assurances, Interfacing and Learning](/202608/07/2608.04285v1-the-rail-principles-for-neurosymbolic-ai-reasoning-assurances-interfacing-and-learning)  
-   标签：评分：8.0/10、query:ns-xai
-   evidence：提出神经符号AI原则，强调推理、保证、接口和学习
-5. [Does Out-of-Sight Equal Out-of-Mind in CoT Monitorability?](/202608/07/2608.04928v1-does-out-of-sight-equal-out-of-mind-in-cot-monitorability)  
-   标签：评分：8.0/10、query:ns-xai
-   evidence：关于隐式思维链可监控性的实证研究
-6. [Neurosymbolic Reasoning with Incremental Knowledge for Sample Efficient Hierarchical Reinforcement Learning](/202608/07/2608.02993v1-neurosymbolic-reasoning-with-incremental-knowledge-for-sample-efficient-hierarchical-reinforcement-learning)  
+1. [A Human-Centered Validation of the Explainability-Performance Coefficient](/202608/08/2607.29614v1-a-human-centered-validation-of-the-explainability-performance-coefficient)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：神经符号推理，符号高层组件与神经策略结合并支持知识增量更新
-7. [Logic Before Language: Pre-pretraining on Formal Derivations Fosters Skill Acquisition and Compressibility](/202608/07/2608.03930v1-logic-before-language-pre-pretraining-on-formal-derivations-fosters-skill-acquisition-and-compressibility)  
-   标签：评分：7.0/10、query:ns-xai
-   evidence：基于形式推导的逻辑预预训练提供符号归纳偏置
-8. [Same Formulas, Different Semantics: Do Language Models Follow Modal Logic Specifications?](/202608/07/2608.05097v1-same-formulas-different-semantics-do-language-models-follow-modal-logic-specifications)  
-   标签：评分：7.0/10、query:ns-xai
-   evidence：使用自动验证的标签评估大模型对模态逻辑语义的推理能力
-9. [Semantic Alignment of AI Models: Concept Collapse, Checkpoint Dynamics, and Cross-Lingual Transfer](/202608/07/2608.01585v1-semantic-alignment-of-ai-models-concept-collapse-checkpoint-dynamics-and-cross-lingual-transfer)  
+   evidence：提出模型无关的解释质量度量EPC，跨模态验证，与可解释性评估相关
+2. [Translation with Thought: Difficulty-Adaptive Reasoning via Reinforcement Learning for Multi-Domain Machine Translation](/202608/08/2607.29287v1-translation-with-thought-difficulty-adaptive-reasoning-via-reinforcement-learning-for-multi-domain-machine-translation)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：将神经嵌入空间与可解释符号基准确对齐以探查概念结构
-10. [Learning a Vector-Symbolic Model for Socio-Cultural Tasks](/202608/07/2608.02807v1-learning-a-vector-symbolic-model-for-socio-cultural-tasks)  
+   evidence：利用链式推理与强化学习调节LLM翻译中的推理强度，与LLM推理相关
+3. [Balancing Efficiency and Efficacy: Training-Free Attention-Guided Switching Between Explicit and Latent Thoughts for MLLMs](/202608/08/2608.03450v1-balancing-efficiency-and-efficacy-training-free-attention-guided-switching-between-explicit-and-latent-thoughts-for-mllms)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：向量符号自动编码器用于认知架构中的多层次语义表示
-11. [DocTrace: Towards Traceable Long Document VQA via Hierarchical Evidence Graph Reasoning](/202608/07/2608.03292v1-doctrace-towards-traceable-long-document-vqa-via-hierarchical-evidence-graph-reasoning)  
+   evidence：多模态大模型显式与潜在推理的权衡，对推理透明性有启示
+4. [Interpretable Adaptive Sampling for LLM Test-Time Scaling](/202608/08/2608.03961v1-interpretable-adaptive-sampling-for-llm-test-time-scaling)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：显式证据图推理实现可追踪、可验证的文档问答
+   evidence：提出基于模糊控制器的可解释自适应采样，使LLM推理测试时计算分配可检查可解释
+5. [Constraint-First Reasoning: A Training-Free Protocol for Exploiting Answer-Space Constraints in Mathematical Problem Solving](/202608/08/2608.05254v1-constraint-first-reasoning-a-training-free-protocol-for-exploiting-answer-space-constraints-in-mathematical-problem-solving)  
+   标签：评分：6.0/10、query:ns-xai
+   evidence：通过约束提取与检查提升大模型推理能力；与LLM推理相关但未涉及可解释性
+6. [SCP-NL2TL: Selective Conformal Prediction with Semantic Verification for Natural Language to Temporal Logic Specifications](/202608/08/2608.05439v1-scp-nl2tl-selective-conformal-prediction-with-semantic-verification-for-natural-language-to-temporal-logic-specifications)  
+   标签：评分：6.0/10、query:ns-xai
+   evidence：将自然语言转换为形式化时序逻辑并验证，属于神经网络与符号逻辑结合
+7. [CircuitSteer: Geometrically Aligned Multi-Layer Steering via Sparse Autoencoder Circuits](/202608/08/2608.05732v1-circuitsteer-geometrically-aligned-multi-layer-steering-via-sparse-autoencoder-circuits)  
+   标签：评分：6.0/10、query:ns-xai
+   evidence：利用稀疏自编码器电路进行多层LLM控制，支持可解释推理分析
 
 
 <div class="dpr-home-promo-card">
