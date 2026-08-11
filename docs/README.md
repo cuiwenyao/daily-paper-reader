@@ -6,49 +6,67 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-08-10
-- 运行时间：2026-08-10 20:42:53 UTC
+- 最新运行日期：2026-08-11
+- 运行时间：2026-08-11 21:22:30 UTC
 - 运行状态：成功
-- 本次总论文数：9
-- 精读区：3
-- 速读区：6
+- 本次总论文数：15
+- 精读区：6
+- 速读区：9
 
 ### 今日简报（AI）
-今日精读9篇论文，聚焦神经网络符号模式涌现与LLM可解释安全，最高分9.0。  
-最值得关注：符号模式涌现的数学原理，以及可检查的潜在推理安全机制（LatentGuard）。  
-建议普通读者优先浏览这两篇的摘要与结论，理解AI“黑箱”的透明化进展。
-- 详情：[/202608/10/README](/202608/10/README)
+今日精读6篇、速读9篇，共15篇论文，聚焦可解释性与神经符号推理。  
+最值得关注的是满分论文《SymDiag》用神经符号验证实现LLM推理的可解释诊断，以及9分论文《Scaling Inherently Interpretable LMs》探索可解释模型扩展。  
+建议优先精读这两篇，并留意速读中8分的神经符号工具增强空间推理方向。
+- 详情：[/202608/11/README](/202608/11/README)
 
 ### 精读区论文标签
-1. [Mathematical Principles and Experimental Discoveries of the Emergence of Symbolic Patterns in Artificial Neural Networks](/202608/10/2608.06839v1-mathematical-principles-and-experimental-discoveries-of-the-emergence-of-symbolic-patterns-in-artificial-neural-networks)  
+1. [SymDiag: Explainable Diagnosis for LLM Reasoning via Neuro-Symbolic Verification](/202608/11/2608.08786v1-symdiag-explainable-diagnosis-for-llm-reasoning-via-neuro-symbolic-verification)  
+   标签：评分：10.0/10、query:ns-xai
+   evidence：将思维链翻译为符号约束进行步骤级诊断的神经符号框架，直接匹配神经符号集成与可解释推理。
+2. [Scaling Inherently Interpretable Language Models](/202608/11/2608.07594v1-scaling-inherently-interpretable-language-models)  
    标签：评分：9.0/10、query:ns-xai
-   evidence：将神经网络推理提炼为稀疏符号模式以解释模型；神经符号可解释性。
-2. [LatentGuard: Efficient and Inspectable Latent Reasoning for LLM Safeguards](/202608/10/2608.03838v1-latentguard-efficient-and-inspectable-latent-reasoning-for-llm-safeguards)  
+   evidence：训练时将可解释性作为约束，与语言模型能力同步扩展。
+3. [Thinking vs. NoThinking: Towards Interpreting Reasoning Mechanisms of Large Language Models via Sparse Autoencoders](/202608/11/2608.08168v1-thinking-vs-nothinking-towards-interpreting-reasoning-mechanisms-of-large-language-models-via-sparse-autoencoders)  
+   标签：评分：9.0/10、query:ns-xai
+   evidence：利用稀疏自编码器对比思考与非思考模式，直接解释大语言模型推理机制
+4. [Deep probabilistic logic programming for diagnostic reasoning from incomplete information: A case study in stroke detection](/202608/11/2608.08561v1-deep-probabilistic-logic-programming-for-diagnostic-reasoning-from-incomplete-information-a-case-study-in-stroke-detection)  
+   标签：评分：9.0/10、query:ns-xai
+   evidence：DeepProbLog神经符号推理用于透明诊断
+5. [KGCaRe: Explainable Complex Conditional Question Answering using Automatic Knowledge Graph Construction and Context Retrieval with LLMs](/202608/11/2608.09779v1-kgcare-explainable-complex-conditional-question-answering-using-automatic-knowledge-graph-construction-and-context-retrieval-with-llms)  
+   标签：评分：9.0/10、query:ns-xai
+   evidence：神经检索与基于LLM生成知识图谱的符号推理相结合，实现可解释问答。
+6. [GradCuit: Credit-Assigned Gradient Flow Enables Robust and Interpretable Test-Time Latent Reasoning](/202608/11/2608.02585v2-gradcuit-credit-assigned-gradient-flow-enables-robust-and-interpretable-test-time-latent-reasoning)  
    标签：评分：8.0/10、query:ns-xai
-   evidence：面向LLM安全防护的可检视潜推理，兼顾效率与可解释性
-3. [Why Knowing Both Hops Is Not Enough: Understanding Two-Hop Generalization in Language Models](/202608/10/2608.07261v1-why-knowing-both-hops-is-not-enough-understanding-two-hop-generalization-in-language-models)  
-   标签：评分：8.0/10、query:ns-xai
-   evidence：从机制层面解释Transformer两跳泛化行为
+   evidence：大模型测试时潜在推理，通过梯度流实现可解释性
 
 ### 速读区论文标签
-1. [The Transformer Revolution, Part 1: Dynamic Processing through Output- Weight Interconnections](/202608/10/2608.03921v1-the-transformer-revolution-part-1-dynamic-processing-through-output--weight-interconnections)  
+1. [Self-Evolving Neuro-Symbolic Skills for Tool-Augmented Spatial Reasoning](/202608/11/2608.07955v1-self-evolving-neuro-symbolic-skills-for-tool-augmented-spatial-reasoning)  
+   标签：评分：8.0/10、query:ns-xai
+   evidence：NeSy-Spatial将神经视觉语言感知与符号工具调用抽象为可复用技能，自适应组合以解决空间推理任务。
+2. [Reversing Arrows in Large Language Models](/202608/11/2608.03512v1-reversing-arrows-in-large-language-models)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：提出Transformer推理为动态概念变换的解释理论，直接关联大模型可解释性。
-2. [A-SR: Self-Evolving Agentic LLMs for Symbolic Regression via Hierarchical Coordination](/202608/10/2608.04872v1-a-sr-self-evolving-agentic-llms-for-symbolic-regression-via-hierarchical-coordination)  
+   evidence：系统评估大模型对逆关系方向性语义的理解，检测神经模型中的符号关系推理能力
+3. [Counterfactual Benchmarking and Training for Factuality Consistency and Order-Robust Grounded Reasoning in LLMs over Heterogeneous Knowledge](/202608/11/2608.07838v1-counterfactual-benchmarking-and-training-for-factuality-consistency-and-order-robust-grounded-reasoning-in-llms-over-heterogeneous-knowledge)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：利用LLM智能体驱动符号回归中的表达式搜索，直接结合神经与符号推理。
-3. [Chained Recursive Language Models for Multi-Iteration Reasoning](/202608/10/2608.05124v1-chained-recursive-language-models-for-multi-iteration-reasoning)  
+   evidence：针对异构知识上的多跳推理链构建反事实基准TKFQA，联合评估答案正确性与推理链准确性
+4. [Think Deep, Speak Once: Relit, A Recursive Latent Implicit Transformer Framework](/202608/11/2608.08113v1-think-deep-speak-once-relit-a-recursive-latent-implicit-transformer-framework)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：大模型多轮推理架构
-4. [ViSR-KGC: Visual Subgraph Reasoning with Vision-Language Models for Multimodal Knowledge Graph Completion](/202608/10/2608.05833v1-visr-kgc-visual-subgraph-reasoning-with-vision-language-models-for-multimodal-knowledge-graph-completion)  
-   标签：评分：7.0/10、query:ns-xai
-   evidence：将视觉子图推理与视觉语言模型结合用于多模态知识图谱补全，体现符号结构与神经网络的结合。
-5. [A Graph Signal Processing Perspective on Numerical Sequence Representations in LLM In-Context Learning](/202608/10/2608.03015v1-a-graph-signal-processing-perspective-on-numerical-sequence-representations-in-llm-in-context-learning)  
+   evidence：递归模型擅长符号推理但语义连贯不足，ReLIT将其与基础模型语义表示混合，实现符号式推理与神经语义的结合。
+5. [Perception Before Reasoning: Dynamic Latent Reasoning for Video Understanding and Question Answering](/202608/11/2608.04124v1-perception-before-reasoning-dynamic-latent-reasoning-for-video-understanding-and-question-answering)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：用图信号分析大模型上下文学习中的内部数值表示
-6. [SEER: A Self-Grounded Evidence Interface for Controlled Spatial Relation Classification](/202608/10/2608.03631v1-seer-a-self-grounded-evidence-interface-for-controlled-spatial-relation-classification)  
+   evidence：面向视频问答的大模型潜空间推理
+6. [REIN: Bridging the Gap between Reasoning and Reliability via Reflection and Abstention Alignment](/202608/11/2608.07931v1-rein-bridging-the-gap-between-reasoning-and-reliability-via-reflection-and-abstention-alignment)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：为冻结视觉语言模型提供推理期证据接口，显式化查询相关证据以支持实体关系推理。
+   evidence：通过反思与弃答对齐提升大推理模型可靠性
+7. [Advantage-Guided Gate: Reshaping Open-Ended Reasoning for Vision-Based Spatial Intelligence](/202608/11/2608.07987v1-advantage-guided-gate-reshaping-open-ended-reasoning-for-vision-based-spatial-intelligence)  
+   标签：评分：6.0/10、query:ns-xai
+   evidence：通过优势门控纠正多模态大模型推理偏差
+8. [UNMASK: Discovering and Causally Verifying Spurious Shortcuts in Text Classifiers](/202608/11/2608.09209v1-unmask-discovering-and-causally-verifying-spurious-shortcuts-in-text-classifiers)  
+   标签：评分：6.0/10、query:ns-xai
+   evidence：自动发现并因果验证文本分类器中的虚假表面模式，用符号模式解释神经模型行为
+9. [BDH-CQ: In-Context Learning with Recurrent Latent Reasoning](/202608/11/2608.09888v1-bdh-cq-in-context-learning-with-recurrent-latent-reasoning)  
+   标签：评分：6.0/10、query:ns-xai
+   evidence：用于上下文学习的循环潜空间推理模型
 
 
 <div class="dpr-home-promo-card">

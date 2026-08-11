@@ -1,0 +1,603 @@
+Title: Perception Before Reasoning: Dynamic Latent Reasoning for Video Understanding and Question Answering
+
+URL Source: https://arxiv.org/pdf/2608.04124v1
+
+Published Time: Thu, 06 Aug 2026 00:05:02 GMT
+
+Number of Pages: 17
+
+Markdown Content:
+# Perception Before Reasoning: Dynamic Latent Reasoning for Video Understanding and Question Answering 
+
+Haotian Xia 1 Zilin Xiao 1 Junbo Zou 2 Vicente Ordonez 1 Hanjie Chen 1
+
+> 1
+
+Department of Computer Science, Rice University 
+
+> 2
+
+College of Sciences, Georgia Institute of Technology 
+
+> {hx50, hanjie}@rice.edu
+
+Abstract 
+
+Video question answering requires models to ground language queries in visual evidence and, when necessary, reason over that evi-dence across time. Existing methods typi-cally rely on long textual chain-of-thought ra-tionales, even though many questions can be answered as soon as the relevant object, action, or frame is localized. We propose Dynamic La-tent Reasoning ( DyLaR ), which first grounds a question in a short block of perception la-tents —continuous hidden states that encode query-relevant visual evidence—and then adap-tively decides whether to append reasoning la-tents —continuous thoughts that reason over this evidence in latent space—before answer-ing. DyLaR learns this behavior by grounding perception latents in verified visual evidence and distilling verified rationales into reason-ing latents, followed by reinforcement learning that further refines when to reason. Across nine video benchmarks and four multimodal language model backbones, DyLaR improves average accuracy over same-backbone base-lines while generating fewer than 20 tokens per query. On Qwen3-VL-4B, for example, DyLaR improves average accuracy over Qwen3-VL-4B-Thinking from 54.0 to 58.2 while reducing response length from 1,220.7 to 18.5 tokens per query. Ablations further show that grounded perception latents, rationale-supervised reason-ing latents, and adaptive routing each improve accuracy. 
+
+1 Introduction 
+
+Multimodal large language models (MLLMs) have shown strong capabilities in video understanding and reasoning (Maaz et al., 2024; Lin et al., 2024; Zhang et al., 2025a). Recent advances further im-prove video reasoning with chain-of-thought super-vision, reinforcement learning (RL) with verifiable rewards, and explicit evidence grounding (Feng et al., 2025; Wang et al., 2025a; Meng et al., 2025). In particular, prevailing methods elicit a textual chain-of-thought (CoT) before the answer for ev-ery question (Wei et al., 2022; Feng et al., 2025): the model first describes the relevant video content and then reasons over the description step by step, which improves accuracy through additional test-time computation (Snell et al., 2024), but at the cost of generating hundreds or thousands of tokens per query. Latent reasoning offers a way to keep this ben-efit without paying explicit CoT’s token cost. A textual CoT’s benefit comes from the hidden states it produces, not the words they are decoded into, so this computation can be carried out directly in continuous hidden states (Hao et al., 2025). Ex-plicit CoT can even be distilled into a few contin-uous hidden states without losing accuracy (Shen et al., 2025). In the image domain, recent work extends this idea to visual content: latent tokens are used to reconstruct query-relevant visual repre-sentations (Li et al., 2025; Zhang et al., 2025b), or latent visual states are interleaved with an explicit CoT (Dong et al., 2026), which still generates the full textual rationale in between. These results sug-gest that visual evidence and the reasoning over it can be represented in latent space, preserving accuracy at a lower generation cost. However, existing latent reasoning methods are designed for images and focus on how to reason in latent space, without considering whether reason-ing is needed for a given question. In video QA, we argue that whether reasoning is needed differs from question to question. For perception-oriented 
+
+questions, the answer is determined as soon as the relevant object, action, or frame is localized across the video; a textual rationale mostly re-describes what has already been found and is thus unneces-sary. For reasoning-oriented questions, localized evidence alone is insufficient: the model must fur-ther infer over it, for example comparing events across time or combining cues scattered in differ-ent frames. Every video question thus needs ev-arXiv:2608.04124v1 [cs.CV] 4 Aug 2026 Input Video Frames      
+
+> Question: Why does the …
+> Multimodal Large
+> Language Model
+> …
+> <perc_start> …<perc_end>
+> Adaptive Decision
+> Answer Perception latents
+> (1) Direct answer
+> <reason_start> <reason_end> …
+> Reasoning Latents
+> (2) Reason if needed Answer
+
+Figure 1: Overview of DyLaR, an evidence-first latent response format for video question answering. The model first grounds the question with perception latents that encode query-relevant visual evidence. It then adaptively chooses between a direct answer path and a reasoning path that inserts additional reasoning latents before the final answer. By allocating reasoning latents only when needed, DyLaR avoids unnecessary textual chain-of-thought generation while preserving answer-relevant visual evidence. 
+
+idence grounding over multiple frames, but only some need reasoning on top of it. This motivates an adaptive latent response. A latent grounding stage captures query-relevant visual evidence for every question, and a latent reasoning stage infers over this evidence only when needed. We propose Dynamic Latent Reasoning (DyLaR ), which first grounds a question in latent visual evidence and then adaptively decides whether additional latent reasoning is needed (Figure 1). Given a video and a question, DyLaR first generates a short segment of perception latents , which are continuous hidden states that carry query-relevant visual evidence. The next generated token then serves as an adaptive decision point: the model either answers directly from the perception latents, or extends the sequence with 
+
+reasoning latents , which are continuous thoughts that reason over the grounded evidence in latent space, before answering. Rather than assigning the same reasoning budget to every question, DyLaR keeps the grounded evidence in perception latents and allocates reasoning latents only when further inference over it is needed. It learns this response format by grounding perception latents in verified, localized visual evidence and distilling verified rationales into reasoning latents, followed by reinforcement learning with verifiable rewards that further refines the decision of when to reason. Experiments show that DyLaR improves both ac-curacy and efficiency for video QA. On the Qwen3-VL-4B backbone (Bai et al., 2025a), DyLaR im-proves average accuracy across nine benchmarks over Qwen3-VL-4B-Thinking from 54.0 to 58.2 while generating only 18.5 tokens per query, com-pared with 1,220.7 tokens from Qwen3-VL-4B-Thinking. On the Qwen2.5-VL-7B backbone (Bai et al., 2025b), DyLaR achieves the best average ac-curacy among recent video reasoning models built on the same backbone (Feng et al., 2025; Wang et al., 2025a; Meng et al., 2025; Liu et al., 2026b), while using only 18.2 tokens per query. The proposed method further improves InternVL3.5-4B (Wang et al., 2025d) and LLaVA-OneVision-7B (Li et al., 2024a), demonstrating that DyLaR generalizes well across different VLM backbones. Ablations show that removing perception ground-ing, reasoning latents, rationale-to-latent supervi-sion, or adaptive routing all reduce accuracy, con-firming that learning when to reason matters as much as reasoning itself; attention-map analysis further shows that DyLaR concentrates attention on query-relevant visual cues more than CoT base-lines do, offering a non-textual explanation of the evidence behind each answer. Our contributions are threefold: • We formulate video QA as adaptive latent reasoning: every question receives latent evi-dence grounding, while reasoning is invoked only when needed. The model first grounds the question with perception latents, and then chooses between direct answering and latent reasoning before producing the answer. • We introduce DyLaR, a latent response frame-work that separates perception latents for grounded visual evidence from optional rea-soning latents that infer over the grounded evidence, and train the two latent phases with localized evidence supervision, rationale-to-latent distillation, and verifiable reinforcement learning. • Across nine video benchmarks and four back-bones, DyLaR achieves the best backbone-controlled average accuracy with fewer than 20 generated tokens per query. Ablations verify that perception grounding, reasoning-latent supervision, and adaptive routing each contribute, and attention analysis shows that the latent response concentrates on query-relevant visual evidence, providing a non-textual form of interpretability. 
+
+2 Related Work 
+
+Video understanding and reasoning with MLLMs. Video MLLMs have progressed from video dialogue and instruction tuning, such as Video-ChatGPT, Video-LLaVA, LLaVA-Video, and VideoLLaMA3, to video reasoning mod-els (Maaz et al., 2024; Lin et al., 2024; Zhang et al., 2025d,a). Recent reasoning-oriented methods use CoT supervision and reinforcement learning to improve video understanding (Feng et al., 2025; Wang et al., 2025a; Liu et al., 2026b), while Open-o3-Video grounds reasoning with explicit times-tamps and bounding boxes (Meng et al., 2025). Other work explores frame-aware or agentic rea-soning (Wang et al., 2024; Zhi et al., 2025; Ge et al., 2025; He et al., 2025; Wang et al., 2025b; Zou et al., 2026). However, these methods rely on long tex-tual reasoning traces, explicit evidence-gathering procedures, or additional interaction steps. 
+
+Latent reasoning. Explicit CoT improves rea-soning but introduces token overhead (Wei et al., 2022). Latent reasoning instead moves in-termediate computation into continuous hidden states (Chen et al., 2025a). Coconut feeds hidden states back as continuous thoughts, and CODI com-presses explicit CoT into continuous states through self-distillation (Hao et al., 2025; Shen et al., 2025). SoftCoT, hybrid latent reasoning, and multimodal continuous thoughts further explore soft or contin-uous alternatives to discrete CoT generation (Xu et al., 2025; Yue et al., 2025; Pham and Ngo, 2025). 
+
+Latent visual reasoning. Recent work extends latent reasoning to visual representations, show-ing that continuous visual tokens or latent visual thoughts can improve fine-grained visual reason-ing (Bigverdi et al., 2024; Li et al., 2025; Wu et al., 2026; Qin et al., 2025; Yang et al., 2025; Liu et al., 2026a). LVR reconstructs query-relevant visual tokens in latent space (Li et al., 2025), ILVR in-terleaves text generation with latent visual states supervised by features from helper images (Dong et al., 2026), and Latent Sketchpad generates vi-sual latents that can be decoded into interpretable sketches (Zhang et al., 2025b). Mull-Tokens inserts a fixed block of modality-agnostic latent tokens be-fore the answer (Ray et al., 2026); while trained mainly on image, it also transfers to video QA. However, these methods either operate in image-centric or helper-image settings, or allocate the same latent budget to every question. Video QA instead requires the model to first localize question-relevant evidence across frames, while only some questions need evidence further composed through temporal, relational, or causal reasoning. This calls for a response space that separates visual grounding from the optional need for additional reasoning. 
+
+3 Method 
+
+We introduce DyLaR , an evidence-first framework that unifies visual grounding and conditional rea-soning within a latent response , where we keep ordinary text tokens for segment delimiters (spe-cial tokens) and the final answer, and continuous latent positions carry the intermediate hidden-state computation. The full sequence is decoded autore-gressively by the same model. Given a video and a question, the model first grounds the query in the visual input using a small number of perception latents , which are continuous hidden states that encode query-relevant visual evi-dence. Conditioned on these latents, it then either produces the answer directly or, when the ques-tion demands further inference, inserts reasoning latents , which are continuous thoughts that reason over the grounded evidence in latent space, before answering. In this way, every question receives visual grounding, while reasoning is invoked only when needed. 
+
+3.1 Adaptive Latent Response Generation 
+
+Given a video-question pair (V, q ), the base MLLM encodes the sampled frames and the question into a multimodal prefix. Conditioned on this prefix, DyLaR generates a structured latent response: de-limiter and answer tokens are generated as ordinary text tokens, while perception and reasoning steps are represented by continuous latent positions. 
+
+Latent-segment decoding. Each latent segment occupies a contiguous span of positions marked by a fixed number of <|latent_pad|> placehold-ers, which reserve positions but carry no semantic content of their own. Inside a segment, instead of sampling a vocabulary token and feeding its to-ken embedding as the next input, the model feeds the previous step’s decoder hidden state directly as the next input embedding, so that computation pro-ceeds entirely in the continuous hidden-state space. Once the predetermined number of latent steps has elapsed, decoding reverts to ordinary token-by-token generation; we refer to this procedure as 
+
+latent-segment decoding .
+
+Response structure. We define a perception seg-ment PKp , a reasoning segment RKr , an answer field A(a) as 
+
+PKp = [ <perc_start> zp 
+
+> 1: Kp
+
+<perc_end> ]
+
+RKr = [ <reason_start> zr 
+
+> 1: Kr
+
+<reason_end> ]
+
+A(a) = [ <answer> a </answer> ].
+
+Here, zp 
+
+> 1: Kp
+
+denotes Kp perception latents, zr
+
+> 1: Kr
+
+denotes Kr reasoning latents, and a denotes the final answer. The placeholders inside both latent segments are written as <|latent_pad|> in the serialized response; their roles are determined by the surrounding delimiters. 
+
+Adaptive routing. The response therefore takes one of two forms: 
+
+SDIRECT = [ PKp , A(a)] ,
+
+SREASON = [ PKp , RKr , A(a)] . (1) The position after <perc_end> serves as the adap-tive decision point: conditioned on the question and the generated perception latents, the model either emits <answer> to answer from grounded visual evidence, or emits <reason_start> and allocates 
+
+Kr reasoning latents to integrate that evidence be-fore answering. 
+
+3.2 Learning Grounded Perception and Conditional Reasoning 
+
+Each training example carries two types of veri-fied annotations: localized evidence boxes for the queried visual evidence and, when the question requires inference, a verified rationale. Examples with only verified evidence are labeled DIRECT ,and those with both are labeled REASON . These an-notations are automatically generated and filtered by an independent verifier model; Section 4.1 de-scribes the data sources and scale, and Appendix A details the generation and verification process. We optimize DyLaR in two stages. Supervised learning shapes what each latent segment repre-sents: perception latents are aligned with localized visual evidence, while reasoning latents are trained to capture reasoning information. Reinforcement learning then refines complete responses using re-wards for response format and answer correctness. 
+
+Supervised grounding and rationale distillation. 
+
+Let s ∈ { DIRECT , REASON } denote the verified type of a training example, matching the two re-sponse forms in Eq. (1): a DIRECT example carries verified localized evidence boxes, and a REASON 
+
+example additionally carries a verified rationale. The supervised fine-tuning (SFT) objective is 
+
+LSFT = Ltext + λgLground 
+
++ I[s = REASON ] ( λeLexp + λdLdistill ) ,
+
+(2) where Ltext is the standard language-modeling loss over non-latent text positions in the target response. It includes structural delimiters and final answer tokens, while <|latent_pad|> positions are ig-nored. The grounding term Lground encourages perception-latent hidden states to align with object-level visual targets constructed from verified evi-dence boxes. For REASON examples, the explicit-rationale term Lexp applies language-modeling su-pervision to the rationale-and-answer view, and the distillation term Ldistill matches the two views’ hid-den states at the answer position: after its reasoning latents, the model should arrive at the same internal state it would have reached by generating the full rationale. λg, λe, and λd are hyperparameters. 
+
+Perception grounding. For each verified evi-dence box, we construct an object-level visual tar-get from the video patches it covers. Let Pi denote the set of patch indices inside the i-th evidence box, and let xvp ∈ Rd be the projected visual em-bedding of patch p in the language-model hidden space. The target for the i-th perception latent is the box-averaged embedding 
+
+ui = 1
+
+|P i|
+
+X
+
+> p∈P i
+
+xvp, ui ∈ Rd. (3) We aggregate patches within each box because the evidence needed for video QA is usually an object, region, or an action, rather than an isolated patch. Evidence boxes are ordered chronologically across frames. During supervised learning, the number of per-ception latents follows the number of verified boxes in the example. Let Mp be this number. We teacher-force the perception-latent positions with these vi-sual targets: ui is used as the input embedding at the corresponding perception-latent position, and the preceding hidden state is aligned to ui through the grounding loss. Let ˆzpi denote the decoder hidden state imme-diately preceding the i-th perception latent, the grounding loss is the average cosine distance 
+
+Lground = 1
+
+MpMp
+
+X
+
+> i=1
+
+[1 − cos (ˆ zpi , ui)] . (4) At inference time, evidence boxes are not available; perception latents are generated using the latent-segment decoding rule described in Section 3.1. 
+
+Rationale-to-latent self-distillation. Reasoning latents do not have direct visual targets. Build-ing on CODI’s self-distillation framework (Shen et al., 2025), we adapt explicit-to-implicit CoT distillation to the reasoning segment of our latent response. For each REASON example, the same model performs two forward passes. The teacher 
+
+pass spells out the verified rationale in text be-fore the answer and is trained with a language-modeling loss over its rationale and answer tokens, 
+
+Lexp = − P 
+
+> t∈T exp
+
+log πθ(wt | V, q, w <t ), where 
+
+wt is the t-th token of the teacher response, πθ
+
+is the model’s next-token distribution, and Texp 
+
+indexes the rationale and answer positions. The 
+
+student pass follows the reasoning form in Eq. (1), replacing the rationale with Kr reasoning latents. To transfer the rationale information into the reasoning latents, we align the two passes at the answer position, i.e., the position that predicts the first answer token. Let hlat  
+
+> ℓ
+
+and hexp  
+
+> ℓ
+
+denote the layer-ℓ decoder hidden states at this position in the student and teacher passes, respectively. We define 
+
+Ldistill = 1
+
+L
+
+> L
+
+X
+
+> ℓ=1
+
+SmoothL1 
+
+
+
+hlat  
+
+> ℓ
+
+, sg hexp 
+
+> ℓ
+
+
+
+,
+
+(5) where L is the number of decoder layers and 
+
+sg[ ·] denotes stop-gradient. SmoothL1 is applied element-wise and averaged over hidden dimen-sions: for ∆ = x − y, SmoothL1( x, y) =
+
+> 1
+> d
+
+Pdj=1 ϕ(∆ j ), where ϕ(u) = 12 u2 if |u| < 1 and 
+
+ϕ(u) = |u| − 12 otherwise. The student is never trained to imitate rationale tokens; the rationale supervises it only at the representation level. 
+
+Reinforcement Learning with Latent Replay 
+
+SFT provides latent supervision under fixed target sequences, while inference depends on the model’s own routing, whether to invoke the optional reason-ing latents before answering. We therefore refine complete rollouts with GRPO (Shao et al., 2024) using verifiable rewards for response-format valid-ity and answer correctness. Since latent tokens are continuous hidden states rather than sampled vocabulary tokens, they do not have token-level probabilities. We adopt latent-state replay following GRPO latent (Li et al., 2025). For each policy-scored text token yi,t in rollout 
+
+oi, the importance ratio is 
+
+ri,t (θ) = 
+
+πθ
+
+
+
+yi,t | V, q, ˜Hi, y i,<t 
+
+
+
+πθold 
+
+
+
+yi,t | V, q, ˜Hi, y i,<t 
+
+ , (6) where πθ and πθold are the current and rollout-generating policies, and ˜Hi denotes the latent hid-den states recorded during the generation of roll-out oi and replayed as fixed input embeddings when its text tokens are re-scored. The token af-ter <perc_end> is also policy-scored: <answer> 
+
+yields the direct form, while <reason_start> 
+
+yields the reasoning form. For each prompt, we sample a group of G rollouts {oi}Gi=1 from the old policy and optimize the standard clipped GRPO ob-jective over policy-scored text tokens, with group-normalized advantages and a KL penalty toward the frozen SFT reference; the full objective is given in Appendix B. 
+
+Reward. For each rollout oi, we use a format-gated reward: 
+
+R(oi) = Iform (oi) ( αform + αacc Iacc (oi)) , (7) where Iform (oi) checks whether the rollout follows valid response form in Eq. (1), and Iacc (oi) checks whether the extracted answer matches the ground truth. The coefficients αform and αacc control the weights of format validity and answer accuracy. Group-normalizing these rewards across the group yields the advantages ˆAi in the GRPO objective (Appendix B). 
+
+4 Experiments 
+
+4.1 Experiment Details Models. Our main model is trained from Qwen3-VL-4B-Instruct (Bai et al., 2025a). To compare with existing Qwen2.5-VL-based video reasoning baselines, we also instantiate DyLaR on Qwen2.5-VL-7B-Instruct (Bai et al., 2025b). To further verify that our method generalizes across differ-ent model families, we additionally instantiate Dy-LaR on InternVL3.5-4B (Wang et al., 2025d) and LLaVA-OneVision-7B (Li et al., 2024a). For all backbones, we freeze the visual encoder and mul-timodal projector, and update only the language model parameters. 
+
+Training data. We curate training data from Video-R1-CoT (Feng et al., 2025), which aggre-gates LLaVA-Video-178k (Zhang et al., 2025d), NeXT-QA (Xiao et al., 2021), PerceptionTest (Pa-traucean et al., 2023), etc., and supplement it with the training splits of LongVideo-Reason (Chen et al., 2025b), CG-Bench (Chen et al., 2024), Video-Holmes (Cheng et al., 2025) and MLVU (Zhou et al., 2025). For each example, we generate candi-date evidence boxes and rationales with Qwen3.5-397B-A17B (QwenTeam, 2026) and filter them with Kimi-K2.5 (KimiTeam, 2026) as an indepen-dent verifier (prompts in Appendix A; human audit in Appendix A.4). We retain approximately 20K examples for SFT and 30K for RL. 
+
+Training and inference. We apply the same training and inference procedure across all four backbones: one epoch of SFT followed by 2,500 GRPO steps. For both training and inference, we uniformly sample 16 frames per video, with each frame capped at 307,200 pixels; at inference time we use greedy decoding with fixed latent budgets 
+
+Kp = 4 and Kr = 6 . Full hyperparameters are in Appendix C. 
+
+Benchmarks. We evaluate nine video-QA bench-marks covering both perception-centric and reasoning-centric questions: Video-MME (Fu et al., 2025), LVBench (Wang et al., 2025c), LongVideoBench (Wu et al., 2024), MVBench (Li et al., 2024b), LongVideo-Reason (Chen et al., 2025b), TempCompass (Liu et al., 2024), Video-TT (Zhang et al., 2025c), Video-Holmes (Cheng et al., 2025), and MMVU (Zhao et al., 2025). De-tails of benchmarks are provided in Appendix D. 
+
+Baselines. We compare with four groups of base-lines. First, we include reported results from pro-prietary models, GPT-4o (OpenAI et al., 2024) and Gemini-1.5-Pro (Team et al., 2024), as refer-ence points for frontier model performance; these models may use different inference settings. Sec-ond, for the Qwen2.5-VL-7B backbone, we com-pare against Qwen2.5-VL-7B-Instruct with CoT prompting and recent video reasoning models built on the same backbone, including Video-R1 (Feng et al., 2025), VideoRFT (Wang et al., 2025a), Open-o3-Video (Meng et al., 2025), VideoAuto-R1 (Liu et al., 2026b), and Mull-Token (Ray et al., 2026). Third, for the Qwen3-VL-4B backbone, we com-pare against Qwen3-VL-4B-Instruct with explicit CoT prompting and Qwen3-VL-4B-Thinking (Bai et al., 2025a). Fourth, for the InternVL3.5-4B and LLaVA-OneVision-7B backbones, we compare against their Instruct models with CoT prompting. Evaluation protocol details are in Appendix D. 
+
+4.2 Main Results 
+
+Table 1 reports results on nine video benchmarks. Proprietary models provide a scale reference, while the Qwen2.5-VL-7B, Qwen3-VL-4B, InternVL3.5-4B, and LLaVA-OneVision-7B groups compare models built on the same backbone. On the Qwen3-VL-4B backbone, DyLaR achieves the best average performance among the compared Qwen3 models, improving over Qwen3-VL-4B-Thinking by 4.2 points on average. Al-though Qwen3-VL-4B-Thinking remains stronger on MMVU and TempCompass, DyLaR achieves the best overall average while generating only 18.5 visible tokens per query, compared with 1,220.7 tokens from Qwen3-VL-4B-Thinking and 3,572.3 tokens from explicit CoT prompting. On the Qwen2.5-VL-7B backbone, DyLaR achieves the best overall average accuracy while using significantly fewer visible tokens. It outper-forms Video-R1 by 2.1 points and VideoRFT by 2.2 points on average, and also surpasses the strongest prior baseline, VideoAuto-R1. Meanwhile, DyLaR uses only 18.2 tokens on average, compared with 27.0 for Mull-Token, 40.1 for VideoAuto-R1, 162.1 for Open-o3-Video, 415.2 for Video-R1, and 358.9 for VideoRFT. Qualitative example visualizations can be found in Appendix F. The same pattern generalizes to the other two backbone families. On InternVL3.5-4B, DyLaR improves the average from 54.0 to 56.7 while re-ducing generated tokens from 173.9 to 13.4 tokens per query. On LLaVA-OneVision-7B, it improves the average from 49.7 to 54.2. Its CoT baseline emits few visible tokens (14.1) due to weak adher-ence to the CoT instruction, yet DyLaR still gains 4.5 points at a comparable budget (17.8). Together with the two Qwen families, this shows that the evidence-first latent response transfers across four backbones rather than exploiting a property of a single model family. Table 1: Accuracy (%) on nine video-QA benchmarks with 16-frame uniform sampling. Tok/query is the average number of visible tokens generated or prefilled per question. LongVB: LongVideoBench. LVR: LongVideo-Reason. TempC: TempCompass. VHolmes: Video-Holmes. VTT: Video-TT.                                                                                                                                                                                            
+
+> Model Video-MME LVBench MVBench MMVU LongVB LVR TempC VHolmes VTT Avg. Tok/query
+> Proprietary models
+> GPT-4o 71.2 48.9 –67.4 66.7 60.7 ––46.6 ––Gemini-1.5-Pro 74.5 33.1 –65.4 64.0 69.3 –––––
+> Qwen2.5-VL-7B backbone
+> Qwen2.5-VL-7B-Instruct + CoT 45.0 23.6 56.9 57.4 36.0 66.7 69.2 26.5 32.7 46.0 206.1 Video-R1 57.4 35.2 63.8 63.8 55.0 69.9 70.2 41.0 42.4 55.4 415.2 VideoRFT 57.5 34.9 62.7 65.6 53.3 70.0 70.8 41.6 41.2 55.3 358.9 Open-o3-Video 59.3 37.5 63.7 65.1 57.1 72.2 70.7 40.3 39.6 56.2 162.1 VideoAuto-R1 58.9 36.0 68.8 65.4 55.9 72.2 71.0 46.9 37.7 57.0 40.1 Mull-Token 58.2 37.2 65.6 63.5 53.7 72.2 72.1 38.6 41.3 55.8 27.0
+> DyLaR (Qwen2.5-VL-7B) 59.8 41.2 66.3 64.5 57.4 74.6 72.4 41.0 40.0 57.5 18.2
+> Qwen3-VL-4B backbone
+> Qwen3-VL-4B-Instruct + CoT 47.1 26.0 52.7 62.7 41.7 62.6 70.3 30.3 31.3 47.2 3572.3 Qwen3-VL-4B-Thinking 56.3 36.9 61.0 66.7 56.3 66.8 71.3 36.7 34.0 54.0 1220.7
+> DyLaR (Qwen3-VL-4B) 59.6 39.8 66.7 63.8 58.9 76.9 69.6 47.5 40.7 58.2 18.5
+> InternVL3.5-4B backbone
+> InternVL3.5-4B-Instruct + CoT 54.5 37.4 63.1 62.2 51.8 69.5 69.5 38.6 39.8 54.0 173.9
+> DyLaR (InternVL3.5-4B) 57.6 38.5 67.2 62.7 56.8 73.9 70.7 44.7 38.2 56.7 13.4
+> LLaVA-OneVision-7B backbone
+> LLaVA-OneVision-7B + CoT 53.0 34.0 56.9 53.0 50.6 66.2 65.4 30.2 37.7 49.7 14.1 DyLaR (LLaVA-OneVision-7B) 55.7 37.3 61.0 56.6 55.8 75.1 66.0 42.0 38.0 54.2 17.8
+
+Table 2: SFT objective ablation on LVBench with Qwen3-VL-4B, before RL. “Perception latent + text CoT” keeps the perception latent block but verbalises the rationale; “Text-CoT SFT” performs all reasoning in the vocabulary space; “Answer-only SFT” removes both latent blocks and supervises only the final answer. 
+
+Variant Entity Event Key Info. Reason Temporal Summ. Overall 
+
+Text-reasoning SFT baselines 
+
+Perception latent + text CoT 38.7 40.5 40.2 38.8 33.2 27.6 38.9 Text-CoT SFT 40.2 37.6 40.9 35.3 32.7 32.8 39.0 Answer-only SFT 40.6 36.6 39.9 39.8 36.8 32.8 38.7 
+
+DyLaR latent SFT 
+
+DyLaR SFT 41.5 41.7 39.2 36.3 34.5 32.8 40.5 
+
+w/o reasoning latents 40.2 40.0 38.1 39.8 34.5 25.9 39.1 w/o reasoning supervision 38.0 37.7 42.3 35.3 32.7 32.8 38.3 w/o perception grounding 38.1 38.3 39.2 41.3 34.1 34.5 38.7 w/o adaptive routing (mandatory latent reasoning) 39.1 39.4 38.5 40.3 33.2 29.3 39.1 Question : When  did  the  events  described  in  the  video  take  place? 
+
+A.  Between  2014  and  2016  B.  Between  2020  and  2023  2016  C.  Between  1997  and  2002  D.  Between  2006  and  2008 
+
+DyLaR  (Ours)  Qwen3-VL-4B-Instruct + CoT  Qwen3-VL-4B-Thinking 
+
+…
+
+Frames extracted from a video 
+
+…
+
+Figure 2: Case study. Heatmaps show Gaussian-smoothed attention aggregation over video patches for a temporal QA example. The example requires identifying the event period from two visual cues, “1997” and “2002”. DyLaR focuses on the diagnostic cues across frames, while CoT-based baselines show more diffuse or shifted attention. 
+
+4.3 Ablation Studies and Analysis SFT objective ablation. Table 2 shows which su-pervision signals are needed to initialize the adap-tive text-latent response. The three text-reasoning baselines (defined in Table 2) all trail the full Dy-LaR SFT, showing that neither explicit rationales nor an unsupervised latent architecture alone repro-duces this behavior. Within the DyLaR family, each component mat-ters: removing reasoning latents drops the score to Table 3: Effect of the RL stage on Qwen2.5-VL-7B. Results for the other three backbones are in Appendix E.                                  
+
+> Benchmark SFT +RL (DyLaR)
+> Video-MME 58.7 59.8 +1.1
+> LVBench 40.6 41.2 +0.6
+> MVBench 65.6 66.3 +0.7
+> MMVU 61.4 64.5 +3.1
+> LongVideoBench 55.8 57.4 +1.6
+> LongVideo-Reason 73.2 74.6 +1.4
+> TempCompass 71.8 72.4 +0.6
+> Video-Holmes 39.8 41.0 +1.2
+> Video-TT 37.4 40.0 +2.6
+> Avg. 56.0 57.5 +1.5
+> Figure 3: We report the fraction of examples on which DyLaR chooses the optional reasoning branch.
+
+39.1 (visual grounding alone cannot compose evi-dence across frames); removing rationale supervi-sion drops it further to 38.3 (reasoning latents need explicit rationale-to-latent supervision, not just ex-tra computation); removing perception grounding drops it to 38.7 (perception latents need ground-ing in localized evidence); and replacing adaptive routing with mandatory latent reasoning – always allocating Kr latents regardless of difficulty – also drops it to 39.1, showing that learning when to reason beats reasoning indiscriminately. We also examine 32- and 64-frame budgets, where the full DyLaR objective remains the best variant; details are in Appendix E.2. 
+
+RL refinement. Table 3 compares the full SFT with the final RL-refined model on the Qwen2.5-VL-7B backbone. RL improves the average ac-curacy from 56.0 to 57.5. The other three back-bones follow the same pattern: RL also improves the nine-benchmark average for all the other three backbones; details are in Appendix E. 
+
+Sensitivity to visual input budget. We test whether DyLaR’s gains depend on a specific input configuration along two axes: the number of frames sampled at inference, and the pixel budget used for training and inference. First, sampling 16, 32, or 64 frames at test time from the same DyLaR (Qwen3-VL-4B) raises the nine-benchmark average from 58.2 to 59.7 to 60.5, and DyLaR stays ahead of Qwen3-VL-4B-Thinking at every frame budget; details are in Appendix E.3. Second, to show that the gains of DyLaR are not simply due to the higher training pixel budget used in Table 1, we retrain Dy-LaR (Qwen2.5-VL-7B) using the same lower pixel budget as Video-R1 and VideoRFT ( 128 × 28 × 28 
+
+for training and 256 × 28 × 28 for evaluation). Un-der this setting, DyLaR still achieves the highest average accuracy across nine benchmarks among the three methods (Appendix E.4), showing that the improvements consistently transfer across different pixel budgets. 
+
+Adaptive routing analysis. Figure 3 tests whether DyLaR reasons only when needed: under the official Video-MME category taxonomy, it trig-gers the reasoning branch on 40.1% of examples across the seven perception categories but on 86.8% across the four reasoning categories, showing that it reserves latent computation for reasoning-intensive questions rather than overusing the reasoning path. 
+
+Case analysis and visualization. Figure 2 visu-alizes a temporal QA example whose answer re-quires combining two temporal cues, “1997” and “2002”, across frames. Compared with Qwen3-VL-4B-Instruct CoT and Qwen3-VL-4B-Thinking, DyLaR produces heatmaps concentrated on these diagnostic cues and their supporting regions, sug-gesting that the latents preserve localized visual evidence before the answer decision. While the compact latent response forgoes a textual rationale, this attention concentration offers a complementary, non-textual form of interpretability. 
+
+5 Conclusion 
+
+We presented DyLaR, an evidence-first latent re-sponse framework that grounds video questions with perception latents and conditionally allocates reasoning latents before answering. The model learns this response format from localized evi-dence supervision, rationale-to-latent distillation, and reinforcement learning with verifiable rewards. Across nine video benchmarks and four backbones, DyLaR improves both accuracy and efficiency, and ablations confirm the value of both grounded per-ception states and latent reasoning. Limitations 
+
+Although DyLaR reduces visible text generation by moving intermediate computation into latent states, these states are not directly human-readable, which limits the interpretability of individual reasoning steps. The attention-map analysis in Section 4.3 partially mitigates this by exposing which visual evidence the model relies on before answering, though it does not recover a step-by-step textual rationale. In addition, our experiments focus on four open-source MLLM backbones with uniform frame sampling; future work could study whether the same grounding–reasoning separation transfers to a broader set of architectures and adaptive frame-selection settings. 
+
+Ethical Considerations 
+
+Our work builds on publicly released academic datasets and open-weight models, used consistently with their licenses and intended research use; our released code, annotations, and model checkpoints will follow the same terms, and we do not redis-tribute the original videos. The source benchmarks are curated academic datasets; our annotations add evidence boxes and rationales over them and in-troduce no personally identifying information or offensive content beyond what may exist in the original public datasets. The human audit of anno-tation quality was conducted by the authors. As with other video QA systems, our models can pro-duce incorrect answers and should not be relied on in safety-critical settings. 
+
+References 
+
+Shuai Bai, Yuxuan Cai, Ruizhe Chen, Keqin Chen, Xionghui Chen, Zesen Cheng, Lianghao Deng, Wei Ding, Chang Gao, Chunjiang Ge, Wenbin Ge, Zhi-fang Guo, Qidong Huang, Jie Huang, Fei Huang, Binyuan Hui, Shutong Jiang, Zhaohai Li, Mingsheng Li, and 45 others. 2025a. Qwen3-vl technical report. 
+
+Preprint , arXiv:2511.21631. Shuai Bai, Keqin Chen, Xuejing Liu, Jialin Wang, Wen-bin Ge, Sibo Song, Kai Dang, Peng Wang, Shi-jie Wang, Jun Tang, Humen Zhong, Yuanzhi Zhu, Mingkun Yang, Zhaohai Li, Jianqiang Wan, Pengfei Wang, Wei Ding, Zheren Fu, Yiheng Xu, and 8 oth-ers. 2025b. Qwen2.5-vl technical report. Preprint ,arXiv:2502.13923. Mahtab Bigverdi, Zelun Luo, Cheng-Yu Hsieh, Ethan Shen, Dongping Chen, Linda G. Shapiro, and Ranjay Krishna. 2024. Perception tokens enhance visual reasoning in multimodal language models. Preprint ,arXiv:2412.03548. Guo Chen, Yicheng Liu, Yifei Huang, Yuping He, Baoqi Pei, Jilan Xu, Yali Wang, Tong Lu, and Limin Wang. 2024. Cg-bench: Clue-grounded question answering benchmark for long video understanding. Preprint ,arXiv:2412.12075. Xinghao Chen, Anhao Zhao, Heming Xia, Xuan Lu, Hanlin Wang, Yanjun Chen, Wei Zhang, Jian Wang, Wenjie Li, and Xiaoyu Shen. 2025a. Rea-soning beyond language: A comprehensive sur-vey on latent chain-of-thought reasoning. Preprint ,arXiv:2505.16782. Yukang Chen, Wei Huang, Baifeng Shi, Qinghao Hu, Hanrong Ye, Ligeng Zhu, Zhijian Liu, Pavlo Molchanov, Jan Kautz, Xiaojuan Qi, Sifei Liu, Hongxu Yin, Yao Lu, and Song Han. 2025b. Scaling rl to long videos. Preprint , arXiv:2507.07966. Junhao Cheng, Yuying Ge, Teng Wang, Yixiao Ge, Jing Liao, and Ying Shan. 2025. Video-holmes: Can mllm think like holmes for complex video reasoning? 
+
+arXiv preprint arXiv:2505.21374 .Shuai Dong, Siyuan Wang, Xingyu Liu, Chenglin Li, Haowen Hou, and Zhongyu Wei. 2026. Interleaved latent visual reasoning with selective perceptual mod-eling. Preprint , arXiv:2512.05665. Kaituo Feng, Kaixiong Gong, Bohao Li, Zonghao Guo, Yibing Wang, Tianshuo Peng, Junfei Wu, Xiaoy-ing Zhang, Benyou Wang, and Xiangyu Yue. 2025. Video-r1: Reinforcing video reasoning in mllms. In 
+
+Advances in Neural Information Processing Systems ,volume 38, pages 99114–99137. Curran Associates, Inc. Chaoyou Fu, Yuhan Dai, Yongdong Luo, Lei Li, Shuhuai Ren, Renrui Zhang, Zihan Wang, Chenyu Zhou, Yunhang Shen, Mengdan Zhang, and 1 oth-ers. 2025. Video-mme: The first-ever comprehensive evaluation benchmark of multi-modal llms in video analysis. In Proceedings of the IEEE/CVF confer-ence on computer vision and pattern recognition ,pages 24108–24118. Haonan Ge, Yiwei Wang, Kai-Wei Chang, Hang Wu, and Yujun Cai. 2025. Framemind: Frame-interleaved video reasoning via reinforcement learning. arXiv preprint arXiv:2509.24008 .Shibo Hao, Sainbayar Sukhbaatar, DiJia Su, Xian Li, Zhiting Hu, Jason Weston, and Yuandong Tian. 2025. Training large language models to reason in a contin-uous latent space. Preprint , arXiv:2412.06769. Zefeng He, Xiaoye Qu, Yafu Li, Siyuan Huang, Daizong Liu, and Yu Cheng. 2025. Framethinker: Learning to think with long videos via multi-turn frame spot-lighting. arXiv preprint arXiv:2509.24304 .KimiTeam. 2026. Kimi k2.5: Visual agentic intelli-gence. Preprint , arXiv:2602.02276. Bangzheng Li, Ximeng Sun, Jiang Liu, Ze Wang, Jialian Wu, Xiaodong Yu, Hao Chen, Emad Barsoum, Muhao Chen, and Zicheng Liu. 2025. Latent visual reasoning. arXiv preprint arXiv:2509.24251 .Bo Li, Yuanhan Zhang, Dong Guo, Renrui Zhang, Feng Li, Hao Zhang, Kaichen Zhang, Peiyuan Zhang, Yanwei Li, Ziwei Liu, and Chunyuan Li. 2024a. Llava-onevision: Easy visual task transfer. Preprint ,arXiv:2408.03326. Kunchang Li, Yali Wang, Yinan He, Yizhuo Li, Yi Wang, Yi Liu, Zun Wang, Jilan Xu, Guo Chen, Ping Luo, and 1 others. 2024b. Mvbench: A com-prehensive multi-modal video understanding bench-mark. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 22195–22206. Bin Lin, Yang Ye, Bin Zhu, Jiaxi Cui, Munan Ning, Peng Jin, and Li Yuan. 2024. Video-llava: Learning united visual representation by alignment before pro-jection. In Proceedings of the 2024 conference on empirical methods in natural language processing ,pages 5971–5984. Chengzhi Liu, Yuzhe Yang, Yue Fan, Qingyue Wei, Sheng Liu, and Xin Eric Wang. 2026a. Reasoning within the mind: Dynamic multimodal interleaving in latent space. Preprint , arXiv:2512.12623. Shuming Liu, Mingchen Zhuge, Changsheng Zhao, Jun Chen, Lemeng Wu, Zechun Liu, Chenchen Zhu, Zhipeng Cai, Chong Zhou, Haozhe Liu, Ernie Chang, Saksham Suri, Hongyu Xu, Qi Qian, Wei Wen, Bal-akrishnan Varadarajan, Zhuang Liu, Hu Xu, Florian Bordes, and 4 others. 2026b. Videoauto-r1: Video auto reasoning via thinking once, answering twice. 
+
+Preprint , arXiv:2601.05175. Yuanxin Liu, Shicheng Li, Yi Liu, Yuxiang Wang, Shuhuai Ren, Lei Li, Sishuo Chen, Xu Sun, and Lu Hou. 2024. Tempcompass: Do video llms really understand videos? Preprint , arXiv:2403.00476. Muhammad Maaz, Hanoona Rasheed, Salman Khan, and Fahad Khan. 2024. Video-chatgpt: Towards detailed video understanding via large vision and language models. In Proceedings of the 62nd An-nual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 12585– 12602. Jiahao Meng, Xiangtai Li, Haochen Wang, Yue Tan, Tao Zhang, Lingdong Kong, Yunhai Tong, Anran Wang, Zhiyang Teng, Yujing Wang, and 1 others. 2025. Open-o3 video: Grounded video reasoning with explicit spatio-temporal evidence. arXiv preprint arXiv:2510.20579 .OpenAI, :, Aaron Hurst, Adam Lerer, Adam P. Goucher, Adam Perelman, Aditya Ramesh, Aidan Clark, AJ Ostrow, Akila Welihinda, Alan Hayes, Alec Radford, Aleksander M ˛ adry, Alex Baker-Whitcomb, Alex Beutel, Alex Borzunov, Alex Carney, Alex Chow, Alex Kirillov, and 401 others. 2024. Gpt-4o system card. Preprint , arXiv:2410.21276. Viorica Patraucean, Lucas Smaira, Ankush Gupta, Adria Recasens, Larisa Markeeva, Dylan Banarse, Skanda Koppula, Mateusz Malinowski, Yi Yang, Carl Doer-sch, and 1 others. 2023. Perception test: A diagnostic benchmark for multimodal video models. Advances in Neural Information Processing Systems , 36:42748– 42761. Tan-Hanh Pham and Chris Ngo. 2025. Multi-modal chain of continuous thought for latent-space reasoning in vision-language models. Preprint ,arXiv:2508.12587. Yiming Qin, Bomin Wei, Jiaxin Ge, Konstantinos Kallidromitis, Stephanie Fu, Trevor Darrell, and XuDong Wang. 2025. Chain-of-visual-thought: Teaching vlms to see and think better with contin-uous visual tokens. Preprint , arXiv:2511.19418. QwenTeam. 2026. Qwen3.5: Accelerating productivity with native multimodal agents. Arijit Ray, Ahmed Abdelkader, Chengzhi Mao, Bryan A. Plummer, Kate Saenko, Ranjay Krishna, Leonidas Guibas, and Wen-Sheng Chu. 2026. Mull-tokens: Modality-agnostic latent thinking. Preprint ,arXiv:2512.10941. Zhihong Shao, Peiyi Wang, Qihao Zhu, Runxin Xu, Junxiao Song, Xiao Bi, Haowei Zhang, Mingchuan Zhang, Y. K. Li, Y. Wu, and Daya Guo. 2024. Deepseekmath: Pushing the limits of mathemati-cal reasoning in open language models. Preprint ,arXiv:2402.03300. Zhenyi Shen, Hanqi Yan, Linhai Zhang, Zhanghao Hu, Yali Du, and Yulan He. 2025. Codi: Compress-ing chain-of-thought into continuous space via self-distillation. In Proceedings of the 2025 Conference on Empirical Methods in Natural Language Process-ing , pages 677–693. Charlie Snell, Jaehoon Lee, Kelvin Xu, and Aviral Ku-mar. 2024. Scaling llm test-time compute optimally can be more effective than scaling model parameters. 
+
+Preprint , arXiv:2408.03314. Gemini Team, Petko Georgiev, Ving Ian Lei, Ryan Burnell, Libin Bai, Anmol Gulati, Garrett Tanzer, Damien Vincent, Zhufeng Pan, Shibo Wang, Soroosh Mariooryad, Yifan Ding, Xinyang Geng, Fred Al-cober, Roy Frostig, Mark Omernick, Lexi Walker, Cosmin Paduraru, Christina Sorokin, and 1118 oth-ers. 2024. Gemini 1.5: Unlocking multimodal un-derstanding across millions of tokens of context. 
+
+Preprint , arXiv:2403.05530. Qi Wang, Yanrui Yu, Ye Yuan, Rui Mao, and Tianfei Zhou. 2025a. Videorft: Incentivizing video reason-ing capability in mllms via reinforced fine-tuning. 
+
+Preprint , arXiv:2505.12434. Shijian Wang, Jiarui Jin, Xingjian Wang, Linxin Song, Runhao Fu, Hecheng Wang, Zongyuan Ge, Yuan Lu, and Xuelian Cheng. 2025b. Video-thinker: Sparking "thinking with videos" via reinforcement learning. 
+
+Preprint , arXiv:2510.23473. Weihan Wang, Zehai He, Wenyi Hong, Yean Cheng, Xi-aohan Zhang, Ji Qi, Ming Ding, Xiaotao Gu, Shiyu Huang, Bin Xu, and 1 others. 2025c. Lvbench: An extreme long video understanding benchmark. In 
+
+Proceedings of the IEEE/CVF International Confer-ence on Computer Vision , pages 22958–22967. Weiyun Wang, Zhangwei Gao, Lixin Gu, Hengjun Pu, Long Cui, Xingguang Wei, Zhaoyang Liu, Linglin Jing, Shenglong Ye, Jie Shao, Zhaokai Wang, Zhe Chen, Hongjie Zhang, Ganlin Yang, Haomin Wang, Qi Wei, Jinhui Yin, Wenhao Li, Erfei Cui, and 56 others. 2025d. Internvl3.5: Advancing open-source multimodal models in versatility, reasoning, and effi-ciency. Preprint , arXiv:2508.18265. Xiaohan Wang, Yuhui Zhang, Orr Zohar, and Serena Yeung-Levy. 2024. Videoagent: Long-form video understanding with large language model as agent. In European Conference on Computer Vision , pages 58–76. Springer. Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten Bosma, Fei Xia, Ed Chi, Quoc V Le, Denny Zhou, and 1 others. 2022. Chain-of-thought prompting elic-its reasoning in large language models. Advances in neural information processing systems , 35:24824– 24837. Haoning Wu, Dongxu Li, Bei Chen, and Junnan Li. 2024. Longvideobench: A benchmark for long-context interleaved video-language understanding. 
+
+Advances in Neural Information Processing Systems ,37:28828–28857. Linquan Wu, Tianxiang Jiang, Yifei Dong, Haoyu Yang, Fengji Zhang, Shichaang Meng, Ai Xuan, Linqi Song, and Jacky Keung. 2026. Lavit: Aligning latent visual thoughts for multi-modal reasoning. Preprint ,arXiv:2601.10129. Junbin Xiao, Xindi Shang, Angela Yao, and Tat-Seng Chua. 2021. Next-qa: Next phase of question-answering to explaining temporal actions. In Pro-ceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 9777–9786. Yige Xu, Xu Guo, Zhiwei Zeng, and Chunyan Miao. 2025. Softcot: Soft chain-of-thought for efficient reasoning with llms. Preprint , arXiv:2502.12134. Zeyuan Yang, Xueyang Yu, Delin Chen, Maohao Shen, and Chuang Gan. 2025. Machine mental imagery: Empower multimodal reasoning with latent visual tokens. Preprint , arXiv:2506.17218. Zhenrui Yue, Bowen Jin, Huimin Zeng, Honglei Zhuang, Zhen Qin, Jinsung Yoon, Lanyu Shang, Jiawei Han, and Dong Wang. 2025. Hybrid latent reasoning via reinforcement learning. Preprint , arXiv:2505.18454. Boqiang Zhang, Kehan Li, Zesen Cheng, Zhiqiang Hu, Yuqian Yuan, Guanzheng Chen, Sicong Leng, Yuming Jiang, Hang Zhang, Xin Li, and 1 others. 2025a. Videollama 3: Frontier multimodal foun-dation models for image and video understanding. 
+
+arXiv preprint arXiv:2501.13106 .Huanyu Zhang, Wenshan Wu, Chengzu Li, Ning Shang, Yan Xia, Yangyu Huang, Yifan Zhang, Li Dong, Zhang Zhang, Liang Wang, Tieniu Tan, and Furu Wei. 2025b. Latent sketchpad: Sketching visual thoughts to elicit multimodal reasoning in mllms. Preprint ,arXiv:2510.24514. Yuanhan Zhang, Yunice Chew, Yuhao Dong, Aria Leo, Bo Hu, and Ziwei Liu. 2025c. Towards video thinking test: A holistic benchmark for ad-vanced video reasoning and understanding. Preprint ,arXiv:2507.15028. Yuanhan Zhang, Jinming Wu, Wei Li, Bo Li, Zejun Ma, Ziwei Liu, and Chunyuan Li. 2025d. Llava-video: Video instruction tuning with synthetic data. 
+
+Preprint , arXiv:2410.02713. Yilun Zhao, Lujing Xie, Haowei Zhang, Guo Gan, Yi-tao Long, Zhiyuan Hu, Tongyan Hu, Weiyuan Chen, Chuhan Li, Junyang Song, Zhijian Xu, Chengye Wang, Weifeng Pan, Ziyao Shangguan, Xiangru Tang, Zhenwen Liang, Yixin Liu, Chen Zhao, and Arman Cohan. 2025. Mmvu: Measuring expert-level multi-discipline video understanding. Preprint ,arXiv:2501.12380. Zhuo Zhi, Qiangqiang Wu, Minghe shen, Wenbo Li, Yinchuan Li, Kun Shao, and Kaiwen Zhou. 2025. Videoagent2: Enhancing the llm-based agent system for long-form video understanding by uncertainty-aware cot. Preprint , arXiv:2504.04471. Junjie Zhou, Yan Shu, Bo Zhao, Boya Wu, Zhengyang Liang, Shitao Xiao, Minghao Qin, Xi Yang, Yong-ping Xiong, Bo Zhang, Tiejun Huang, and Zheng Liu. 2025. Mlvu: Benchmarking multi-task long video understanding. Preprint , arXiv:2406.04264. Junbo Zou, Ziheng Huang, Shengjie Zhang, Liwen Zhang, and Weining Shen. 2026. Videobrain: Learn-ing adaptive frame sampling for long video under-standing. Preprint , arXiv:2602.04094. 
+
+A Data Annotation and Verification Prompts 
+
+This appendix provides the prompt templates used to construct and verify the training annotations for DyLaR. The annotation pipeline is designed to pro-vide two types of supervision: localized visual evidence for perception latents and, when addi-tional inference is required, concise rationales for rationale-based latent supervision. 
+
+A.1 Annotation Overview 
+
+For each video-question pair, we uniformly sam-ple 16 frames and use Qwen3.5-397B-A17B as the annotation generator. The generator produces a structured annotation containing a final answer, a set of question-relevant evidence boxes, and an optional rationale. We distinguish two answerable modes. In DIRECT examples, the localized evi-dence directly supports the answer. In REASON 
+
+examples, the relevant evidence is visible but must be composed through temporal comparison, causal reasoning, relational reasoning, or option-level rea-soning. We then use Kimi-K2.5 as an independent ver-ifier. The verifier checks whether the generated boxes contain useful evidence, whether the boxes support the gold answer, and, for reasoning ex-amples, whether the generated rationale is faithful to the visible evidence. We discard malformed outputs, invalid boxes, unsupported samples, and annotations whose final answers disagree with the gold answer. Only verified examples are used for supervised fine-tuning. 
+
+A.2 Annotation Generation Prompt 
+
+The annotation generator is instructed to localize vi-sual evidence before deciding whether the example should be treated as direct perception or reasoning. The simplified prompt template is shown below. 
+
+Annotation Generation Prompt 
+
+You are an evidence-first video annotation assistant. Return strict JSON only. Input: - A video question. - Candidate answer options, if available. - 16 uniformly sampled video frames with frame indices and timestamps. Task: 1. Annotate all question-relevant visual evidence in the visible frames. Evidence may include subjects, objects, actions, states, transitions, temporal bookends, or visual cues needed to answer the question. 2. Decide whether the current visual evidence is sufficient. 3. If the evidence directly supports the answer, use mode = "perception_only". Provide evidence boxes, the final answer, and an empty rationale. 4. If the evidence is visible but requires comparison, temporal integration, causality, relational reasoning, or option elimination, use mode = "need_reasoning". Provide evidence boxes, the final answer, and one concise rationale. 5. If the question is not answerable from the visible evidence, use mode = "unsupported". Rules for evidence boxes: - Each evidence item should localize a concrete visual region. - Use normalized box coordinates. - Avoid unrelated background regions or decorative objects. - Multiple boxes and multiple frames are allowed when they support the answer. Rules for rationale: - Use a rationale only for mode = "need_reasoning". - Write one concise sentence describing the reasoning over grounded objects or events. - Do not mention frame IDs, box IDs, coordinates, or annotation metadata. - Do not reveal the answer by saying "the answer is A/B/C/D" inside the rationale. Output strict JSON: {
+
+"mode" : "perception_only" | "need_reasoning" | "unsupported", 
+
+"evidence" : [ {
+
+"frame_id" : integer, 
+
+"timestamp" : float, 
+
+"entity" : "short visual phrase", 
+
+"bbox" : [x1, y1, x2, y2], 
+
+"role" : "evidence role" }], 
+
+"rationale" : "empty for perception_only", 
+
+"answer" : "answer label or text" }
+
+A.3 Three-Stage Verification Prompts 
+
+We verify generated annotations with three lightweight checks. The first two phases operate at the evidence-box level, while the third phase veri-fies rationale faithfulness for REASON examples. 
+
+Phase A: Gold-blind crop usefulness. For each generated box, we crop the corresponding region with padding. The verifier sees the question and the cropped regions, but not the gold answer. This phase filters boxes that are empty, blurred, or irrel-evant to the question. 
+
+Phase A Verification Prompt 
+
+Question: {question} You are shown cropped image regions, each labeled with a box ID. For each crop, judge whether it contains useful visual evidence for answering the question. Mark false only if: 1. the crop is empty, blurred, or contains no question-relevant content; 2. the crop is unrelated to the question. Otherwise mark true. Output strict JSON: {
+
+"judgments" : [ {"bbox_id" : integer, 
+
+> "evidence_useful" : true | false,
+> "confidence" : float between 0 and 1,
+> "reason" : "at most 20 words" }]}
+
+Phase B: Answer support verification. In Phase B, the verifier sees the question, the gold answer, and the original frames with the Phase-A surviving boxes overlaid. This phase checks whether each box supports the correct answer in its frame con-text. 
+
+Phase B Verification Prompt 
+
+> Question: {question} Correct answer: {gold_answer} You are shown video frames with numbered bounding boxes. For each numbered box, judge whether the content inside the box directly supports the correct answer. Use the rest of the frame as spatial or contextual reference if the question involves position, comparison, or relationships. If a temporal question requires multiple frames, give benefit of the doubt to a box that contributes necessary partial evidence. Output strict JSON: {
+> "judgments" : [ {
+> "bbox_id" : integer,
+> "supports_answer" : true | false,
+> "confidence" : float between 0 and 1,
+> "reason" : "at most 20 words" }]}
+
+Phase C: Rationale faithfulness. Phase C is ap-plied only to REASON examples. The verifier re-ceives the question, gold answer, generated ratio-nale, and key frames with evidence boxes overlaid. It checks whether the rationale is logical, visually grounded, and free from answer leakage or halluci-nated visual content. 
+
+Phase C Verification Prompt     
+
+> Question: {question} Correct answer: {gold_answer} Rationale: {rationale} Below are key video frames with evidence boxes around relevant entities. Judge whether the rationale faithfully reflects the visible evidence. Check: 1. "logical_to_answer" : the reasoning chain validly leads to the correct answer. 2. "visually_grounded" : the entities, actions, and events mentioned in the rationale are visible in the provided frames. 3. "leaks_answer_letter" : the rationale directly states the answer label, such as "the answer is A". 4. "hallucinates_objects" : the rationale describes objects, actions, or events not visible in the frames. Output strict JSON: {
+> "logical_to_answer" : true | false,
+> "visually_grounded" : true | false,
+> "leaks_answer_letter" : true | false,
+> "hallucinates_objects" : true | false,
+> "reason" : "at most 40 words" }
+
+The verified annotations determine which super-vised signals are applied during training. Verified evidence boxes provide object-level targets for per-ception latents, while verified rationales are used only in the explicit-rationale view for rationale-to-latent distillation. The latent placeholder positions are not supervised as ordinary text tokens. 
+
+A.4 Human Verification of Annotation Quality 
+
+As the curated training annotations provide auxil-iary supervision for distillation rather than a main contribution of this work, we assess their reliabil-ity with a human audit on a stratified sample of 100 training annotations, covering both DIRECT 
+
+and REASON examples, rather than full manual verification of the dataset. We check (i) whether the grounded evidence boxes correctly localize the queried visual content, and (ii) whether the ratio-nale is consistent with the video and supports the recorded answer. The evidence boxes are judged correct in 91% of the sampled annotations, and the rationales are judged reliable in 94%. 
+
+B Full GRPO Objective 
+
+For completeness, we give the clipped GRPO ob-jective used in Section 3.2, with the importance ratio ri,t (θ) defined in Eq. (6): 
+
+JRL (θ) = E
+
+"
+
+1
+
+G
+
+> G
+
+X
+
+> i=1
+
+1
+
+|T i|
+
+X
+
+> t∈T i
+
+h
+
+min 
+
+
+
+ri,t (θ) ˆAi,
+
+clip  ri,t (θ), 1 − ϵ, 1 + ϵ ˆAi
+
+
+
+− βD KL (πθ∥πref )
+
+i#
+
+,
+
+(8) where Ti is the set of policy-scored text tokens in rollout oi, πθold is the old policy, πref is the frozen SFT model, ϵ is the clipping coefficient, β is the KL coefficient, and ˆAi is the group-normalized advantage computed from the rollout rewards in Eq. (7): 
+
+ˆAi =
+
+R(oi) − mean 
+
+
+
+{R(oj )}Gj=1 
+
+
+
+std 
+
+
+
+{R(oj )}Gj=1 
+
+ . (9) 
+
+C Training Details 
+
+During SFT, we train for one epoch with AdamW at a learning rate of 1 × 10 −5. The number of perception latents follows the number of verified evidence boxes in each SFT example, while the number of reasoning latents is fixed at Kr = 6 . The loss weights in Eq. (2) are λg = 1 .0, λe = 1 .0, and 
+
+λd = 20 .0, with λd following CODI’s distillation weight (Shen et al., 2025). During RL, we use GRPO with learning rate 5 × 10 −7, group size 
+
+G = 8 , sampling temperature τ = 0 .9, clipping coefficient ϵ = 0 .2, and KL coefficient β = 0 .04 
+
+for 2,500 steps. Rollouts use the inference-time latent budgets Kp = 4 and Kr = 6 , and the reward coefficients in Eq. (7) are αform = 0 .05 and αacc =1.0.
+
+D Benchmark Details 
+
+All locally evaluated baselines and DyLaR share one visual protocol: 16 uniformly sampled frames per video, each capped at 307 ,200 pixels, using the prompt template and decoding configuration released in each model’s official repository. CoT-prompted and Thinking base models some-times fail to follow the instructed answer format; for these outputs, we use an LLM judge to iden-tify the selected option. Because we use a unified frame budget and the full official question sets, numbers in Table 1 are not directly comparable to those originally reported. We evaluate on nine benchmarks in total; all questions are presented as lettered multiple-choice QA, and unless otherwise noted we evaluate the full official set. 
+
+Video-MME (Fu et al., 2025) covers general video understanding with 2,700 four-option ques-tions over 900 videos, evenly split into short, medium, and long duration tiers (900 questions each). LVBench (Wang et al., 2025c) tar-gets hour-scale long-video comprehension with 1,549 four-option questions over 103 videos. 
+
+LongVideoBench (Wu et al., 2024) poses referring-reasoning questions over long videos; we evaluate the full validation split of 1,337 questions, as the test split withholds ground truth. MVBench (Li et al., 2024b) spans 20 temporal perception task types with 200 questions each (4,000 in total). 
+
+LongVideo-Reason (Chen et al., 2025b) focuses on reasoning over long videos, with a curated eval-uation set of 1,000 questions. TempCompass (Liu et al., 2024) probes temporal understanding with 7,540 instances spanning its four official task for-mats; we follow Video-R1’s official evaluation set (Feng et al., 2025), in which all instances are cast as lettered multiple-choice questions. Video-TT (Zhang et al., 2025c) is a holistic video think-ing test; we evaluate its multiple-choice split of 1,000 five-option questions (one per video). Video-Holmes (Cheng et al., 2025) requires multi-step inference over suspense short films, with 1,837 six-option questions. MMVU (Zhao et al., 2025) evaluates expert-level, multi-discipline video un-derstanding; we evaluate the 625 multiple-choice questions of its public validation split, with the remaining 375 open-ended questions excluded. 
+
+E More Ablation Result 
+
+E.1 RL Ablation Across Four Backbones 
+
+Table 4 reports the per-backbone breakdown of the SFT →RL comparison summarised in Section 4.3, where RL improves the nine-benchmark average on all four backbones by +1 .1 to +1 .5 points. 
+
+E.2 SFT Objective Ablation under Different Frames 
+
+Tables 5 and 6 repeat the SFT objective ablation of Table 2 at 32- and 64-frame test-time budgets, where the full DyLaR objective again attains the highest overall accuracy. 
+
+E.3 Inference Frame Budget 
+
+Table 7 reports the per-benchmark breakdown be-hind the frame-budget analysis in Section 4.3, Table 4: Per-backbone view of the RL stage. Bold marks the cells RL improves; ∆ is the change in the nine-benchmark average.                                                        
+
+> Backbone Video-MME LVBench MVBench MMVU LongVB LVR TempC VHolmes VTT Avg. ∆
+> Qwen2.5-VL-7B 58.7 →59.8 40.6 →41.2 65.6 →66.3 61.4 →64.5 55.8 →57.4 73.2 →74.6 71.8 →72.4 39.8 →41.0 37.4 →40.0 56.0 →57.5 +1.5 Qwen3-VL-4B 58.2 →59.6 40.5 →39.8 65.2 →66.7 65.4 →63.8 57.7 →58.9 76.4 →76.9 66.5 →69.6 43.2 →47.5 38.3 →40.7 56.8 →58.2 +1.4 InternVL3.5-4B 56.4 →57.6 37.7 →38.5 66.1 →67.2 62.1 →62.7 55.9 →56.8 74.5 →73.9 68.5 →70.7 40.8 →44.7 38.6 →38.2 55.6 →56.7 +1.1 LLaVA-OneVision-7B 55.0 →55.7 36.8 →37.3 60.4 →61.0 54.4 →56.6 54.6 →55.8 72.1 →75.1 65.1 →66.0 43.0 →42.0 35.4 →38.0 53.0 →54.2 +1.2
+
+Table 5: SFT objective ablation on LVBench with Qwen3-VL-4B at a 32-frame budget. “Perception latent + text CoT” keeps the perception latent block but verbalises the rationale; “Text-CoT SFT” performs all reasoning in the vocabulary space; “Answer-only SFT” removes both latent blocks and supervises only the final answer. 
+
+Variant Entity Event Key Info. Reason Temporal Summ. Overall 
+
+Text-reasoning SFT baselines 
+
+Perception latent + text CoT 42.5 41.4 42.3 40.3 34.5 34.5 41.6 Text-CoT SFT 44.0 40.3 40.2 41.3 33.2 31.0 41.8 Answer-only SFT 40.6 40.5 40.5 39.3 34.1 32.8 40.5 
+
+DyLaR latent SFT 
+
+DyLaR SFT (full) 44.2 42.2 41.6 38.8 34.5 34.5 42.1 
+
+w/o reasoning latents 42.5 40.5 40.5 40.3 37.7 37.9 41.1 w/o reasoning supervision 42.5 40.3 42.3 38.3 38.6 32.8 40.9 w/o perception grounding 42.5 39.7 42.6 44.3 36.4 31.0 41.4 w/o adaptive routing (mandatory latent reasoning) 42.2 40.5 43.6 40.8 33.2 34.5 41.3 
+
+where DyLaR stays ahead of Qwen3-VL-4B-Thinking at 16, 32, and 64 frames. 
+
+E.4 Matched Low-Resolution Protocol 
+
+Table 8 reports the per-benchmark breakdown be-hind the pixel-budget analysis in Section 4.3, where DyLaR attains the highest nine-benchmark average of the three models under the matched protocol. 
+
+F More Visualizations 
+
+In this section, Figure 4 and Figure 5 show two routes of our DyLaR model. The model distin-guished the task successfully and therefore entered the correct latent route. Table 6: SFT objective ablation on LVBench with Qwen3-VL-4B at a 64-frame budget, before RL. “Perception latent + text CoT” keeps the perception latent block but verbalises the rationale; “Text-CoT SFT” performs all reasoning in the vocabulary space; “Answer-only SFT” removes both latent blocks and supervises only the final answer.                                                                
+
+> Variant Entity Event Key Info. Reason Temporal Summ. Overall
+> Text-reasoning SFT baselines
+> Perception latent + text CoT 44.6 41.3 43.6 42.3 34.1 34.5 42.8 Text-CoT SFT 47.3 42.0 44.0 40.3 34.1 29.3 43.8 Answer-only SFT 46.4 41.4 47.8 43.8 36.8 41.4 44.0
+> DyLaR latent SFT
+> DyLaR SFT (full) 48.6 44.2 48.5 42.8 33.6 31.0 45.3
+> w/o reasoning latents 46.5 42.8 45.0 45.3 38.2 27.6 44.1 w/o reasoning supervision 44.2 41.9 47.8 41.3 39.1 32.8 43.2 w/o perception grounding 47.1 41.4 49.5 41.8 37.3 29.3 43.8 w/o adaptive routing (mandatory latent reasoning) 47.0 41.7 46.0 41.3 33.6 24.1 43.0
+
+Table 7: Effect of the inference frame budget on the nine main benchmarks. LongVB: LongVideoBench. LVR: LongVideo-Reason. TempC: TempCompass. VHolmes: Video-Holmes. VTT: Video-TT. 
+
+Model Video-MME LVBench MVBench MMVU LongVB LVR TempC VHolmes VTT Avg. 
+
+16 frames 
+
+Qwen3-VL-4B-Thinking 56.3 36.9 61.0 66.7 56.3 66.8 71.3 36.7 34.0 54.0 DyLaR (Qwen3-VL-4B) 59.6 39.8 66.7 63.8 58.9 76.9 69.6 47.5 40.7 58.2 
+
+32 frames 
+
+Qwen3-VL-4B-Thinking 60.9 37.5 62.4 68.3 57.9 71.1 72.0 40.3 36.0 56.3 DyLaR (Qwen3-VL-4B) 62.3 43.4 66.7 63.0 62.0 77.6 70.0 49.4 42.5 59.7 
+
+64 frames 
+
+Qwen3-VL-4B-Thinking 63.3 40.7 61.6 68.6 61.8 72.4 71.1 42.5 37.6 57.7 DyLaR (Qwen3-VL-4B) 63.5 45.7 65.9 64.0 63.2 79.5 69.1 50.4 43.3 60.5 
+
+Table 8: Per-benchmark results under the matched low-resolution protocol ( 128 × 28 × 28 for training, 256 × 28 × 28 
+
+for evaluation). LongVB: LongVideoBench. LVR: LongVideo-Reason. TempC: TempCompass. VHolmes: Video-Holmes. VTT: Video-TT. 
+
+Model Video-MME LVBench MVBench MMVU LongVB LVR TempC VHolmes VTT Avg. Video-R1 57.7 34.3 63.6 65.4 55.1 71.3 70.0 40.8 41.6 55.5 
+
+VideoRFT 55.7 33.0 62.0 66.2 53.3 70.5 70.7 40.8 41.0 54.8 
+
+DyLaR (Qwen2.5-VL-7B) 58.9 39.7 67.9 62.4 56.8 74.1 73.1 42.2 36.6 56.9 
+
+Figure 4: DyLaR distinguished this case does not require reasoning, as the color of the glove is obviously shown in the image. Figure 5: DyLaR routes this case through its reasoning segment: the frames show its downstream wildfires—rather than the disaster itself. The model infers the visible evidence into the underlying cause (drought).
