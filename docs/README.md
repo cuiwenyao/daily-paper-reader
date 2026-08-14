@@ -6,51 +6,59 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-08-13
-- 运行时间：2026-08-13 21:06:10 UTC
+- 最新运行日期：2026-08-14
+- 运行时间：2026-08-14 19:50:41 UTC
 - 运行状态：成功
-- 本次总论文数：9
-- 精读区：5
-- 速读区：4
+- 本次总论文数：13
+- 精读区：3
+- 速读区：10
 
 ### 今日简报（AI）
-今日共读9篇论文，精读5篇、速读4篇，重点聚焦一阶归纳验证与结构逻辑张量网络。
-
-最值得关注的两项高分为：《Hypothesis Frontier》提出验证器引导的LLM与符号搜索结合（9.0），《sLTN》构建结构逻辑张量网络（9.0），均代表神经符号融合的前沿方向。
-
-建议普通读者优先浏览这两篇的摘要与核心图，再配合速读中的《ReCBM》与《VERDICT》了解多模态推理验证的务实进展。
-- 详情：[/202608/13/README](/202608/13/README)
+今日共读13篇，精读2篇，重点聚焦知识图谱概念学习与组合推理。最值得关注《Moose》在EL++中提出推理捷径感知的潜在概念学习，以及《From Atomic Evidence to Logical Composition》的复合选项结构化组合推理。建议优先精读这两篇，后者对多选类问答的推理拆解尤为实用。
+- 详情：[/202608/14/README](/202608/14/README)
 
 ### 精读区论文标签
-1. [Hypothesis Frontier: Verifier Guided LLM and Symbolic Search for First-Order Induction](/202608/13/2608.10843v1-hypothesis-frontier-verifier-guided-llm-and-symbolic-search-for-first-order-induction)  
+1. [Moose: Latent concept learning with reasoning-shortcut awareness in $\mathcal{EL}^{++}$](/202608/14/2608.12961v1-moose-latent-concept-learning-with-reasoning-shortcut-awareness-in-mathcalel)  
    标签：评分：9.0/10、query:ns-xai
-   evidence：结合大模型与符号搜索的一阶归纳神经符号框架，直接匹配神经符号集成
-2. [sLTN: Structural Logic Tensor Networks](/202608/13/2608.11136v1-sltn-structural-logic-tensor-networks)  
-   标签：评分：9.0/10、query:ns-xai
-   evidence：扩展逻辑张量网络的结构维度，直接实现神经符号学习与推理
-3. [Policy-as-logic for robust reasoning over rules](/202608/13/2608.11905v1-policy-as-logic-for-robust-reasoning-over-rules)  
-   标签：评分：9.0/10、query:ns-xai
-   evidence：混合符号方法：大语言模型提取事实，答案集求解器做可解释推理
-4. [Decodable But Not Detachable: Training Data Granularity Determines Parametric Modularity in Large Language Models](/202608/13/2608.10214v1-decodable-but-not-detachable-training-data-granularity-determines-parametric-modularity-in-large-language-models)  
+   evidence：采用可微符号SDD层进行EL++本体上的神经符号学习，直接契合神经符号融合的可解释推理需求
+2. [From Atomic Evidence to Logical Composition: Structured Compositional Reasoning over Compound Answer Options](/202608/14/2608.12836v1-from-atomic-evidence-to-logical-composition-structured-compositional-reasoning-over-compound-answer-options)  
    标签：评分：8.0/10、query:ns-xai
-   evidence：对大模型参数模块性进行因果可解释性分析，契合大模型解释性需求
-5. [Measuring Semantic Abstractness of SAE Features via Nonlocality](/202608/13/2608.10537v1-measuring-semantic-abstractness-of-sae-features-via-nonlocality)  
+   evidence：用逻辑运算符和整数线性规划组合LLM的原子判断
+3. [DMDIntel: Interpreting Large Language Models via Dynamic Mode Decomposition](/202608/14/2608.13048v1-dmdintel-interpreting-large-language-models-via-dynamic-mode-decomposition)  
    标签：评分：8.0/10、query:ns-xai
-   evidence：提出特征非局域性度量，用于评估SAE特征的语义抽象程度，助力大模型推理的可解释性
+   evidence：基于动态模式分解的LLM输入归因
 
 ### 速读区论文标签
-1. [ReCBM: Uncertainty-Gated Relational Reasoning for Concept Bottleneck Models](/202608/13/2608.10004v1-recbm-uncertainty-gated-relational-reasoning-for-concept-bottleneck-models)  
+1. [One Adapter Pair per Model: A Universal Activation Interface for Language Models](/202608/14/2608.09521v1-one-adapter-pair-per-model-a-universal-activation-interface-for-language-models)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：概念瓶颈模型中的语义关系与不确定性门控推理
-2. [VERDICT: Training-Free Step-Wise Verification of Multimodal Reasoning via Disagreement-Aware Consensus](/202608/13/2608.10665v1-verdict-training-free-step-wise-verification-of-multimodal-reasoning-via-disagreement-aware-consensus)  
+   evidence：通用激活接口，使探针和SAE等可解释性工具跨语言模型共享
+2. [Hierarchical Compositionality for An Assistive AI Agent](/202608/14/2608.10330v1-hierarchical-compositionality-for-an-assistive-ai-agent)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：基于分歧感知共识的多模态推理逐步验证
-3. [On the (Intuitionistic) Logic of Next-Token Prediction](/202608/13/2608.08145v1-on-the-intuitionistic-logic-of-next-token-prediction)  
+   evidence：针对大模型不透明和任意决策，探索层次组合式架构以提升可解释性
+3. [From Reasoning Depth to Reasoning Breadth: Evaluating Multi-Point Associative Reasoning in Large Language Models](/202608/14/2608.10444v2-from-reasoning-depth-to-reasoning-breadth-evaluating-multi-point-associative-reasoning-in-large-language-models)  
+   标签：评分：7.0/10、query:ns-xai
+   evidence：面向LLM多点联想推理的中英双语基准
+4. [Rethinking LLM Verification: Evidence Structure, Uncertainty, and Selective Refinement](/202608/14/2608.10725v1-rethinking-llm-verification-evidence-structure-uncertainty-and-selective-refinement)  
+   标签：评分：7.0/10、query:ns-xai
+   evidence：选择性的本体接地提升LLM推理可靠性
+5. [SAEVerbalizer: Generating Explanations for Sparse Autoencoder Features via Representation Verbalization](/202608/14/2608.13538v1-saeverbalizer-generating-explanations-for-sparse-autoencoder-features-via-representation-verbalization)  
+   标签：评分：7.0/10、query:ns-xai
+   evidence：通过表示语言化生成大模型稀疏自编码器特征的解释
+6. [Hierarchical Latent Prediction for Language Models](/202608/14/2608.05806v1-hierarchical-latent-prediction-for-language-models)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：用直觉主义逻辑形式化下一词预测，桥接符号逻辑与神经网络
-4. [Deployable Per-Instance Multi-Layer Activation Steering for Large Language Models](/202608/13/2608.08829v1-deployable-per-instance-multi-layer-activation-steering-for-large-language-models)  
+   evidence：针对语言模型长程推理与规划，提出层级潜变量预测训练目标
+7. [RP-OPSD: Reasoning-Pivot-Guided On-Policy Self-Distillation for Multilingual Reasoning Transfer](/202608/14/2608.06347v1-rp-opsd-reasoning-pivot-guided-on-policy-self-distillation-for-multilingual-reasoning-transfer)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：通过逐实例多层激活引导实现大语言模型的可解释行为控制
+   evidence：面向大语言模型多语言推理迁移，提出以推理关键点为导向的自蒸馏方法
+8. [Directed Neuro-Symbolic Stochastic Execution for Verification of Distributed Parallel AI Programs](/202608/14/2608.07947v1-directed-neuro-symbolic-stochastic-execution-for-verification-of-distributed-parallel-ai-programs)  
+   标签：评分：6.0/10、query:ns-xai
+   evidence：神经符号混合测试框架，将LLM调度预测与符号约束求解结合用于分布式AI程序
+9. [Rationale-Guided Learning for Multimodal Emotion Recognition](/202608/14/2608.10448v1-rationale-guided-learning-for-multimodal-emotion-recognition)  
+   标签：评分：6.0/10、query:ns-xai
+   evidence：用结构化理由与双过程推理分解增强可解释性
+10. [Better Decomposition, Free Aggregation: A Synthesizer-Folding Framework for Multilingual Multi-Hop Question Answering](/202608/14/2608.13160v1-better-decomposition-free-aggregation-a-synthesizer-folding-framework-for-multilingual-multi-hop-question-answering)  
+   标签：评分：6.0/10、query:ns-xai
+   evidence：多语言RAG中的多跳推理分解与聚合
 
 
 <div class="dpr-home-promo-card">
