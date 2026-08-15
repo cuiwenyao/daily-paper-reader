@@ -6,59 +6,50 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-08-14
-- 运行时间：2026-08-14 19:50:41 UTC
+- 最新运行日期：2026-08-15
+- 运行时间：2026-08-15 20:16:56 UTC
 - 运行状态：成功
-- 本次总论文数：13
-- 精读区：3
-- 速读区：10
+- 本次总论文数：10
+- 精读区：5
+- 速读区：5
 
 ### 今日简报（AI）
-今日共读13篇，精读2篇，重点聚焦知识图谱概念学习与组合推理。最值得关注《Moose》在EL++中提出推理捷径感知的潜在概念学习，以及《From Atomic Evidence to Logical Composition》的复合选项结构化组合推理。建议优先精读这两篇，后者对多选类问答的推理拆解尤为实用。
-- 详情：[/202608/14/README](/202608/14/README)
+今日共读10篇，精读聚焦双曲神经模糊系统与动态图预测，速读覆盖LLM推理与反常识推理。最值得看《HyperANFIS》以双曲几何增强规则可解释性（9.0分），及《LiFTER》连续时间动态图预测新框架（8.0分）。建议普通读者先从高分解读入手，再按兴趣浏览速读中的推理与记忆机制研究。
+- 详情：[/202608/15/README](/202608/15/README)
 
 ### 精读区论文标签
-1. [Moose: Latent concept learning with reasoning-shortcut awareness in $\mathcal{EL}^{++}$](/202608/14/2608.12961v1-moose-latent-concept-learning-with-reasoning-shortcut-awareness-in-mathcalel)  
+1. [HyperANFIS: Enhancing Rule Representation and Interpretability in Adaptive Neuro-Fuzzy Systems via Hyperbolic Geometry](/202608/15/2608.11768v1-hyperanfis-enhancing-rule-representation-and-interpretability-in-adaptive-neuro-fuzzy-systems-via-hyperbolic-geometry)  
    标签：评分：9.0/10、query:ns-xai
-   evidence：采用可微符号SDD层进行EL++本体上的神经符号学习，直接契合神经符号融合的可解释推理需求
-2. [From Atomic Evidence to Logical Composition: Structured Compositional Reasoning over Compound Answer Options](/202608/14/2608.12836v1-from-atomic-evidence-to-logical-composition-structured-compositional-reasoning-over-compound-answer-options)  
+   evidence：基于双曲几何的自适应神经模糊推理系统，增强规则表示与可解释性
+2. [LiFTER: A Grounded Neuro-Symbolic Microscope for Continuous-Time Dynamic Graph Forecasting](/202608/15/2608.06765v1-lifter-a-grounded-neuro-symbolic-microscope-for-continuous-time-dynamic-graph-forecasting)  
    标签：评分：8.0/10、query:ns-xai
-   evidence：用逻辑运算符和整数线性规划组合LLM的原子判断
-3. [DMDIntel: Interpreting Large Language Models via Dynamic Mode Decomposition](/202608/14/2608.13048v1-dmdintel-interpreting-large-language-models-via-dynamic-mode-decomposition)  
+   evidence：通过可执行时序规则进行预测的接地神经符号方法，让预测过程可解释
+3. [Graph Machine: Exploring Edge Mechanisms as an Inductive Bias](/202608/15/2608.06834v1-graph-machine-exploring-edge-mechanisms-as-an-inductive-bias)  
    标签：评分：8.0/10、query:ns-xai
-   evidence：基于动态模式分解的LLM输入归因
+   evidence：通过边增强注意力和边中心引用机制在神经网络中动态构建关系图，增强关系推理
+4. [From Reasoning Depth to Reasoning Breadth: Evaluating Multi-Point Associative Reasoning in Large Language Models](/202608/15/2608.10444v1-from-reasoning-depth-to-reasoning-breadth-evaluating-multi-point-associative-reasoning-in-large-language-models)  
+   标签：评分：8.0/10、query:ns-xai
+   evidence：提出多点联想推理基准评估大语言模型的推理广度
+5. [Reasoning Jury: Multi-Model Consensus for Evaluating Reasoning Traces](/202608/15/2608.12585v1-reasoning-jury-multi-model-consensus-for-evaluating-reasoning-traces)  
+   标签：评分：8.0/10、query:ns-xai
+   evidence：多模型共识方法评估大模型推理轨迹质量并解释推理行为
 
 ### 速读区论文标签
-1. [One Adapter Pair per Model: A Universal Activation Interface for Language Models](/202608/14/2608.09521v1-one-adapter-pair-per-model-a-universal-activation-interface-for-language-models)  
+1. [TsuGO: Probing Search Efficiency in LLM Reasoning via Go Life-and-Death Problems](/202608/15/2608.13221v1-tsugo-probing-search-efficiency-in-llm-reasoning-via-go-life-and-death-problems)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：通用激活接口，使探针和SAE等可解释性工具跨语言模型共享
-2. [Hierarchical Compositionality for An Assistive AI Agent](/202608/14/2608.10330v1-hierarchical-compositionality-for-an-assistive-ai-agent)  
-   标签：评分：7.0/10、query:ns-xai
-   evidence：针对大模型不透明和任意决策，探索层次组合式架构以提升可解释性
-3. [From Reasoning Depth to Reasoning Breadth: Evaluating Multi-Point Associative Reasoning in Large Language Models](/202608/14/2608.10444v2-from-reasoning-depth-to-reasoning-breadth-evaluating-multi-point-associative-reasoning-in-large-language-models)  
-   标签：评分：7.0/10、query:ns-xai
-   evidence：面向LLM多点联想推理的中英双语基准
-4. [Rethinking LLM Verification: Evidence Structure, Uncertainty, and Selective Refinement](/202608/14/2608.10725v1-rethinking-llm-verification-evidence-structure-uncertainty-and-selective-refinement)  
-   标签：评分：7.0/10、query:ns-xai
-   evidence：选择性的本体接地提升LLM推理可靠性
-5. [SAEVerbalizer: Generating Explanations for Sparse Autoencoder Features via Representation Verbalization](/202608/14/2608.13538v1-saeverbalizer-generating-explanations-for-sparse-autoencoder-features-via-representation-verbalization)  
-   标签：评分：7.0/10、query:ns-xai
-   evidence：通过表示语言化生成大模型稀疏自编码器特征的解释
-6. [Hierarchical Latent Prediction for Language Models](/202608/14/2608.05806v1-hierarchical-latent-prediction-for-language-models)  
+   evidence：面向LLM思维链搜索组织与推理效率的过程级评测基准
+2. [Debias in Text, Believe Your Eyes: Text-Anchored Cross-Modal Transfer for Visual Counter-Commonsense Reasoning](/202608/15/2608.06938v1-debias-in-text-believe-your-eyes-text-anchored-cross-modal-transfer-for-visual-counter-commonsense-reasoning)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：针对语言模型长程推理与规划，提出层级潜变量预测训练目标
-7. [RP-OPSD: Reasoning-Pivot-Guided On-Policy Self-Distillation for Multilingual Reasoning Transfer](/202608/14/2608.06347v1-rp-opsd-reasoning-pivot-guided-on-policy-self-distillation-for-multilingual-reasoning-transfer)  
+   evidence：多模态大模型反常识推理中语言先验偏差的识别与跨模态去偏
+3. [Self-Correcting Long-Horizon Search Agents via Tree-Structured Memory](/202608/15/2608.10676v1-self-correcting-long-horizon-search-agents-via-tree-structured-memory)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：面向大语言模型多语言推理迁移，提出以推理关键点为导向的自蒸馏方法
-8. [Directed Neuro-Symbolic Stochastic Execution for Verification of Distributed Parallel AI Programs](/202608/14/2608.07947v1-directed-neuro-symbolic-stochastic-execution-for-verification-of-distributed-parallel-ai-programs)  
+   evidence：为LLM搜索代理提出树结构证据记忆机制，限制上下文并保留证据与修订历史
+4. [Beyond a Bag of Features: Set-Level Instability in Sparse Autoencoders](/202608/15/2608.11197v1-beyond-a-bag-of-features-set-level-instability-in-sparse-autoencoders)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：神经符号混合测试框架，将LLM调度预测与符号约束求解结合用于分布式AI程序
-9. [Rationale-Guided Learning for Multimodal Emotion Recognition](/202608/14/2608.10448v1-rationale-guided-learning-for-multimodal-emotion-recognition)  
+   evidence：检验稀疏自编码器隐含集合是否能改进大模型表示的概念级可解释性
+5. [Branch and Bound for Relational Verification of Neural Networks](/202608/15/2608.13118v1-branch-and-bound-for-relational-verification-of-neural-networks)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：用结构化理由与双过程推理分解增强可解释性
-10. [Better Decomposition, Free Aggregation: A Synthesizer-Folding Framework for Multilingual Multi-Hop Question Answering](/202608/14/2608.13160v1-better-decomposition-free-aggregation-a-synthesizer-folding-framework-for-multilingual-multi-hop-question-answering)  
-   标签：评分：6.0/10、query:ns-xai
-   evidence：多语言RAG中的多跳推理分解与聚合
+   evidence：采用分支定界与凸近似抽象来验证神经网络的关联属性
 
 
 <div class="dpr-home-promo-card">

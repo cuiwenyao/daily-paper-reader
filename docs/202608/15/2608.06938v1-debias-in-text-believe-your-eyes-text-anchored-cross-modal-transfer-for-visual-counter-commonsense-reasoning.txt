@@ -1,0 +1,2973 @@
+Debias in Text, Believe Your Eyes: Text-Anchored Cross-Modal Transfer for Visual
+Counter-Commonsense Reasoning
+Chen Ling1,3∗†, Hanqian Li2,3∗†, Dongnan Liu3, Keyu Qian4, Jungang Li2, Xinglong Liu5, Shiyi
+Wang3, Xin Dong3, Pengcheng Zhu3, Wei Zhou3, Linjian Mo‡3, Ding Nai‡1
+1Zhejiang University
+2The Hong Kong University of Science and Technology (Guangzhou)
+3Ant Group
+4Beijing University of Posts and Telecommunications
+5Nanyang Technological University
+Abstract
+The visual reasoning ability of multimodal large language
+models (MLLMs) is crucial for downstream applications,
+particularly counter-commonsense reasoning, which requires
+models to reason beyond common assumptions. Recent stud-
+ies mainly improve visual counter-commonsense reasoning by
+enhancing visual inputs, following the assumption that fail-
+ures originate from insufficient visual grounding. However,
+our empirical analysis reveals that the bottleneck is not visual
+perception. MLLMs already capture the relevant visual evi-
+dence, and the correct answer exists in their decoding space.
+Instead, the shared language decoder resolves prior–evidence
+conflicts by favoring dominant language priors, especially for
+low-frequency factual scenarios. Motivated by this, we first
+propose a text-anchored data construction pipeline, whose
+core component, Fact-Frequency Distillation (FFD), estimates
+the prior strength of commonsense facts and distills verified
+counter-commonsense scenarios into a high-quality text cor-
+pus. Building upon this corpus, we introduce TACT, a text-
+anchored post-training framework that debiases the shared
+language decoder without requiring any visual training data.
+TACT routes evidence-following and prior-driven reasoning
+trajectories into different optimization stages, enabling the
+decoder to resolve prior–evidence conflicts. Across counter-
+commonsense visual benchmarks, TACT substantially im-
+proves visual reasoning while preserving general capabilities,
+demonstrating effective text-to-vision cross-modal transfer.
+1
+Introduction
+Multimodal
+Large
+Language
+Models
+(MLLMs)
+have
+achieved remarkable progress in visual understanding. How-
+ever, they still struggle with counter-commonsense reason-
+ing, which requires models to reason beyond memorized cor-
+relations and infer outcomes under hypothetical or visually
+inconsistent conditions(Hu et al. 2025; Huang et al. 2025a;
+Zheng et al. 2026; Xun et al. 2026; Huang et al. 2025b). Re-
+cent studies show that MLLMs often rely on learned priors
+rather than genuine reasoning, leading to poor generalization
+∗These authors contributed equally.
+†This work was done during an internship at Ant Group.
+‡Corresponding author.
+in counter-commonsense settings (Wu et al. 2024; Li et al.
+2025; Yang et al. 2025).
+Recent studies(Xiao et al. 2026a; Yu et al. 2025) show that
+MLLMs often rely on high-frequency commonsense priors
+when visual evidence conflicts with expectations, leading
+to commonsense-driven hallucinations. Existing mitigation
+methods mainly follow two directions: enhancing visual ev-
+idence through approaches such as Visual Contrastive De-
+coding (VCD) (Leng et al. 2023), M3ID (Favero et al. 2024),
+VDD (Zhang et al. 2025), and MemVR (Zou et al. 2025),
+or intervening in the language decoder through inference-
+time calibration such as NoLan (Ren et al. 2026). However,
+these approaches leave open a fundamental question: whether
+MLLMs already perceive the correct evidence but fail to fol-
+low it when it conflicts with strong language priors.
+Motivated by these observations, we investigate the fun-
+damental challenge of robust counter-commonsense reason-
+ing in MLLMs and propose a novel framework for miti-
+gating language-prior bias in multimodal reasoning. Our
+approach is grounded in a simple cognitive principle: be-
+lieve what you see, not what you expect. Based on this in-
+sight, we develop a text-anchored data construction pipeline
+for counter-commonsense reasoning. As its core component,
+Factuality-Frequency Distillation (FFD) estimates the prior
+strength of commonsense facts, performs frequency-based
+routing, and distills informative counter-commonsense facts
+into high-quality QA pairs. Building upon these, we fur-
+ther propose Text-Anchored Cross-Modal Transfer (TACT),
+which performs prior-aware trajectory curation to construct
+effective supervision and subsequently optimizes the lan-
+guage decoder through two-stage post-training. By explicitly
+reinforcing evidence-following reasoning while suppress-
+ing prior-driven reasoning, TACT encourages MLLMs to
+describe what they observe before reasoning about what
+they expect. Extensive experiments on multiple multimodal
+counter-commonsense reasoning benchmarks demonstrate
+that TACT consistently improves counter-commonsense rea-
+soning while preserving the general capabilities of MLLMs.
+Our main contributions are summarized as follows:
+• We identify that the key bottleneck of visual counter-
+arXiv:2608.06938v1  [cs.CV]  7 Aug 2026
+
+
+Counterfactual Region
+Based on the image, where is the chair located?
+ A. On the floor  B. Under the floor  C. Floating in the air  D. On the table   
+Bad Trajectory ～87.5%
+The chair is clearly positioned on
+the wooden floor, resting on its legs
+atop the patterned rug, not floating,
+under the floor, or on the table. Its
+base is visible on the wooden floor.
+The visual evidence confirms it is
+grounded on the floor.
+The final answer is A.
+Good Trajectory ~12.5%
+The chair is visibly suspended in mid-
+air, with no visible contact with the
+floor or any other surface. Its legs do
+not touch the rug or the wooden floor,
+and it is positioned directly above the
+coffee table, which contradicts a "on
+the table" placement. 
+The final answer is C.
+Figure 1: A counter-commonsense example from CDH-Bench (a chair floating in mid-air). Given the same image and question,
+the dominant Bad Trajectory (∼87.5%) fabricates grounding evidence and returns the prior answer (A), whereas a rarer Good
+Trajectory (∼12.5%) faithfully reports that the legs do not touch the rug or the floor and answers correctly.
+20
+25
+30
+35
+40
+45
+Prior-Lock@k (%)  ← Weaker Prior Grip
+50
+55
+60
+65
+70
+Pass@k (%)
+k↑: prior grip weakens,
+faithful answers surface
+Qwen3-VL-8B
+InternVL3.5-8B
+Qwen2.5-VL-7B
+@1
+@4
+@8
+Figure 2: pass@k versus prior-lock@k on the counter-
+commonsense split of CDH-Bench MC for three MLLMs.
+commonsense reasoning in MLLMs lies in the language
+decoder, rather than insufficient visual perception.
+• We propose the Fact-Frequency Distillation (FFD), a
+frequency-aware data construction method for distilling
+high-quality counter-commonsense QA pairs.
+• We propose the Text-Anchored Cross-modal Transfer
+(TACT), which performs prior-aware trajectory cura-
+tion and two-stage post-training to encourage evidence-
+following reasoning.
+• Extensive experiments demonstrate that TACT consis-
+tently improves visual counter-commonsense reasoning
+while preserving the general capabilities of MLLMs us-
+ing only text-only supervision.
+2
+Related Work
+Counter-Commonsense Reasoning in MLLMs.
+Recent
+studies investigate whether MLLMs can faithfully reason
+when visual evidence contradicts commonsense priors. Early
+works reveal that models are sensitive to language-prior
+shortcuts under shifted answer distributions (Agrawal et al.
+2018), struggle with explanations of commonsense-defying
+scenes (Bitton-Guetta et al. 2023), and fail under reversed
+semantic roles (Thrush et al. 2022). More recent bench-
+marks directly examine prior–evidence conflicts: CAIT (Ling
+et al. 2026) evaluates whether models can recognize reversed
+agent–patient interactions (e.g., a rabbit dragging a tiger);
+CDH-Bench (Chen et al. 2026) studies commonsense-driven
+hallucinations induced by counting, relational, and attribute
+anomalies through paired counterfactual and commonsense
+images; and VLind-Bench (il Lee et al. 2025) provides a
+stage-wise analysis of such failures, suggesting that many
+errors arise at the decision stage rather than from visual per-
+ception. These benchmarks share a common setting where
+rare-but-valid visual evidence conflicts with high-frequency
+language priors, making them suitable for evaluating prior-
+resistant visual reasoning.
+Language Priors and Their Mitigation in MLLMs.
+Lan-
+guage priors encoded in the shared language decoder are
+essential for the strong generalization ability of MLLMs,
+but can also dominate visual evidence in low-frequency or
+counter-commonsense scenarios (Li et al. 2023; Bai et al.
+2025c). Existing mitigation methods primarily intervene in
+the visual pathway or the decoding process, including visual
+contrastive decoding (Leng et al. 2023), multimodal–text
+logit comparison (Ren et al. 2026), visual token reinjection
+(Zou et al. 2025), and alignment or representation editing
+(Yu et al. 2024; Golovanevsky et al. 2025; Xiao et al. 2026b;
+Anand et al. 2026; Liu et al. 2025; Xu et al. 2025; Ren et al.
+2023; Li et al. 2026; Hao et al. 2024). Recent studies further
+suggest that prior–evidence conflicts arise primarily in the
+
+
+shared language decoder rather than the vision encoder (Ortu
+et al. 2025). In parallel, LLM research has shown that tar-
+geted text supervision can recalibrate parametric knowledge
+and promote evidence-following behavior (Longpre et al.
+2022; Li et al. 2022; Su et al. 2024; Fan et al. 2026). Whether
+such text-only supervision can similarly recalibrate language
+priors in MLLMs remains unexplored. Our work addresses
+this question through text-anchored decoder post-training.
+3
+Preliminary
+We formulate a counter-commonsense instance as two com-
+peting propositions over an image I: a prior-consistent propo-
+sition P favored by language priors, and a visual-evidence
+proposition E supported by the image, where E̸ = P.
+Given question q, the model Mθ should follow the evidence
+(ˆy = Mθ(I, q) = E), while prior-driven errors correspond
+to predicting P. Examples from our three benchmarks are
+provided in Appendix F. To locate the source of this fail-
+ure, we first conduct a pre-study on CDH-Bench with three
+MLLMs (Bai et al. 2025a; Wang et al. 2025; Bai et al. 2025b).
+3.1
+Perception Is Not the Bottleneck
+To distinguish the perception failure from language-prior
+suppression, we evaluate whether correct answers can
+emerge through multi-trajectory decoding. For each counter-
+commonsense item, we sample n=8 Chain-of-Thought (Wei
+et al. 2023) trajectories with temperature 1.0 and measure
+pass@k (Chen et al. 2021) together with prior-lock@k, de-
+fined as the probability that all k sampled trajectories select
+the prior answer P:
+prior-lock@k = Eitems
+" p
+k
+
+ n
+k
+
+#
+,
+(1)
+where p is the number of trajectories predicting P. At
+k=1, prior-lock@1 corresponds to the prior-bias rate under
+greedy decoding. As shown in Figure 2, increasing k from 1
+to 8 improves pass@k by 15–22 points while reducing prior-
+lock@k by 14–18 points across all models, indicating that
+correct visual evidence is already accessible but suppressed
+by language priors rather than missing from perception.
+3.2
+The Failure Is a Decision-Level Prior Bias
+To identify whether errors arise from inaccessible visual ev-
+idence or prior-biased decision making, we analyze the fail-
+ure cases of Qwen3-VL-8B (details in Appendix G). We find
+that most errors select the commonsense option. A simple
+grounding prompt, which asks the model to describe the
+queried detail before answering, substantially reduces these
+errors, suggesting that visual evidence is available but ig-
+nored during decision making. The remaining failures exhibit
+over-rationalization, where CoT generates visual explana-
+tions that justify the prior (e.g., describing the floating chair
+in Figure 1 as “resting on its legs atop the rug”). These obser-
+vations indicate that the bottleneck lies in the decoder’s de-
+cision policy: when visual evidence conflicts with language
+priors, the model favors the prior. Since this decision policy
+is implemented in the shared language decoder, we hypothe-
+size that text-only supervision can reshape it and transfer to
+visual reasoning without additional visual supervision.
+4
+Methodology
+In this section, we first introduce our text-anchored data con-
+struction pipeline, which generates counter-commonsense
+QA pairs through factuality frequency distillation (FFD) and
+further derives CoT supervision from the constructed ex-
+amples. We then present TACT, a two-stage post-training
+framework that curates the constructed corpus and optimizes
+it through supervised and preference learning.
+4.1
+Text-Anchored Data Construction
+To mitigate language-prior bias in MLLMs, we build a
+scalable text-only data construction pipeline (Figure 3) that
+synthesizes counter-commonsense examples with evidence–
+prior conflicts, covering three task formats: true/false veri-
+fication (TFV), multiple-choice question answering (MCQ),
+and binary-choice question answering (BCQ). The pipeline
+consists of three main steps.
+Step 1: Taxonomy Construction.
+To ensure systematic
+coverage rather than ad hoc generation, we first define a tax-
+onomy of commonsense priors. Human annotators collabo-
+ratively identify the types of commonsense knowledge that
+can be violated in counter-commonsense scenes, resulting
+in a hierarchical taxonomy with 6 major and 28 minor cat-
+egories, including Agency, World Facts, Physical Relations,
+Magnitude, Appearance, and Social Roles (Appendix A).
+Each minor category defines a conflict attribution (e.g., Ap-
+pearance →color, Habitat →dwelling place), which guides
+the subsequent knowledge mining process.
+Step 2: Knowledge Acquisition.
+For each conflict attribu-
+tion defined in Step 1, we acquire entities and their corre-
+sponding commonsense values to construct default triplets
+T = (e, a, v), where e denotes the entity, a the target at-
+tribute, and v its canonical commonsense value. We obtain
+these triplets from three complementary sources: (i) per-
+ceptually grounded relations mined from Visual Genome
+(VG) (?); (ii) structured knowledge bases such as Wiki-
+data (Vrandečić and Krötzsch 2014) and Distributions-over-
+Quantities (Elazar et al. 2019); and (iii) LLM-generated can-
+didates for categories lacking reliable external resources (see
+Appendix B for details).
+Step 3: Factuality Frequency Distillation (FFD).
+To
+transform the default triplets T = (e, a, v) into high-quality
+counter-commonsense QA pairs, we propose a factuality fre-
+quency distillation (FFD) framework, which consists of three
+stages: (1) prior strength estimation, (2) frequency-based
+routing, and (3) counter-commonsense verification.
+Prior
+Strength
+Estimation.
+Meaningful
+counter-
+commonsense supervision arises only when it contradicts a
+strongly held commonsense prior. Therefore, for each triplet
+T = (e, a, v), we estimate its prior strength, defined as the
+probability that the target backbone model Mθ predicts the
+canonical value v given a blind text-only prompt:
+p(T) = Pθ
+ v | q(e, a), ∅
+
+,
+(2)
+
+
+Step 1: Taxonomy Construction
+Images
+Text
+...
+Human
+Annotation
+World Facts
+Relations Appearance
+Step 3: Factuality Frequency Distillation
+Step 2: Knowledge Acquisition
+Appearance.Color
+(Strawberry, Color, Red)
+T = (e, a, v)
+Models
+Generation
+Mining from
+ VG & Wikipedia
+Fixed Attribute
+p(T) < τ
+p(T) > τ
+T = (e, a, v)
+Models
+(Strawberry, Color, White)
+Rare Facts!
+(Strawberry, Color, Red)
+Candidate Value
+v' = Blue
+v' = Gray
+v' = Pink
+Caption Synthesis
+The strawberry reveals
+bright blue flesh inside.
+The strawberry has
+pink-colored flesh.
+T'= (e, a, v')
+CC Triplet
+CC Verification
+Semantic Valid
+Depictability
+Genuine CC
+Composition
+/
+TFV
+MCQ
+BCQ
+…
+glossy pure blue
+flesh, pristine blue
+skin, ivory body
+…
+Figure 3: Overview of our three-step text-anchored data construction pipeline, illustrating the process from taxonomy construction
+and factual knowledge acquisition to factuality frequency distillation.
+Algorithm 1 Trajectory Curation and Difficulty Routing
+Require: counter-commonsense pool D = {(x, y+, y−)}; back-
+bone M; teacher T; samples k
+Ensure: SFT pool S, DPO pool P
+1: S ←∅, P ←∅
+2: for (x, y+, y−) ∈D do
+3:
+c ←M(x)
+▷greedy CoT
+4:
+if ans(c) = y+ then
+5:
+continue
+▷no prior bias
+6:
+end if
+7:
+{ci}k
+i=1 ∼M(x);
+n ←|{i : ans(ci) = y+}|
+8:
+if n > 0 then
+▷self-recoverable
+9:
+pick faithful c+, prior c−from {ci}
+10:
+P ←P ∪{(x, c+, c−)}
+11:
+S ←S ∪{(x, c+)}
+12:
+else
+▷teacher distillation
+13:
+cT ←Pass@3(T, x)
+14:
+if ans(cT ) = y+ then
+15:
+S ←S ∪{(x, cT )}
+16:
+end if
+17:
+end if
+18: end for
+19: return S, P
+where q(e, a) denotes a text-only query about attribute a
+of entity e, and ∅indicates the absence of visual evidence.
+In practice, we approximate p(T) by prompting Mθ with
+multiple paraphrased blind queries and computing the pro-
+portion of responses that match the canonical value v (see
+Appendix C for details).
+Frequency-based Routing. Given the estimated prior
+strength p(T), we route each triplet according to a threshold
+τ = 0.8 :
+T ′ = R(T, p(T)) =
+(e, a, v),
+p(T) < τ,
+(e, a, v′),
+p(T) ≥τ,
+(3)
+where v′ denotes a plausible but low-frequency alternative
+value sampled from the attribute domain.
+When p(T) < τ, the target value itself corresponds to a
+naturally occurring rare fact (e.g., white strawberry), which
+already provides sufficient prior–evidence conflict for super-
+vision. Therefore, the original triplet is preserved without
+modification. In contrast, when p(T) ≥τ, the triplet rep-
+resents an entrenched commonsense prior (e.g., red straw-
+berry). We then prompt an LLM to generate a set of plausible
+yet uncommon alternative values, V′
+a ⊂Dom(a)\{v}. Each
+candidate value v′ ∈V′
+a is paired with the original entity and
+attribute to form a candidate counter-commonsense triplet
+(e, a, v′) (see Appendix C for details).
+Counter-commonsense Verification. Each triplet is con-
+verted into a target-state caption and filtered by quality gate:
+F(c) = fsem(c) ∧fdep(c) ∧fgcf(c),
+(4)
+where fsem, fdep, and fgcf respectively evaluate semantic
+consistency, visual depictability, and genuine counterfactu-
+ality with respect to original commonsense fact. Only cap-
+tions satisfying F(c) = 1 are retained (see Appendix C for
+details). Verified captions are further expanded into detailed
+scene descriptions and subsequently converted into three QA
+formats: TFV, MCQ, and BCQ (see Appendix D for details).
+4.2
+Text-Anchored Cross-modal Transfer
+Section 4.1 constructs a large collection of verified counter-
+commonsense QA pairs. However, not every QA pair pro-
+
+
+CDH-MC
+CDH-QA
+CAIT
+VLind
+Avg
+Model
+Param
+Acc
+F1
+PB↓
+Acc
+F1
+PB↓
+Acc
+F1
+PB↓
+Acc
+F1
+PB↓
+Acc
+F1
+PB↓
+General MLLMs (~10B)
+LLaVA-1.6
+7B
+47.7
+47.3
+35.0
+54.3
+38.8
+45.7
+52.2
+50.0
+47.2
+49.6
+38.1
+50.4
+50.9
+43.7
+46.0
+Kimi-VL-A3B
+16B
+49.3
+48.1
+36.3
+53.7
+36.2
+46.3
+64.0
+63.9
+36.0
+63.5
+63.6
+36.1
+59.7
+56.6
+37.8
+Qwen2.5-VL
+7B
+51.0
+50.9
+40.7
+64.3 40.0
+35.7 63.8
+63.8
+36.0
+60.3
+59.6
+39.7
+60.6
+56.3
+38.0
+InternVL3.5
+8B
+48.3
+48.0
+43.0
+45.0
+33.4
+55.0
+74.5
+74.2
+25.5
+69.6
+69.3
+30.4
+63.6
+61.4
+35.0
+GLM-4.1V
+9B
+50.3
+49.9
+35.7
+55.7
+38.9
+44.3
+74.0
+74.0
+26.0
+75.0
+75.1
+24.8
+67.3
+64.5
+30.3
+Qwen3-VL
+8B
+54.7
+54.7
+37.0
+53.7
+37.9
+46.3
+70.5
+70.8
+28.5
+75.7
+75.7
+24.2
+66.8
+64.3
+31.5
+General MLLMs (~30B)
+Qwen3-VL
+32B
+57.3
+57.2
+34.3
+49.7
+35.9
+50.3
+79.0 78.9
+21.0
+81.4 81.3
+18.6
+71.3
+68.9 27.3
+InternVL3.5
+38B
+61.0 61.0 34.0
+56.7
+39.4
+43.3
+79.0 79.0
+21.0 66.9
+66.9
+33.1
+68.2
+65.4
+30.9
+LLaVA-NeXT
+34B
+30.0
+28.8
+52.3
+29.3
+25.3
+70.7
+40.5
+30.8
+59.2
+40.8
+34.5
+59.2
+37.0
+30.8
+59.9
+Hallucination-Mitigation Methods
+VCD
+7B
+37.3
+37.0
+27.0 50.3
+36.3
+49.7
+43.2
+41.7
+56.8
+62.0
+55.9
+38.0
+49.7
+44.8
+44.4
+NoLan
+7B
+37.7
+37.0
+29.7
+51.0
+36.6
+49.0
+45.8
+43.5
+54.2
+61.2
+54.7
+38.8
+50.5
+45.0
+44.1
+MemVR
+7B
+35.7
+34.9
+28.7
+52.0
+37.1
+48.0
+44.0
+42.4
+56.0
+58.6
+50.0
+41.4
+48.8
+42.8
+45.3
+HA-DPO
+7B
+35.7
+35.3
+28.7
+61.0
+40.2 39.0
+42.2
+41.2
+57.8
+57.7
+48.5
+42.3
+49.4
+42.5
+44.7
+POVID
+7B
+38.3
+38.0
+30.0
+47.0
+35.0
+53.0
+50.7
+50.0
+49.2
+62.8
+57.2
+37.2
+52.1
+47.9
+42.6
+TACT (Ours)
+8B
+67.3 67.6 24.7 68.0
+42.4 32.0 87.5 87.5
+12.5 86.1 86.1
+13.8
+80.4
+76.2 18.2
+Table 1: Main results on the counter-commonsense visual benchmarks. Each benchmark reports Accuracy, Macro-F1 and prior-
+bias(PB) in %. Avg macro-averages the three datasets, collapsing CDH-MC and CDH-QA into a single CDH score so each
+dataset contributes 1/3. The best and second-best results in each column are highlighted in bold and underlined, respectively.
+Variant
+LSFT
+LDPO
+CDH
+CAIT
+VLind
+Exp 1
+–
+–
+62.4
+83.2
+83.0
+Exp 2
+–
+✓
+65.0
+84.5
+83.9
+Exp 3
+✓
+–
+62.2
+85.0
+85.5
+TACT
+✓
+✓
+67.7
+87.5
+86.1
+Table 2: Ablation on the adaptation strategy. LSFT and LDPO
+denote whether Stage 1 and Stage 2 use LoRA (✓) or full-
+parameter tuning (–). Results are reported as accuracy(%).
+vides an effective debiasing signal: many are already cor-
+rectly solved by the backbone model and therefore contribute
+little to mitigating language-prior bias. We therefore propose
+text-anchored cross-modal transfer (TACT), which first iden-
+tifies informative training examples through prior-aware tra-
+jectory curation, and then performs two-stage post-training
+to recalibrate the decoder toward evidence-based reasoning.
+Trajectory Curation and Difficulty Routing
+Although
+the constructed counter-commonsense QA pairs are factu-
+ally verified, not all of them provide effective supervision for
+mitigating language-prior bias. The most informative exam-
+ples are those where the backbone does not merely predict
+an incorrect answer, but explicitly rationalizes the common-
+sense prior through its chain-of-thought. We therefore intro-
+duce a trajectory curation procedure, shown in Algorithm 1,
+to identify such examples and organize them into supervised
+and preference-learning data. Specifically, we use Qwen3-
+VL-8B-Instruct (Bai et al. 2025a) as the backbone M and
+Qwen3.5-397B (Qwen Team 2026) as the teacher T. Since
+all pairs have passed factuality verification, remaining errors
+CDH
+CAIT
+VLind
+0
+20
+40
+60
+80
+100
+CC Accuracy (%)
+62.7
+84.2
+85.5
+55.0
+72.5
+77.3
+67.7
+87.5
+86.1
+Stage 1 only
+Stage 2 only
+Stage 1 + Stage 2
+Figure 4: Ablation on training stage strategy. The results are
+reported as accuracy (%) in the three settings.
+mainly reflect language-prior bias. We first remove samples
+already correctly answered by M, then evaluate the remain-
+ing cases with pass@k. Examples with faithful on-policy
+trajectories provide DPO preference pairs and SFT trajecto-
+ries, while the others receive teacher-verified trajectories via
+pass@3 for SFT. Thus, SFT collects all faithful trajectories,
+whereas DPO only uses on-policy preference pairs.
+Stage 1: On-Policy Trajectory Distillation
+Using the cu-
+rated SFT corpus obtained in Section 4.2, we first perform
+supervised fine-tuning to distill faithful reasoning trajectories
+into the language decoder. We freeze the vision encoder and
+multimodal projector while optimizing the language back-
+
+
+General VQA
+Commonsense VQA
+MMBench-en
+MMBench-zh
+HallusionBench
+CDH-CS
+VLind-CS
+Model
+Acc
+F1
+Acc
+F1
+Acc
+F1
+Acc
+F1
+Acc
+F1
+LLaVA-1.6-Mistral-7B
+72.7
+73.1
+68.8
+69.1
+51.9
+51.6
+84.7
+64.5
+83.0
+82.6
+InternVL3.5-8B
+86.6
+86.6
+86.7
+86.8
+71.6
+71.5
+93.3
+73.1
+91.6
+91.6
+Qwen3-VL-8B (base)
+89.2
+89.2
+88.1
+88.2
+74.8
+74.6
+94.2
+71.6
+91.6
+91.6
+TACT-8B (Ours)
+89.0
+89.0
+88.3
+88.5
+74.6
+74.3
+94.0
+71.3
+91.9
+91.9
+∆vs. base
+−0.2
+−0.2
++0.2
++0.3
+−0.2
+−0.3
+−0.2
+−0.3
++0.3
++0.3
+Table 3: Accuracy and Macro-F1 (%) on general VQA and the commonsense subsets of counter-commonsense VQA benchmarks.
+The ∆row reports the performance difference between TACT and its base model, with negligible changes across all metrics.
+InternVL3.5-8B and LLaVA-1.6-Mistral-7B are included as reference baselines. The best result is highlighted in bold.
+bone with the standard autoregressive objective:
+LSFT = −
+X
+(x,y+)
+X
+t
+log pθ
+ y+
+t | x, y+
+<t
+
+.
+(5)
+where y+ denotes the faithful trajectory, generated by the
+backbone for self-recoverable examples and by the teacher
+otherwise. This stage encourages the decoder to default
+to evidence-following reasoning under prior–evidence con-
+flicts. Since most supervision comes from the backbone it-
+self, the optimization reinforces existing reasoning capabili-
+ties rather than introducing off-policy behaviors.
+Stage 2: Faithful-over-Prior Preference Optimization
+Using the curated on-policy preference pairs, we further
+optimize the model with Direct Preference Optimization
+(DPO) (Rafailov et al. 2024), where the model serves as
+the frozen reference policy πref:
+LDPO = −E
+
+log σ
+
+β log πθ(y+ | x)
+πref(y+ | x)
+−β log πθ(y−| x)
+πref(y−| x)
+
+,
+(6)
+where (y+, y−) denote the faithful and prior-driven trajec-
+tories obtained during trajectory curation. Unlike Stage 1,
+which only increases the likelihood of faithful reasoning,
+DPO explicitly prefers faithful trajectories over competing
+prior-driven ones under the same prompt, thereby sharpen-
+ing the evidence-following preference.
+5
+Experiment
+5.1
+Implementation Details
+We build TACT on Qwen3-VL-8B-Instruct using LLaMA-
+Factory. We adopt LoRA (Hu et al. 2021) (rank 16, α = 32)
+to fine-tune only the shared LLM decoder, while freezing
+the vision encoder and projector. Stage 1 is trained for two
+epochs on the faithful trajectories (1×10−4, batch size 8), fol-
+lowed by Stage 2 on the self-recoverable pairs for two epochs
+(5 × 10−6, batch size 16, β = 0.1). For evaluation, we com-
+pare TACT with representative general MLLMs (Zhang et al.
+2024; Team et al. 2026, 2025; Liu et al. 2024a) and existing
+hallucination mitigation methods on 3 counter-commonsense
+visual benchmarks: CDH-Bench, CAIT, and VLind. We re-
+port Accuracy and Macro-F1 on all benchmarks. To quantify
+language-prior reliance, we further introduce the prior-bias
+metric:
+PriorBias = 1
+N
+N
+X
+i=1
+I
+h
+ˆyi = yprior
+i
+i
+,
+(7)
+where ˆyi is the model prediction and yprior
+i
+denotes the com-
+monsense prior answer.
+5.2
+Main Results
+The main results are presented in Table 1. The results show
+that existing general MLLMs exhibit substantial language-
+prior bias across all evaluated benchmarks. For example,
+Qwen3-VL-8B achieves an average Accuracy of 66.8% but
+still suffers from a prior-bias of 31.5%. Scaling to larger
+models only partially alleviates this issue: Qwen3-VL-32B
+and InternVL3.5-38B improve the average Accuracy to
+71.3% and 68.2%, respectively, while retaining prior-bias
+rates of 27.3% and 30.9%. In addition, we find that ex-
+isting hallucination-mitigation methods provide limited im-
+provements on these tasks. For instance, VCD, NoLan, and
+MemVR obtain average Accuracy of 49.7%, 50.5%, and
+48.8%, respectively, which are substantially lower than gen-
+eral MLLMs of comparable scale. Although preference-
+based methods such as HA-DPO improve specific bench-
+marks (e.g., CDH-QA), their overall performance remains
+inconsistent, with average Accuracy below 53%.
+In contrast, TACT achieves the best performance across
+all benchmarks, obtaining an average Accuracy of 80.4%,
+Macro-F1 of 76.2%, and the lowest average prior-bias of
+18.2%. Compared with the Qwen3-VL-8B backbone, TACT
+improves Accuracy from 66.8% to 80.4% and reduces prior-
+bias from 31.5% to 18.2%. The improvements are consis-
+tent across individual benchmarks, including +12.6, +14.3,
++17.0, and +10.4 Accuracy points on CDH-MC, CDH-QA,
+CAIT, and VLind, respectively. Moreover, TACT surpasses
+the strongest general MLLM baseline (Qwen3-VL-32B) by
+9.1 points in average Accuracy and reduces prior-bias by
+9.2 points, despite using only an 8B backbone. These results
+demonstrate that explicitly recalibrating language priors with
+text-only counter-commonsense supervision provides a more
+
+
+Statement: The
+Grand Canyon is
+a vast natural
+canyon. Based on
+the image, is the
+given statement
+true or false? 
+Based on the image, the statement is
+consistent with the visual
+representation. The image shows a
+large, deep canyon with natural rock
+formations and water, which can be
+described as "vast" and "natural."
+The image depicts a large canyon
+with steep, layered rock walls… The
+presence of a vast, deep gorge with
+multiple levels of rock formations
+supports the description of it being a
+"vast natural canyon."
+The image shows….The boy is
+not carrying the man on his
+back. The man is positioned
+behind the boy, suggesting he is
+carrying or supporting him, not
+the other way around.  
+The image shows…The boy is not
+carrying the man… The boy is smaller,
+and the man is clearly the adult … The
+father is not carrying the son on his
+back, but rather standing behind him
+with hands on his shoulders.
+The image displays two scenes: the top half
+shows a bright blue sky with stars…the
+bottom half shows a dark night sky with a
+bright sun and lens flares… visually depicts
+the sun appearing in a night sky and stars
+appearing in a day sky, which contradicts the
+natural order described in question. 
+Text
+The image depicts… It presents a
+fantastical, man-made or altered version of
+the location… The image shows a canyon-
+like structure but filled with artificial
+elements, which contradicts the definition
+of a "natural" canyon. Therefore…
+GLM-4.1V-9B
+InternVL3.5-38B
+The final answer is False.
+TACT-8B(Ours)
+Which option
+better describes
+the image? 
+1. A father carries
+his son on his back 
+2. A boy carries his
+father on his back
+Qwen3-VL-8B
+The image depicts a boy standing on the
+ground with his father balanced on his back,
+rather than traditional scenario of a father
+carrying a child. The boy is supporting the
+man's weight, which aligns with the
+description of the boy carrying his father.
+The final answer is 2.
+Qwen3-VL-32B
+Does the sun
+appear during day
+and stars during
+night, and not stars
+during day and
+sun during night ?
+Image shows the sun during the day
+and stars during the night. The sun is
+shining brightly in top right corner of
+the image, while stars are visible in
+the top left corner. The sun is not
+visible during the night, and the stars
+are not shining during the day.
+The sun appears during the day and stars
+appear during the night. This is because
+the sun is closer to the Earth and its light
+is more intense, making it visible during
+the day. Stars are further away and their
+light is less intense, so they are visible at
+night when sky is dark.
+LLaVA-NeXT-34B
+HA-DPO-7B
+The final answer is No.
+The final answer is Yes.
+The final answer is Yes.
+The final answer is 1.
+The final answer is True.
+The final answer is True.
+TACT-8B(Ours)
+TACT-8B(Ours)
+The final answer is 1.
+Figure 5: Qualitative comparison on counter-commonsense cases from VLind-Bench (top), CAIT (middle), and CDH-Bench
+(bottom). For each case we contrast the reasoning of TACT with a ∼10B and a ∼30B MLLM.
+effective solution than simply scaling model size or applying
+generic hallucination mitigation strategies.
+5.3
+Analysis
+Training Strategy Analysis
+To examine the impact of
+adaptation strategy, We compare LoRA-based tuning with
+full-parameter tuning under the same training settings. As
+shown in Table 2, LoRA in both stages achieves the best
+performance across all benchmarks. Replacing LoRA with
+full-parameter updates leads to consistent degradation, with
+losses of up to 4.7 points on CDH-QA and 6.0 points on
+CDH-QA under different stages. The results indicate that
+LoRA provides a more effective adaptation strategy for
+TACT by introducing counter-prior knowledge while better
+preserving the pretrained model.
+To evaluate contribution of each training stage, we com-
+pare Stage 1 only, Stage 2 only, and full two-stage TACT
+pipeline. Figure 4 shows that Stage 1 provides the primary
+improvement, outperforming Stage 2 alone by up to 11.7
+points on CAIT. Nevertheless, combining Stage 1 and Stage 2
+consistently achieves the best performance across all bench-
+marks. Specifically, Stage 2 further improves Stage 1 by 5.2,
+3.3, and 0.6 points on CDH, CAIT, and VLind respectively.
+The results show that two stages are complementary: Stage 1
+establishes evidence-grounded reasoning through faithful
+trajectory learning, while Stage 2 further refines model on
+prior-conflict cases through preference optimization.
+Capability Retention
+To evaluate capability retention, we
+examine whether TACT preserves the backbone’s original
+abilities on general visual understanding and commonsense
+reasoning tasks. We evaluate on two settings: General VQA,
+including MMBench-en, MMBench-zh (Liu et al. 2024b),
+and HallusionBench, and Commonsense VQA, including
+the commonsense subset of CDH-Bench and VLind-Bench.
+The results presented in Table 3 show that TACT preserves
+the capabilities of its Qwen3-VL-8B backbone after counter-
+commonsense training. Across all five retention benchmarks,
+the performance change remains within 0.3 points in both
+Accuracy and macro-F1. Specifically, TACT achieves com-
+parable results on General VQA, with Accuracy changes of
+−0.2, +0.2, and −0.2 points on MMBench-en, MMBench-
+zh, and HallusionBench, respectively. It also retains ordinary
+commonsense reasoning ability, with only −0.2 and +0.3
+Accuracy changes on CDH-CS and VLind-CS. These re-
+sults indicate that TACT selectively reduces prior reliance in
+counter-commonsense scenarios while preserving the back-
+bone’s general visual and commonsense capabilities.
+Qualitative Analysis
+To qualitatively examine how TACT
+changes MLLM reasoning behavior, we present counter-
+commonsense examples from VLind-Bench, CAIT, and
+CDH-Bench in Figure 5. Existing MLLMs can often recog-
+nize relevant visual concepts, but their reasoning is still dom-
+inated by commonsense priors when visual evidence con-
+flicts with expectations. As shown in these examples, models
+misinterpret counter-commonsense scenes by favoring prior-
+consistent explanations. In contrast, TACT explicitly recog-
+nizes prior–evidence conflicts and grounds its reasoning on
+visual evidence before answering. Its reasoning traces high-
+light the counter-commonsense cues, such as unusual object
+relations or physical states, leading to evidence-consistent
+predictions, which demonstrates that TACT effectively re-
+duces prior-driven errors by encouraging MLLMs to trust
+visual evidence over learned priors.
+
+
+6
+Conclusion
+In this work, we show that counter-commonsense failures
+in MLLMs stem primarily from a prior-biased decision pro-
+cess that favors language expectations over visual evidence,
+rather than from insufficient visual perception. Motivated by
+this observation, we propose text-anchored data construction
+pipeline together with Text-Anchored Cross-modal Trans-
+fer (TACT), a framework that recalibrates language priors
+through text-only supervision. By constructing supervision
+via Factuality Frequency Distillation (FFD) and conducting
+text-only post-training with trajectory curation and difficulty
+routing, TACT enables MLLMs to better resolve conflicts be-
+tween language priors and visual evidence without requiring
+visual intervention. Experiments across diverse benchmarks
+show that text-only debiasing successfully transfers to visual
+reasoning, providing an effective and data-efficient approach
+to improving counter-commonsense reasoning in MLLMs.
+References
+Agrawal, A.; Batra, D.; Parikh, D.; and Kembhavi, A. 2018.
+Don’t Just Assume; Look and Answer: Overcoming Priors
+for Visual Question Answering. arXiv:1712.00377.
+Anand, N.; Jha, S.; Bamba, U.; and Rahaman, R. 2026.
+CRoPS: A Training-Free Hallucination Mitigation Frame-
+work for Vision-Language Models. arXiv:2601.00659.
+Bai, S.; Cai, Y.; Chen, R.; Chen, K.; Chen, X.; Cheng, Z.;
+Deng, L.; Ding, W.; Gao, C.; Ge, C.; Ge, W.; Guo, Z.; Huang,
+Q.; Huang, J.; Huang, F.; Hui, B.; Jiang, S.; Li, Z.; Li, M.;
+Li, M.; Li, K.; Lin, Z.; Lin, J.; Liu, X.; Liu, J.; Liu, C.; Liu,
+Y.; Liu, D.; Liu, S.; Lu, D.; Luo, R.; Lv, C.; Men, R.; Meng,
+L.; Ren, X.; Ren, X.; Song, S.; Sun, Y.; Tang, J.; Tu, J.; Wan,
+J.; Wang, P.; Wang, P.; Wang, Q.; Wang, Y.; Xie, T.; Xu, Y.;
+Xu, H.; Xu, J.; Yang, Z.; Yang, M.; Yang, J.; Yang, A.; Yu,
+B.; Zhang, F.; Zhang, H.; Zhang, X.; Zheng, B.; Zhong, H.;
+Zhou, J.; Zhou, F.; Zhou, J.; Zhu, Y.; and Zhu, K. 2025a.
+Qwen3-VL Technical Report. arXiv:2511.21631.
+Bai, S.; Chen, K.; Liu, X.; Wang, J.; Ge, W.; Song, S.; Dang,
+K.; Wang, P.; Wang, S.; Tang, J.; Zhong, H.; Zhu, Y.; Yang,
+M.; Li, Z.; Wan, J.; Wang, P.; Ding, W.; Fu, Z.; Xu, Y.;
+Ye, J.; Zhang, X.; Xie, T.; Cheng, Z.; Zhang, H.; Yang, Z.;
+Xu, H.; and Lin, J. 2025b. Qwen2.5-VL Technical Report.
+arXiv:2502.13923.
+Bai, Z.; Wang, P.; Xiao, T.; He, T.; Han, Z.; Zhang, Z.;
+and Shou, M. Z. 2025c. Hallucination of Multimodal Large
+Language Models: A Survey. arXiv:2404.18930.
+Bitton-Guetta, N.; Bitton, Y.; Hessel, J.; Schmidt, L.; Elovici,
+Y.; Stanovsky, G.; and Schwartz, R. 2023. Breaking Common
+Sense: WHOOPS! A Vision-and-Language Benchmark of
+Synthetic and Compositional Images. arXiv:2303.07274.
+Chen, K.; Hu, Y.; Zhou, Q.; Zhu, Z.; and Luo, W. 2026. CDH-
+Bench: A Commonsense-Driven Hallucination Benchmark
+for Evaluating Visual Fidelity in Vision-Language Models.
+arXiv:2603.27982.
+Chen, M.; Tworek, J.; Jun, H.; Yuan, Q.; de Oliveira Pinto,
+H. P.; Kaplan, J.; Edwards, H.; Burda, Y.; Joseph, N.; Brock-
+man, G.; Ray, A.; Puri, R.; Krueger, G.; Petrov, M.; Khlaaf,
+H.; Sastry, G.; Mishkin, P.; Chan, B.; Gray, S.; Ryder, N.;
+Pavlov, M.; Power, A.; Kaiser, L.; Bavarian, M.; Winter, C.;
+Tillet, P.; Such, F. P.; Cummings, D.; Plappert, M.; Chantzis,
+F.; Barnes, E.; Herbert-Voss, A.; Guss, W. H.; Nichol, A.;
+Paino, A.; Tezak, N.; Tang, J.; Babuschkin, I.; Balaji, S.;
+Jain, S.; Saunders, W.; Hesse, C.; Carr, A. N.; Leike, J.;
+Achiam, J.; Misra, V.; Morikawa, E.; Radford, A.; Knight,
+M.; Brundage, M.; Murati, M.; Mayer, K.; Welinder, P.; Mc-
+Grew, B.; Amodei, D.; McCandlish, S.; Sutskever, I.; and
+Zaremba, W. 2021.
+Evaluating Large Language Models
+Trained on Code. arXiv:2107.03374.
+Elazar, Y.; Mahabal, A.; Ramachandran, D.; Bedrax-Weiss,
+T.; and Roth, D. 2019. How Large Are Lions? Inducing Dis-
+tributions over Quantitative Attributes. arXiv:1906.01327.
+Fan, Y.; Lin, C.; Zhong, X.; Zhang, S.; Zhou, H.; Zhang, Y.;
+Liang, M.; Xie, C.; Hua, E.; Chen, G.; He, Z.; Huang, C.;
+Ding, N.; and Zhou, B. 2026. LFQA-E: Carefully Bench-
+marking Long-form QA Evaluation. arXiv:2410.01945.
+Favero, A.; Zancato, L.; Trager, M.; Choudhary, S.; Perera,
+P.; Achille, A.; Swaminathan, A.; and Soatto, S. 2024. Multi-
+Modal Hallucination Control by Visual Information Ground-
+ing. arXiv:2403.14003.
+Golovanevsky, M.; Rudman, W.; Lepori, M.; Bar, A.; Singh,
+R.; and Eickhoff, C. 2025. Pixels Versus Priors: Control-
+ling Knowledge Priors in Vision-Language Models through
+Visual Counterfacts. arXiv:2505.17127.
+Hao, D.; Wang, Q.; Zhu, X.; and Liu, J. 2024. HCCL: Hi-
+erarchical Counterfactual Contrastive Learning for Robust
+Visual Question Answering. ACM Trans. Multimedia Com-
+put. Commun. Appl., 20(10).
+Hu, E. J.; Shen, Y.; Wallis, P.; Allen-Zhu, Z.; Li, Y.; Wang, S.;
+Wang, L.; and Chen, W. 2021. LoRA: Low-Rank Adaptation
+of Large Language Models. arXiv:2106.09685.
+Hu, X.; Li, H.; Li, J.; Huang, Y.; Liu, S.; Zheng, Q.; Chen,
+J.; and Liu, A. 2025. Videomark: A distortion-free robust
+watermarking framework for video diffusion models. arXiv
+preprint arXiv:2504.16359.
+Huang, S.; Li, H.; Gu, Y.; Hu, X.; Li, Q.; and Xu, G. 2025a.
+Hyperg: Hypergraph-enhanced llms for structured knowl-
+edge. In Proceedings of the 48th International ACM SIGIR
+Conference on Research and Development in Information
+Retrieval, 1218–1228.
+Huang, Y.; Chen, J.; Zheng, Q.; Li, H.; Liu, S.; and Hu,
+X. 2025b. Video signature: In-generation watermarking for
+latent video diffusion models. arXiv e-prints, arXiv–2506.
+il Lee, K.; Kim, M.; Yoon, S.; Kim, M.; Lee, D.; Koh, H.; and
+Jung, K. 2025. VLind-Bench: Measuring Language Priors
+in Large Vision-Language Models. arXiv:2406.08702.
+Leng, S.; Zhang, H.; Chen, G.; Li, X.; Lu, S.; Miao, C.; and
+Bing, L. 2023. Mitigating Object Hallucinations in Large
+Vision-Language Models through Visual Contrastive Decod-
+ing. arXiv:2311.16922.
+Li, D.; Rawat, A. S.; Zaheer, M.; Wang, X.; Lukasik, M.; Veit,
+A.; Yu, F.; and Kumar, S. 2022. Large Language Models with
+Controllable Working Memory. arXiv:2211.05110.
+Li, W.; Li, Z.; Deng, F.; Zeng, K.; and Zhang, C. 2026.
+Counterfactual causal inference for robust visual question
+answering. Neural Netw., 194(C).
+
+
+Li, Y.; Du, Y.; Zhou, K.; Wang, J.; Zhao, W. X.; and Wen,
+J.-R. 2023. Evaluating Object Hallucination in Large Vision-
+Language Models. arXiv:2305.10355.
+Li, Y.; Tian, W.; Jiao, Y.; Chen, J.; Qian, T.; Zhu, B.; Zhao, N.;
+and Jiang, Y.-G. 2025. Look Before You Decide: Prompting
+Active Deduction of MLLMs for Assumptive Reasoning.
+arXiv:2404.12966.
+Ling, C.; Zhang, T.; Li, H.; and Ding, N. 2026. Seeing vs.
+Believing: Evaluating the Language Bias of Open-Source
+MLLMs in Counter-Intuitive Scenes. arXiv:2601.07737.
+Liu, H.; Li, C.; Li, Y.; Li, B.; Zhang, Y.; Shen, S.; and Lee,
+Y. J. 2024a. LLaVA-NeXT: Improved reasoning, OCR, and
+world knowledge.
+Liu, X.; Wang, W.; Yuan, Y.; Huang, J.-t.; Liu, Q.; He, P.;
+and Tu, Z. 2025. Insight Over Sight: Exploring the Vision-
+Knowledge Conflicts in Multimodal LLMs.
+In Che, W.;
+Nabende, J.; Shutova, E.; and Pilehvar, M. T., eds., Pro-
+ceedings of the 63rd Annual Meeting of the Association for
+Computational Linguistics (Volume 1: Long Papers), 17825–
+17846. Vienna, Austria: Association for Computational Lin-
+guistics. ISBN 979-8-89176-251-0.
+Liu, Y.; Duan, H.; Zhang, Y.; Li, B.; Zhang, S.; Zhao, W.;
+Yuan, Y.; Wang, J.; He, C.; Liu, Z.; Chen, K.; and Lin,
+D. 2024b. MMBench: Is Your Multi-modal Model an All-
+around Player? arXiv:2307.06281.
+Longpre, S.; Perisetla, K.; Chen, A.; Ramesh, N.; DuBois,
+C.; and Singh, S. 2022. Entity-Based Knowledge Conflicts
+in Question Answering. arXiv:2109.05052.
+Ortu, F.; Jin, Z.; Doimo, D.; and Cazzaniga, A. 2025. When
+Seeing Overrides Knowing: Disentangling Knowledge Con-
+flicts in Vision-Language Models. arXiv:2507.13868.
+Qwen Team. 2026. Qwen3.5: Towards Native Multimodal
+Agents.
+Rafailov, R.; Sharma, A.; Mitchell, E.; Ermon, S.; Manning,
+C. D.; and Finn, C. 2024.
+Direct Preference Optimiza-
+tion: Your Language Model is Secretly a Reward Model.
+arXiv:2305.18290.
+Ren, L.; Yu, W.; Yu, R.; and Wang, X. 2026.
+NoLan:
+Mitigating Object Hallucinations in Large Vision-Language
+Models via Dynamic Suppression of Language Priors.
+arXiv:2602.22144.
+Ren, Z.; Wang, H.; Zhu, M.; Wang, Y.; Xiao, T.; and Zhu,
+J. 2023. Overcoming Language Priors with Counterfactual
+Inference for Visual Question Answering. In Sun, M.; Qin,
+B.; Qiu, X.; Jiang, J.; and Han, X., eds., Proceedings of
+the 22nd Chinese National Conference on Computational
+Linguistics, 600–610. Harbin, China: Chinese Information
+Processing Society of China.
+Su, Z.; Zhang, J.; Qu, X.; Zhu, T.; Li, Y.; Sun, J.; Li, J.; Zhang,
+M.; and Cheng, Y. 2024. ConflictBank: A Benchmark for
+Evaluating the Influence of Knowledge Conflicts in LLM.
+arXiv:2408.12076.
+Team, K.; et al. 2025.
+Kimi-VL Technical Report.
+arXiv:2504.07491.
+Team, V.; Hong, W.; Yu, W.; Gu, X.; Wang, G.; Gan, G.;
+Tang, H.; Cheng, J.; Qi, J.; Ji, J.; Pan, L.; Duan, S.; Wang,
+W.; Wang, Y.; Cheng, Y.; He, Z.; Su, Z.; Yang, Z.; Pan, Z.;
+Zeng, A.; Wang, B.; Chen, B.; Shi, B.; Pang, C.; Zhang, C.;
+Yin, D.; Yang, F.; Chen, G.; Li, H.; Zhu, J.; Chen, J.; Xu, J.;
+Xu, J.; Chen, J.; Lin, J.; Chen, J.; Wang, J.; Chen, J.; Lei,
+L.; Gong, L.; Pan, L.; Liu, M.; Xu, M.; Zhang, M.; Zheng,
+Q.; Lyu, R.; Tu, S.; Yang, S.; Meng, S.; Zhong, S.; Huang,
+S.; Zhao, S.; Xue, S.; Zhang, T.; Luo, T.; Hao, T.; Tong,
+T.; Jia, W.; Li, W.; Liu, X.; Zhang, X.; Lyu, X.; Zhang, X.;
+Fan, X.; Huang, X.; Xue, Y.; Wang, Y.; Wang, Y.; Wang,
+Y.; An, Y.; Du, Y.; Huang, Y.; Niu, Y.; Shi, Y.; Wang, Y.;
+Wang, Y.; Yue, Y.; Li, Y.; Liu, Y.; Zhang, Y.; Wang, Y.;
+Zhang, Y.; Xue, Z.; Du, Z.; Hou, Z.; Wang, Z.; Zhang, P.;
+Liu, D.; Xu, B.; Li, J.; Huang, M.; Dong, Y.; and Tang, J.
+2026. GLM-4.5V and GLM-4.1V-Thinking: Towards Ver-
+satile Multimodal Reasoning with Scalable Reinforcement
+Learning. arXiv:2507.01006.
+Thrush, T.; Jiang, R.; Bartolo, M.; Singh, A.; Williams, A.;
+Kiela, D.; and Ross, C. 2022. Winoground: Probing Vision
+and Language Models for Visio-Linguistic Compositionality.
+arXiv:2204.03162.
+Vrandečić, D.; and Krötzsch, M. 2014. Wikidata: a free col-
+laborative knowledgebase. Commun. ACM, 57(10): 78–85.
+Wang, W.; Gao, Z.; Gu, L.; Pu, H.; Cui, L.; Wei, X.; Liu,
+Z.; Jing, L.; Ye, S.; Shao, J.; Wang, Z.; Chen, Z.; Zhang, H.;
+Yang, G.; Wang, H.; Wei, Q.; Yin, J.; Li, W.; Cui, E.; Chen,
+G.; Ding, Z.; Tian, C.; Wu, Z.; Xie, J.; Li, Z.; Yang, B.; Duan,
+Y.; Wang, X.; Hou, Z.; Hao, H.; Zhang, T.; Li, S.; Zhao, X.;
+Duan, H.; Deng, N.; Fu, B.; He, Y.; Wang, Y.; He, C.; Shi, B.;
+He, J.; Xiong, Y.; Lv, H.; Wu, L.; Shao, W.; Zhang, K.; Deng,
+H.; Qi, B.; Ge, J.; Guo, Q.; Zhang, W.; Zhang, S.; Cao, M.;
+Lin, J.; Tang, K.; Gao, J.; Huang, H.; Gu, Y.; Lyu, C.; Tang,
+H.; Wang, R.; Lv, H.; Ouyang, W.; Wang, L.; Dou, M.; Zhu,
+X.; Lu, T.; Lin, D.; Dai, J.; Su, W.; Zhou, B.; Chen, K.; Qiao,
+Y.; Wang, W.; and Luo, G. 2025. InternVL3.5: Advancing
+Open-Source Multimodal Models in Versatility, Reasoning,
+and Efficiency. arXiv:2508.18265.
+Wei, J.; Wang, X.; Schuurmans, D.; Bosma, M.; Ichter, B.;
+Xia, F.; Chi, E.; Le, Q.; and Zhou, D. 2023.
+Chain-of-
+Thought Prompting Elicits Reasoning in Large Language
+Models. arXiv:2201.11903.
+Wu, Z.; Qiu, L.; Ross, A.; Akyürek, E.; Chen, B.; Wang, B.;
+Kim, N.; Andreas, J.; and Kim, Y. 2024. Reasoning or Recit-
+ing? Exploring the Capabilities and Limitations of Language
+Models Through Counterfactual Tasks. arXiv:2307.02477.
+Xiao, Q.; Zhao, P.; Zhao, Y.; Dang, L.; and Wu, Q. 2026a.
+Not Blind but Silenced: Rebalancing Vision and Lan-
+guage via Adversarial Counter-Commonsense Equilibrium.
+arXiv:2605.10676.
+Xiao, X.; Liu, C.; Liao, C.-T.; Zhang, Y.; Lan, Q.; Wei,
+Y.; Zhao, L.; Wang, J.; Gu, J.; Ye, M.; Wang, T.; and
+Xu, H. 2026b. Staying VIGILant: Mitigating Visual Lazi-
+ness via Counterfactual Visual Alignment in MLLMs.
+arXiv:2606.26387.
+Xu, T.; Jing, H.; Li, Y.; Wei, Y.; Feng, J.; Chen, G.; Gao, H.;
+Zhang, T.; Liu, J.; and Chen, F. 2025. DeFacto: Counterfac-
+tual Thinking with Images for Enforcing Evidence-Grounded
+and Faithful Reasoning. arXiv:2509.20912.
+
+
+Xun, S.; Tao, S.; Li, J.; Shi, Y.; Lin, Z.; Zhu, Z.; Yan, Y.; Li,
+H.; Zhang, L.; Wang, S.; et al. 2026. Rtv-bench: Benchmark-
+ing mllm continuous perception, understanding and reason-
+ing through real-time video. Advances in Neural Information
+Processing Systems, 38.
+Yang, Y.; Lee, C. P.; Feng, S.; Zhao, D.; Wen, B.; Liu,
+A. Z.; Tsvetkov, Y.; and Howe, B. 2025. Escaping the Spuri-
+Verse: Can Large Vision-Language Models Generalize Be-
+yond Seen Spurious Correlations? arXiv:2506.18322.
+Yu, Q.; Ling, C.; Feng, S.; Hu, J.; Lu, Y.; and Ding, N. 2025.
+GIICS: A dataset for gaze-direction-based intention infer-
+ence in complex visual scenes. In 2025 4th International
+Conference on Artificial Intelligence, Human-Computer In-
+teraction and Robotics (AIHCIR), 1–9.
+Yu, T.; Yao, Y.; Zhang, H.; He, T.; Han, Y.; Cui, G.;
+Hu, J.; Liu, Z.; Zheng, H.-T.; Sun, M.; and Chua, T.-S.
+2024. RLHF-V: Towards Trustworthy MLLMs via Behav-
+ior Alignment from Fine-grained Correctional Human Feed-
+back. arXiv:2312.00849.
+Zhang, Y.; Li, B.; Liu, h.; Lee, Y. j.; Gui, L.; Fu, D.; Feng, J.;
+Liu, Z.; and Li, C. 2024. LLaVA-NeXT: A Strong Zero-shot
+Video Understanding Model.
+Zhang, Y.; Shi, Y.; Yu, W.; Wen, Q.; Wang, X.; Yang, W.;
+Zhang, Z.; Wang, L.; and Jin, R. 2025. Debiasing Multimodal
+Large Language Models via Penalization of Language Priors.
+arXiv:2403.05262.
+Zheng, Q.; Liu, S.; Huang, Y.; Jia, S.; Li, J.; Chen, L.; Chen,
+J.; Li, H.; Liu, A.; Yan, Y.; et al. 2026. A visual seman-
+tic adaptive watermark grounded by prefix-tuning for large
+vision-language model. arXiv preprint arXiv:2601.07291.
+Zou, X.; Wang, Y.; Yan, Y.; Lyu, Y.; Zheng, K.; Huang, S.;
+Chen, J.; Jiang, P.; Liu, J.; Tang, C.; and Hu, X. 2025. Look
+Twice Before You Answer: Memory-Space Visual Retracing
+for Hallucination Mitigation in Multimodal Large Language
+Models. arXiv:2410.03577.
+
+
+Appendix
+A
+Counter-Commonsense Taxonomy
+Table 4 lists all six major and 28 minor counter-commonsense
+categories used to drive data construction (Section 4.1), to-
+gether with a short explanation, the Step-2 collection source,
+and the number of counter-commonsense training items per
+category (SFT and DPO combined). Following the curation
+of Section 4.2, every training item is counter-commonsense:
+no commonsense-consistent sample enters either stage. Ta-
+ble 10 reports the per-category SFT/DPO split. The source
+column indicates how the entity and its commonsense value
+are obtained: VG = mined from Visual Genome text (object
+attributes, subject–predicate–object relationships, or region
+descriptions); WD = Wikidata; DoQ = Distributions-over-
+Quantities; Gen = taxonomy-guided model generation. Cat-
+egories grounded in open data (VG / WD / DoQ) account
+for 92.1% of SFT and 92.5% of DPO items; only Causal-
+ity and Folklore (7.9% / 7.5%), which leave no trace in any
+structured resource, fall back to model generation.
+B
+Details of Knowledge Acquisition
+This appendix details Step 2 of Section 4.1, which turns ev-
+ery conflict attribution of the taxonomy (Appendix A) into
+default triplets T = (e, a, v). This step only determines the
+entity e, the attribute a, and the canonical commonsense
+value v; the low-frequency alternative v′ is generated and fil-
+tered afterwards, by the FFD stages of Step 3 (Appendix C).
+Because the three sources supply different kinds of knowl-
+edge, each follows its own extraction recipe: Table 5 contrasts
+the three recipes, Table 6 gives three worked examples per
+source drawn verbatim from the constructed seed pool, and
+Table 7 reproduces the prompts (the prompts refer to the
+attribute a as dimension).
+All model-side calls share one implementation: an
+OpenAI-compatible endpoint served by vLLM with guided
+decoding (a per-task guided_json schema plus a JSON-
+object response format), which enforces structurally valid
+outputs; failed requests are retried up to three times, with the
+temperature lowered to 0.5 after the first failure. Fact nor-
+malization uses the same teacher model as trajectory cura-
+tion (Section 4.2); Source (iii) seed generation uses a locally
+served Kimi-K2.6 by vLLM.
+Source (i): Perceptually grounded mining.
+For directly
+visible attributes and relations, the canonical value is the sta-
+tistically dominant one in real scenes, so we mine it from Vi-
+sual Genome annotations without any LLM. Object–attribute
+records are routed onto taxonomy attributes (color terms →
+a=color, material terms →a=material, number phrases in
+region descriptions →counts). For each pair (e, a) we aggre-
+gate all annotated values and take the modal value as v, retain-
+ing the pair only if it occurs at least 30 times (n ≥30) and the
+mode covers at least 55% of the occurrences (f/n ≥0.55):
+high frequency implies a strong prior, and high dominance
+implies the value is canonical rather than incidental. Type-
+constrained subject–predicate–object triples from the rela-
+tionship annotations are aggregated in the same way for the
+relation-typed categories (Agency, Physical Relations, Social
+Roles), where the canonical direction of a high-frequency
+triple constitutes v (e.g., the boat is in the water). Because
+entities are sourced from real annotations rather than curated
+by hand, they are guaranteed depictable and follow the natural
+concept distribution; all mined entities are decontaminated
+against the evaluation benchmarks (Appendix D).
+Source (ii): Structured knowledge bases.
+Encyclope-
+dic categories (History, Landmark, Climate, Time) concern
+knowledge facts rather than perceptual modes, so their canon-
+ical values cannot be mined from visual annotations. We
+instead retrieve an authoritative description of each entity
+from Wikidata (SPARQL over the entity description and
+its typed properties), and normalize the retrieved free text
+into a concise attribute a and a single-sentence canonical
+value v with a low-temperature call (temperature 0.3, guided
+JSON; prompts in Table 7) that is instructed not to add any
+content beyond the retrieved fact. For the Weight category,
+Distributions-over-Quantities (DoQ) provides numeric dis-
+tributions over object weights, and the canonical compara-
+tive value v is read directly off the distribution medians of
+the two entities (e.g., a cast-iron bathtub is heavier than a
+plastic shower caddy), again without any model call.
+Source (iii): Taxonomy-guided LLM generation.
+Folk-
+lore and Causality leave no reliable trace in visual annota-
+tions or structured knowledge bases, so for these two mi-
+nor categories only (a combined 7.8% of the training pool,
+cf. Table 4) the default triplet (e, a, v) is generated directly
+by a single high-temperature call (temperature 0.9, guided
+JSON; prompts in Table 7). Each category is accompanied
+by a hand-written guide rule that pins down what counts as a
+valid triplet (e.g., for Folklore: a mythical creature e whose
+canonical role or ability constitutes v). The model is asked
+for distinct triplets per category, deduplicated by (e, a).
+C
+Details of Factuality Frequency Distillation
+This appendix details how the three FFD stages of Step 3
+(Section 4.1) are implemented: how the prior strength p(T)
+of Eq. (2) is estimated in practice, and—for triplets routed to
+value substitution by Eq. (3)—how the low-frequency alter-
+native v′ is generated and verified. Every alternative arises
+from a single mechanism, value substitution within the at-
+tribute domain Dom(a), followed by two levels of filtering:
+a model-known filter that verifies the prior–evidence con-
+flict is real for the backbone (the prior must hold v and
+must not hold v′), operationalizing the requirement that the
+candidate set V′
+a contain only uncommon values, and the
+counter-commonsense verification gate F of Eq. (4), which
+checks semantic consistency, visual depictability, and gen-
+uine counterfactuality. Between the two levels sits caption
+synthesis: each candidate triplet surviving the model-known
+filter is rendered into a one-sentence counter-commonsense
+caption, and it is this caption—the exact assertion inherited
+by all downstream stages—that the gate F judges, rather
+than the bare value v′. For the reversible relation categories
+(Agency, Physical Relations, Social Roles), the candidate set
+degenerates to the single role-reversed value, which satisfies
+fsem and fgcf by construction (unique, and trivially differ-
+ent from v); these triplets therefore skip candidate proposal
+
+
+Algorithm 2 From v to v′: Estimation, Routing, Synthesis,
+Filtering
+Require: triplet (e, a, v); backbone Mθ; generator G; judge J
+Ensure: routed triplet T ′ with caption, or drop
+1: {q1, q2, q3} ←G.Probes(e, a)
+▷blind, value-free
+2: A ←10 samples of Mθ(qi, ∅) per probe
+▷|A|=30
+3: ˆp ←ˆρ(v; A)
+▷Eq. (8); prior strength
+4: if ˆp < τ then return (e, a, v)
+▷naturally rare fact
+5: end if
+6: if a is a reversible relation then return (e, a, reverse(v))
+▷
+caption as below
+7: end if
+8: C ←dedup
+ G.Propose(e, a, v, N=6)
+
+9: C ←{c ∈C : ˆρ(c; A) ≤τ ′}
+▷model-known filter
+10: for c ∈C do
+11:
+sc ←G.Caption(e, a, v, c)
+▷caption synthesis
+12:
+Poss(c) ←
+1
+Kg
+PKg
+j=1 1
+
+Jj(e, a, v, c, sc) = Keep
+
+13: end for
+14: C ←{c ∈C : Poss(c) ≥π}
+▷verification gate F on sc
+15: if C = ∅then return drop
+16: end if
+17: v′ ←arg maxc∈C
+ Poss(c), dist(c, v)
+
+▷rest kept as
+backups
+18: return (e, a, v′) with caption sv′
+and the candidate-side checks, but still pass through the
+same caption-synthesis step (whose relational requirement
+enforces a consistent role reversal), and their depictability is
+caught by the read-back verification at the scene-expansion
+stage (Appendix D). Algorithm 2 summarizes the complete
+procedure; Table 8 walks through one seed end to end, Ta-
+bles 9 and 11 show all prompts, and Table 12 aggregates the
+hyperparameters of every sub-step. All generation-side calls
+of this appendix (blind-probe writing, candidate proposal,
+and caption synthesis) use a single generator LLM G, and
+the verification gate uses a judge LLM J; both are instanti-
+ated as the same locally served Kimi-K2.6 (via vLLM), run
+in separate sessions to avoid self-preference.
+Blind probe construction.
+For every triplet we build three
+paraphrased blind probes q1, q2, q3: text-only questions that
+ask for the typical real-world value of attribute a for entity
+e and are answerable with a single word. The probes are
+written by the generator LLM, which receives only (e, a)—
+neither v nor any candidate—so the wording cannot leak the
+answer (temperature 0.7, guided JSON; prompt in Table 9).
+Two mechanical checks are applied, with regeneration on
+failure: the probe must not contain any concrete value word
+of the attribute (for color, no color term—ruling out leaky
+probes such as “Is a strawberry red?”), and the three probes
+must differ pairwise in surface form (direct question, fill-in-
+the-blank, everyday-life framing). Probes are generated once
+per (e, a) and reused across all candidates of that seed.
+Prior strength estimation.
+Each probe is answered by the
+backbone Mθ in a text-only call with no scene or image
+evidence, drawing 10 independent samples per probe (tem-
+perature 1.0), i.e., 30 responses per triplet. Writing ˆvi,k for
+the k-th answer to probe qi, the prior-hold rate of any value
+u is estimated as
+ˆρ(u; A) = 1
+30
+3
+X
+i=1
+10
+X
+k=1
+1
+
+canon(ˆvi,k) = canon(u)
+
+,
+(8)
+where canon(·) merges near-synonyms before matching
+(e.g., crimson, scarlet →red), so that a value cannot pass
+or evade the filters by mere rewording. The prior strength of
+Eq. (2) is instantiated as p(T) = ˆρ(v; A) and archived with
+the seed as a difficulty signal.
+Frequency-based routing.
+Following Eq. (3) with τ =
+0.8, a triplet whose canonical value is reproduced in at least
+24 of the 30 blind responses is treated as an entrenched
+prior and routed to value substitution; otherwise the triplet
+is preserved unchanged, since a value the backbone does not
+reliably produce is already a low-frequency fact and needs
+no substitution. For reversible relations the substituted value
+is the deterministic role reversal of v (the boat is in the water
+→the water is in the boat) and the procedure ends here.
+Candidate proposal.
+For value-typed attributes, the gen-
+erator LLM is prompted with (e, a, v) to propose N=6 can-
+didate alternatives of the same attribute (temperature 0.8,
+guided JSON; prompt in Table 9), which are lower-cased
+and deduplicated to instantiate the candidate set V′
+a of Sec-
+tion 4.1. The prompt already asks for plausible-but-rare, de-
+pictable values, but this is only a soft constraint: proposals
+may still contain near-synonyms of v, indeterminate values,
+or v itself, which the two filters below remove.
+Level 1: Model-known filter.
+Reusing the same 30 blind
+responses, a candidate v′
+i survives only if ˆρ(v′
+i; A) ≤τ ′ =
+0.2, i.e., it appears in at most 6 of the 30 answers af-
+ter canonicalization. Together with the routing condition
+ˆρ(v; A) ≥0.8, this clamps the conflict from both sides: the
+backbone must strongly hold the canonical value and must
+not already produce the alternative; otherwise contradicting
+v with v′ would not constitute a genuine prior–evidence con-
+flict.
+Caption synthesis.
+Each candidate triplet (e, a, v′) surviv-
+ing the model-known filter is rendered into a one-sentence
+counter-commonsense caption by the generator LLM (tem-
+perature 0.9, guided JSON; prompt in Table 11): a short
+declarative sentence (roughly 8–25 words) describing a sin-
+gle photographable moment in which the entity exhibits v′.
+The caption must assert v′ without mentioning the canonical
+value v in any form (no contrast, no negation of the normal
+case); it must read as a plain, matter-of-fact description free
+of give-away “tell” words (unusual, surprisingly, impossi-
+ble, . . . ), treating the depicted state as completely ordinary;
+and for relational dimensions it must realize the role rever-
+sal consistently in every directional cue. Rule checks enforce
+these constraints mechanically—the caption must contain the
+v′ keywords and no v keyword (a role-order check for rela-
+tions), pass the tell-word ban and the length band, and not
+duplicate an already accepted caption—with regeneration
+on failure. The synthesized caption is the semantic anchor
+of the item: the verification gate below judges it, the scene
+expansion of Appendix D only elaborates it visually without
+
+
+altering its semantics, and it later serves verbatim as the TFV
+true statement and the BCQ counter-commonsense option.
+Level 2: Counter-commonsense verification.
+The syn-
+thesized caption—rather than the bare value v′—is what the
+quality gate F of Eq. (4) filters, so that the gate judges the ex-
+act assertion inherited by all downstream stages. The gate is
+implemented as a judge LLM run in a session separate from
+the proposer and the caption writer (temperature 0.3); it re-
+ceives the caption together with the triplet fields (e, a, v, v′)
+and answers Keep or Reject against a fixed checklist (Ta-
+ble 11) whose three items instantiate the three predicates
+of the gate: fsem (semantic consistency: the caption asserts
+a well-formed value of the same attribute), fgcf (genuine
+counterfactuality: the asserted fact clearly contradicts the
+canonical value v—rejected are near-synonyms of v and val-
+ues realized by naturally occurring variants of the entity,
+which constitute rare facts rather than counterfactuals and
+belong to the p(T) < τ preserve branch of the routing), and
+fdep (visual depictability: the captioned moment is readable
+off one ordinary photorealistic RGB photo without special
+sensors, captions, or meta wording). The criterion of fdep is
+depictability, not real-world physics—counter-commonsense
+scenes violate the latter by design (e.g., rice heavier than a
+basketball can be staged with a seesaw)—so only captions
+that are nonsense, invisible, or visually indeterminate are re-
+jected. A caption is retained only if all three predicates hold,
+i.e., F = 1; the judge votes Kg=3 times, and the caption
+passes if its keep rate satisfies Poss ≥π = 2/3. Whether
+the subsequently expanded scene realizes the verified cap-
+tion faithfully is checked by the read-back verification at the
+scene-expansion stage (Appendix D).
+Final selection.
+Surviving candidates are ranked by Poss,
+with ties broken by perceptual distance from v (e.g., color-
+wheel distance for colors), and the top-ranked candidate is
+written into the seed as v′ together with its verified caption;
+the remaining survivors (with their captions) are stored as
+backups and rotated in when the later scene-expansion stage
+fails the read-back verification and the seed must be regen-
+erated. If no candidate survives both filters, the triplet is
+discarded.
+D
+Details of Scene Expansion and QA
+Construction
+This appendix details the final part of Step 3 (Section 4.1),
+where each verified counter-commonsense caption is ex-
+panded into a detailed scene description and converted into
+the three QA formats used for training: TFV, MCQ, and
+BCQ. A key design choice is that the pipeline is counter-
+commonsense only: no commonsense scene is ever gener-
+ated, and the commonsense side enters the data solely as a
+caption-level prior distractor derived in a separate rewrit-
+ing step, so that all QA instances are grounded in the same
+counter-commonsense scene. Table 13 reproduces the gen-
+eration prompts, Table 14 lists the rule-based assembly tem-
+plates of the three formats, and Table 15 summarizes the
+hyperparameters and checks of every sub-step.
+Scene expansion.
+Each verified caption, together with its
+triplet fields (e, a, v, v′), is expanded into one photorealistic
+scene description of 60–100 words (guided JSON; temper-
+atures rotated over 0.7/0.9/1.1 combined with 30 setting
+templates, so that repeated concepts receive visually dis-
+tinct compositions). The scene must (i) depict the counter-
+commonsense value through concrete visual detail (shape,
+count, posture, surface, lighting, spatial relations) and never
+through give-away “tell” words such as unusual, surpris-
+ingly, or impossible, reading as a plain, neutral description of
+a perfectly ordinary state; (ii) for relational captions, encode
+the reversed relation in every directional cue (who crouches
+or lunges, gaze direction, who flees, body posture, motion
+blur, who is ahead); and (iii) never mention the common-
+sense value v itself, which would otherwise contaminate the
+read-back verification and the MCQ distractors.
+Commonsense-caption
+distractor.
+A
+separate
+low-
+temperature call (temperature 0.3) rewrites the counter-
+commonsense caption into a parallel commonsense caption:
+same subject, sentence structure, and length, with only the
+flipped attribute changed back to v (for relational captions,
+the agent/patient roles are swapped consistently, including
+directional verbs) and without meta words such as actually
+or normally. Rule checks require the result to differ from the
+counter-commonsense caption, to contain the commonsense-
+value keywords, and not to contain the counter-commonsense
+value keywords (for relations, a role-swap check instead).
+Read-back verification.
+Both captions are then read back
+against the same counter-commonsense scene by a text-only
+judge at temperature 0: an item is kept only if the counter-
+commonsense caption is judged True of the scene and the
+commonsense caption is judged False of it. Items that still
+fail after a bounded number of scene regenerations are dis-
+carded rather than silently templated. This double check is
+the single faithfulness gate of the scene stage; it is also where
+undepictable role reversals, which bypass the candidate-level
+verification gate of Appendix C, are caught and removed.
+QA construction.
+All three formats are instantiated on
+the counter-commonsense scene only. MCQ: a separate call
+(temperature 0.7, guided JSON) writes one four-option ques-
+tion about the flipped attribute such that exactly one op-
+tion matches the depicted counter-commonsense value (the
+answer), exactly one matches the commonsense value (the
+prior distractor), and the remaining two are plausible same-
+attribute alternatives; the question must be answerable from
+the scene alone and must not hint that the scene is unusual.
+The model tags the counter-commonsense and the common-
+sense option letters, which are checked to be distinct and
+within A–D, and the item is retained only if an answer read-
+back on the scene returns the counter-commonsense option
+(temperature 0). BCQ: assembled purely by rule—the two
+options are the counter-commonsense caption and the com-
+monsense caption, in random order (probability 0.5 per item),
+with the counter-commonsense caption as gold. TFV: as-
+sembled purely by rule—the counter-commonsense caption
+serves as the true statement (gold True) and the common-
+sense caption as the false statement (gold False). The single
+
+
+distractor-rewriting step thus supplies both the BCQ alter-
+native and the TFV false statement. Finally, each instance
+places the scene in the image slot of the multimodal training
+template (Table 14), exactly as reproduced in the training
+examples of Appendix E.
+Auxiliary items and decontamination.
+Alongside the
+counter-commonsense instances (the training signal), the
+pipeline also emits the commonsense-caption distractors
+above and no-evidence anchor questions (the blind probes
+of Appendix C); following the curation of Section 4.2, nei-
+ther enters the training pool as a standalone sample, which
+remains counter-commonsense only. Because our binary-
+choice options use numeric rather than letter labels, we re-
+score the CAIT benchmark with numeric options so that
+any gain reflects prior debiasing rather than an acquired
+letter-token bias. Finally, we decontaminate the training pool
+against all evaluation benchmarks so that no evaluation entity
+leaks into training.
+E
+Training Data Examples
+Tables 16–21 present two complete training examples for
+each of the six major categories: one SFT item with its tar-
+get trajectory, and one DPO item with its chosen/rejected
+trajectory pair (drawn from a different query of the same ma-
+jor category). The twelve examples span the three question
+formats used in training—multiple-choice , True/False judg-
+ment, and binary choice (1/2)—and are reproduced verbatim,
+including the full textual scene (placed in the image slot of
+the multimodal template), the question, and the complete
+trajectories.
+F
+Counter-Commonsense Instances from the
+Three Benchmarks
+Complementing the formulation of Section 3, Table 22 shows
+one real instance from each evaluation benchmark, together
+with its image. In every case the prior-consistent proposition
+P (red) competes with the visual-evidence proposition E
+(green); the image supports E, and answering P constitutes
+a prior-driven failure.
+G
+Details of the Error-Anatomy Probe
+This appendix documents the error-anatomy study summa-
+rized in Section 3.2. All runs use the untrained backbone
+Qwen3-VL-8B-Instruct served with vLLM, greedy decoding
+(temperature 0), and real CDH-Bench counter-commonsense
+images.
+Greedy
+pass
+and
+error
+classification.
+Each
+of
+the
+285
+counter-commonsense
+multiple-choice
+items
+is
+asked
+with
+the
+simple-CoT
+template
+“{question} / {options} / Reason
+briefly,
+then
+end with ‘Answer: A/B/C/D’” (max 400 tokens). The greedy
+pass answers 132 items (46.3%) incorrectly; of these errors,
+109 (82.6%) select exactly the commonsense option P rather
+than scattering over the two other distractors, indicating
+systematic prior substitution rather than noise.
+Grounding probe.
+Every error is re-queried once with the
+same image and options, temperature 0 and using the prompt
+shown in Table 23. This prompt-only change flips 35/132
+errors (26.5%) to the correct answer; 28/132 (21.2%) are
+both prior-biased and probe-recovered. We treat the latter
+as a conservative lower bound on the “perception-correct,
+language-biased” fraction, since the probe output still passes
+through the same biased decoder.
+Worked example (over-rationalization).
+Table 23 also
+contrasts two trajectories of the same model on the same
+image for the floating-chair item of Appendix F: the greedy
+trajectory fabricates perception to justify P, whereas a sam-
+pled trajectory faithfully reports E.
+
+
+Minor category
+Attribute a
+Explanation
+Src
+Items
+1. Agency — who acts on whom is reversed
+(1,983 items)
+Objects Act on Beings
+agent–patient role
+An inanimate object is the agent acting on a living
+being
+VG
+765
+Prey Outsmarts Predator
+predator–prey role
+The prey pursues or subdues its natural predator
+VG
+481
+Animal Dominance
+dominance direction
+An animal controls or overpowers a human
+VG
+310
+Animal Behavior
+action direction
+The direction of an animal’s action is reversed
+VG
+220
+Animals’ Humanlike Care
+caregiver role
+An animal performs human caregiving on a person
+VG
+207
+2. World Facts — encyclopedic facts rewritten
+(1,977 items)
+History
+historical fact
+A historical figure/event fact is altered
+WD
+835
+Landmark
+landmark identity
+A landmark’s identity or function is changed
+WD
+537
+Folklore
+creature role
+A mythical creature’s canonical role is changed
+Gen
+294
+Climate
+climate / terrain
+A region’s climate or terrain is changed
+WD
+103
+Habitat
+habitat
+An animal is placed in a wrong habitat
+VG
+73
+Location
+location
+An entity appears in an atypical location
+VG
+52
+Diet
+diet
+An animal eats atypical food
+VG
+49
+Time
+era technology
+Technology/practice is anachronistic to its era
+WD
+34
+3. Physical Relations — placement / function / cause
+(1,395 items)
+Object Function
+function / use
+An object is used against its canonical function
+VG
+548
+Spatial
+spatial arrangement
+An atypical spatial arrangement of objects
+VG
+534
+Causality
+cause–effect
+Cause and effect are reversed or mismatched
+Gen
+313
+4. Magnitude — relative size / weight inverted
+(1,248 items)
+Weight
+relative weight
+The relative weight of two objects is inverted
+DoQ
+726
+Size Scale
+relative size
+Relative size across a large scale is inverted
+VG
+423
+Size
+relative size
+The relative size of two objects is inverted
+VG
+99
+5. Appearance — directly visible attributes
+(577 items)
+Temperature
+temperature
+An object’s temperature contradicts its norm
+VG
+148
+Everyday-object Count
+object count
+Atypical count of everyday objects
+VG
+140
+Part Count
+part count
+Atypical count of body parts, plant structures, and
+animal parts
+VG
+93
+Color
+color
+Atypical color
+VG
+64
+Luminescence/Transparency
+luminescence
+Atypical glow or transparency
+VG
+56
+Physical State
+physical state
+Atypical physical state (solid/liquid/. . . )
+VG
+46
+Material
+material
+Atypical material
+VG
+30
+6. Social Roles — interpersonal roles swapped
+(650 items)
+Role Reversal: Social Power
+power relation
+The power relation between two people is reversed
+VG
+437
+Role Reversal: Kinship Care
+kinship role
+The kinship caregiving direction is reversed
+VG
+213
+Total
+7,830
+Table 4: The six major and 28 minor counter-commonsense categories: explanation, Step-2 collection source, and the current
+counter-commonsense training-pool size per category (SFT trajectories and DPO pairs combined; Table 10 gives the SFT/DPO
+split). The originating benchmark is omitted for space (CDH / CAIT / VLind). Src: VG = Visual Genome text mining; WD
+= Wikidata; DoQ = Distributions-over-Quantities; Gen = taxonomy-guided model generation. Open-data-grounded categories
+(VG/WD/DoQ) cover 92.1% (SFT) and 92.5% (DPO) of items.
+
+
+Source (i): VG mining
+Source (ii): knowledge bases
+Source (iii): LLM generation
+Covered categories
+perceptual and relational: Ap-
+pearance, Agency, Physical Rela-
+tions, Social Roles, Size, . . .
+encyclopedic and quantitative: His-
+tory, Landmark, Climate, Time
+(Wikidata); Weight (DoQ)
+Folklore, Causality
+How (e, a, v) is ob-
+tained
+frequency statistics over VG an-
+notations: modal value with n ≥
+30 and f/n ≥0.55; no LLM in-
+volved
+SPARQL / page-summary retrieval
++ LLM normalization (T=0.3);
+DoQ distribution medians
+direct guided-JSON generation
+(T=0.9), 200 triplets per mi-
+nor category, deduplicated by
+(e, a)
+Share of training pool
+63.7%
+28.5% (19.3% Wikidata, 9.3%
+DoQ)
+7.8%
+Table 5: The three knowledge-acquisition recipes of Step 2 (Section 4.1). Each source determines the entity e, the attribute a,
+and the canonical commonsense value v of the default triplet T = (e, a, v); the last row gives the share of the final training pool
+each source contributes (computed from Table 4).
+Entity e
+Attribute a
+Canonical commonsense value v
+Source (i): perceptually grounded mining — rule-based frequency statistics; no LLM
+grass
+color
+green
+table
+material
+wood
+boat & water
+spatial arrangement
+the boat is in the water
+Source (ii): structured knowledge bases — retrieval + low-temperature normalization
+Taj Mahal
+landmark character
+a marble mausoleum built as a tomb for an empress
+The Terracotta Army
+historical fact
+were buried clay soldiers guarding an emperor’s tomb
+cast-iron bathtub vs. plastic
+shower caddy
+relative weight
+the bathtub is far heavier than the caddy (DoQ medians)
+Source (iii): taxonomy-guided LLM generation — triplet generated directly
+Medusa
+canonical role
+turns onlookers to stone with her gaze
+Grim Reaper
+canonical role
+harvests souls at the moment of death
+Santa Claus
+canonical role
+delivers presents worldwide on Christmas Eve
+Table 6: Worked examples of default triplets T = (e, a, v) from the three knowledge-acquisition sources of Step 2, drawn
+verbatim from the constructed seed pool. Step 2 stops at the default triplet: the low-frequency alternative v′ is generated and
+filtered later, by the FFD stages of Step 3 (Appendix C).
+
+
+Prompt
+Content
+Fact normalization —
+system prompt
+(Source ii, T=0.3)
+You normalize an encyclopedic fact into a single seed field for a counter-commonsense visual
+dataset. Given an ENTITY and a short authoritative description retrieved from Wikidata, out-
+put (a) a concise attribute DIMENSION (e.g. “landmark character”, “historical fact”, “typical
+climate”) and (b) a single-sentence COMMONSENSE value that is the widely-known, factually-
+accurate characterization. Do not add opinions. Return strict JSON {"dimension": ...,
+"commonsense_value": ...}.
+Fact normalization —
+user template
+Entity: Big Ben
+Retrieved (Wikipedia summary): “Big Ben is the nickname for the Great Bell of the striking clock
+at the north end of the Palace of Westminster in London; the name is often extended to the clock
+and the clock tower.”
+Return {"dimension": ..., "commonsense_value": ...}.
+Seed generation —
+system prompt
+(Source iii, T=0.9)
+You generate concept seeds for a counter-commonsense visual reasoning dataset. Pick HIGH-
+FREQUENCY, everyday concepts that a vision-language model holds a STRONG prior about, so
+flipping the value is plausible-but-rare (NOT physically impossible, NOT obscure). Each concept
+must be visually depictable in a single scene. Return strict JSON.
+Seed generation —
+user template
+(Folklore guide rule)
+Concept category: folklore
+Rule: a mythical/folkloric creature with a canonical ROLE/ABILITY. dimension=‘canonical role’;
+commonsense_value=its lore.
+List 200 DISTINCT concepts for this category. Vary the entities widely.
+Return
+JSON:
+{"concepts": [{"entity": ..., "dimension": ...,
+"commonsense_value": ...}, ...]}.
+Table 7: Prompts used in knowledge acquisition (Step 2). The prompts refer to the attribute a as dimension and to the canonical
+value v as the commonsense value. All calls use vLLM guided decoding with the JSON schema shown in each prompt, so the
+outputs are structurally valid by construction.
+
+
+Worked example — from T = (strawberry, color, red) to T ′ = (strawberry, color, blue)
+Blind probes (written by the generator from (e, a) only; pairwise-distinct surface forms; no color word in the wording):
+q1: What color is a ripe strawberry? Answer with one word.
+q2: A strawberry is usually ___ in color. Fill in the blank with one word.
+q3: If you buy fresh strawberries at a market, what color are they? One word.
+Prior strength. The backbone answers red in 30/30 blind responses (10 samples per probe), so ˆp = ˆρ(red) = 1.0 ≥τ = 0.8: the
+prior is entrenched and the triplet is routed to value substitution.
+Candidate proposal (N=6, lower-cased and deduplicated): blue, gray, pink, white, crimson, rainbow.
+Model-known filter. After canonicalization, crimson merges into red and appears in 30/30 blind responses (ˆρ > τ ′ = 0.2), so it
+is dropped; the remaining five candidates never appear (ˆρ = 0/30) and survive (the rows marked † below illustrate further rejection
+modes).
+Caption synthesis (one counter-commonsense caption per candidate surviving the filter; rule-checked for value keywords, tell words,
+and length; the verification gate below judges these captions):
+blue
+The strawberry reveals bright blue flesh inside.
+gray
+The strawberry shows an even gray tint across its skin and flesh.
+pink
+The strawberry has pink-colored flesh.
+white
+A ripe strawberry with pure white flesh and skin rests on the vine.
+rainbow
+A strawberry striped in vivid rainbow bands rests on a wooden table.
+Candidate v′
+ˆρ(v′)
+Poss
+Outcome
+Judge rationale on the caption (abridged)
+blue
+0/30
+3/3
+selected
+no naturally blue strawberry exists; blue flesh unambiguous in a photo
+gray
+0/30
+2/3
+backup
+one Reject: never occurs naturally, but gray tones can read as a black-and-white photo
+pink
+0/30
+2/3
+backup
+one Reject: pink borders the canonical red (near-synonym risk)
+white
+0/30
+1/3
+rejected (fgcf)
+white (pineberry) strawberries occur naturally: a rare fact, not a counterfactual
+rainbow
+0/30
+0/3
+rejected (fdep)
+no single color value readable from one image
+crimson
+30/30
+—
+rejected (filter)
+canonicalizes to red: no prior–evidence conflict
+red†
+30/30
+—
+rejected (filter)
+the commonsense value itself
+ripe†
+0/30
+0/3
+rejected (fsem)
+caption asserts no color value (wrong attribute)
+mirror†
+0/30
+0/3
+rejected (fdep)
+reflects ambient color; no stable intrinsic value
+ultraviolet†
+0/30
+0/3
+rejected (fdep)
+invisible in an ordinary RGB photo
+Selection. Blue attains the highest Poss and also lies farthest from red in perceptual (color-wheel) distance; the pair (blue, its verified
+caption) is written into the seed as v′; the remaining survivors, with their captions, are stored as backups for regeneration. Note that
+white, which passes the model-known filter, is rejected only at the caption-level gate: a white strawberry is a naturally occurring rare
+fact (the p(T) < τ preserve branch of the routing), not a genuine counterfactual.
+Table 8: End-to-end worked example of prior strength estimation, frequency-based routing, caption synthesis, and the two-level
+filtering of alternative values (Appendix C). ˆρ is the prior-hold rate of Eq. (8) over the 30 blind responses; Poss is the keep rate
+of the Kg=3 judge votes of the verification gate F of Eq. (4), cast on the synthesized caption of each candidate, with the failed
+predicate (fsem/fdep/fgcf) indicated per rejection. Candidates marked † were not part of the actual proposal; they are shown to
+illustrate further rejection modes of the model-known filter and the verification gate (their synthesized captions are omitted;
+crimson, dropped by the filter, never reaches caption synthesis).
+
+
+Prompt
+Content
+Blind-probe generation —
+system prompt
+(generator LLM, T=0.7)
+You write probe questions for a language-prior test. Given an entity and an attribute dimension,
+write K diverse English questions that all ask for the TYPICAL, real-world value of that dimension
+for that entity. Requirements: (1) do NOT mention any specific value of the dimension, and do
+NOT hint at any answer; (2) do NOT mention any image, picture, or scene—the question must be
+answerable from world knowledge alone; (3) each question must be answerable with ONE word, and
+must say so (e.g. “Answer with one word.” / “One word.”); (4) vary the surface form across the K
+questions: a direct question, a fill-in-the-blank, an everyday-life framing, a sentence-completion, a
+“typical/usual” phrasing—do not reuse the same template twice. Return strict JSON {"probes":
+["q1", ..., "qK"]}.
+Blind-probe generation —
+user template
+Entity: strawberry
+Dimension: color
+K = 3
+Candidate proposal — sys-
+tem prompt
+(generator LLM, T=0.8)
+You assign counter-commonsense values for a counter-commonsense visual dataset. Given an entity,
+an attribute dimension, and its COMMONSENSE value, propose N candidate counter-commonsense
+values for that SAME dimension. Each candidate must be: (1) a valid value of the same dimension ;
+(2) clearly different from the commonsense value; (3) physically possible to depict in one ordinary
+photo, NOT invisible or indeterminate. Vary the candidates. Return strict JSON.
+Candidate proposal — user
+template
+Entity: strawberry
+Dimension: color
+Commonsense value: red
+Propose N=6 candidate counter-commonsense values.
+Return JSON {"candidates": ["...", "...", ...]}
+Table 9: Prompts of the candidate side of the alternative-value pipeline (Appendix C): blind-probe generation and candidate
+proposal. The prompts refer to the attribute a as dimension and to the pair (v, v′) as the commonsense / counter-commonsense
+value. We use "strawberry" as example, which is accordance with the main content of paper. The probe generator receives
+only (e, a), so no answer can leak into the probes. The caption-synthesis and verification prompts that follow these steps are
+reproduced in Table 11. All calls use vLLM guided decoding, so the outputs are structurally valid by construction.
+
+
+Major category
+SFT
+DPO
+Total
+Agency
+1,217
+766
+1,983
+World Facts
+1,206
+771
+1,977
+Physical Relations
+960
+435
+1,395
+Magnitude
+751
+497
+1,248
+Appearance
+371
+206
+577
+Social Roles
+359
+291
+650
+Total
+4,864
+2,966
+7,830
+Table 10: Per-category SFT / DPO split of the counter-commonsense training pool (SFT counts trajectories, DPO counts
+preference pairs).
+Prompt
+Content
+Caption synthesis — system
+prompt
+(generator LLM, T=0.9)
+You write counter-commonsense captions for a counter-commonsense visual dataset. You are
+given an entity, an attribute dimension, its COMMONSENSE value, and one COUNTER-
+COMMONSENSE value. Write ONE short declarative caption (about 8–25 words) describing
+a single photographable moment in which the entity exhibits the COUNTER-COMMONSENSE
+value. Requirements: (1) the caption must assert the counter-commonsense value through what is
+depicted, and must NOT mention the commonsense value in any form (no contrast, no negation
+of the normal case); (2) write it as a plain, matter-of-fact caption, as if the depicted state were
+completely ordinary—NEVER use meta words like ‘unusual’, ‘surprisingly’, ‘strangely’, ‘impossi-
+ble’, ‘despite’; (3) the moment must be depictable in ONE ordinary photorealistic photo: concrete
+subject, concrete state, no abstract claims, no multi-step events; (4) for relational/directional di-
+mensions, swap the agent and patient roles CONSISTENTLY: the verb direction, posture, and any
+implied motion must all follow the reversed relation, with no residue of the commonsense direction.
+Return strict JSON.
+Caption synthesis — user
+template
+Entity: strawberry
+Dimension: color
+Commonsense value: red
+Counter-commonsense value: blue
+Write the counter-commonsense caption. Return JSON {"cf_caption": "..."}
+Verification gate F — sys-
+tem prompt
+(judge LLM, separate ses-
+sion, T=0.3)
+You are a strict caption judge for a counter-commonsense visual dataset. Given an entity, an attribute
+dimension, its commonsense value, one candidate counter-commonsense value, and a synthesized
+caption asserting that value, decide whether the caption is usable: it must assert a valid value of
+the SAME dimension; the asserted fact must genuinely contradict the commonsense value (reject
+near-synonyms of the commonsense value and values realized by naturally existing variants of the
+entity); and the captioned moment must be showable in ONE ordinary photorealistic RGB photo
+of the entity such that a viewer could read the asserted value off the image without special sensors,
+captions, or meta wording. Answer ONLY “Keep” or “Reject”, then one short reason.
+Verification gate F — user
+template
+(one call per caption)
+Entity: {entity}
+Dimension: {attribute}
+Commonsense value: {value}
+Candidate counter-commonsense value: {candidate}
+Caption: {cf_caption}
+Checklist:
+1) Does the caption assert a valid value of the SAME dimension? Reject a caption that does not
+assert a {attribute}-related value of the entity.
+2) Does the asserted fact genuinely contradict the commonsense value {value}? Reject the com-
+monsense value itself, its near-synonyms, and any value that occurs in a naturally existing variant
+of the entity.
+3) Can an ordinary photo depict the captioned moment so that viewers read the asserted value off
+the image although it seems counter-commonsense? Reject if nonsense, invisible, indeterminate, or
+otherwise undepictable in one image.
+Decision (Keep/Reject):
+Reason (one line):
+Table 11: Prompts of the caption side of the alternative-value pipeline (Appendix C): caption synthesis and the verification gate
+F, which judges the synthesized caption rather than the bare value v′; {. . . } marks template placeholders filled per candidate.
+We use "strawberry" as example, which is accordance with the main content of paper. Checklist items 1–3 of the verification
+template instantiate the predicates fsem, fgcf, and fdep of Eq. (4), respectively. The caption writer and the judge run in separate
+sessions to avoid self-preference. All calls use vLLM guided decoding, so the outputs are structurally valid by construction.
+
+
+Sub-step
+Model
+Sampling
+Criterion / post-processing
+Blind-probe generation
+generator LLM
+3
+probes,
+T=0.7,
+guided
+JSON
+no attribute-value word in the wording;
+pairwise distinct; regenerate on failure
+Prior strength estimation
+backbone Mθ (text-only, no ev-
+idence)
+10 samples per probe (30 to-
+tal), T=1.0
+ˆp ≥τ=0.8 (≥24/30) ⇒substitute; else
+preserve triplet
+Candidate proposal
+generator LLM
+N=6, T=0.8, guided JSON
+lower-case + deduplicate
+Model-known filter
+reuses the 30 blind responses
+—
+ˆρ(v′) ≤τ ′=0.2 (≤6/30), after syn-
+onym canonicalization
+Caption synthesis
+generator LLM
+one caption per candidate,
+T=0.9, guided JSON
+contains v′ keywords, no v keyword (role-
+order check for relations); tell-word ban;
+≈8–25 words; deduplicate; regenerate on
+failure
+Verification gate F
+judge LLM, separate session
+Kg=3 votes, T=0.3
+judges the synthesized caption: fsem ∧
+fdep ∧fgcf (Eq. 4); Poss ≥π=2/3
+Final selection
+—
+—
+max Poss, ties by perceptual distance; v′
+written with its verified caption; survivors
+kept as backups
+Table 12: Hyperparameters of every sub-step of the alternative-value pipeline (Appendix C). Reversible relation categories bypass
+candidate proposal and the candidate-side checks: their single role-reversed candidate satisfies fsem and fgcf by construction,
+its caption is synthesized by the same caption-synthesis step, and its depictability is checked by the read-back verification at the
+scene-expansion stage (Appendix D).
+
+
+Prompt
+Content
+Scene expansion — system prompt
+(T ∈{0.7, 0.9, 1.1})
+You write scene descriptions for a counter-commonsense visual reasoning dataset. You are given a
+COUNTER-COMMONSENSE caption (a short sentence asserting a rare-but-depictable fact that
+contradicts common sense) together with the entity, the flipped dimension, its commonsense value
+and its counter-commonsense value. Expand the caption into ONE detailed, photorealistic scene
+description (60–100 words) that unambiguously depicts the COUNTER-COMMONSENSE value.
+Embed the value through concrete visual detail (shape, count, posture, surface, lighting, spatial
+relations)—NEVER through meta words like ‘unusual’, ‘surprisingly’, ‘strangely’, ‘impossible’,
+‘despite’. Write it as a plain, neutral, ordinary description, as if the depicted state were completely
+normal. CRITICAL for relational/directional captions: depict the reversed relation consistently
+in EVERY directional cue—who crouches/stalks/lunges, gaze direction, who flees/evades, body
+posture, motion blur, who is ahead/behind. The scene must NOT retain ANY cue suggesting the
+commonsense direction, and must NOT mention the commonsense value at all. Return strict JSON.
+Scene expansion — user template
+Counter-commonsense caption: {cf_caption}
+Entity: {entity}
+Dimension: {attribute}
+Commonsense value: {value}
+Counter-commonsense
+value: {candidate}
+Setting for this variant: {setting}. Make the composition concrete and specific to this setting so it
+differs from other depictions of the same concept.
+Produce the JSON with key: counter-commonsense_scene.
+Commonsense-caption rewrite —
+system prompt
+(T=0.3)
+You write the parallel COMMONSENSE caption for a counter-commonsense VQA item. You are
+given a COUNTER-COMMONSENSE caption that asserts a rare fact about an entity, plus the
+entity, the flipped dimension, and its commonsense value. Rewrite the caption so that it asserts
+the COMMONSENSE value instead. Keep the SAME subject, sentence structure, and length as
+the counter-commonsense caption; change ONLY the part that expresses the flipped dimension,
+and flip EVERY word that encodes the counter-commonsense value (for relational captions: swap
+the agent/patient roles consistently, including verbs of direction). Do NOT add meta words like
+‘actually/normally/usually/in reality’. The result must read as a plain factual caption that would be
+TRUE for an ordinary image of the entity and FALSE for the counter-commonsense image. Return
+strict JSON {"commonsense_caption": ...}.
+Commonsense-caption rewrite —
+user template
+Counter-commonsense caption: {cf_caption}
+Entity: {entity}
+Dimension: {attribute}
+Commonsense value: {value}
+Counter-commonsense
+value: {candidate}
+Rewrite it as the parallel commonsense caption. Return {"commonsense_caption":
+"..."}.
+MCQ generation — system prompt
+(T=0.7)
+You write ONE multiple-choice question (4 options A–D) for a counter-commonsense visual dataset.
+You are given a scene depicting a COUNTER-COMMONSENSE value on some dimension of an
+entity, plus the commonsense value of that dimension. Ask about the flipped dimension. Require-
+ments: (1) exactly ONE option matches the COUNTER-COMMONSENSE value depicted in the
+scene (the correct answer); (2) exactly ONE option matches the COMMONSENSE value (the prior
+distractor); (3) the remaining TWO options are plausible same-dimension alternatives, clearly
+different from both; (4) the question must be answerable from the scene alone and must not hint
+that the scene is unusual. Tag which option letter is the counter-commonsense (correct) one and
+which is the commonsense one. Return strict JSON.
+MCQ generation — user template
+Scene: {counter-commonsense_scene}
+Entity: {entity}
+Dimension: {attribute}
+Commonsense value: {value}
+Counter-commonsense
+value: {candidate}
+Table 13: Prompts of the scene-expansion and QA-construction stage (Appendix D); {. . . } marks template placeholders filled
+per item. The prompts refer to the attribute a as dimension and to the pair (v, v′) as the commonsense / counter-commonsense
+value. All calls use vLLM guided decoding, so the outputs are structurally valid by construction.
+
+
+Format
+Assembly template (rule-based)
+MCQ
+(gold:
+counter-
+commonsense option)
+Image: {counter-commonsense_scene}
+{question}
+A. {option A}
+B. {option B}
+C. {option C}
+D. {option D}
+Reason briefly, then end with ‘Answer: X’.
+BCQ
+(options:
+counter-
+commonsense
+vs.
+com-
+monsense
+caption,
+order
+randomized
+50/50;
+gold:
+counter-commonsense cap-
+tion)
+Image: {counter-commonsense_scene}
+Which option better describes the image?
+1. {opt1}
+2. {opt2}
+Reason briefly, then end with ‘Answer: 1’ or ‘Answer: 2’.
+TFV
+(statement:
+counter-
+commonsense
+caption
+⇒gold True; common-
+sense caption ⇒gold False)
+Image: {counter-commonsense_scene}
+Statement: {statement}
+Based on the image, is the given statement true or false? Forget real-world common sense and
+just follow the information provided in the image. Reason briefly, then end with ‘Answer: True’ or
+‘Answer: False’.
+Table 14: Rule-based assembly templates of the three QA formats (Appendix D). The expanded counter-commonsense scene
+fills the image slot of the multimodal training template; the complete instantiated examples are reproduced in Appendix E.
+Sub-step
+Model
+Sampling
+Constraint / check
+Scene expansion
+generator LLM
+T rotated 0.7/0.9/1.1, guided JSON
+60–100 words; tell-word ban; no mention
+of v; 30 setting templates
+Commonsense-caption
+rewrite
+teacher LLM
+T=0.3, guided JSON
+same structure and length; value-keyword /
+role-swap checks
+MCQ generation
+teacher LLM
+T=0.7, guided JSON
+counter-commonsense and commonsense
+options distinct, within A–D
+Caption read-back
+judge LLM
+T=0, 8 tokens
+counter-commonsense caption →True
+and commonsense caption →False on the
+same scene
+MCQ answer read-back
+judge LLM
+T=0, 8 tokens
+scene →counter-commonsense option
+BCQ / TFV assembly
+— (rule-based)
+—
+option order randomized 50/50
+Table 15: Hyperparameters and checks of every sub-step of the scene-expansion and QA-construction stage (Appendix D). Items
+failing any check are regenerated a bounded number of times and otherwise discarded.
+
+
+Major category 1: Agency — who acts on whom is reversed
+Stage1 Example
+Minor category: Objects Act on Beings · Format: binary choice
+Query. Image: In a sunlit studio with wide windows, a lump of gray clay stands over a sculptor on a wooden table. The clay’s soft
+extensions are deep in the human mass, thumbs pressing firmly to shape the body into a human torso. Sculptor smudges cover the clay’s
+surface, while the figure on the table remains formless and passive under the active manipulation of the creator’s tools and fingers.
+Which option better describes the image?
+1. A sculptor molds the clay into a figure.
+2. The clay molds the sculptor into a figure.
+Reason briefly, then end with ‘Answer: 1’ or ‘Answer: 2’.
+Target trajectory (SFT). The image description contains a surreal or inverted scenario where the roles of creator and material are
+swapped: it explicitly states that “a lump of gray clay stands over a sculptor” and the clay’s extensions are pressing into the “human
+mass” to shape the body. While Option 1 describes the normal, real-world process of sculpting, Option 2 accurately reflects the specific,
+reversed narrative presented in the text where the clay is the active agent molding the human.
+Answer: 2
+Stage2 Example
+Minor category: Animal Behavior · Format: multiple-choice
+Query. Image: On a parched savanna under overcast diffuse light, a wildebeest bounds forward with forelegs extended and head lowered,
+its tail trailing rigid behind. A cheetah gallops three meters ahead of it, her body angled away, ears flattened backward, and hind-kicked
+dust spraying in the direction opposite to her flight. Motion blur streaks the cheetah’s rear paws and the wildebeest’s reaching forelimbs.
+In the scene, which animal is pursuing the other?
+A. The cheetah is pursuing the wildebeest
+B. The wildebeest is pursuing the cheetah
+C. Both animals are running side by side
+D. Neither animal is moving
+Reason briefly, then end with ‘Answer: X’.
+Chosen. The cheetah is galloping ahead with flattened ears and dust spraying behind her, indicating she is fleeing — not pursuing. The
+wildebeest is bounding forward with head lowered and tail trailing, consistent with chasing or evading. Given the cheetah’s posture and
+motion blur, she appears to be running away from the wildebeest, not toward it. Therefore, the wildebeest is pursuing the cheetah.
+Answer: B
+Rejected. The cheetah is positioned ahead of the wildebeest and is moving in a direction that suggests pursuit — her body is angled
+away, ears flattened, and dust is kicked up behind her, indicating forward motion. The wildebeest is bounding forward with its head
+lowered, a posture typical of fleeing. The motion blur on the cheetah’s rear paws and wildebeest’s forelimbs reinforces that both are in
+motion, but the cheetah is leading, consistent with a chase.
+Answer: A
+Table 16: Training data examples for the Agency category: one SFT trajectory (binary 1/2) and one DPO preference pair
+(multiple-choice A–D).
+
+
+Major category 2: World Facts — encyclopedic facts rewritten
+Stage1 Example
+Minor category: Landmark · Format: True/False
+Query. Image: A framed photograph on an office wall shows St. Peter’s Basilica with its iconic Renaissance dome and colonnaded
+piazza, now repurposed as a public library and lecture hall with visible reading room windows and lecture banners, while a desk lamp
+illuminates the image beside a stack of reports.
+Statement: The building in the framed photograph is a public library and lecture hall.
+Based on the image, is the given statement true or false? Forget real-world common sense and just follow the information provided in
+the image. Reason briefly, then end with ‘Answer: True’ or ‘Answer: False’.
+Target trajectory (SFT). The image description explicitly states that the photograph shows St. Peter’s Basilica “now repurposed as a
+public library and lecture hall,” with specific details like reading room windows and lecture banners supporting this depiction. Since the
+instruction is to rely solely on the information provided in the image description rather than real-world facts, the statement accurately
+reflects the content of the photograph.
+Answer: True
+Stage2 Example
+Minor category: Landmark · Format: True/False
+Query. Image: A detailed poster of Mont Saint-Michel hangs above a child’s wooden desk, depicting a fortified offshore oyster farm,
+with wooden racks cascading down granite walls, connected by a narrow causeway, and tiny workers rendered at the base as the
+surrounding bay shows wet sand at low tide reflecting the amber sky.
+Statement: The landmark in the image is a tidal island and historic abbey commune.
+Based on the image, is the given statement true or false? Forget real-world common sense and just follow the information provided in
+the image. Reason briefly, then end with ‘Answer: True’ or ‘Answer: False’.
+Chosen. The image shows a fortified offshore structure with wooden racks, a causeway, and workers at low tide — all consistent with
+a tidal island. The presence of an abbey (implied by “historic abbey commune”) is not explicitly depicted in the image, but the poster’s
+subject is Mont Saint-Michel, which is widely known as a tidal island and abbey commune. However, the instruction is to ignore
+real-world knowledge and only follow the image’s depiction.
+In the image, there is no visible abbey or church — only a fortified structure with racks and workers. The term “abbey commune” is
+not visually supported by the image. While the image depicts a tidal island (due to the wet sand and causeway), it does not show or
+imply an abbey.
+Therefore, based strictly on what is visually depicted, the statement “The landmark in the image is a tidal island and historic abbey
+commune” is not fully supported — the “abbey commune” part is absent from the visual evidence.
+Answer: False
+Rejected. The image depicts a fortified offshore structure with wooden racks, a narrow causeway, and workers at the base, set against a
+tidal bay with wet sand — all consistent with a tidal island. The presence of an abbey commune is not directly visible in the image, but
+the statement refers to the landmark as such, and the image’s context (fortified, historic, offshore, with workers and causeway) strongly
+implies a historic and religiously significant site — fitting for an abbey commune. Since the image portrays a landmark that is clearly
+offshore and tidal (as evidenced by the wet sand and causeway), and the description aligns with a historic abbey commune in function
+and setting, the statement is supported by the image’s visual cues.
+Answer: True
+Table 17: Training data examples for the World Facts category: one SFT trajectory and one DPO preference pair (both
+True/False).
+
+
+Major category 3: Physical Relations — placement / function / cause
+Stage1 Example
+Minor category: Spatial · Format: multiple-choice
+Query. Image: A sun-bleached desert stretches under a pale sky. A baby leans forward, both hands gripping the worn handle of a
+canvas stroller, wheels cutting shallow tracks through fine sand. Inside, an adult sits upright, fingers curled around the stroller’s front
+bar, gazing toward distant dunes. The baby’s shadow falls long and forward across the sand. The stroller’s canopy tilts back, shading
+the adult’s face.
+Who is pushing the stroller?
+A. The baby
+B. The adult
+C. Neither; the stroller moves on its own
+D. A desert animal
+Reason briefly, then end with ‘Answer: X’.
+Target trajectory (SFT). The baby is gripping the stroller’s handle and leaning forward, suggesting they are actively pushing it. The
+adult is seated inside the stroller, not pushing it. There is no indication the stroller moves on its own or that an animal is involved.
+Therefore, the baby is the one pushing.
+Answer: A
+Stage2 Example
+Minor category: Object Function · Format: multiple-choice
+Query. Image: Under overcast diffuse light, a chef in a white coat stands at a steel prep table gripping a red carrot by its stem. The
+carrot’s edge presses down through the chef’s white coat, splitting fabric cleanly against a wooden cutting board. The chef’s wrist flexes
+downward, knuckles curled inward around the vegetable. Sliced coat fabric accumulates in a small pile to the right of the carrot.
+What object is being used to perform the cutting action?
+A. A chef’s hand
+B. A knife
+C. A red carrot
+D. A wooden cutting board
+Reason briefly, then end with ‘Answer: X’.
+Chosen. The scene describes the chef gripping the red carrot, and the fabric of the coat is being split by the carrot’s edge — implying
+the carrot is being pressed down or cut through, not that a knife is being used. The chef’s hand is the agent applying force, but the
+object performing the cutting action (i.e., the one causing the fabric to split) is the red carrot itself, as it is pressing down through the
+coat. The knife is not mentioned or implied to be present. The cutting board is merely the surface. Therefore, the red carrot is the object
+doing the cutting action.
+Answer: C
+Rejected. The scene describes the chef gripping the red carrot and using their hand to press it down through their coat, causing the
+fabric to split. There is no mention of a knife or any other cutting tool being used — the cutting action is implied to be performed by
+the chef’s hand pressing the carrot. The cutting board is merely the surface, not the tool. The carrot is the object being cut, not the tool.
+Answer: A
+Table 18: Training data examples for the Physical Relations category: one SFT trajectory and one DPO preference pair (both
+multiple-choice A–D).
+
+
+Major category 4: Magnitude — relative size / weight inverted
+Stage1 Example
+Minor category: Weight · Format: True/False
+Query. Image: A plastic shower caddy rests on a reinforced kitchen floor, its thin polymer surface denting the linoleum beneath it,
+while a cast iron bathtub hangs from a cabinet knob above, swaying gently with almost no visible strain on the hook.
+Statement: The plastic shower caddy is heavier than the cast iron bathtub.
+Based on the image, is the given statement true or false? Forget real-world common sense and just follow the information provided in
+the image. Reason briefly, then end with ‘Answer: True’ or ‘Answer: False’.
+Target trajectory (SFT). Based on the visual evidence provided in the image description, the plastic shower caddy is heavy enough to
+dent the reinforced kitchen floor, indicating significant weight. Conversely, the cast iron bathtub is hanging from a cabinet knob with
+“almost no visible strain,” implying it is very light in this specific scenario. Therefore, within the logic of this image, the plastic caddy
+is depicted as heavier than the cast iron bathtub.
+Answer: True
+Stage2 Example
+Minor category: Size Scale · Format: multiple-choice
+Query. Image: Under flat overcast light, a rose bush in dark soil kneels on damp mulch beside a waist-high gardener. It grips yellow-
+handled secateurs with two thorny lower canes, blades open around a thick booted ankle. Severed fabric strips lie in a small pile at its
+base. The gardener leans slightly away from the bush, his remaining limbs splayed outward, shirt intact above the fresh cuts.
+Which figure is actively cutting the other with secateurs?
+A. The gardener cuts the rose bush.
+B. The rose bush cuts the gardener.
+C. A third person cuts both.
+D. Neither is cutting anything.
+Reason briefly, then end with ‘Answer: X’.
+Chosen. The scene describes the rose bush “grips yellow-handled secateurs” with its thorny canes, implying the bush is holding the
+tool. The gardener is leaning away, with “remaining limbs splayed outward,” and “shirt intact above the fresh cuts,” suggesting the
+gardener is the one being cut — not cutting. The secateurs are held by the bush, not the gardener. Therefore, the bush is the active agent
+using the tool to cut the gardener.
+Answer: B
+Rejected. The scene describes the rose bush “grips” the secateurs, implying it is holding them, not operating them. The gardener is
+leaning away, with limbs splayed and shirt intact above fresh cuts — suggesting he is the one being cut, not cutting. The secateurs are
+held by the bush, and the gardener’s posture and injuries imply he is the victim. Thus, the rose bush is not actively cutting; the gardener
+is being cut by the secateurs, which are held by the bush — but the bush isn’t an agent acting with intent. The only logical inference is
+that the gardener is being cut, and the bush is holding the tool. So, the gardener is not cutting the bush — the bush is not cutting the
+gardener — and no third person is mentioned. The scene implies the gardener is being cut, but not that he is cutting the bush. So, the
+correct answer is D — neither is cutting anything, because the bush is not acting as an agent, and the gardener is not wielding the tool.
+Answer: D
+Table 19: Training data examples for the Magnitude category: one SFT trajectory (True/False) and one DPO preference pair
+(multiple-choice A–D).
+
+
+Major category 5: Appearance — directly visible attributes
+Stage1 Example
+Minor category: Everyday-object Count · Format: multiple-choice
+Query. Image: A wide establishing shot shows a stainless steel butterfly knife resting on a sunlit oak kitchen table, the three blades
+converging at their pivot screw, casting a forked triple shadow across the wood grain. Nearby sits a half-unwrapped spool of twine, a
+ceramic mug, and scattered envelopes awaiting opening.
+How many blades does the butterfly knife have?
+A. One blade
+B. Two blades
+C. Three blades
+D. Four blades
+Reason briefly, then end with ‘Answer: X’.
+Target trajectory (SFT). The scene explicitly describes “a stainless steel butterfly knife” and mentions “the three blades converging
+at their pivot screw.” While it typically have one blades, the description literally states there are three blades. This must be taken as the
+visual fact presented in the scene.
+Answer: C
+Stage2 Example
+Minor category: Color · Format: True/False
+Query. Image: A worn leather American football rests on a scratched oak tabletop near a ceramic coffee mug, its pointed tips aimed at
+the window, the blue surface showing white laces and smudged grass stains from afternoon practice.
+Statement: The American football on the tabletop is brown.
+Based on the image, is the given statement true or false? Forget real-world common sense and just follow the information provided in
+the image. Reason briefly, then end with ‘Answer: True’ or ‘Answer: False’.
+Chosen. The image describes the football as “worn leather” and mentions “blue surface showing white laces and smudged grass stains.”
+The mention of a “blue surface” implies the football is not brown — it has a blue exterior (likely the panel or cover), even if worn.
+Therefore, stating it is “brown” contradicts the visual detail provided.
+Answer: False
+Rejected. The image describes the football as “worn leather,” and while it doesn’t explicitly say “brown,” leather footballs are
+traditionally brown, and the context implies a classic, aged appearance. However, the image also mentions “blue surface showing white
+laces,” which suggests the football might be resting on a blue surface (perhaps the mug or a tablecloth), and the laces are white — but
+this doesn’t contradict the football being brown. The key is: the image doesn’t state the football’s color directly, but “worn leather” is
+commonly associated with brown, and no other color is implied. Since the prompt asks to follow only the information provided, and
+“worn leather” is the only color descriptor — and leather is typically brown — we must infer brown as the most logical color based on
+the given context.
+Answer: True
+Table 20: Training data examples for the Appearance category: one SFT trajectory (multiple-choice A–D) and one DPO
+preference pair (True/False).
+
+
+Major category 6: Social Roles — interpersonal roles swapped
+Stage1 Example
+Minor category: Role Reversal: Social Power · Format: binary choice (1/2)
+Query. Image: In a sunlit child’s bedroom covered in star-patterned wallpaper, a small child in a dark vest kneels on the colorful rug.
+He carefully adjusts the sleeve of a miniature blue suit jacket worn by a professional tailor standing on a toy chest. The tailor holds still
+with arms slightly out while the child pins the fabric, surrounded by scattered building blocks and a plush bear watching from the bed.
+Which option better describes the image?
+1. A client fits a suit on a tailor.
+2. A tailor fits a suit on a client.
+Reason briefly, then end with ‘Answer: 1’ or ‘Answer: 2’.
+Target trajectory (SFT). The image depicts a role-reversal scenario where the child is acting as the client (adjusting and pinning
+the fabric) and the professional tailor is standing still to be fitted, effectively taking on the role of the model or client in this specific
+interaction. Since the child is performing the fitting actions on the tailor, the description “A client fits a suit on a tailor” accurately
+reflects the visual narrative.
+Answer: 1
+Stage2 Example
+Minor category: Role Reversal: Social Power · Format: binary choice
+Query. Image: Against a seamless gray studio backdrop, a hotel manager in a sharp charcoal suit bends forward at the waist, gripping
+the leather handles of two heavy brass-handled suitcases. His knuckles are white from the strain, and his posture is subservient as he
+lifts the bags off the floor. Standing upright with hands clasped behind his back, a bellhop in a navy uniform with gold trim observes
+the action. The bellhop’s gaze is directed slightly downward at the manager, maintaining a stance of authority while the employee bears
+the full weight of the luggage.
+Which option better describes the image?
+1. A hotel manager carries the luggage for a bellhop.
+2. A bellhop carries the luggage for a hotel manager.
+Reason briefly, then end with ‘Answer: 1’ or ‘Answer: 2’.
+Chosen. The image shows the hotel manager bending over and straining to lift the suitcases, while the bellhop stands upright with
+hands behind his back, observing. This implies the bellhop is the one who should be carrying the luggage — but instead, the manager
+is doing the heavy lifting. The bellhop’s posture and gaze suggest authority, implying he is in charge, and the manager is performing
+a subordinate task. Therefore, the bellhop is the one who should be carrying the luggage, but the manager is doing it — meaning the
+bellhop is ordering or directing the manager to carry it. This supports the idea that the bellhop is the one who is carrying the luggage
+for the manager — but in reality, the manager is doing the carrying. However, the question is which option better describes the image.
+Option 1: “A hotel manager carries the luggage for a bellhop.” — This implies the bellhop is the one who is receiving the service —
+but the bellhop is standing in a position of authority, not receiving service. The manager is doing the physical work, and the bellhop is
+observing.
+Option 2: “A bellhop carries the luggage for a hotel manager.” — This would imply the bellhop is doing the carrying, which contradicts
+the visual evidence.
+But wait — the image shows the manager carrying the luggage, not the bellhop. So if we take the literal visual, the manager is carrying.
+But the bellhop is in a position of authority, so perhaps the bellhop is commanding the manager to carry the luggage — which would
+mean the bellhop is the one who is “carrying” the luggage in the sense of responsibility or authority, even though the manager is
+physically doing it.
+This is a bit of a semantic trap. The most accurate description based on the visual is that the manager is carrying the luggage, and the
+bellhop is overseeing. So Option 1 is literally true: the manager carries the
+Answer: 1
+Rejected. The image shows the hotel manager bending over and straining to lift the suitcases, while the bellhop stands upright with
+hands behind his back, observing with a posture of authority. This implies the bellhop is the one who should be carrying the luggage
+— but the manager is doing the physical labor. The bellhop’s stance suggests he is in charge, yet the manager is performing the task.
+Therefore, the bellhop is the one for whom the manager is carrying the luggage — meaning the bellhop is the recipient of the service,
+and the manager is the one performing the labor, likely as a form of deference or humiliation.
+Answer: 2
+Table 21: Training data examples for the Social Roles category: one SFT trajectory and one DPO preference pair (both binary
+1/2).
+
+
+Benchmark
+Image
+Instance
+CDH-Bench
+(direct QA)
+Question: “Is the chair on the floor and not floating in the air?”
+P: yes, chairs rest on the floor.
+E: no, this chair hovers above the rug with its legs touching nothing.
+Gold answer: no.
+CAIT
+(two-choice
+caption selection)
+Question: “Which option better describes the image?”
+Option 1 (P): “A zookeeper bottlefeeds a bear cub.”
+Option 2 (E): “A bear cub bottlefeeds a zookeeper.”
+Gold answer: option 2.
+VLind-Bench
+(proposition
+judgment)
+Statement pair, each judged True/False from the image alone:
+P: “The swans are aquatic birds found in lakes and rivers.” (False given the
+image)
+E: “The swans are found in desert sands.” (True given the image)
+Table 22: One real counter-commonsense instance from each evaluation benchmark. The red proposition P is what the language
+prior favors; the green proposition E is what the image actually shows. A prior-driven failure answers P despite the visual
+evidence for E.
+
+
+Component
+Content
+Grounding-probe prompt
+Examine the image very carefully. First describe EXACTLY what is visually present regarding the
+detail the question asks about — count/observe precisely what you SEE, even if it is unusual or
+contradicts common sense. Then answer strictly from the image.
+{question} {options}
+End with ‘Answer: A’, ‘Answer: B’, ‘Answer: C’, or ‘Answer: D’.
+Greedy trajectory
+(prior-driven, answers P)
+“The chair is clearly positioned on the wooden floor, resting on its legs atop the patterned rug. . . The
+visual evidence confirms it is grounded on the floor. Answer: A”
+Sampled trajectory
+(faithful, answers E)
+“The chair is visibly suspended in mid-air, with no visible contact with the floor or any other surface.
+Its legs do not touch the rug or the wooden floor. . . Therefore, it is floating. Answer: C”
+Table 23: The grounding-probe prompt and a worked example of over-rationalization on the floating-chair item of Appendix F.
+Given the same image and question, the greedy trajectory fabricates grounding evidence and returns the prior answer P (red),
+while a sampled trajectory of the same model faithfully reports the visual evidence E (green).
