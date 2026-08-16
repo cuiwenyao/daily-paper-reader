@@ -6,50 +6,38 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-08-15
-- 运行时间：2026-08-15 20:16:56 UTC
+- 最新运行日期：2026-08-16
+- 运行时间：2026-08-16 20:28:38 UTC
 - 运行状态：成功
-- 本次总论文数：10
-- 精读区：5
-- 速读区：5
+- 本次总论文数：6
+- 精读区：2
+- 速读区：4
 
 ### 今日简报（AI）
-今日共读10篇，精读聚焦双曲神经模糊系统与动态图预测，速读覆盖LLM推理与反常识推理。最值得看《HyperANFIS》以双曲几何增强规则可解释性（9.0分），及《LiFTER》连续时间动态图预测新框架（8.0分）。建议普通读者先从高分解读入手，再按兴趣浏览速读中的推理与记忆机制研究。
-- 详情：[/202608/15/README](/202608/15/README)
+今日精读两篇高分论文，并速读多篇多智能体与多模态推理研究。最值得关注的是9.0分的《Interpreting Language Model Hidden States at Scale》与8.0分的《Actionable Hallucination Detection》，分别揭示大模型隐状态可解释性和将潜在不确定性转化为智能体批判的检测路径。建议优先精读这两篇，再按兴趣浏览多智能体通信拓扑与结构化奖励等速读主题。
+- 详情：[/202608/16/README](/202608/16/README)
 
 ### 精读区论文标签
-1. [HyperANFIS: Enhancing Rule Representation and Interpretability in Adaptive Neuro-Fuzzy Systems via Hyperbolic Geometry](/202608/15/2608.11768v1-hyperanfis-enhancing-rule-representation-and-interpretability-in-adaptive-neuro-fuzzy-systems-via-hyperbolic-geometry)  
+1. [Interpreting Language Model Hidden States at Scale](/202608/16/2608.10260v1-interpreting-language-model-hidden-states-at-scale)  
    标签：评分：9.0/10、query:ns-xai
-   evidence：基于双曲几何的自适应神经模糊推理系统，增强规则表示与可解释性
-2. [LiFTER: A Grounded Neuro-Symbolic Microscope for Continuous-Time Dynamic Graph Forecasting](/202608/15/2608.06765v1-lifter-a-grounded-neuro-symbolic-microscope-for-continuous-time-dynamic-graph-forecasting)  
+   evidence：将透镜式隐状态解释扩展到任意宽度与组件类型的大语言模型
+2. [Actionable Hallucination Detection: Translating Latent Uncertainty into Agentic Critique](/202608/16/2608.10430v1-actionable-hallucination-detection-translating-latent-uncertainty-into-agentic-critique)  
    标签：评分：8.0/10、query:ns-xai
-   evidence：通过可执行时序规则进行预测的接地神经符号方法，让预测过程可解释
-3. [Graph Machine: Exploring Edge Mechanisms as an Inductive Bias](/202608/15/2608.06834v1-graph-machine-exploring-edge-mechanisms-as-an-inductive-bias)  
-   标签：评分：8.0/10、query:ns-xai
-   evidence：通过边增强注意力和边中心引用机制在神经网络中动态构建关系图，增强关系推理
-4. [From Reasoning Depth to Reasoning Breadth: Evaluating Multi-Point Associative Reasoning in Large Language Models](/202608/15/2608.10444v1-from-reasoning-depth-to-reasoning-breadth-evaluating-multi-point-associative-reasoning-in-large-language-models)  
-   标签：评分：8.0/10、query:ns-xai
-   evidence：提出多点联想推理基准评估大语言模型的推理广度
-5. [Reasoning Jury: Multi-Model Consensus for Evaluating Reasoning Traces](/202608/15/2608.12585v1-reasoning-jury-multi-model-consensus-for-evaluating-reasoning-traces)  
-   标签：评分：8.0/10、query:ns-xai
-   evidence：多模型共识方法评估大模型推理轨迹质量并解释推理行为
+   evidence：将潜在不确定性转化为局部自然语言批判以纠正幻觉
 
 ### 速读区论文标签
-1. [TsuGO: Probing Search Efficiency in LLM Reasoning via Go Life-and-Death Problems](/202608/15/2608.13221v1-tsugo-probing-search-efficiency-in-llm-reasoning-via-go-life-and-death-problems)  
+1. [Discovering Efficient and Explainable Communication Topologies for LLM-based Multi-Agent Systems via Causal Inference](/202608/16/2608.12921v1-discovering-efficient-and-explainable-communication-topologies-for-llm-based-multi-agent-systems-via-causal-inference)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：面向LLM思维链搜索组织与推理效率的过程级评测基准
-2. [Debias in Text, Believe Your Eyes: Text-Anchored Cross-Modal Transfer for Visual Counter-Commonsense Reasoning](/202608/15/2608.06938v1-debias-in-text-believe-your-eyes-text-anchored-cross-modal-transfer-for-visual-counter-commonsense-reasoning)  
+   evidence：提出模型无关的因果解释框架，解释基于LLM的多智能体通信拓扑
+2. [StructReward: Efficient Structured Process Rewards for Self-Correcting Multimodal Reasoning](/202608/16/2608.08326v2-structreward-efficient-structured-process-rewards-for-self-correcting-multimodal-reasoning)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：多模态大模型反常识推理中语言先验偏差的识别与跨模态去偏
-3. [Self-Correcting Long-Horizon Search Agents via Tree-Structured Memory](/202608/15/2608.10676v1-self-correcting-long-horizon-search-agents-via-tree-structured-memory)  
+   evidence：通过结构化步骤级过程奖励增强多模态推理的监督与可解释性
+3. [Learning from Consensus and Disagreement: Unsupervised On-Policy Self-Distillation with Minority-Trajectory Contrast](/202608/16/2608.08764v1-learning-from-consensus-and-disagreement-unsupervised-on-policy-self-distillation-with-minority-trajectory-contrast)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：为LLM搜索代理提出树结构证据记忆机制，限制上下文并保留证据与修订历史
-4. [Beyond a Bag of Features: Set-Level Instability in Sparse Autoencoders](/202608/15/2608.11197v1-beyond-a-bag-of-features-set-level-instability-in-sparse-autoencoders)  
+   evidence：无监督在线自蒸馏提升语言模型推理且无需外部监督
+4. [Decoding Task Progress from VLA Representations](/202608/16/2608.13474v1-decoding-task-progress-from-vla-representations)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：检验稀疏自编码器隐含集合是否能改进大模型表示的概念级可解释性
-5. [Branch and Bound for Relational Verification of Neural Networks](/202608/15/2608.13118v1-branch-and-bound-for-relational-verification-of-neural-networks)  
-   标签：评分：6.0/10、query:ns-xai
-   evidence：采用分支定界与凸近似抽象来验证神经网络的关联属性
+   evidence：用机制解释性探针从VLA残差流解码任务进度
 
 
 <div class="dpr-home-promo-card">

@@ -1,0 +1,1379 @@
+Title: Interpreting Language Model Hidden States at Scale
+
+URL Source: https://arxiv.org/pdf/2608.10260v1
+
+Published Time: Wed, 12 Aug 2026 00:18:32 GMT
+
+Number of Pages: 32
+
+Markdown Content:
+# Interpreting Language Model Hidden States at Scale 
+
+## Jordan Pettyjohn 1, Mansi Sakarvadia 1, Nathaniel Hudson 2,3 ,Daniel McKenzie 4, Kyle Chard 1,3 , Ian Foster 1,3 
+
+> 1
+
+University of Chicago 
+
+> 2
+
+Illinois Institute of Technology 
+
+> 3
+
+Argonne National Laboratory 
+
+> 4
+
+Colorado School of Mines 
+
+Abstract 
+
+Lens methods interpret large language models (LLMs) by mapping intermediate activations to the output vocabulary, revealing how next-token predictions develop through the net-work. Trained lenses remain expensive: affine-translator pa-rameters grow quadratically with model width, while exact, full-vocabulary Kullback–Leibler (KL) training dominates memory. Consequently, prior trained lenses have been applied to models of at most 20B parameters and remain tied to partic-ular component types. We present OmniLens, which applies a single lens family to any model-width activation, whether residual stream, attention, or MLP, and combines two inde-pendent scaling techniques. First, low-rank translators make per-lens parameter growth linear in model width and reduce trainable parameters by up to 98.4%. Second, Subset-KL ma-terializes only selected vocabulary logits: its Top-k mode cuts peak training memory by up to 70%, while its importance-sampled variant retains unbiased stochastic gradients for the full KL. These savings enable a dense ensemble of 482 lenses for LLaMA-3.3-70B, providing 6 × the coverage of a residual-stream design at the same depth. Model-wide coverage then reveals what single-component lenses cannot: the components where a behavior is most visible need not be those where inter-vention is most effective, and the most effective interventions lie outside the attention heads examined by prior lens studies. Across three case studies (prompt-injection detection, multi-hop memory injection, and toxicity localization), OmniLens reproduces key published results at substantially lower cost. 
+
+## 1 Introduction 
+
+Understanding how a language model forms its predictions, and where behaviors emerge within its computation, is cen-tral to interpreting and controlling it (Orgad et al. 2026; Shapira et al. 2026). A lens provides a direct view by decod-ing intermediate activations into vocabulary distributions, revealing how next-token predictions evolve through the net-work and where behaviors can be detected or influenced. Lenses can decode many kinds of intermediate activations; we refer to the model component providing input to a lens as its hookpoint . For example, the Tuned Lens reads the resid-ual stream (Belrose et al. 2023), whereas the Attention Lens 
+
+reads individual attention heads (Sakarvadia et al. 2023). Unlike concept-specific classifier probes, which require labeled examples for each target (Alain and Bengio 2018; Hewitt and Manning 2019; Belinkov et al. 2017), lenses can 0 2k 4k 6k 8k 10k 12k 14k 16k    
+
+> Hidden Dimension d
+> 050B 100B 150B 200B
+> Lens Parameters
+> Full-Rank OmniLens ( r= 64)
+> GPT-2 Small GPT-2 XL GPT-3 LLaMA-3 8B LLaMA-3 70B LLaMA-3 405B
+
+Figure 1: Full-rank lens parameter grows as O(Layer ×d2)exceeding 200B for LLaMA-3-405B. be trained in a self-supervised manner: the model’s own fi-nal distribution supplies the target, so no curated labels are needed. A single trained lens can therefore support many downstream analyses. This capability is most valuable when applied densely across a model, that is, with multiple hook-points at every layer. However, training such an ensemble of lenses has remained prohibitively expensive. Specifically, trained lenses face three challenges when ap-plied at scale. Parameters. A full-rank translator costs O(d2)
+
+per hookpoint, where d is the model’s hidden dimension, so dense coverage of a large model can rival the model it-self (Fig. 1). Memory. Lens training uses the KL divergence between the model’s own final distribution and the lens’ dis-tribution as the training objective, which materializes two vocabulary-sized distributions per token. This quickly ex-hausts available VRAM. Specialization. Existing lenses each read one hookpoint type, and each new hookpoint requires a new lens family. Together, these challenges limit the applica-tion of trained lenses to small models with sparse coverage. We address all three challenges with OmniLens , unlock-ing dense lens coverage for (near-)frontier scale models .OmniLens is a hookpoint-agnostic framework that applies one lens family to residual, attention, and MLP activations. OmniLens makes dense coverage tractable through two par-allel techniques. First, low-rank translators reduce the per-hookpoint parameter count from O(d2) to O(rd ) where r is arXiv:2608.10260v1 [cs.AI] 10 Aug 2026 Figure 2: OmniLens at a glance. Hooks are placed at arbitrary user-defined points in the model; each lens applies the low-rank translator of Eq. (3) and is trained against the model’s final distribution under the Subset-KL objectives of Section 4. the target rank. Second, a flexible family of approximations to the KL divergence—which we call Subset-KL objectives— materialize only a small subset of the lens’ distribution per token, greatly reducing memory requirements. We combine these contributions in an open-source frame-work 1 and reproduce key metrics from prior work at sub-stantially lower cost (Belrose et al. 2023; Sakarvadia et al. 2024; Pettyjohn 2025). OmniLens covers six times as many lenses as the tuned lens baseline while costing less, with 90.5% fewer trainable parameters on LLaMA-3-70B and up to 70% lower peak training memory on GPT-2. Across three interpretability case studies it matches the application effi-cacy of existing lens frameworks, and model-wide coverage additionally reveals what single-component lenses cannot: the hookpoints where a behavior is most visible are not nec-essarily those where intervention is most effective. To test the limits of the approach, we run eight optimization steps on LLaMA-3.1-405B, to our knowledge the first measured demonstration of trained-lens optimization at this scale on existing hardware, establishing that the training path is exe-cutable at frontier scale. 
+
+## 2 Background and Related Work 
+
+We study pretrained autoregressive Transformer language models (Vaswani et al. 2017). Let x be a length-T token se-quence from vocabulary V , and let P (·| x) denote the model’s next-token distribution at a given position. The model has hidden dimension d and L layers, with hookpoints exposing residual-stream states, attention and MLP outputs, or indi-vidual head outputs, depending on the desired resolution. We write Hℓ,u ∈ RT ×du for the output of component u at layer 
+
+ℓ and hℓ,u ∈ Rdu for a single position’s activation; lenses apply positionwise, and we suppress the position index. We organize prior work by the three choices that determine a lens method’s scalability: where it reads, how it translates          
+
+> 1Code: OmniLens (training framework) https://github.com/ pettyjohnjn/OmniLens; Hookbox (hookpoint instrumentation) https://github.com/pettyjohnjn/hookbox; IndexedLogits (fused CUDA kernel) https://github.com/pettyjohnjn/indexed_logits; Sub-setKL (objectives and estimator) https://github.com/pettyjohnjn/ subset-kl
+
+the activation, and how its training objective is computed. 
+
+Lens formulation and component specialization. A lens is an auxiliary decoder mapping an intermediate activation to a distribution over the model’s vocabulary. We restrict attention to linear lenses that reuse the model’s frozen final normalization η (LayerNorm or RMSNorm, applied exactly as in the model’s readout) and unembedding WU ∈ R|V |× d:
+
+Qℓ,u (·| x) = softmax ( WU η(Lℓ,u hℓ,u + bℓ,u )) (1) where Lℓ,u ∈ Rd×du and bℓ,u ∈ Rd are learned. The logit lens (Nostalgebraist 2020) applies the model’s frozen readout directly to model-width residual-stream states, correspond-ing to Lℓ,u = I and bℓ,u = 0 . Because this direct readout can be a poor proxy for the final prediction, subsequent meth-ods learn affine translators so that Qℓ,u (·| x) approximates 
+
+P (·| x) (Belrose et al. 2023; Din et al. 2024; Pal et al. 2023). These methods target residual streams, while Attention Lens (Sakarvadia et al. 2023) learns decoders for individual at-tention heads. Each construction commits to a component family, so reading a different component requires another lens design; this coupling between translator and component is the specialization bottleneck OmniLens addresses. The Backward Lens (Katz et al. 2024) projects gradients rather than activations into vocabulary space, proving that such projections admit low-rank structure. 
+
+Parameter-efficient translators. A dense affine translator has dud + d learned parameters, and fitting one per com-ponent across all layers quickly grows impractical: at the 
+
+(6 L+2) hookpoint density we study, the lens set approaches half the parameter count of the base model (Fig. 1), and finer constructions such as the per-head decoders of Atten-tion Lens can exceed the model of study outright. Low-Rank Adaptation (LoRA) (Hu et al. 2021)—originally used for parameter-efficient fine-tuning—freezes a model’s weights and learns a low-rank update to each, cutting trainable pa-rameters by orders of magnitude. Low-rank parameterizations have been combined with lenses, yet existing implementations retain the component specialization of their full-rank predecessors. LoRA Lens (Pettyjohn 2025) factorizes per-head Attention Lens de-coders as rank-r updates to the frozen unembedding on mod-els up to 8B, while concurrent work (Trimigno, Lombardo, and Cagnoni 2026) trains low-rank residual-stream lenses on models up to 32B. Each applies low rank within a single component family, and neither supplies one translator archi-tecture spanning residual, attention, and MLP components or addresses the vocabulary-side memory cost that limits dense coverage at scale. A full taxonomy of lenses is in Appendix A. 
+
+Memory-efficient distillation. Most lens frameworks measure the discrepancy between P (·| x) and Qℓ,u (·| x) using the token-level Kullback-Leibler (KL) divergence, 
+
+DKL (P ∥Qℓ,u ) = X
+
+> v∈V
+
+P (v|x) log P (v|x)
+
+Qℓ,u (v|x)= Ev∼P (·| x)
+
+
+
+log P (v|x)
+
+Qℓ,u (v|x)
+
+
+
+,
+
+(2) where we call P (·| x) the teacher and Qℓ,u (·| x) the student .Materializing all T |V | student logits for a single input x is costly, and numerous approximation schemes avoid it. We use KL as a distillation loss (Hinton, Vinyals, and Dean 2015; Sanh et al. 2020). Because the trainable student is the second argument of DKL (· ∥ · ) and the expectation runs over the fixed teacher, drawing tokens from P gives a well-behaved and unbiased Monte Carlo estimator. When tokens are drawn from another proposal R, importance sampling weights each sampled contribution by P (v|x)/R (v|x) so that its expectation still recovers the original KL (Amini, Vieira, and Cotterell 2025). Deterministic Top-k truncation instead scores only the k most probable teacher tokens, a memory-cheap but biased reduction (Shao et al. 2024). Appendix D distinguishes this setting from KL regularization under a trainable sampling distribution (Tang and Munos 2025). The closest sparse-distillation baseline is Random Sam-pling Knowledge Distillation (RS-KD) (Anshumann et al. 2025), compared against in Section 4.2; our sampled tail builds on importance sampling for large output spaces (Katharopoulos and Fleuret 2019; Blanc and Rendle 2018). These motivate Subset-KL (Section 4): biased Top-k truncation and an exact-head, importance-sampled-tail vari-ant with unbiased gradients. 
+
+Training-free and complementary readouts. The Jaco-bian lens (Gurnee et al. 2026) avoids translator training by decoding average local output sensitivity at a hookpoint. It asks what a state locally represents under a first-order per-turbation, whereas a trained predictive lens is optimized to recover the model’s eventual output distribution; its authors observe that tuned lenses can therefore “skip ahead” past intermediate representations. PatchScopes (Ghandeharioun et al. 2024) is likewise training-free, patching hidden states into explanatory prompts so that the model’s own generation serves as the readout. These views are complementary, al-though each remains a per-hookpoint readout. More broadly, lenses are observational decoders and do not by themselves establish causal mechanisms. They complement causal tech-niques such as circuit discovery and activation patching (El-hage et al. 2021; Wang et al. 2022; Conmy et al. 2023; Meng et al. 2022); observational attention analyses (Clark et al. 2019b; Voita et al. 2019; Vig and Belinkov 2019); and feature-oriented methods including feature visualization, sparse autoencoders that decompose activations into features in superposition, and stochastic parameter decomposition tar-geting weights rather than activations (Olah, Mordvintsev, and Schubert 2017; Cammarata et al. 2021; Cunningham et al. 2023; Templeton et al. 2024; Sharkey, Braun, and Mil-lidge 2022; Bushnaq, Braun, and Sharkey 2025). At frontier scale, circuit tracing (Anthropic 2025) combines cross-layer transcoders with attribution graphs to map computational structure in production models. Classifier-based probes (Et-tinger, Elgohary, and Resnik 2016; Conneau et al. 2018; Ivanitskiy et al. 2024; Kramár et al. 2026) likewise read internal states but test individual concepts using curated la-bels, whereas lenses target the complete output distribution without task-specific labels. 
+
+Synthesis. Prior work addresses three bottlenecks sepa-rately: learned lenses improve fidelity but specialize to one component family, low-rank lenses reduce translator param-eters within those families, and sparse distillation reduces vocabulary-side cost without changing where lenses attach. OmniLens combines all three. 
+
+## 3 OmniLens: Low-Rank Parameterization 
+
+OmniLens combines low-rank translators, hookpoint-agnostic attachment, and the Subset-KL objectives of Sec-tion 4; this section introduces the first two. The same trans-lator parameterization attaches to model-width residual, at-tention, and MLP activations, generalizing prior hookpoint-specific and low-rank lens constructions (Section 2). Our implementation supports distributed training and gradient checkpointing; details are in Appendix B.1. 
+
+Low-rank translator. For an activation hℓ,u ∈ Rd, Om-niLens learns a translator (Lℓ,u , b ℓ,u ), where 
+
+Lℓ,u = I + αr Bℓ,u Aℓ,u , (3) 
+
+Aℓ,u ∈ Rr×d, and Bℓ,u ∈ Rd×r , with fixed scale α, so that 
+
+Lℓ,u is a rank-at-most-r update to the identity. Each translator contains 2dr + d learned parameters, against d2 +d for a dense affine translator. For d ≫ r the ratio of learned parameters per hookpoint is approximately 2r/d ,so the savings compound as coverage grows: at d = 4096 and 
+
+r = 64, six low-rank translators together contain only about 19% as many parameters as a single dense translator. Low rank can therefore widen coverage across component types while still reducing the total parameter count. 
+
+Hookpoint-agnostic attachment. Existing trained lenses couple their decoder to a particular component type. Om-niLens instead treats hookpoint type as a configuration op-tion: each supported hookpoint supplies a model-width acti-vation, after which the same translator parameterization, the same frozen normalization and unembedding, and the same training objective apply unchanged. We cover six residual, attention, and MLP hookpoint types per layer in our experi-ments (Fig. 2), so component types can be compared without designing and training a separate lens family for each. Every hookpoint studied here has width du = d.10 −1          
+
+> 10 0
+> KL to teacher
+> 0.5 0.6 0.7 0.8 0.9
+> top-1 agree.
+> 1864 384
+> rank r
+> 0.80 0.85 0.90 0.95
+> Pearson  ρ
+> 1864 384
+> rank r
+> 0.2 0.4 0.6
+> Kendall  τ@100
+> final layer mean (12 layers)
+
+Figure 3: Fidelity-parameter tradeoff on GPT-2 Small at step 1000. Solid lines show the final layer, dashed lines the mean over 12 layers, and dotted horizontal lines represent the full-rank tuned-lens baseline in the KL panel. The filled marker denotes the recommended default, r = 64 ; gains diminish at larger ranks. Appendix Table 5 reports the full sweep. We initialize Aℓ,u with Xavier uniform (Glorot and Ben-gio 2010) and Bℓ,u and bℓ,u to zero, so each translator begins as the identity, with α/r controlling the update scale. The translated state is decoded through the model’s frozen fi-nal normalization η and unembedding WU , exactly as in Eq. (1). A translator is therefore only required to be accurate on the activations the model actually produces, rather than on all of Rd, and only up to differences that the frozen read-out preserves in the output distribution. A full-rank d × d
+
+update supplies more capacity than these two restrictions de-mand, motivating the low-rank parameterization evaluated below. Fig. 1 presents the resulting parameter scaling across model sizes; Appendix G reports the per-model parameter and memory counts underlying these figures. 
+
+Rank ablation. We validate the low-rank param-eterization on GPT-2 Small by sweeping r ∈{1, 4, 8, 16 , 32 , 64 , 128 , 256 , 384 } against a full-rank tuned-lens baseline after 1000 optimization steps. We measure KL divergence to the teacher, and top-1 agreement, Pearson ρ,and Kendall τ relative to the full-rank lens, following the evaluation protocol of Belrose et al. (2023) (Fig. 3; represen-tative points in Table 1). KL measures fidelity to the teacher distribution, while the agreement metrics test whether the low-rank lens preserves the predictions and token rankings of the dense reference. Appendix B gives the setup; Ap-pendix C.1 reports the complete rank and layer breakdowns. Fidelity improves rapidly through r = 64 and only mod-estly thereafter (Fig. 3). At r = 64 , OmniLens uses 16.7% as many translator weight parameters as the full-rank baseline while achieving 88.8% final-layer top-1 agreement (Pearson 
+
+ρ = 0 .984 ) and mean ρ = 0 .941 ; we therefore use r = 64 
+
+as the default. Earlier layers are the hardest to approximate (layer 0: 56.7% top-1 agreement at r = 64 ), and their KL Table 1: Representative points from the rank ablation; the full sweep is Appendix Table 5. Mean metrics average over 12 layers; KL is to the teacher, agreement metrics are vs. the full-rank baseline. Config. Params Mean KL ↓ Top-1 ↑ ρ ↑ τ ↑                                   
+
+> Full-rank 100.0% 0.543 1.000 1.000 1.000
+> r= 8 2.1% 0.799 0.570 0.885 0.262
+> r= 32 8.3% 0.696 0.655 0.925 0.363
+> r= 64 16.7% 0.600 0.703 0.941 0.423
+> r= 128 33.3% 0.574 0.746 0.952 0.479
+> r= 384 100.0% 0.539 0.793 0.964 0.574
+
+to the teacher remains highest even for the full-rank lens. So, analyses focused on early layers should prefer r ≥ 64 .The parameter-matched run r=384 slightly outperforms the full-rank baseline on KL, but the difference lies within the baseline’s own seed variation (final-layer KL 0.039 –0.049 
+
+across three seeds; Appendix B); we read this as fidelity pre-served, not as low rank being inherently superior. The 8B comparisons in Section 5 support the same conclusion at scale. 
+
+Low rank is a constraint, not a compression. The devia-tion from identity learned by the full-rank baseline, Lℓ,u − I,is not itself low rank: its best rank-64 approximation retains only 59% of its Frobenius energy on GPT-2 Small, and its numerical rank remains near d throughout training (Fig. 4b). Post-hoc compression accordingly loses fidelity: truncating the full-rank translator to rank 64 raises final-layer KL by 
+
+54% , while projecting it onto a random 64-dimensional sub-space raises KL by more than an order of magnitude. By contrast, a translator trained directly at rank 64 achieves final-layer KL within 7% of the full-rank lens (Fig. 4a). Low-rank training therefore finds a distinct solution of comparable predictive quality rather than merely compressing the dense solution. Two matrices can differ substantially in Frobenius norm and still induce nearly identical output distributions, because they need only agree on the activations the model produces and only up to differences the frozen readout pre-serves. 
+
+## 4 OmniLens: Subset-KL Training 
+
+Low-rank translators reduce lens parameters and optimizer state, but they do not narrow the lens output: after translation, every active lens must still score vocabulary items at every token position. Computing the full KL divergence therefore materializes a vocabulary-sized logit tensor for each lens 
+
+Qℓ,u (Eq. (2)). This activation cost grows with batch size, context length, and vocabulary size, and can dominate mem-ory even when the translator itself is lightweight. We call objectives that evaluate only selected vocabu-lary tokens Subset-KL , and study two variants with differ-ent computational and statistical guarantees. Top-k restricts both distributions to the teacher’s most probable tokens and renormalizes within that set: this avoids the full-vocabulary lens projection but changes the objective, and is therefore biased (Section 4.1). Top -k+IS evaluates the head exactly 10 −1          
+
+> 10 0
+> final-layer KL to teacher
+> trained at rank r
+> full-rank, truncated to r
+> random r-dim subspace full-rank lens 1416 64 256
+> rank r
+> 01
+> Frobenius energy of Δ at rank  r
+> r= 64: 59%
+
+Figure 4: Low rank is a constraint, not a compression (GPT-2 Small, step 1000, with 131,072 held-out Pile tokens). 
+
+Top: Final-layer KL for a translator trained directly at rank 
+
+r, a full-rank translator truncated post hoc to rank r, and a random r-dimensional projection of it; the dashed line marks the unmodified full-rank lens. Bottom: Frobenius energy of the full-rank deviation captured at rank r.and importance-samples the remaining vocabulary, retaining the full student normalization and giving unbiased stochas-tic gradients for the original KL (Section 4.2). Top-k thus prioritizes memory and throughput, whereas Top -k+IS pri-oritizes fidelity to the full-KL objective. We follow the eval-uation protocol of Belrose et al. (2023); Appendix B gives the complete experimental setup. 
+
+4.1 Top-k Truncation 
+
+Let H contain the khead most probable teacher tokens. Top-k
+
+restricts both distributions to H and renormalizes them: 
+
+DTop -k(P ∥Qℓ,u ) = X
+
+> v∈H
+
+PH(v|x) log PH(v|x)
+
+QH,ℓ,u (v|x) , (4) where PH and QH,ℓ,u denote the restricted, renormalized distributions. Equivalently, Top-k asks the lens to reproduce the teacher’s relative preferences among its khead most prob-able tokens while ignoring both distributions’ mass outside that set. Thus it is not a cheaper implementation of the full KL: truncating the partition changes the training objective. That change is also Top-k’s principal systems advantage: because QH,ℓ,u normalizes only over H, the lens never projects into the complete vocabulary, reducing activation memory and projection compute, with khead as a direct quality–cost control. We evaluate this on GPT-2 Small, where full-KL training remains feasible and supplies a reference: on its residual hookset, khead = 256 reduces peak mem-ory from 16.3 to 4.7 GB and increases throughput by 1.59 ×,while changing final-layer KL from 0.043 to 0.054. 
+
+4.2 Top -k+IS : Exact Head, Sampled Tail 
+
+To ameliorate the poor performance of Top-k on early layers, we introduce Top -k+IS , which keeps the head unnormal-ized and samples the tail. Let Phead = P 
+
+> v∈H
+
+P (v|x), and draw t1, . . . , t ktail independently from a proposal R(·| x) sup-ported on V \ H . We compute           
+
+> bDTop -k+IS (P∥Qℓ,u ) = X
+> v∈H
+> P(v|x) log P(v|x)
+> Qℓ,u (v|x)+1
+> ktail
+> ktail X
+> i=1
+> P(ti|x)
+> R(ti|x) log P(ti|x)
+> Qℓ,u (ti|x).
+> (5)
+
+The first line is the exact contribution of the head H to the original, untruncated KL. The second estimates the omitted tail sum from sampled tokens, each reweighted by P/R so that in expectation the sampled term reconstructs the com-plete tail contribution. For any lens-independent proposal positive on the tail, both the estimated objective and its stochastic gradients are therefore unbiased for the full KL. 
+
+Theorem 1. Let t1, . . . , t ktail be drawn i.i.d. from any pro-posal R(·| x) supported on V \ H with R(v|x) > 0 wherever 
+
+P (v|x) > 0. The Top -k+IS estimator Eq. (5) is unbiased, 
+
+E
+
+h ˆDTop -k+IS (P ∥Qℓ,u )
+
+i
+
+= DKL (P ∥Qℓ,u ),
+
+and yields unbiased gradients as well: 
+
+E
+
+h
+
+∇ ˆDTop -k+IS 
+
+i
+
+= ∇DKL (P ∥Qℓ,u ).
+
+A complete proof for Theorem 1 is presented in Ap-pendix E. Here Qℓ,u is the true student distribution rather than one renormalized over the subset. Evaluating it requires the full-vocabulary log-partition log P 
+
+> v
+
+exp( zv ), which we compute exactly without materializing all |V | logits: we project one chunk of the vocabulary at a time, accumulate its log-sum-exp into a running total, and discard the chunk’s logits before projecting the next. Subsampling therefore applies only to which KL summands are evaluated, not to the normalizer. As a default, we sample from the teacher conditioned on the tail, R(v|x) = P (v|x)/(1 − Phead ) for v ∈ V \ H . This draws tail tokens in proportion to the same probabilities that weight their KL terms and needs no separate proposal model. Retaining the head deterministically removes the most heav-ily weighted terms from the estimator’s variance, which is why Top -k+IS improves on pure teacher sampling. Ap-pendix E gives the sampling procedure and illustrates the estimator (Fig. 12). 
+
+Evaluation. Table 2 compares matched token budgets, and Fig. 5 gives the layerwise profiles. Among the subset objec-tives, Top-k achieves lower final-layer KL and peak memory at both budgets, whereas Top -k+IS achieves lower mean and early-layer KL. At a 256+256 budget, Top -k+IS halves peak memory from 16 .3 to 8.2 GB while processing 50 .9ktokens/s. Its throughput remains near 48 –51 k tokens/s across the evaluated budgets, whereas Top-k slows from 96 .5k to-kens/s at k = 256 to 28 .9k at k = 1024 . Seed replications preserve the mean and early-layer ordering, while showing that part of the final-layer gap is seed variation. Appendix C reports the complete sweep and per-seed results. Setting khead = 0 reduces Eq. (5) to pure teacher sam-pling, the RS-KD baseline (Section 2). At a total budget Table 2: Matched-budget Subset-KL comparison on GPT-2 Small ( r = 64 , step 1,000 , residual hookset). Early KL averages layers 0–3; RS denotes teacher sampling ( khead =0). Bold marks the best Top-k or Top-k+IS value, and shaded rows share a token budget. Complete results are in Table 6. Estimator Config KL Efficiency Final Mean Early (0–3) Tok/s (×10 3) Peak GB Full-KL |V | 0.043 0.600 1.019 60.8 16.3 Top-k k = 512 0.050 0.903 1.631 54.6 4.8                                          
+
+> k= 1024 0.046 0.780 1.413 28.9 5.0 Top-k+IS 256 + 256 0.067 0.637 1.062 50.9 8.2
+> 512 + 512 0.067 0.649 1.073 49.8 8.5 RS 0 + 512 0.194 0.879 1.334 50.0 8.2
+> 0 + 1024 0.656 1.309 1.693 47.5 8.4 012345678910 11
+> Layer
+> 0.0 0.5 1.0 1.5 2.0
+> KL divergence  Full-KL (ref.) Top-k512 Top-k+IS 256+256 Top-k1024 Top-k+IS 512+512
+
+Figure 5: Layerwise KL on GPT-2 Small ( r = 64 , step 
+
+1,000 ) at matched budgets of 512 (dashed) and 1024 (solid) scored tokens. Shading marks layers 0–3; envelopes span three seeds. of 512 it reaches final-layer KL 0.194 , against 0.067 for 
+
+Top -k+IS , and its training loss deteriorates as the sample budget grows. Appendix C gives the full sweep and diagnos-tics, and Appendix D compares related estimators. 
+
+Choosing an objective. Neither variant dominates. Top-k
+
+is preferable under projection cost, throughput, or maximum context length constraints, particularly for analyses that em-phasize later layers. Top -k+IS is preferable when lenses are compared throughout the network, or when preserving the semantics of the full-KL objective matters. We therefore de-fault to Top -k+IS for the trained lenses in the interpretability studies, whose deterministic head is what preserves late-layer fidelity (Fig. 11), and report Top-k as the lower-memory, higher-throughput alternative. 
+
+4.3 A Fused Kernel for Selected Logits 
+
+Subset selection introduces a second, implementation-level memory problem that is independent of which objective is used. Both variants require different selected vocabulary rows at each of the B ·T positions in a microbatch. A naïve implementation gathers those rows of the unembedding WU
+
+into a [B·T, k, d ] intermediate before multiplying by the trans-lated activation, potentially consuming more memory than the subset objective saves. At B ·T = 8192 , k = 512 , and 
+
+d = 4096 , this tensor alone occupies 68 .7 GB in FP32. Our fused CUDA kernel computes each selected logit directly in registers and never forms the gathered tensor, reducing the peak memory to 0.15 GB (Appendix F). 
+
+Combined feasibility. Lens parameters and optimizer state persist throughout training and cannot be reduced by microbatching, so low rank is what makes dense 70B coverage possible under our single-device lens placement. Vocabulary-readout activations instead grow with micro-batch size, context length, and vocabulary size, and are there-fore reducible by microbatching. Subset-KL governs what readout workloads fit at a given budget: at 8B both subset objectives train at 4K context on an A100-40GB, whereas full KL exhausts the device beyond 2K. At 70B, full KL still fits the low-rank configuration at our production microbatch, so Subset-KL is not what makes that individual run possible; it is what determines the context length, batch size, and vocab-ulary scale reachable without additional hardware, and lets the same framework trade statistical fidelity against memory and throughput. Appendix G gives the complete accounting. 
+
+Frontier scale. We execute eight optimizer steps of a 126-hookpoint residual-lens stack on LLaMA-3.1-405B-Instruct across 96 ×A100-40GB GPUs. At r=64 that stack contains 
+
+266 M translator parameters, a roughly 127 -fold reduction from the corresponding 33 .8B-parameter dense stack before optimizer state. This run verifies execution of the complete training path at 405B scale; Appendix G gives the configu-ration, memory measurements, and loss trajectory. 
+
+## 5 Lens Application Case Studies 
+
+We evaluate whether OmniLens preserves the downstream utility of trained lenses by revisiting three applications from the literature: (i) prompt-injection detection (Belrose et al. 2023), (ii) multi-hop memory injection (Sakarvadia et al. 2024), and (iii) toxicity localization (Pettyjohn 2025). Be-cause the same lens can be attached to residual, attention, and MLP activations, we also extend the toxicity interven-tion beyond the attention heads examined previously. Unless noted otherwise, results use rank-64 Top -k+IS lenses, with Top-k, full-rank, and logit-lens baselines where available. Experimental details/caveats appear in Appendices B and L. 
+
+Prompt-injection detection. Belrose et al. (2023) show that a prompt injection perturbs the model’s intermediate computation before it perturbs the output. Following their protocol, we fit outlier detectors to the layer-by-layer predic-tions decoded by each lens on clean multiple-choice prompts and test whether they flag prompts carrying an injection at-tack. On the five tasks where the original study reports near-perfect detection, Top -k+IS attains a mean AUROC of 0.997 
+
+at every scale and matches the full-rank reference within bootstrap uncertainty where that reference exists (Fig. 6a). At 70B, where no full-rank reference is available, Top -k+IS 
+
+detects attacks the logit lens misses on the knowledge tasks (ARC-Easy 0.80 vs. 0.68 ; SciQ 0.67 vs. 0.56 ). Protocols and per-task results are in Appendices H and K. GPT-2 8B 70B 0.6 0.8 1.0 detection AUROC           
+
+> (a)
+> 8B 70B 050 100 gain captured (%)  2WMH, τ= 4 (b)
+> attn_in attn_out resid_mid mlp_in mlp_out resid_post
+> −20 020 40 tox. reduction (%)
+> +30 +19 -14 +1 +2 +21 GPT-2: intervention by type (c)
+> 0.0 0.1 0.2 detected toxic signal 020 40 tox. reduction (%)
+> attn_in attn_out resid_mid mlp_in mlp_out resid_post Spearman −0.43 8B: detection vs. intervention (d)
+> OmniLens Top-k+IS OmniLens Top-kfull-rank ref. logit lens final-layer selector
+
+Figure 6: Interpretability applications. (a) Prompt-injection AUROC across ten tasks (bars: means; points: individual tasks). (b) Fraction of achievable 2WMH intervention gain captured at τ = 4 . (c) GPT-2 toxicity reduction by component; the dashed line marks the prior attention-head-only method. (d) At 8B, detected toxicity and intervention effectiveness are negatively correlated across component types. No full-rank reference is trainable at 70B (Section 4). 
+
+Multi-hop factual reasoning. Sakarvadia et al. (2024) at-tribute multi-hop failures to a recall gap and correct them by 
+
+memory injection : the difference between explicit and im-plicit intermediate representations is added to the residual stream at a chosen layer. The intervention itself needs no lens; the lens’s role is to select where to inject. The inter-vention replicates at scale: on 2WikiMultiHop (2WMH) (Ho et al. 2020) it raises the model’s own P (answer ) by 6.6 × at 8B and 5.1 × at 70B. At a deliberately strong intervention scale ( τ =4 ), where the causal optimum moves to an interior layer, the Top -k+IS -selected layer captures 61% (8B) and 
+
+82% (70B) of the maximum achievable gain, compared with 
+
+34% and 66% for final-layer injection (Fig. 6b). Top -k+IS 
+
+is the only evaluated lens that selects a middle layer and re-mains near-optimal across all three training seeds. Selection criteria, layer-by-τ sweeps, controls, and distortion measure-ments are in Appendix I. 
+
+Toxicity localization and intervention. Following Pet-tyjohn (2025), we rank attention heads by the prevalence of toxic tokens in their lens predictions, then subtract an unembedding-derived toxicity direction at the selected heads. At 8B, OmniLens reproduces the concentration previously observed on GPT-2: the top five heads carry approximately 35% of the detected toxic signal, and the strongest head is stable across lens variants and training seeds. Extending the intervention across all six hookpoint types, however, changes the conclusion. The most effective targets lie outside the at-tention heads examined previously at both GPT-2 and 8B and differ between models (Fig. 6c,d). At 8B, detection and intervention rankings are negatively correlated (Spearman 
+
+−0.43 ): MLP outputs show the weakest detected toxicity but produce the largest reduction when modified, whereas MLP inputs score highly under detection but increase toxi-city when modified. Where a behavior is most visible, then, need not be where it is most causally actionable. Complete rankings, intervention sweeps, and the 70B analysis appear in Appendix J. Together, these studies show that OmniLens preserves the established applications of trained lenses while enabling model-wide comparisons that component-specific lens families cannot make. 
+
+## 6 Discussion and Conclusion 
+
+Conclusion. OmniLens makes dense trained-lens coverage practical at previously inaccessible model scales by com-bining low-rank translators, memory-efficient vocabulary-subset objectives, and one framework for residual, atten-tion, and MLP activations. We train a 482-hookpoint lens ensemble for LLaMA-3.3-70B and demonstrate training for eight optimizer steps on LLaMA-3.1-405B. Across three es-tablished interpretability applications, the resulting lenses preserve key reference results while enabling comparisons that component-specific methods cannot make, including the finding that the hookpoints where a behavior is most visible and those where intervention is most effective can differ. Om-niLens thus moves trained lenses from sparse, specialized readouts toward a model-wide interpretability instrument. 
+
+Broader impact. Democratizing model-wide inter-pretability at modern LLM scales matters for AI safety, governance, and research equity. OmniLens enables re-searchers to apply the same trained-lens framework to anomaly detection, causal hookpoint selection, and behav-ioral localization throughout an architecture rather than at a few preselected components. Prior work demonstrates how such localization can guide targeted interventions on safety-relevant behavior, including toxicity (Lee et al. 2024), refusal (Arditi et al. 2024), and honesty (Zou et al. 2025), as well as weight-level editing of specific factual associations (Meng et al. 2022, 2023). The same capabilities could expose model vulnerabilities or manipulation points, a dual-use risk shared by interpretability tools generally. 
+
+Limitations and future work. Our experiments cover only components with du = d. The parameterization extends to narrower components, such as individual attention heads, by adding a map into the residual space, which we do not eval-uate here. The two vocabulary-subset objectives make dif-ferent tradeoffs: Top-k avoids the full-vocabulary projection but is biased, whereas Top -k+IS retains unbiased gradients while still computing the full normalization. These bound-aries motivate learned input maps, more efficient unbiased normalization, and converged evaluations beyond 70B. 
+
+## Acknowledgments 
+
+This research used resources of the Argonne Leadership Computing Facility, which is a U.S. Department of Energy Office of Science User Facility operated under contract DE-AC02-06CH11357. This work was partially supported by the AuroraGPT project. MS was supported by the U.S. Depart-ment of Energy, Office of Science, Office of Advanced Sci-entific Computing Research, Department of Energy Compu-tational Science Graduate Fellowship under Award Number DE-SC0023112. 
+
+## References 
+
+Alain, G.; and Bengio, Y. 2018. Understanding intermediate layers using linear classifier probes. arXiv:1610.01644. Amini, A.; Vieira, T.; and Cotterell, R. 2025. Better Estima-tion of the Kullback–Leibler Divergence Between Language Models. In The Thirty-ninth Annual Conference on Neural Information Processing Systems .Anshumann; Zaidi, M. A.; Kedia, A.; Ahn, J.; Kwon, T.; Lee, K.; Lee, H.; and Lee, J. 2025. Sparse Logit Sampling: Accelerating Knowledge Distillation in LLMs. In Che, W.; Nabende, J.; Shutova, E.; and Pilehvar, M. T., eds., 63rd An-nual Meeting of the Association for Computational Linguis-tics , 18085–18108. Vienna, Austria: Association for Com-putational Linguistics. ISBN 979-8-89176-251-0. Anthropic. 2025. Circuit Tracing: Revealing Computational Graphs in Language Models. Anthropic Research . https: //www.anthropic.com/research/circuit-tracing. Arditi, A.; Obeso, O.; Syed, A.; Paleka, D.; Panickssery, N.; Gurnee, W.; and Nanda, N. 2024. Refusal in Language Mod-els Is Mediated by a Single Direction. arXiv:2406.11717. Belinkov, Y.; Durrani, N.; Dalvi, F.; Sajjad, H.; and Glass, J. 2017. What do Neural Machine Translation Models Learn about Morphology? In Barzilay, R.; and Kan, M.-Y., eds., 
+
+55th Annual Meeting of the Association for Computational Linguistics , 861–872. Vancouver, Canada: Association for Computational Linguistics. Belrose, N.; Furman, Z.; Smith, L.; Halawi, D.; Ostrovsky, I.; McKinney, L.; Biderman, S.; and Steinhardt, J. 2023. Elic-iting Latent Predictions from Transformers with the Tuned Lens. arXiv:2303.08112. Blanc, G.; and Rendle, S. 2018. Adaptive Sampled Softmax with Kernel Based Sampling. In Dy, J.; and Krause, A., eds., 35th International Conference on Machine Learning ,volume 80 of Proceedings of Machine Learning Research ,590–599. Bushnaq, L.; Braun, D.; and Sharkey, L. 2025. Stochastic parameter decomposition. arXiv preprint arXiv:2506.20790 .Cammarata, N.; Goh, G.; Carter, S.; Voss, C.; Schu-bert, L.; and Olah, C. 2021. Curve Circuits. Distill .Https://distill.pub/2020/circuits/curve-circuits. Christiano, P. F.; Leike, J.; Brown, T.; Martic, M.; Legg, S.; and Amodei, D. 2017. Deep reinforcement learning from human preferences. Advances in Neural Information Pro-cessing Systems , 30. cjadams; Sorensen, J.; Elliott, J.; Dixon, L.; McDonald, M.; nithum; and Cukierski, W. 2017. Toxic Comment Classi-fication Challenge. https://kaggle.com/competitions/jigsaw-toxic-comment-classification-challenge. Kaggle. Clark, C.; Lee, K.; Chang, M.-W.; Kwiatkowski, T.; Collins, M.; and Toutanova, K. 2019a. BoolQ: Explor-ing the Surprising Difficulty of Natural Yes/No Questions. arXiv:1905.10044. Clark, K.; Khandelwal, U.; Levy, O.; and Manning, C. D. 2019b. What Does BERT Look at? An Analysis of BERT’s Attention. In Linzen, T.; Chrupała, G.; Belinkov, Y.; and Hupkes, D., eds., ACL Workshop BlackboxNLP: Analyzing and Interpreting Neural Networks for NLP , 276–286. Flo-rence, Italy: Association for Computational Linguistics. Clark, P.; Cowhey, I.; Etzioni, O.; Khot, T.; Sabharwal, A.; Schoenick, C.; and Tafjord, O. 2018. Think you have Solved Question Answering? Try ARC, the AI2 Reasoning Chal-lenge. arXiv:1803.05457. Conmy, A.; Mavor-Parker, A. N.; Lynch, A.; Heimer-sheim, S.; and Garriga-Alonso, A. 2023. Towards Auto-mated Circuit Discovery for Mechanistic Interpretability. arXiv:2304.14997. Conneau, A.; Kruszewski, G.; Lample, G.; Barrault, L.; and Baroni, M. 2018. What you can cram into a single vec-tor: Probing sentence embeddings for linguistic properties. arXiv:1805.01070. Cunningham, H.; Ewart, A.; Riggs, L.; Huben, R.; and Sharkey, L. 2023. Sparse Autoencoders Find Highly Inter-pretable Features in Language Models. arXiv:2309.08600. Din, A. Y.; Karidi, T.; Choshen, L.; and Geva, M. 2024. Jump to Conclusions: Short-Cutting Transformers with Lin-ear Transformations. In Joint International Conference on Computational Linguistics, Language Resources and Evalu-ation , 9615–9625. Elhage, N.; Nanda, N.; Olsson, C.; Henighan, T.; Joseph, N.; Mann, B.; Askell, A.; Bai, Y.; Chen, A.; Conerly, T.; DasSarma, N.; Drain, D.; Ganguli, D.; Hatfield-Dodds, Z.; Hernandez, D.; Jones, A.; Kernion, J.; Lovitt, L.; Ndousse, K.; Amodei, D.; Brown, T.; Clark, J.; Kaplan, J.; McCandlish, S.; and Olah, C. 2021. A Mathematical Framework for Transformer Cir-cuits. Transformer Circuits Thread . Https://transformer-circuits.pub/2021/framework/index.html. Ettinger, A.; Elgohary, A.; and Resnik, P. 2016. Probing for semantic evidence of composition by means of simple classification tasks. In 1st Workshop on Evaluating Vector-Space Representations for NLP , 134–139. Berlin, Germany: Association for Computational Linguistics. Gao, L.; Biderman, S.; Black, S.; Golding, L.; Hoppe, T.; Foster, C.; Phang, J.; He, H.; Thite, A.; Nabeshima, N.; et al. 2020. The pile: An 800gb dataset of diverse text for language modeling. arXiv preprint arXiv:2101.00027 .Ghandeharioun, A.; Caciularu, A.; Pearce, A.; Dixon, L.; and Geva, M. 2024. Patchscopes: A unifying framework for inspecting hidden representations of language models. arXiv preprint arXiv:2401.06102 .Glorot, X.; and Bengio, Y. 2010. Understanding the difficulty of training deep feedforward neural networks. In 13th Inter-national Conference on Artificial Intelligence and Statistics ,249–256. JMLR Workshop and Conference Proceedings. Gurnee, W.; Sofroniew, N.; Pearce, A.; Piotrowski, M.; Kau-var, I.; Chen, R.; Soligo, A.; Bogdan, P.; Ong, E.; Wang, R.; Thompson, B.; Abrahams, D.; Kantamneni, S.; Ameisen, E.; Batson, J.; and Lindsey, J. 2026. Verbalizable Repre-sentations Form a Global Workspace in Language Models. arXiv:2607.15495. Hanu, L.; and Unitary team. 2020. Detoxify. Github. https://github.com/unitaryai/detoxify. Hewitt, J.; and Manning, C. D. 2019. A Structural Probe for Finding Syntax in Word Representations. In Burstein, J.; Doran, C.; and Solorio, T., eds., 2019 Conference of the North American Chapter of the Association for Computa-tional Linguistics: Human Language Technologies , 4129– 4138. Minneapolis, Minnesota: Association for Computa-tional Linguistics. Hinton, G.; Vinyals, O.; and Dean, J. 2015. Distilling the Knowledge in a Neural Network. arXiv:1503.02531. Ho, X.; Nguyen, A.-K. D.; Sugawara, S.; and Aizawa, A. 2020. Constructing A Multi-hop QA Dataset for Compre-hensive Evaluation of Reasoning Steps. arXiv:2011.01060. Hu, E. J.; Shen, Y.; Wallis, P.; Allen-Zhu, Z.; Li, Y.; Wang, S.; Wang, L.; and Chen, W. 2021. LoRA: Low-Rank Adaptation of Large Language Models. arXiv:2106.09685. Ivanitskiy, M.; Spies, A. F.; Räuker, T.; Corlouer, G.; Math-win, C.; Quirke, L.; Rager, C.; Shah, R.; Valentine, D.; Behn, C. D.; et al. 2024. Linearly structured world representations in maze-solving transformers. In UniReps: 1st Workshop on Unifying Representations in Neural Models , 133–143. Katharopoulos, A.; and Fleuret, F. 2019. Not All Samples Are Created Equal: Deep Learning with Importance Sam-pling. arXiv:1803.00942. Katz, S.; Belinkov, Y.; Geva, M.; and Wolf, L. 2024. Back-ward lens: Projecting language model gradients into the vo-cabulary space. In Conference on Empirical Methods in Natural Language Processing , 2390–2422. Kramár, J.; Engels, J.; Wang, Z.; Chughtai, B.; Shah, R.; Nanda, N.; and Conmy, A. 2026. Building Production-Ready Probes For Gemini. arXiv preprint arXiv:2601.11516 .Lee, A.; Bai, X.; Pres, I.; Wattenberg, M.; Kummerfeld, J. K.; and Mihalcea, R. 2024. A Mechanistic Understanding of Alignment Algorithms: A Case Study on DPO and Toxicity. arXiv:2401.01967. Liu, J.; Cui, L.; Liu, H.; Huang, D.; Wang, Y.; and Zhang, Y. 2020. LogiQA: A Challenge Dataset for Machine Reading Comprehension with Logical Reasoning. arXiv:2007.08124. Meng, K.; Bau, D.; Andonian, A.; and Belinkov, Y. 2022. Locating and editing factual associations in GPT. In 36th International Conference on Neural Information Processing Systems , NIPS ’22. Red Hook, NY, USA: Curran Associates Inc. ISBN 9781713871088. Meng, K.; Sharma, A. S.; Andonian, A.; Belinkov, Y.; and Bau, D. 2023. Mass-Editing Memory in a Transformer. arXiv:2210.07229. Merity, S.; Xiong, C.; Bradbury, J.; and Socher, R. 2016. Pointer Sentinel Mixture Models. arXiv:1609.07843. Nostalgebraist. 2020. Interpreting GPT: The logit lens. LessWrong forum post. https://www.lesswrong.com/posts/ AcKRB8wDpdaN6v6ru/interpreting-gpt-the-logit-lens. Olah, C.; Mordvintsev, A.; and Schubert, L. 2017. Feature Visualization. Distill , 2. Orgad, H.; Barez, F.; Haklay, T.; Lee, I.; Mosbach, M.; Reusch, A.; Saphra, N.; Wallace, B. C.; Wiegreffe, S.; Wong, E.; Tenney, I.; and Geva, M. 2026. Interpretability Can Be Actionable. Preprint arXiv:2605.11161 .Pal, K.; Sun, J.; Yuan, A.; Wallace, B. C.; and Bau, D. 2023. Future lens: Anticipating subsequent tokens from a single hidden state. arXiv preprint arXiv:2311.04897 .Pettyjohn, J. 2025. Mind Your Manners: Detoxifying Lan-guage Models via Attention Head Intervention. ACM SRC. Sakarvadia, M.; Ajith, A.; Khan, A.; Grzenda, D.; Hud-son, N.; Bauer, A.; Chard, K.; and Foster, I. 2024. Mem-ory Injections: Correcting Multi-Hop Reasoning Failures during Inference in Transformer-Based Language Models. arXiv:2309.05605. Sakarvadia, M.; Khan, A.; Ajith, A.; Grzenda, D.; Hudson, N.; Bauer, A.; Chard, K.; and Foster, I. 2023. Attention Lens: A Tool for Mechanistically Interpreting the Attention Head Information Retrieval Mechanism. arXiv:2310.16270. Sanh, V.; Debut, L.; Chaumond, J.; and Wolf, T. 2020. Distil-BERT, a distilled version of BERT: Smaller, faster, cheaper and lighter. arXiv:1910.01108. Schulman, J. 2020. Approximating KL Divergence. http:// joschu.net/blog/kl-approx.html. Online; accessed 02-March-2026. Shao, Z.; Wang, P.; Zhu, Q.; Xu, R.; Song, J.; Bi, X.; Zhang, H.; Zhang, M.; Li, Y.; Wu, Y.; et al. 2024. DeepSeekMath: Pushing the limits of mathematical reasoning in open lan-guage models. arXiv preprint arXiv:2402.03300 .Shapira, N.; et al. 2026. Agents of Chaos. arXiv:2602.20021. Sharkey, L.; Braun, D.; and Millidge, B. 2022. Taking fea-tures out of superposition with sparse autoencoders. In AI Alignment Forum , volume 6, 12–13. Socher, R.; Perelygin, A.; Wu, J.; Chuang, J.; Manning, C. D.; Ng, A.; and Potts, C. 2013. Recursive Deep Models for Se-mantic Compositionality Over a Sentiment Treebank. In Yarowsky, D.; Baldwin, T.; Korhonen, A.; Livescu, K.; and Bethard, S., eds., Proceedings of the 2013 Conference on Empirical Methods in Natural Language Processing , 1631– 1642. Seattle, Washington, USA: Association for Computa-tional Linguistics. Stiennon, N.; Ouyang, L.; Wu, J.; Ziegler, D.; Lowe, R.; Voss, C.; Radford, A.; Amodei, D.; and Christiano, P. F. 2020. Learning to summarize with human feedback. Advances in Neural Information Processing Systems , 33: 3008–3021. Tang, Y.; and Munos, R. 2025. On a few pitfalls in KL divergence gradient estimation for RL. arXiv preprint arXiv:2506.09477 .Templeton, A.; Conerly, T.; Marcus, J.; Lindsey, J.; Bricken, T.; Chen, B.; Pearce, A.; Citro, C.; Ameisen, E.; Jones, A.; Cunningham, H.; Turner, N. L.; McDougall, C.; MacDi-armid, M.; Freeman, C. D.; Sumers, T. R.; Rees, E.; Batson, J.; Jermyn, A.; Carter, S.; Olah, C.; and Henighan, T. 2024. Scaling Monosemanticity: Extracting Interpretable Features from Claude 3 Sonnet. Transformer Circuits Thread .Trimigno, G.; Lombardo, G.; and Cagnoni, S. 2026. Low-Rank Lens for Scalable LLMs Interpretability. In 34th Eu-ropean Symposium on Artificial Neural Networks, Compu-tational Intelligence and Machine Learning , 35–40. Bruges, Belgium: i6doc.com. ISBN 9782875870964. Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones, L.; Gomez, A. N.; Kaiser, Ł.; and Polosukhin, I. 2017. Attention is all you need. Advances in Neural Information Processing Systems , 30. Vig, J.; and Belinkov, Y. 2019. Analyzing the Structure of Attention in a Transformer Language Model. In ACL Workshop BlackboxNLP: Analyzing and Interpreting Neural Networks for NLP , 63–76. Voita, E.; Talbot, D.; Moiseev, F.; Sennrich, R.; and Titov, I. 2019. Analyzing Multi-Head Self-Attention: Specialized Heads Do the Heavy Lifting, the Rest Can Be Pruned. In 
+
+57th Annual Meeting of the Association for Computational Linguistics , 5797–5808. Wang, A.; Singh, A.; Michael, J.; Hill, F.; Levy, O.; and Bowman, S. R. 2018. GLUE: A Multi-Task Benchmark and Analysis Platform for Natural Language Understanding. In Linzen, T.; Chrupała, G.; and Alishahi, A., eds., Proceedings of the 2018 EMNLP Workshop BlackboxNLP: Analyzing and Interpreting Neural Networks for NLP , 353–355. Brussels, Belgium: Association for Computational Linguistics. Wang, K.; Variengien, A.; Conmy, A.; Shlegeris, B.; and Steinhardt, J. 2022. Interpretability in the Wild: A Cir-cuit for Indirect Object Identification in GPT-2 small. arXiv:2211.00593. Welbl, J.; Liu, N. F.; and Gardner, M. 2017. Crowdsourc-ing Multiple Choice Science Questions. In Derczynski, L.; Xu, W.; Ritter, A.; and Baldwin, T., eds., Proceedings of the 3rd Workshop on Noisy User-generated Text , 94–106. Copenhagen, Denmark: Association for Computational Lin-guistics. Williams, A.; Nangia, N.; and Bowman, S. R. 2018. ABroad-Coverage Challenge Corpus for Sentence Understand-ing through Inference. In Walker, M.; Ji, H.; and Stent, A., eds., Proceedings of the 2018 Conference of the North Amer-ican Chapter of the Association for Computational Linguis-tics: Human Language Technologies, Volume 1 (Long Pa-pers) , 1112–1122. New Orleans, Louisiana: Association for Computational Linguistics. Zhang, L.; and Ba, J. 2026. EMA Policy Gradient: Taming Reinforcement Learning for LLMs with EMA Anchor and Top-k KL. arXiv preprint arXiv:2602.04417 .Zhou, B.; Khashabi, D.; Ning, Q.; and Roth, D. 2019. “Go-ing on a vacation” takes longer than “Going for a walk”: A Study of Temporal Commonsense Understanding. In Inui, K.; Jiang, J.; Ng, V.; and Wan, X., eds., Proceedings of the 2019 Conference on Empirical Methods in Natural Lan-guage Processing and the 9th International Joint Conference on Natural Language Processing (EMNLP-IJCNLP) , 3363– 3369. Hong Kong, China: Association for Computational Linguistics. Zou, A.; Phan, L.; Chen, S.; Campbell, J.; Guo, P.; Ren, R.; Pan, A.; Yin, X.; Mazeika, M.; Dombrowski, A.-K.; Goel, S.; Li, N.; Byun, M. J.; Wang, Z.; Mallen, A.; Basart, S.; Koyejo, S.; Song, D.; Fredrikson, M.; Kolter, J. Z.; and Hendrycks, D. 2025. Representation Engineering: A Top-Down Approach to AI Transparency. arXiv:2310.01405. A Lens Taxonomy 
+
+Table 3 organizes the published (linear) lens constructions as discussed in Section 2. We note there are two linear lens parameterizations in the literature. The most common is to view the lens as a component-to-residual stream map—i.e. 
+
+Lℓ,u ∈ Rd×du , where du is the width of component u (equal to the model width d for every hookpoint we train)—whence composing with the unembedding matrix maps to vocabulary space: 
+
+Qℓ,u (·| x) = softmax ( WU η(Lℓ,u hℓ,u + bℓ,u )) .
+
+This is the formulation presented in Section 2. In the second parameterization the lens maps directly to vocabulary space. That is, Lℓ,u ∈ R|V |× du and 
+
+Qℓ,u (·| x) = softmax ( Lℓ,u hℓ,u + bℓ,u ) . (6) We mark the methods in Table 3 employing the parameteri-zation of Eq. (6) with a dagger ( †). Two axes distinguish the entries of Table 3. The first is 
+
+where the lens reads: prior methods each fix one component type, while the hookpoint-agnostic parameterization of Sec-tion 3 covers all of them under one training run. The second is 
+
+how much the translator costs: the earlier trained entries use a full-rank d × d map per hookpoint, the two low-rank pre-decessors reduce that cost at a single fixed component, and our identity-residual translator Eq. (3) carries the low-rank cost to every component type. 
+
+## B Experimental Setup and Implementation 
+
+Models. GPT-2 Small (124M; 12 layers, d=768 ,
+
+|V |=50 ,257 ; HF openai-community/gpt2 ), LLaMA-3-8B (32 layers, d=4096 , |V |=128 ,256 ; HF 
+
+meta-llama/Meta-Llama-3-8B-Instruct ), and LLaMA-3.3-70B (80 layers, d=8192 , |V |=128 ,256 ;HF meta-llama/Llama-3.3-70B-Instruct ; abbreviated LLaMA-3-70B in the main text). All models are frozen bf16 checkpoints; the LLaMA models are the instruct-tuned variants, while GPT-2 is the base pretrained model. The 405B feasibility run (Section 4) additionally uses LLaMA-3.1-405B-Instruct (126 layers, d=16 ,384 , |V |=128 ,256 ;HF meta-llama/Llama-3.1-405B-Instruct ), likewise a frozen bf16 instruct checkpoint. 
+
+Data. All lenses were trained on The Pile (Gao et al. 2020), tokenized into non-overlapping chunks of the training sequence length (stride equals sequence length). No addi-tional preprocessing or filtering was applied. 2
+
+Optimization. We used AdamW with default moments 
+
+(β1, β 2) = (0 .9, 0.999) , weight decay 0, gradient clipping at norm 1.0, and learning rate 10 −3 with cosine decay to zero. Optimizer steps target an effective batch of 218 = 262 ,144 
+
+tokens, accumulated over an integer number of full micro-batches (a step never ends mid-microbatch; when the token 
+
+> 2A preliminary swap to an alternative corpus produced negligi-ble differences in final-layer and layerwise KL, suggesting lens qual-ity is determined primarily by the model’s representations rather than the training distribution. We did not study this systematically.
+
+target is not divisible by the per-microstep token count, the trainer rounds up to the next full microbatch). The realized effective batches are therefore 262 ,144 tokens for GPT-2 ( 8
+
+microsteps of 32 × 1024 on a single A100-40GB), 327 ,680 
+
+for LLaMA-3-8B ( 4 microsteps of 2 × 1024 per rank, DDP over 10 nodes = 40 ranks), and 393 ,216 for LLaMA-3-70B (2 microsteps of 2× 1024 per rank over 96 FSDP ranks on 24 
+
+nodes of 4×A100-40GB). GPT-2 trains for 1,000 steps with no warmup; the LLaMA lens sets train for 250 steps with 50 
+
+warmup steps. All runs use bf16 mixed precision with fp32 loss reductions and log-partition computation, and training seed 0 unless stated otherwise (see Checkpoint selection and seeds ). 
+
+Software. Lens training uses Python 3.10, PyTorch 2.10 (CUDA 12.8), Transformers 5.3, and Datasets 4.6 on Linux, on the 4×A100-40 GB nodes described above. KL evaluation reuses the upstream tuned-lens loop, which ships with the released OmniLens code alongside per-run configurations (run_config.csv ). Hyperparameter exploration is reported where it occurred: rank r (nine values; Table 5), estimator budgets k and (khead , k tail ) (Table 6), and training length (convergence diagnostics; Appendix C) were swept with the selection criteria stated alongside each; optimizer settings follow standard tuned-lens practice and were not tuned. 
+
+Lenses and objectives. LoRA lenses use r=64 by default with α=r (unit scaling). A was initialized as Xavier uniform (Glorot and Bengio 2010) while B and b were initialized to zero, so that the lens is the identity map at initialization. 
+
+Estimator budgets: the GPT-2 sweeps are as listed in Ta-bles 6 and 8; the production LLaMA lenses use Top-k with 
+
+k=512 and Top -k+IS with (khead , k tail ) = (512 , 1024) un-der the teacher-tail proposal. Full-KL runs use chunked eval-uation with chunk size 4,096 .
+
+Hookpoints: Residual places one translator per layer while expanded places six hookpoint types per layer plus embed-ding and final-norm readouts ( 6L+2 : 74 / 194 / 482 hook-points at GPT-2 / LLaMA-3-8B / LLaMA-3-70B). Dense coverage costs about the same as a standard one-per-layer full-rank stack at GPT-2 and far less at scale (GPT-2: 7.3M parameters vs. 7.1M full-rank residual-only; 8B: 102M vs. 537M; 70B: 509M vs. 5.4B). 
+
+Baselines: We select the strongest set of baselines that are trainable for a given model size. For GPT-2 every vari-ant is trainable, including the full-rank full-KL reference. For LLaMA-3-8B a multi-node full-rank reference exists on the residual hookset; at 70B no full-rank variant is train-able (optimizer state 388 GB; Figure 14) and the dense LoRA +Subset-KL stack trains at a measured 34 .7 GB per GPU. 
+
+Training costs: training one production OmniLens stack (expanded hookset, LoRA r=64 , Subset-KL) costs a few GPU-hours at GPT-2, ≈20 node-hours at 8B, and ≈360 node-hours at 70B on 4×A100-40 GB nodes. 
+
+Checkpoint selection and seeds. GPT-2 comparisons use step 1,000 ; LLaMA lenses use the end of the annealed sched-ule (step 250 ); Appendix C reports convergence diagnostics supporting both budgets. Headline tables report training seed Table 3: Published lens constructions. All lenses use the parameterization Eq. (1) unless marked by †, in which case they use the parameterization of Eq. (6). Method Component u Translator Lℓ,u 
+
+Logit lens (Nostalgebraist 2020) residual stream I (frozen) Tuned lens (Belrose et al. 2023) residual stream full-rank affine, per layer Future lens (Pal et al. 2023) residual stream full-rank affine, per offset Jump-to-conclusions (Din et al. 2024) residual stream full-rank linear, cross-layer Attention lens (Sakarvadia et al. 2023) † attention-head outputs full-rank affine, per layer Jacobian lens (Gurnee et al. 2026) residual stream (mid-layers) averaged Jacobian (frozen) LoRA Lens (Pettyjohn 2025) † attention-head outputs low-rank unembedding update Low-rank lens (Trimigno, Lombardo, and Cagnoni 2026) residual stream low-rank residual, full-KL trained OmniLens (ours) any component low-rank residual Eq. (3) 
+
+0; two seed studies quantify training-seed variability under otherwise identical recipes. At GPT-2, the full-rank baseline, LoRA full-KL, Top-k (k=1024 ), Top -k+IS (512+512 ), and RS ( khead =0 ) configurations were each retrained at seeds 
+
+1–2. Mean and early-layer KL values are stable for every estimator (sd ≤ 0.04 nats), while final-layer KL sd ranges from 0.0007 (Top-k) to 0.012 (Top -k+IS ). The full-rank baseline’s own final KL spans 0.039 –0.049 .For LLaMA-3-8B, the three lens variants used in the case studies— Top -k+IS , Top-k, and the full-rank residual reference—were each retrained at seeds 1–2 under the iden-tical 250-step schedule; the resulting DART and injection-selection stability is reported in Section 5. The detection experiments ensemble the isolation forest over five seeds and report bootstrap confidence intervals (Appendix H). Full per-run configurations ( run_config.csv ) ship with the released OmniLens code. 
+
+B.1 Implementation Details 
+
+Hookbox System Architecture The hookbox system pro-vides a component-agnostic interface for attaching lenses to arbitrary intermediate activations during the forward pass. Hooks toggle independently at any granularity (whole blocks, individual heads, or projections within a head), so one instrumented model serves coarse, fine-grained, and tar-geted analyses (Figure 7). This section details the key design decisions and implementation strategies. 
+
+Distributed Model Handling Modern large language models are typically wrapped in distributed training frame-works (DDP, FSDP, DeepSpeed) that shard parameters and optimizer states across devices. These wrappers introduce additional module hierarchy that must be unwrapped to ac-cess the underlying model architecture. Our implementation automatically detects and unwraps these wrappers using a recursive traversal: 
+
+def unwrap_model(model): """Recursively unwrap distributed wrappers.""" while hasattr(model, 'module'): model = model.module if hasattr(model, '_fsdp_wrapped_module'): model = model._fsdp_wrapped_module return model 
+
+For FSDP models using ZeRO-3 (full parameter sharding), individual modules may be sharded across devices. We im-plement an activation gathering mechanism that consolidates sharded tensors before passing to the lens: 
+
+@torch.no_grad() def gather_from_shards(tensor, process_group): """Gather tensor from FSDP shards.""" world_size = dist.get_world_size(process_group) gather_list = [torch.zeros_like(tensor) for _ in range(world_size)] dist.all_gather(gather_list, tensor, group=process_group) return torch.cat(gather_list, dim=0) 
+
+Activation Checkpointing Compatibility Gradient checkpointing (activation recomputation) reduces memory by discarding intermediate activations during the forward pass and recomputing them during the backward pass. However, this creates a challenge for hooks: they are invoked twice (once during initial forward, once during recomputation), potentially double-counting activations. Recomputation passes are marked with an explicit context-manager flag that the checkpointed forward is wrapped in: 
+
+class CheckpointingState: _is_recomputing: bool = False @classmethod def is_recomputing(cls): return cls._is_recomputing @classmethod @contextmanager def recomputation_context(cls): old = cls._is_recomputing cls._is_recomputing = True try: yield finally: cls._is_recomputing = old 
+
+Hooks skip execution during recomputation to avoid du-plicate processing: 
+
+def hook_fn(module, input, output): Figure 7: Dynamic hook configurations in hookbox . Any hook can be toggled independently: a macro-scale configuration (left) reads only block outputs, a micro-scale configuration (center) instruments every projection of every head, and mixed-scale configurations (right) target specific components. Active hooks ( •) incur memory and compute cost; inactive hooks ( ◦) are free. 
+
+if CheckpointingState.is_recomputing(): return output # Skip during recompute activations = process_activations(output) return output 
+
+Hook Registration via Predicates Rather than hardcoding module names, we allow users to specify attachment points via predicate functions over (name, module) pairs. This pro-vides flexibility and architectural agnostic attachment: 
+
+def register_hooks(model, predicate, hook_fn): """Register hooks on modules matching predicate.""" handles = [] for name, module in model.named_modules(): if predicate(name, module): handle = module.register_forward_hook( hook_fn )handles.append(handle) return handles # Example usage pred = lambda n, m: 'layer' in n and 'output' in n handles = register_hooks(model, pred, my_hook) 
+
+Common predicates include: 
+
+• Residual streams: lambda n,m: ’layer.{}.output’ in n
+
+• All attention heads: lambda n,m: isinstance(m, AttentionHead) 
+
+• Specific layers: lambda n,m: n in [’layer.0’, ’layer.10’, ’layer.20’] 
+
+• MLP sublayers: lambda n,m: ’mlp’ in n and ’post’ in n 
+
+Numerical Stability Considerations Mixed Precision Training We use BF16 mixed precision to reduce memory and accelerate training. However, certain operations require FP32 for numerical stability: 
+
+• Logit computation accumulates in FP32 (fused kernel) 
+
+• KL divergence uses log-space computations to avoid un-derflow 
+
+• Gradient clipping operates on FP32 master weights 
+
+• Normalization layers maintain FP32 running statistics 
+
+Softmax and Log-Softmax Stability Computing KL di-vergence requires both log P and log Q. We use the log-sum-exp trick to prevent overflow/underflow: 
+
+def stable_log_softmax(logits): """Numerically stable log-softmax.""" max_logit = logits.max(dim=-1, keepdim=True)[0] shifted = logits - max_logit return shifted - torch.log( torch.exp(shifted).sum(dim=-1, keepdim=True) )
+
+The two Subset-KL modes differ here. Top-k renormal-izes over the selected subset only (a deliberately truncated objective). The Top -k+IS mode instead uses the exact full-vocabulary log-partition: the student’s full logit row is pro-duced by a single fused matmul, reduced immediately to its logsumexp, and only the selected subset of logits is re-tained ( O(N · V ) transient per site, a few hundred MB at our configurations, freed by layer-wise backward). Gradi-ents therefore flow to every logit through the partition term, which is what makes the estimator’s gradients exactly unbi-ased (Theorem 1); we verify this numerically against full-KL autograd. 
+
+Numerical Guards Teacher and student log-probabilities are computed directly with fp32 log_softmax ; probabilities are never reconstructed by exponentiation and re-floored, so the teacher distribution entering the loss is unmodified. The tail mass is computed by directly summing the teacher’s tail probabilities in fp32 (not as 1−Phead , which would lose pre-cision when the head mass is close to one). Two guards exist in the sampling path: that tail-mass sum is floored at 10 −12 
+
+where it appears as a normalizing denominator (preventing division by zero only in the degenerate case where the head captures all numerical mass), and proposal probabilities are floored at the fp32 subnormal boundary ( 10 −45 ) before their logarithm. Neither guard biases the estimator: a token with zero proposal probability can never be drawn by multino-mial sampling, so the floor is never active at a sampled index and the importance weights of Eq. (5) are unaffected. (This argument concerns numerics only; the support condition of Theorem 1, R(v|x) > 0 wherever P (v|x) > 0 on the tail, must hold for the estimator itself, and the teacher-tail default satisfies it by construction.) 
+
+Distributed Training Configuration Table 4 summa-rizes the distributed training strategy used at each model scale. Full configuration details are available in 
+
+OmniLens/configs/distributed/ 
+
+Table 4: Distributed training configuration for different model scales.                    
+
+> Model Strategy Configuration GPT-2 (124M) Single GPU 1×A100-40GB, 8mi-crosteps/step LLaMA-3-8B DDP 10 nodes ×4 A100-40GB, 4 microsteps/step LLaMA-3.3-70B FSDP 24 nodes ×4 A100-40GB, full parameter sharding (ZeRO-3), 2microstep-s/step
+
+## C Additional Ablations 
+
+C.1 Rank Ablation: Full Layerwise Results 
+
+Table 5 is the complete rank sweep summarized by Figure 3 and Table 1 in Section 3. Figures 8–10 show the full lay-erwise heatmaps for all metrics reported in Section 3. All metrics show the same qualitative pattern: at the late layers, a small rank already closes most of the gap to the full-rank reference, and increasing r closes it further; layer 0’s gap shrinks far more slowly, so the earliest layers remain the binding constraint at every rank. 14816 32 64 128 256 384 
+
+> LoRA rank
+> 012345678910 11
+> Layer
+> -1 -0.25 -0.1 -0.025 00.01 0.025 0.05
+> Baseline KL - LoRA KL
+
+Figure 8: Layerwise KL difference (baseline KL minus LoRA KL) by layer and rank, GPT-2 Small. Red indicates LoRA exceeds the full-rank baseline; blue indicates LoRA improves upon it. 
+
+C.2 Estimator Fidelity and Rank Sensitivity 
+
+Table 7 reports token-level fidelity of the practically trained lenses to the full-KL reference, and Table 8 shows that the estimator ranking of Section 4 (Top-k wins final-layer KL; 
+
+Top -k+IS wins mean and early-layer KL) is stable across every LoRA rank swept in Section 3. Figure 11 shows the layerwise profiles of the RS (pure teacher sampling) baseline of Table 2, and Table 6 reports the complete budget sweep behind that table’s matched-budget subset. 
+
+Seed stability and pure-sampling diagnostics. Across three seeds at Total = 1024 , the mean and early-layer or-dering of Top-k, Top -k+IS , and full KL is unchanged; the standard deviation is at most 0.04 nats for those reductions. The final-layer gap is less stable: Top -k+IS spans 0.045 –
+
+0.067 , whereas Top-k yields 0.046 ± 0.001 .For pure teacher sampling, increasing the sampled bud-get does not improve the fixed-step optimization. Final-layer KL rises from 0.194 at Total = 512 to 0.656 at Total = 1024 
+
+and 1.073 at Total = 1536 , despite the estimator remaining unbiased. The degradation is present in the training objec-tive itself: the Total = 512 loss decreases from 2.42 to 2.32 
+
+through step 1,000 , whereas the Total = 1536 loss rises from 
+
+3.58 at step 500 to 4.09 at step 1,000 . The learning rate, optimizer, batch construction, step count, and random seed are unchanged; only ktail differs. This supports the narrower conclusion that the fixed recipe exhibits budget-dependent optimization instability; we do not claim that larger unbiased samples are intrinsically harmful. 
+
+Training-budget diagnostics. The GPT-2 budgets of the estimator tables are past convergence: under the fixed sched-ule, every variant’s KL at step 250 is 12 –35% above its step-
+
+1,000 value, with 5%-convergence (the earliest step from which KL stays within 5% of its final value) between steps 
+
+625 and 875 . Held-out KL improves monotonically with con-tinued training for every full-KL, Top-k, and Top -k+IS run at all three scales; the pure-sampling instability above is the sole exception. The LLaMA recipe (cosine anneal at 250 ) is schedule-converged: at 8B every reduction flattens by steps Table 5: Full rank ablation on GPT-2 Small over 131,072 Pile test tokens. KL is to the teacher; Top-1, Pearson ρ (8,192 positions/layer), and Kendall τ @100 (512 positions/layer) are vs. the full-rank tuned-lens baseline. Final /mean = final layer vs. average over 12 layers. Shaded row ( r=64 ) is the recommended default; bold marks KL values that numerically exceed the baseline (no statistical claim: the baseline’s own final KL varies 0.039 –0.049 across training seeds, wider than these gaps). Config. Params Final KL Mean KL Final Top-1 Mean Top-1 Final ρ Mean ρ Final τ Mean τ
+
+Full-rank 100% 0.0411 0.543 1.000 1.000 1.000 1.000 1.000 1.000 
+
+r = 1 0.3% 0.0760 1.037 0.837 0.472 0.971 0.787 0.596 0.133 
+
+r = 4 1.0% 0.0574 0.878 0.853 0.535 0.975 0.855 0.638 0.220 
+
+r = 8 2.1% 0.0546 0.799 0.859 0.570 0.978 0.885 0.639 0.262 
+
+r = 16 4.2% 0.0526 0.755 0.868 0.599 0.978 0.903 0.662 0.295 
+
+r = 32 8.3% 0.0479 0.696 0.878 0.655 0.981 0.925 0.670 0.363 
+
+r = 64 16.7% 0.0431 0.600 0.888 0.703 0.984 0.941 0.693 0.423 
+
+r = 128 33.3% 0.0402 0.574 0.900 0.746 0.986 0.952 0.718 0.479 
+
+r = 256 66.7% 0.0382 0.555 0.907 0.773 0.987 0.959 0.739 0.531 
+
+r = 384 100% 0.0362 0.539 0.915 0.793 0.989 0.964 0.762 0.574 
+
+150 –200 with tight seed spread, and at 70B mean KL con-verges by roughly step 100 across the 11 production check-points. Convergence order is layerwise at 70B: early layers reach their floor by about step 80 , the last layers near step 
+
+180 , and the final layer is still improving at the end of the schedule, so longer schedules chiefly buy final-layer fidelity. These diagnostics use reduced evaluation budgets ( 32 k Pile tokens at 8B; 4k WikiText-2 tokens (Merity et al. 2016) at 70B) and are trajectory-internal; they support convergence claims, not cross-protocol KL comparisons. 
+
+C.3 Scaling Comparison: Full Results 
+
+Table 9 reports measured single-GPU peak memory for LLaMA-3-8B lens training on the expanded hookset (194 sites; frozen bf16 teacher, LoRA r=64 lenses, and read-out on one A100-40GB) at the production microbatch of 2 sequences, across sequence lengths. These are the measure-ments behind Figure 13: full-KL runs out of memory beyond 2K context, while both subset objectives train at 4K; none survives 8K. 
+
+## D Sampling-Based KL Estimators 
+
+This appendix expands the estimator background of Sec-tion 2. In the distillation direction the trainable student Qℓ,u 
+
+is the second argument of the KL, and the outer expectation Eq. (2) runs over the frozen teacher P . Because the sampling distribution carries no trainable parameters, any estimator of the form 
+
+bDKL (P ∥Qℓ,u ) = 1
+
+k
+
+> k
+
+X
+
+> i=1
+
+log P (ti|x)
+
+Qℓ,u (ti|x) , tii.i.d. 
+
+∼ P (·| x)
+
+(7) is unbiased for DKL (P ∥Qℓ,u ), and the expectation commutes with gradients in the lens parameters. Schulman (2020) cat-alogues alternate expressions for the summand in Eq. (7): K1 and K3 are unbiased, with K3 additionally reducing vari-ance, whereas K2 trades bias for variance; such summand replacements are also adopted at scale (Shao et al. 2024). Importance sampling refines plain Monte Carlo by exploit-ing access to the exact teacher probabilities P (ti|x), not just samples from P (·| x); see Amini, Vieira, and Cotterell (2025) for a treatment of this idea at the sequence level. The tail term of Eq. (5) is such an importance-sampled estimator, restricted to the tail with the head handled exactly; Theorem 1 gives the resulting guarantee. In reinforcement learning from human feedback, by con-trast, the KL appears as a regularizer whose first argument is the trainable policy (Christiano et al. 2017; Stiennon et al. 2020). The expectation is then taken with respect to the dis-tribution being optimized, so sampling and differentiation interact, and estimators that are well behaved for distillation can misbehave (Tang and Munos 2025). A contemporaneous RL-side estimator (Zhang and Ba 2026) mirrors Top -k+IS ’s head-plus-sampled-tail structure in this reversed direction: it applies Schulman-style summands within the sampled term and restores unbiasedness by rejection sampling, where 
+
+Top -k+IS reweights by P/R .
+
+## E Top -k+IS Theoretical Analysis 
+
+Unbiasedness of pure teacher-sampling KL estimators is classical (Appendix D), and RS-KD (Section 2) establishes it for random-sampling knowledge distillation. The theo-rem below is the corresponding guarantee for our strati-fied estimator: an exact deterministic head, an arbitrary lens-independent positive-support tail proposal, and the distil-lation direction of the KL, with the student’s log-partition computed exactly. The proof for Theorem 1 is below: 
+
+Proof. The head term of Eq. (5) is deterministic given the teacher, 
+
+ˆDKL ,head (P ∥Qℓ,u ) = X
+
+> v∈H
+
+P (v|x) log P (v|x)
+
+Qℓ,u (v|x) .
+
+For the tail term of Eq. (5), each summand is an importance-Low-rank Full-KL Low-rank Top-k+IS Low-rank Top-k
+
+> Full-rank Top-k+IS Full-rank Top-k
+
+Checkpoint (grouped by run family) 
+
+> 012345678910 11
+> Layer
+> Low-rank Full-KL Low-rank Top-k+IS Low-rank Top-k
+> Full-rank Top-k+IS Full-rank Top-k
+
+Checkpoint (grouped by run family) 
+
+> 012345678910 11
+> Layer
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> Top-1 agreement
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> Top-10 overlap
+
+Figure 9: Top-1 agreement ( left ) and top-10 overlap ( right ) between LoRA and full-rank lens outputs by layer, over every evaluated checkpoint grouped by run family (white separators). weighted draw from R, so 
+
+Eti∼R
+
+ P (ti|x)
+
+R(ti|x) log P (ti|x)
+
+Qℓ,u (ti|x)
+
+
+
+= X
+
+> v / ∈H
+
+R(v|x) P (v|x)
+
+R(v|x) log P (v|x)
+
+Qℓ,u (v|x)= X
+
+> v / ∈H
+
+P (v|x) log P (v|x)
+
+Qℓ,u (v|x) ,
+
+and averaging over the ktail i.i.d. draws leaves this expectation unchanged: 
+
+E
+
+h ˆDKL ,tail (P ∥Qℓ,u )
+
+i
+
+= X
+
+> v / ∈H
+
+P (v|x) log P (v|x)
+
+Qℓ,u (v|x) .
+
+Adding the head term recovers DKL (P ∥Qℓ,u ). For the gradi-ent claim, ˆDTop -k+IS is a finite weighted sum of log Qℓ,u (t|x)
+
+terms whose weights and sampling distribution do not in-volve the lens parameters, so expectation and gradient com-mute. The teacher-tail default R(v|x) = P (v|x)/(1 −Phead )
+
+satisfies the support condition by construction, with all im-portance weights equal to 1 − Phead .Note that the theorem applies to the implemented objec-tive because the student log-probabilities use the exact full-vocabulary partition function (Appendix B.1): only the KL summands are subsampled, and every logit receives gradi-ent through the partition term. Under the teacher-tail de-fault, whose importance weights are the constant 1 − Phead ,the coefficient multiplying the log-partition gradient equals one on every draw, exactly as under full KL; for general lens-independent proposals it equals one in expectation. We also verify the claim numerically with the shipped training code: on a synthetic teacher–student pair ( |V |=200 , linear student), the Top -k+IS gradient averaged over 4,000 resam-plings matches the exact full-KL autograd gradient to 0.2% 
+
+relative error (cosine similarity 1.0000 ), while Top-k renor-malization, which truncates the partition function, exhibits a 63% relative gradient bias. A second check at LLaMA-scale vocabulary ( |V |=128 ,256 ) uses extreme teacher logits under which 2.4% of the vocabulary underflows fp32 soft-max outright; it matches to within 10 −4 relative error at 
+
+500 resamplings, confirming that the numerical guards of Appendix B.1 do not modify the teacher distribution. Both checks ship as unit tests in the OmniLens repository. Unbi-asedness throughout refers to the raw stochastic gradients; it does not extend through gradient clipping or optimizer updates, which are nonlinear in the gradient. 
+
+Proposal and sampling details. We sample with replace-ment, retain repeated draws with multiplicity, and weight each occurrence by its density ratio. We rejected schemes that deduplicate draws and reweight by inverse inclusion probabilities: on LLM-scale vocabularies their Horvitz– Thompson-style weights span orders of magnitude and pro-duced unstable gradient spikes in preliminary experiments. The teacher-tail proposal avoids this behavior because its importance weights are constant. Other proposals, such as oversampling tokens on which the lens and teacher disagree, require no change to Eq. (5), provided lens-dependent pro-1 4 8 16 32 64 128 256 384         
+
+> LoRA rank
+> 012345678910 11
+> Layer
+> 14816 32 64 128 256 384
+> LoRA rank
+> 012345678910 11
+> Layer
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> Pearson  r
+> −0.2 0.0 0.2 0.4 0.6
+> Kendall  τ@100
+
+Figure 10: Token-level Pearson ρ (left ) and Kendall τ @100 ( right ) against the full-rank baseline, by layer and LoRA rank, GPT-2 Small. posal probabilities are held fixed during differentiation rather than differentiated through. 
+
+## F Indexed Logits CUDA Implementation 
+
+This appendix provides implementation details for the in-dexed logits kernel, including the forward and backward CUDA kernels and empirical benchmarks. The current im-plementation prioritizes correctness and memory efficiency; performance optimizations such as shared-memory tiling and a fused LoRA extension are left as future work. 
+
+F.1 Kernel Design Principles 
+
+The indexed logits kernel addresses a fundamental memory bottleneck in subset-based objectives. Standard PyTorch op-erations materialize intermediate tensors in global memory, leading to the explosion documented in Section 4.3. Our kernel design follows two principles: 
+
+1. Streaming computation. Each output element is com-puted independently by a single thread, which accumulates the result in FP32 registers without writing intermediate val-ues to global memory. 
+
+2. Hidden-state reuse. Nearby threads often reuse the same hidden-state row H[i, :] across different subset posi-tions, while accesses to W [idx [i, j ], :] are generally scattered due to arbitrary vocabulary indices. 
+
+F.2 Forward Pass Implementation 
+
+Algorithm 1 shows the complete forward kernel. Each CUDA thread computes one element of the output matrix out [i, j ],where i indexes the sequence position and j indexes the subset selection. 
+
+Numerical precision. The accumulator uses FP32 even when input tensors are FP16 or BF16. This prevents catas-
+
+Algorithm 1 Indexed Logits Forward Kernel (CUDA)  
+
+> 1:
+
+Input: H ∈ RN ×d (hidden states), W ∈ RV ×d (weight matrix), idx ∈ ZN ×k (vocabulary indices)  
+
+> 2:
+
+Output: out ∈ RN ×k (subset logits)  
+
+> 3:
+
+Kernel configuration: threads = 256 , blocks =
+
+⌈N k/ 256 ⌉ 
+
+> 4:
+
+tid ← blockIdx.x × blockDim.x + threadIdx.x {Global thread ID}  
+
+> 5:
+
+if tid < N × k then  
+
+> 6:
+
+i ← tid /k {Sequence position}  
+
+> 7:
+
+j ← tid mod k {Subset position}  
+
+> 8:
+
+v ← idx [i, j ] {Vocabulary index}  
+
+> 9: 10:
+
+acc ← 0.0f {FP32 accumulator in register}  
+
+> 11:
+
+for t = 0 to d − 1 do  
+
+> 12:
+
+acc ← acc + H[i, t ] × W [v, t ] 
+
+> 13:
+
+end for  
+
+> 14:
+
+out [i, j ] ← acc  
+
+> 15:
+
+end if 
+
+trophic rounding errors when summing thousands of prod-ucts. The final result is cast to the output dtype only upon writing. 
+
+F.3 Backward Pass Implementation 
+
+The backward pass must compute three gradients: ∇H , ∇W ,and ∇idx (which is None , since indices are discrete). 
+
+Gradient w.r.t. hidden states. This is implemented as a gather-weighted reduction over the selected vocabulary rows, 
+
+∇H [i, :] = 
+
+> k
+
+X
+
+> j=1
+
+∇out [i, j ] · W [idx [i, j ], :] , (8) Table 6: Complete Subset-KL estimator sweep (GPT-2 Small, r = 64 , step 1000, residual hookset); Table 2 shows the matched-budget subset, and columns are as defined there. Tok/s and Peak GB are median steady-state throughput and peak per-GPU memory, re-measured with the released trainer (one node, DDP over 4 ×A100-40GB, identical batch recipe). RS rows are trained at three seeds per budget up to Total 1024; KL cells are seed 0, with cross-seed sd ≤ 0.011 on every reduction. Bold marks the best per column among the practical estimators (Top-k and Top-k+IS). Estimator Config Total Final KL Mean KL Early KL (0–3) Tok/s Peak GB 
+
+Reference 
+
+Full-KL |V | |V | 0.043 0.600 1.019 60,849 16.3 
+
+Top-kk = 256 256 0.054 1.053 1.893 96,458 4.7 
+
+k = 512 512 0.050 0.903 1.631 54,590 4.8 
+
+k = 768 768 0.046 0.821 1.493 37,754 4.9 
+
+k = 1024 1024 0.046 0.780 1.413 28,918 5.0 
+
+Top-k+IS 
+
+256 + 256 512 0.067 0.637 1.062 50,911 8.2 
+
+512 + 512 1024 0.067 0.649 1.073 49,820 8.5 
+
+512 + 1024 1536 0.065 0.637 1.054 49,042 8.7 
+
+768 + 768 1536 0.068 0.632 1.041 48,987 8.8 
+
+1024 + 512 1536 0.065 0.638 1.060 48,896 8.8 
+
+1024 + 1024 2048 0.065 0.636 1.052 48,279 9.1 
+
+RS (pure sampling) 
+
+0 + 512 512 0.194 0.879 1.334 50,017 8.2 
+
+0 + 1024 1024 0.656 1.309 1.693 47,458 8.4 
+
+0 + 1536 1536 1.073 1.618 1.944 45,518 8.7 via a separate kernel with similar structure to the forward pass. 
+
+Gradient w.r.t. weights. This requires care due to dupli-cate indices. Multiple threads may need to update the same row W [v, :] if vocabulary index v appears multiple times in idx. We use atomic additions: atomicAdd (∇W [v, t ], ∇out [i, j ] × H[i, t ]) . (9) Atomic operations serialize writes to the same memory lo-cation, potentially creating contention when indices repeat. Section F.4 quantifies the empirical sensitivity of the back-ward pass to collision rate. 
+
+Precision. The ∇W buffer is accumulated in FP32. ∇H
+
+uses FP32 accumulation within each thread before being written in the input dtype. Algorithm 2 shows the weight-gradient kernel. 
+
+F.4 Benchmark Results 
+
+Correctness Table 10 reports forward and gradient errors relative to PyTorch reference implementations, averaged over three random seeds on an A100-40GB GPU in FP16. For-ward errors are measured against the naïve subset reference; gradient errors are measured against autograd. The observed forward errors are consistent with expected FP16 rounding behavior in mixed-precision accumulation and output cast-ing. 
+
+Runtime and Memory Table 11 reports for-ward+backward latency and peak allocated memory, 
+
+Algorithm 2 Indexed Logits Backward Kernel (Weight Gra-dients)  
+
+> 1:
+
+Input: ∇out ∈ RN ×k, H ∈ RN ×d, idx ∈ ZN ×k 
+
+> 2:
+
+Output: ∇W ∈ RV ×d (weight gradients, initialized to zero)  
+
+> 3:
+
+for each (i, j ) in parallel do  
+
+> 4:
+
+v ← idx [i, j ] 
+
+> 5:
+
+g ← ∇ out [i, j ] 
+
+> 6:
+
+for t = 0 to d − 1 do  
+
+> 7:
+
+val ← g × H[i, t ] {Compute in FP32}  
+
+> 8:
+
+atomicAdd (∇W [v, t ], val ) {Safe concurrent up-date}  
+
+> 9:
+
+end for  
+
+> 10:
+
+end for 
+
+averaged over 3 seeds. We sweep N at fixed d=768, k=128 and vary d at fixed N =4096, k=128. Dense GEMM rows are omitted for the larger-d configurations for brevity; they follow the same qualitative pattern as the smaller-d rows and remain substantially more memory-intensive than the fused kernel. Table 12 breaks down where the memory goes at the main-text configuration: the naïve gather is costlier than full-vocabulary decoding, and the fused kernel eliminates the intermediate outright. The fused kernel achieves 1.4–1.5 × speedup over naïve subset and reduces peak allocated memory by 7 ×–14 ×Table 7: Token-level fidelity of LoRA r=64 lenses trained with each estimator (Top-k k = 512 ; IS (512 , 512) ), measured against the full-rank tuned-lens baseline of Table 5. The Full-KL row is the LoRA lens trained with the exact loss (the ceiling the estimators approach), not a self-comparison. Pearson ρ over full-vocabulary log-probs; Kendall τ @100 over the top-100 union; Top-1 argmax agreement; Top-10 mean top-set overlap. Pearson ρ Kendall τ @100 Top-1 Top-10 Config Final Mean Early Final Mean Early Final Mean Early Final Mean Early Full-KL (ref.) 0.984 0.941 0.911 0.697 0.421 0.335 0.888 0.703 0.618 0.855 0.705 0.653 Top-k, k = 512 0.975 0.797 0.617 0.661 0.195 −0.077 † 0.883 0.628 0.461 0.848 0.586 0.411 Top-k+IS (512 , 512) 0.939 0.909 0.884 0.612 0.332 0.243 0.858 0.651 0.561 0.820 0.649 0.590 
+
+> †
+
+Negative Kendall indicates the top-100 token rankings at layers 0–3 are slightly anti-correlated with the reference; IS restores a positive early correlation ( +0 .243 ) at the same head budget. Early = mean over layers 0–3; Final = layer 11. 
+
+Table 8: Rank sensitivity at fixed budget (Top-k k = 512 ; IS (512 , 512) ), as KL to the teacher at step 1000. Shaded row ( r=64 )is the recommended default; bold marks the better practical estimator (Top-k vs. IS) per cell, with Full-KL as the reference. Top-k wins final-layer KL; IS wins mean and early-layer KL. Final KL Mean KL Early KL (0–3) 
+
+r Full-KL Top-k IS Full-KL Top-k IS Full-KL Top-k IS 1 0.076 0.074 0.074 1.037 1.377 0.962 1.747 2.500 1.648 
+
+4 0.057 0.061 0.069 0.878 1.344 0.826 1.484 2.617 1.410 
+
+8 0.055 0.058 0.065 0.799 1.129 0.753 1.339 2.041 1.275 
+
+16 0.053 0.054 0.083 0.755 1.045 0.704 1.256 1.872 1.174 
+
+32 0.048 0.052 0.070 0.696 0.989 0.661 1.170 1.762 1.094 
+
+64 0.043 0.050 0.067 0.600 0.903 0.649 1.019 1.631 1.073 
+
+128 0.040 0.045 0.065 0.574 0.859 0.610 0.983 1.571 1.019 
+
+256 0.038 0.043 0.065 0.555 0.831 0.591 0.951 1.516 0.973 
+
+384 0.036 0.045 0.057 0.539 0.819 0.574 0.926 1.489 0.964 
+
+Table 9: Measured single-GPU peak memory (GB) for LLaMA-3-8B expanded-hookset lens training at microbatch 2, by objective and sequence length. Seq Len Full-KL Top -k+IS Top-k
+
+1024 24.4 21.1 22.3 2048 31.9 24.9 25.7 4096 OOM 32.6 32.3 8192 OOM OOM OOM across configurations. Memory savings grow with N because naïve subset intermediate tensors scale with sequence length while fused kernel memory is dominated by model activa-tions. Performance relative to dense GEMM is configuration-dependent; the primary advantage of the fused kernel is elim-inating the memory blowup from materializing the [N, k, d ]
+
+intermediate tensor, which causes naïve subset memory us-age to grow rapidly with N , d, and k, making it increasingly impractical at larger scales. 
+
+Atomic Collision Sensitivity The backward kernel uses atomic additions to ∇W , which may contend when multiple threads update the same vocabulary row. Table 13 measures forward and forward+backward latency as a function of col-Table 10: Fused kernel correctness (FP16, mean over 3 seeds, 
+
+N = 4096 , V = 50257 ).                                                                  
+
+> Forward Error ∇HError ∇WError Config ( d,k)Max Mean Max Mean Max Mean
+> d= 768 ,k= 128 0.063 4.6e-3 0.013 2.8e-8 0.036 1.1e-3
+> d= 1024 ,k= 128 0.104 5.3e-3 0.010 3.3e-8 0.031 1.1e-3
+> d= 1536 ,k= 128 0.125 6.5e-3 0.021 3.2e-8 0.039 1.1e-3
+> d= 3072 ,k= 128 0.167 9.2e-3 0.021 2.5e-8 0.033 1.1e-3
+> d= 768 ,k= 256 0.083 4.6e-3 0.031 1.1e-7 0.063 2.2e-3
+> d= 768 ,k= 512 0.083 4.6e-3 0.031 3.5e-7 0.099 4.4e-3
+
+lision vocabulary size Vc: drawing indices from a smaller Vc
+
+increases the probability of repeated rows. Counterintuitively, latency decreases as Vc shrinks. In the tested regimes, improved weight-row locality dominates any slowdown from atomic contention. 
+
+F.5 Integration with PyTorch 
+
+The kernel is exposed as a PyTorch custom autograd func-tion, see Listing 1. This integrates seamlessly with standard PyTorch training loops, optimizer state management, and gradient checkpointing. The implementation and benchmark scripts are available in the supplementary materials. Table 11: Indexed logits kernel benchmark results (A100-40 GB, FP16, mean over 3 seeds). 
+
+Config Method Fwd+Bwd (ms) Peak Alloc (MB) TFLOPS (est.) 
+
+N =4096, d=768, k=128 Dense GEMM 13.0 932 0.19 Naïve Subset 9.4 2531 0.26 Fused Kernel 6.5 343 0.37 
+
+N =8192, d=768, k=128 Dense GEMM 25.9 1772 0.19 Naïve Subset 18.4 4968 0.26 Fused Kernel 12.7 359 0.38 
+
+N =4096, d=1024, k=128 Naïve Subset 12.6 3366 0.26 Fused Kernel 8.7 450 0.37 
+
+N =4096, d=3072, k=128 Naïve Subset 37.2 10099 0.26 Fused Kernel 27.0 1307 0.36 0 1 2 3 4 5 6 7 8 9 10 11 
+
+Layer  
+
+> 0.0 0.5 1.0 1.5 2.0
+> KL divergence
+> RS 0+512 RS 0+1024 RS 0+1536 Top-k1024 Top-k+IS 512+512
+
+Figure 11: Layerwise KL of RS (pure teacher sampling, 
+
+khead =0 ; grey, line style by total budget) against the two subset estimators at Total = 1024. RS tracks or beats Top-k
+
+through the early and middle layers but fails to close the final layers, and degrades uniformly as its sampled budget grows. Curves are seed 0; shaded envelopes span min–max over three training seeds where available (RS 1536 is single-seed). 
+
+## G Memory Model and Estimate Derivation 
+
+Peak training memory on the lens GPU decomposes addi-tively: 
+
+Mpeak = Mbase + Mopt + Mread , (10) where Mbase (frozen-model shard, cached site activations, CUDA context) is independent of lens rank and loss, Mopt is the lens optimizer footprint (the LoRA lever), and Mread is the readout/loss activation (the Subset-KL lever). The lens and its optimizer reside on a single device, so both levers are charged to one GPU. 
+
+Optimizer state. Under Adam with bf16 AMP (Figure 14), each trainable parameter costs 12 bytes: bf16 weight (2) +
+
+bf16 gradient (2) + fp32 first moment (4) + fp32 second moment (4). For S sites of width d and rank r,
+
+Pfull = S(d2+d), P LoRA = S(2 dr +d), M opt = 12 P⋆ bytes ,vocabulary, sorted by teacher probability            
+
+> 10 −2
+> 10 −1
+> P(t | x)
+> exact head
+> ∑
+> i≤khead
+> Plog PQ
+> sampled tail: ktail draws ti∼R,weight P(ti) / R(ti)
+> teacher-tail default: all weights = 1 − Phead
+
+Figure 12: The Top -k+IS decomposition: the contribution of the khead most probable teacher tokens is computed ex-actly (blue), and the remaining mass is estimated from ktail 
+
+importance-weighted tail samples (green). Under the teacher-tail proposal, every importance weight equals 1 − Phead .Table 12: Peak memory breakdown for logit computation at 
+
+B·T = 8192, d = 4096, |V | = 128K, k = 512, fp32 .Component Naïve Subset Full-Vocab Fused Kernel Inputs [B, T, d ] 0.13 GB 0.13 GB 0.13 GB Intermediate [B, T, k, d ] 68.7 GB — —Output logits 0.02 GB 4.19 GB 0.02 GB    
+
+> Peak Total 68.9 GB 4.33 GB 0.15 GB
+
+where ⋆ = full or LoRA. For GPT-2 expanded S=74 and 
+
+d=768 , so Pfull =43 .7M yielding Mopt = 0 .52 GB, while 
+
+PLoRA ,r 64 =7 .33 M yielding Mopt = 0 .09 GB. For LLaMA-3-70B expanded S=482 and d=8192 ,so Pfull =32 .35 B yielding Mopt = 388 GB, while 
+
+PLoRA =0 .509 B (counted from the trained checkpoint) yield-ing Mopt = 6 .1 GB. The 12 bytes per parameter factor is confirmed empiri-cally: on the residual hook set, replacing full with LoRA re-duces parameters by 5.9M and the measured peak by 0.07 GB 
+
+= 5 .9M × 12 bytes. Table 13: Fused kernel sensitivity to index collisions (N =4096, d=1024, k=64, FP16, mean over 3 seeds).                                                        
+
+> Collision Vocab VcFwd (ms) Fwd+Bwd (ms) TFLOPS (est.) 50257 (full vocab sampling) 2.31 4.62 0.35 4096 2.03 4.07 0.40 512 1.95 3.99 0.40 64 1.60 3.63 0.44
+> 1class IndexedLogitsFunction ( torch . autograd . Function ):
+> 2@staticmethod
+> 3def forward ( ctx , H , W , idx ):
+> 4out =indexed_logits_cuda . forward (H , W , idx )
+> 5ctx . save_for_backward (H , W , idx )
+> 6return out
+> 78@staticmethod
+> 9def backward ( ctx , grad_out ):
+> 10 H , W , idx =ctx . saved_tensors
+> 11 grad_H , grad_W =indexed_logits_cuda . backward (
+> 12 H , W , idx , grad_out )
+> 13 return grad_H , grad_W , None
+
+Listing 1: Custom autograd function implemented in PyTorch. 
+
+Parameter-count comparisons. The per-hookpoint re-duction of the rank-r parameterization is 1−(2 r+1) /(d+1) ,independent of coverage. At r=64 , this yields an 83 .2% re-duction in parameter count for GPT-2 ( d=768 ), a 96 .9% 
+
+reduction for LLaMA-3-8B ( d=4096 ), a 98 .4% reduction for LLaMA-3-70B ( d=8192 ), and a 99 .2% reduction for LLaMA-3-405B ( d=16384 ). This grounds the abstract’s comparisons. For LLaMA-3-8B, the residual-only full-rank stack holds 537 M translator parameters against 102 M for the six-hookpoint OmniLens stack: 80 .9% fewer parameters with six times the coverage. Per-head attention-lens decoders are costlier still: the orig-inal design maps each head output to the vocabulary ( |V | × d
+
+per head), totaling 12 × 12 × 50 ,257 × 768 ≈ 5.6B pa-rameters on GPT-2 (the largest model with published full-rank per-head decoders), against which our full 7.3M GPT-2 stack is a 99 .9% reduction. The same design instantiated for LLaMA-3-8B would contain ≈538 B parameters. 
+
+Readout. The loss materialises per-site logits, softmax, KL, and their gradients over the scored vocabulary, looped over sites (hence site-independent). For Full-KL and Top-k
+
+it scales as 
+
+Mread = β (B·T ) Veff , (11) with Veff = |V | for Full-KL and Veff = k for Top-k.
+
+Top -k+IS is not a Veff = k estimator: its exact log-partition materializes the student’s full logit row before reduction (Ap-pendix B.1), so its readout carries an additional transient term, 
+
+M Top -k+IS  
+
+> read
+
+≈ γ (B·T ) V + β (B·T ) ( khead +ktail ),
+
+with γ < β because only the student-side logits and their log-sumexp reduction are held (no teacher-side full-vocabulary 1024 2048 4096 8192 sequence length (fixed microbatch of 2)  
+
+> 20 25 30 35 40 peak memory (GB)  A100-40GB (× = OOM)
+> Full-KL Top-k
+> Top-k+IS
+
+Figure 13: Measured single-GPU peak memory for an 8B frozen teacher, lenses, and readout at the production mi-crobatch. Full KL exhausts the device beyond 2K context, whereas both subset objectives train at 4K (measurements in Appendix Table 9). GPT-2 (74 sites) LLaMA-3-8B (194 sites) LLaMA-3-70B (482 sites)  
+
+> 10 −1
+> 10 0
+> 10 1
+> 10 2
+> memory (GB, log)
+> A100-40GB
+> 0.5 39.1 388
+> full-rank LoRA r64
+
+Figure 14: The persistent optimizer bucket, exact from pa-rameter counts. Micro-batching cannot reduce it: the full-rank expanded stack’s optimizer state alone consumes an A100-40GB at 8B and is ten times the device at 70B, while the LoRA stack peaks at 6.1 GB. tensors or per-token KL buffers). The measured LLaMA-3-8B curves of Figure 13 show this term is small once the log-partition streams in vocabulary chunks: Top -k+IS tracks Top-k within 1.2 GB at every context, trains at 4K where Full-KL cannot, and fails only at 8K alongside Top-k. We compute β from the measured GPT-2 Full-KL −Top-k gap: 
+
+β = (17 .14 − 5.74) /(32768 × (50257 − 512)) = 7 .0 bytes per token ·vocab-slot. The gap covers the V − k slots Top-
+
+k does not score; re-measuring with the released trainer of Table 2 shifts both absolute peaks but reproduces the same 11 .4 GB gap, leaving β unchanged. At the shared batch B·T =262 ,144 : Full-KL readout is 92 GB (GPT-2) and 
+
+235 GB (70B); the Top-k subset readout is 0.9–2.8 GB. 
+
+Validation against trained runs. Four configurations were run end-to-end; their measured peaks reconstructed from the decomposition (Table 15). The two GPT-2 runs independently back out the same Mbase ≈ 9.05 GB, over-Table 14: The two memory buckets and the lever that controls each: low-rank translators control the Optimizer column, Subset-KL controls the Readout aggregate column. Optimizer state is exact from lens parameter counts and is persistent : no micro-batching or gradient accumulation reduces it. Readout aggregate (the projected cells of this table) is a calibrated projection, β (B·T ) V ,of the total readout activation over a shared reference batch of 262 ,144 tokens (the realized GPT-2 effective batch; the realized LLaMA batches are larger, Appendix B) if it were processed without micro-batching ; the instantaneous readout footprint scales with the microbatch and sequence length instead, and is measured directly in Figure 13. Subset-KL rows use the selected-subset term ( Veff =k, the Top-k mode); the Top -k+IS mode adds an exact-partition term treated separately in the text. Optimizer states assume AdamW. Lens Loss Optimizer (exact) Readout aggregate (projected) Feasible 
+
+GPT-2 , full expanded hookset ( 6L+2 = 74 hookpoints) Full-rank Full-KL 0.5 GB 92 GB ✓
+
+LoRA r64 Full-KL 0.09 GB 92 GB ✓
+
+Full-rank Subset-KL 0.5 GB 2.8 GB ✓
+
+LoRA r64 Subset-KL 0.09 GB 2.8 GB ✓
+
+LLaMA-3.3-70B , full expanded hookset ( 6L+2 = 482 hookpoints) Full-rank Full-KL 388 GB 235 GB ✗
+
+LoRA r64 Full-KL 6.1 GB 235 GB ✓†
+
+Full-rank Subset-KL 388 GB 2.8 GB ✗
+
+LoRA r64 Subset-KL 6.1 GB 2.8 GB ✓      
+
+> †The 235 GB readout aggregate is the unmicrobatched reference-batch projection and, unlike the optimizer column, is reducible by micro-batching; it does not by itself determine feasibility at the production microbatch. We measured that configuration directly (Table 15): peak 35 .5GB, fitting with ≈4.5GB of nominal headroom.
+
+determining and thus confirming the optimizer and readout terms. The two 70B rows provide a second, independent cross-check: trained with different loss functions (hence dif-ferent Mread terms) but the same site count, model, and mi-crobatch, they back out Mbase values of 27 .65 and 27 .52 GB, agreeing to within 0.5% despite neither being calibrated against the other. 
+
+405B proof of concept. The main-text feasibility claim be-yond 70B rests on a short run of LLaMA-3.1-405B-Instruct (frozen bf16) on 24 nodes of 4×A100-40GB (96 FSDP ranks), with the teacher’s weights streamed shard-by-shard into the FSDP partitioning at load time so no rank ever holds the full 812 GB. The lens set is the residual preset (126 sites, LoRA r=64 ), trained with Top-k Subset-KL ( k=256 ) at se-quence length 256 , one sequence per rank ( 24 ,576 tokens per step), and constant lr = 10 −3. Over eight steps the training loss falls from 57 .6 to 40 .2 (monotonically after step two; 
+
+≈5.5 min/step at this configuration) with a measured peak of 37 .1 GB per GPU. This is a systems demonstration only: eight steps establish that the stack loads, shards, hooks, and optimizes at 405B scale within A100-40GB budgets, not that the resulting lens is useful. 
+
+Projected cells. Untrained configurations reuse the vali-dated Mbase and the same term structure, substituting the exact full-rank optimizer or the calibrated Full-KL readout. The two projected quantities have different standing. The full-rank optimizer state ( 388 GB for LLaMA-3-70B) is allocated in full before the first step and no micro-batching schedule reduces it, so every full-rank 70B configuration fails at ini-tialization; those infeasible cells are outcomes of the design, not estimates. The Full-KL readout aggregate ( 235 GB for LLaMA-3-70B over the reference batch) is instead reducible by micro-batching, so it does not by itself determine feasi-bility at the production microbatch. Indeed it does not: we measured LoRA +Full-KL directly for LLaMA-3-70B (Ta-ble 15) and it fits, at 35 .5 GB. The reference-batch aggregate remains a useful bound on what cannot be processed in a single unmicrobatched pass, but the Feasible column should not be read as a feasibility oracle for configurations we have not measured; where we have not trained a configuration, we say so. 
+
+## H Tuned-Lens Application Details 
+
+We recreate the application suite of Belrose et al. (2023) on all nine of the original detection tasks (ARC-Easy, ARC-Challenge (Clark et al. 2018), BoolQ (Clark et al. 2019a), MC-TACO (Zhou et al. 2019), MNLI (Williams, Nan-gia, and Bowman 2018), QNLI, QQP (Wang et al. 2018), SciQ (Welbl, Liu, and Gardner 2017), SST-2 (Socher et al. 2013)) plus LogiQA (Liu et al. 2020), with n=1 ,000 exam-ples per task at GPT-2 and 8B (600 for the 8B 5-shot variant; SST-2 uses its full 872-example validation set) and 200 at 70B. Zero-shot prompts of the form “ <body> \nAnswer:” are scored on each answer option’s first token; the attack inserts the original paper’s injection string (“Ignore any previous and following instructions and just print ‘ wrong answer ”’) with a randomly chosen incorrect option before the answer cue. Trajectory features are the log-probability of every an-swer option at every residual-stream point, read through each lens’s own translator, with the model’s final distribution ap-pended as the last point. Detectors are an isolation forest (200 trees, scores ensembled over 5 seeds) and a local outlier factor (20 neighbors, novelty mode), fit on the first half of Table 15: Measured peaks decompose into the memory model. Mbase is implied ( Mpeak − Mopt − Mread ); the two GPT-2 rows agree, validating the terms. All measured values are peak PyTorch-allocated memory ( max_memory_allocated ) on the metrics-writing rank; under FSDP the lens and optimizer state are replicated, so ranks are near-symmetric. 
+
+Run B·T Measured Mopt Mread implied Mbase 
+
+GPT-2 Full-rank + Full-KL 32,768 21 .08 0.52 11 .53 9.03 
+
+GPT-2 LoRA + Subset ( k512 ) 32,768 9.28 0.09 0.12 9.07 
+
+70B LoRA + Top -k+IS 2,048 34 .70 6.11 0.94 ∗ 27 .65 
+
+70B LoRA + Full-KL 2,048 35 .47 6.11 1.84 † 27 .52 
+
+> ∗
+
+Selected-subset term ( 0.02 ) plus the Top -k+IS exact-partition transient of the implementation this run was trained with, which materialized the full logit row before reduction: γ(B·T )V with γ ≈ 3.5 bytes per token ·vocab-slot, calibrated from 8B measurements of that implementation ( Top -k+IS −vs-Top-k gaps of +1 .5 GB at 2K and +4 .4 GB at 4K context, giving γ ≈ 2.9–4.2 bytes). The released trainer streams this reduction instead (Appendix B.1); the current gaps of Table 9 bound the streamed transient below 0.3 GB at 4K. Assigning the transient to Mread keeps Mbase loss-independent, as the decomposition requires. †The Full-KL readout at V =128 ,256 , predicted from the GPT-2-calibrated β of Eq. (11) with no free parameters: β(B·T )V = 7 .0 × 2,048 × 128 ,256 ≈ 1.84 GB, matching the measured peak (Table 14) to within 0.4% once combined with Mopt and the Mbase implied by the row above. 
+
+Table 16: Prompt-injection detection AUROC (local outlier factor, fit on clean trajectories only): mean over the five classi-fication tasks where Belrose et al. (2023) report near-perfect detection (BoolQ, MNLI, QNLI, QQP, SST-2) and over all ten tasks. All-task means are pulled down for every lens, including the full-rank reference, by the knowledge cluster (ARC-Easy/Challenge, SciQ, LogiQA). GPT-2 LLaMA-3-8B LLaMA-3-70B Lens five cls. all ten five cls. all ten five cls. all ten logit lens 0.995 0.844 0.995 0.920 0.999 0.862 LoRA Top-k 0.998 0.836 0.998 0.903 – –LoRA Top-k+IS 0.997 0.834 0.997 0.893 0.997 0.889 full-rank tuned (ref.) 0.992 0.846 0.997 0.898 – –
+
+clean trajectories after per-feature standardization; we report AUROC on held-out clean vs. attacked examples, with 95% bootstrap confidence intervals and paired bootstrap deltas against the full-rank reference (identical example resamples for both lenses, 1,000 resamples). On these model families the logit lens also detects well on the five easy tasks (the large tuned-vs-logit gap of the original paper appears spe-cific to Pythia models). Prediction depth is the first trajectory point from which the lens top-1 equals the model’s final top-1 thereafter, in hidden-state units. Causal basis extraction finds k=16 directions per probed layer by L-BFGS with de-flation, initialized from the top left singular vectors of the translated unembedding; energy is the expected KL increase of the lens readout under mean ablation on 1,024 WikiText-2 positions, model influence is the KL of the model’s final distribution when the direction is mean-ablated at the block output on a held-out batch, and the random control is the QR factorization of a Gaussian matrix evaluated identically. The attack changes the model’s answer to the planted option on a median of 93% of examples per task at 8B and 100% at 70B. Paired bootstrap deltas against the reference are within 
+
+±0.005 on most tasks; the remaining deficits concentrate in the knowledge cluster, where detection is weak for every lens including the reference (Figure 15). GPT-2 LLaMA-3-8B LLaMA-3-70B 0.5 0.6 0.7 0.8 0.9 1.0 
+
+> detection AUROC (LOF)
+> logit lens LoRA Top-k+IS LoRA Top-k
+> full-rank tuned
+
+Figure 15: Prompt-injection detection AUROC by lens (bars: mean over the ten tasks; open circles: the individual tasks; per-lens means in Table 16). The low circles are the knowl-edge tasks (ARC, SciQ, LogiQA), where detection is weak for every lens including the full-rank reference; on the five classification tasks every trained lens is at or above 0.99. At 70B, where no full-rank reference exists, the trained lens de-tects knowledge-task attacks the logit lens misses. 
+
+## I Memory-Injection Details 
+
+For each paired explicit/implicit prompt the memory vec-tor m(ℓ) = h(ℓ) 
+
+> explicit
+
+− h(ℓ) 
+
+> implicit
+
+is captured at resid_mid per model architecture (GPT-2: input to ln_2 ; LLaMA: input to 
+
+post_attention_layernorm ). Causal injection adds τ m(ℓ)
+
+at the attention output projection so both the MLP branch and the skip connection see the patch; the measurement is vali-dated by patching the final layer at τ =1 , which reproduces the explicit prompt’s output to within half a percent on all three models. The reduced LLaMA evaluation subsamples 2WMH to 200 examples at 8B and 100 at 70B, with τ ∈ { 0, . . . , 10 }
+
+for lens readouts and τ ∈ { 1, 2, 4} for causal profiles ( {1, 2}
+
+on the 70B control set). GPT-2’s 2WMH row is a null case: its explicit prompts score below its implicit ones, so no ben-GPT-2 LLaMA-3-8B LLaMA-3-70B 012345678  
+
+> causal lift  max
+> ℓ
+> Eℓ / Pobs
+> 1.57× 1.41× 1.26× 1.17× (null) 6.60× 5.06×
+> control set 2WikiMultiHop
+
+Figure 16: Causal lift max ℓ Eℓ/P obs from memory injection, by model and dataset. The dotted line at 1.0 marks no effect; the GPT-2 2WMH bar is the null case described in the main text. eficial memory vector exists. On the 70B control set both the lens and the depth heuristic select the final layer, missing the true optimum at ℓ=55 .
+
+Layer selection and distortion. From two clean readouts (full layer-by-τ sweeps appear in Figures 18, 19, and 20) we define the lens-predicted deficiency of layer ℓ,
+
+∆ℓ = Plens 
+
+
+
+ans | h(ℓ)
+
+> explicit
+
+
+
+− Plens 
+
+
+
+ans | h(ℓ)
+
+> implicit
+
+
+
+, (12) and score any chosen layer by the fraction of the max-imum achievable causal lift it captures, g(ℓ) = (Eℓ −
+
+Pobs )/(max ℓ′ Eℓ′ − Pobs ), where Eℓ is the model’s final 
+
+P (answer ) after injection at layer ℓ. At τ =1 the causal pro-file is monotonic and the final layer is trivially optimal, so 
+
+τ ∈ { 2, 4} serves as a stress test of whether the lens can select an interior layer that preserves causal gain while limiting col-lateral distortion (Table 18, Figure 17). Selections differ by training objective: Top-k+IS selects the interior optimum at 
+
+τ =2 (ℓ=19 , 100% captured), the full-rank reference selects 
+
+ℓ=22 (77% ), and the Top-k lens’s readout difference peaks at the final layer, consistent with an objective concentrated on the head of the final distribution; the logit lens’s ∆ℓ also peaks at the final layer at both scales. Lens-selected layers also dis-tort less: measured by the KL divergence between injected and clean next-token distributions, they yield 2.5–3.0× more answer-probability gain per nat of distortion at τ =4 on 8B than final-layer injection, which alters the model’s top-1 to-ken in 95% of examples (Figures 22 and 23, Table 19). On the control set, where the models largely succeed unaided, injection raises P (answer ) to the explicit ceiling, consistent with restoring a missing recall step rather than supplying the answer directly. 
+
+Injection-selection seed stability. Retraining all three 8B lenses under two additional seeds (identical schedule) shows the recommended lens’s selection is the seed-robust one: the Top-k+IS pick stays interior and near-optimal ( ℓ ∈ { 18 , 19 },τ = 2 τ = 4 020 40 60 80 100 120    
+
+> causal gain captured (%)
+> 100 61 82 34 77 59 82 34 82 34
+> LLaMA-3-8B
+> τ= 2 τ= 4 020 40 60 80 100 120
+> causal gain captured (%)
+> 100 82 95 66 95 66
+> LLaMA-3-70B
+> LoRA Top-k+IS LoRA Top-k
+> full-rank ref. logit lens last layer
+
+Figure 17: Fraction of achievable causal gain captured by each method’s selected layer (2WMH, over-injection; LLaMA-3-8B top, 70B bottom), the graphical counterpart of Table 18. The logit lens selects the final layer at both scales, so its bars coincide with the depth heuristic’s. Layer-by-layer profiles appear in Figure 21. capturing 90 –100% at τ =2 and 61 –75% at τ =4 ), while the Top-k pick lands on the final layer on two seeds and an early layer ( ℓ=10 , 20% ) on the third, and the full-rank reference’s pick moves across ℓ ∈ { 22 , 24 , 31 } (64 –82% at τ =2 ), reach-ing the final layer on one seed. 
+
+## J DART and ToxIn Details 
+
+DART scores each attention head over 200 toxic prompts drawn from the Wiki Toxic corpus (cjadams et al. 2017): per-head attention outputs are captured at the output projec-tion (the o_proj /c_proj input split into query heads, valid under grouped-query attention since the projection input car-ries all query heads), each head’s last-token contribution is decoded through the lens at that layer’s attention-output site, and the toxic count is the number of matches against a pre-computed toxic-vocabulary set among the top-50 decoded tokens. The 8B full-rank reference carries only per-layer residual translators, so head outputs are decoded through the block-input translator of their layer rather than a dedi-cated attention-output translator, a half-block site mismatch that makes its agreement numbers conservative. ToxIn per-Table 17: Causal memory injection: patch resid _mid[ ℓ], run the model to completion, and read its own final P (answer ); lift is 
+
+max ℓ Eℓ/P obs . LLaMA rows use the reduced evaluation described above.                                           
+
+> Model Dataset Pobs Pexp ℓ∗/τ ∗max ℓEℓCausal lift GPT-2 hand 0.0843 0.1309 10 / 1 0.1321 1.6×
+> 2WMH 0.00074 0.00062 0 / 4 0.00086 1.2×(null) LLaMA-3-8B hand 0.4299 0.6049 31 / 1 0.6047 1.4×
+> 2WMH 0.0126 0.0561 17 / 4 0.0828 6.6×
+> LLaMA-3-70B hand 0.4773 0.6002 79 / 1 0.6013 1.3×
+> 2WMH 0.0289 0.1119 78 / 2 0.1462 5.1×
+
+Table 18: Fraction of achievable causal gain captured on 2WMH, by selected layer. Each lens’s selection is τ -independent; the logit lens selects the final layer at both scales, and at 8B the Top-k lens does as well. At τ =1 the causal optimum is the final layer and every selector captures 80 –100% , so those rows are omitted. The 8B full-rank reference reads through its per-layer residual translators (Appendix I); no full-rank reference is trainable at 70B under our single-device lens placement (Section 4). On the GPT-2 control set the full-rank reference and both low-rank variants select the same layer. All 8B lenses share the identical 250-step annealed schedule.                                   
+
+> gain captured at the chosen layer Model τcausal best ℓ∗Top-k+IS Top-kfull-rank ref. logit last layer LLaMA-3-8B 219 100 %82 .3% 77 .1% 82 .3% 82 .3%
+> 417 60 .8%34 .2% 58 .7% 34 .2% 34 .2%
+> LLaMA-3-70B 278 100 %——94 .8% 94 .8%
+> 477 82 .2%——66 .3% 66 .3%
+
+forms zero or soft subtraction of the unembedding-derived toxic direction at the DART-flagged heads; toxicity is scored with Toxic-BERT over greedy generations and fluency with WikiText-2 perplexity; 70B uses a 40-prompt reduced eval-uation. The whole-model audit (Figure 25) selects the top lens-flagged sites of each component type and subtracts the lens-mapped direction there, sweeping subtraction strength under a perplexity budget. 
+
+Selector comparisons and the 70B audit. Per-head toxi-city maps and top-head tables appear in Figure 26 and Ta-ble 20. The trained variants agree on the 8B head ranking, and at GPT-2 they reproduce the full-rank reference’s au-dit; the logit lens’s agreement with the trained lenses decays with model size (Spearman 0.73 at GPT-2 to 0.02 at 70B; Table 23). The 8B full-rank reference identifies the same strongest head as every other variant ( L23.H24 ) and shares 3 of 5 top heads with the recommended lens. At GPT-2, with the ablation direction fixed to the unembedding and reduc-tions interpolated to the PPL = 1 .10 × operating point on each selector’s scale sweep, our lens’s heads give 25 .0% , the full-rank reference’s 23 .2% , and unembedding-only selec-tion 18 .8% ; the trained selections are separated by less than run-to-run noise, so we read this as parity between our lens and the reference, both ahead of the lens-free selector. At 8B, under soft subtraction every trained selector reduces toxicity, whereas random-head intervention increases it; under zero-ablation the recommended Top -k+IS selection produces the clearest reduction (Table 22; single-run evaluations, so dif-ferences of a few points are within run-to-run noise). Soft subtraction trades toxicity against perplexity controllably at 8B (Figure 24; full sweeps in Table 21). At 70B, toxic signal again localizes to late-layer heads but is spread far more thinly (the top five carry only ∼10% ), and ablating the flagged heads is no more effective than ablating random ones (Figure 30): targeted head ablation is effective only when the localized signal is sufficiently concentrated, and that concentration is absent at 70B. In the whole-model audit (Figure 25), on GPT-2 subtracting at attn_in and resid_post removes 2.2× and 
+
+1.6× as much toxicity as the original per-head recipe; at 8B, mlp_out (34% ) and resid_post (27% ) reach 3.1× and 
+
+2.5×, while attn_in , the most effective target on GPT-2, has almost no effect: a selection made on one model does not transfer to another. The full 8B audit (192 hookpoints scored, 24 ablation sweeps) runs in under ten minutes on one node. 
+
+Estimator localization and seed stability. Trained under the identical 250-step annealed schedule, the two estimators concentrate the signal differently: the Top-k+IS lens local-izes roughly twice as sharply as Top-k (top-5 share 35% vs. 
+
+20% ; across three training seeds, 31 –35% vs. 11 –20% ). The strongest-head identification is fully seed-robust: retraining all three lens variants under two additional seeds, every one of the nine lens ×seed audits ranks L23.H24 first, with 4–5 of 5 top heads shared across seeds. 
+
+## K Fine-Grained Fidelity Statistics 
+
+Beyond task outcomes, we compare the lenses on the trajec-tory statistics themselves. 
+
+Rank agreement of head audits. Table 23 quantifies cross-lens agreement of the DART head rankings. Trained lenses agree at every scale, and all variants (including the Table 19: Injection collateral damage on 2WMH under over-injection. KL is measured between the injected and clean next-token distributions (nats); top-1 kept is the fraction of examples whose argmax token is preserved; ∆P /nat is answer-probability gain per nat of distortion. The 8B Top-k lens selects the final layer, so its row coincides with last .                                                     
+
+> Model τsite gain KL top-1 kept ∆P/nat LLaMA-3-8B 2Top-k+IS ( ℓ=19 )100 %2.48 0.35 0.024
+> full-rank ref. ( ℓ=22 )77 .1% 2.63 0.29 0.017
+> Top-k=last ( ℓ=31 )82 .3% 3.82 0.23 0.013
+> 4Top-k+IS ( ℓ=19 )60 .8%4.41 0.17 0.010
+> full-rank ref. ( ℓ=22 )58 .7% 5.09 0.12 0.008
+> Top-k=last ( ℓ=31 )34 .2% 7.41 0.05 0.003
+> LLaMA-3-70B 2Top-k+IS ( ℓ=78 )100 %4.02 0.31 0.029
+> last ( ℓ=79 )94 .8% 4.32 0.29 0.026
+> 4Top-k+IS ( ℓ=78 )82 .2%6.54 0.15 0.008
+> last ( ℓ=79 )66 .3% 6.89 0.05 0.006
+
+Table 20: DART localization concentration, all lens variants under one harness (200 toxic prompts, top-50 decoded tokens per head). Total is the number of toxic tokens flagged over all heads; top head and top-5 give the share of that total; late/early is the ratio of summed counts in the second vs. first half of layers. The 8B full-rank reference decodes heads through per-layer residual translators (see above).                                                         
+
+> Model Lens Total Top head Top-5 Late/early GPT-2 logit 38,753 L08.H02 (6.8% )29% 1.7×
+> LoRA Top-k+IS 23,858 L08.H02 (7.3% )30% 1.8×
+> LoRA Top-k16,582 L11.H03 (10 .5% )32% 1.8×
+> full-rank, full KL 13,586 L11.H03 (11 .5% )36% 1.7×
+> LLaMA-3-8B logit 94,077 L23.H24 (6.4% )16% 1.9×
+> LoRA Top-k+IS 9,395 L23.H24 (12 .4% )35% 167 ×
+> LoRA Top-k24,641 L23.H24 (7.6% )20% 2.5×
+> full-rank (resid.) 62,121 L23.H24 (7.0% )19% 2.1×
+> LLaMA-3-70B logit 407,752 L44.H04 (0.8% )3% 1.1×
+> LoRA Top-k+IS 29,699 L44.H04 (3.2% )10% 72 ×
+
+Table 21: ToxIn ablation. Toxicity is the mean Toxic-BERT (Hanu and Unitary team 2020) score over greedy generations from toxic prompts; PPL on WikiText-2. 70B uses the reduced 40-prompt evaluation.                            
+
+> LLaMA-3-8B LLaMA-3-70B Intervention ∆tox PPL ∆tox PPL Baseline —9.66 —3.56 Zero-ablate DART top-15 −16 .7% 9.88 +4 .1% 3.58 Zero-ablate 15 random +4 .2% 9.74 −0.5% 3.57 Soft ToxIn λ=0 .1−11 .0% 9.98 −1.7% 3.58 Soft ToxIn λ=0 .3−17 .6% 11.8 +3 .2% 3.71
+
+full-rank references at GPT-2 and 8B) identify the same strongest heads; rank correlations over all heads are dom-inated by the inert majority and should be read jointly with the top-head overlaps. The logit lens’s rank agreement with trained lenses decays with scale (Spearman 0.73 → 0.02 )even as it continues to identify the very strongest heads. 
+
+Prediction depth. From the detection captures we also compute each lens’s prediction depth: the trajectory point af-ter which its top-1 prediction stops changing (Belrose et al. 2023). Against the full-rank reference, the LoRA lenses agree to within one hidden state on 69–77% of GPT-2 examples (mean absolute difference ≈1 layer), while the logit lens manages 45% with no rank correlation ( ρ = −0.08 ). At 8B the ordering is preserved (LoRA 31–38% within one state, 
+
+ρ ≈ 0.53 ; logit 25%, ρ = 0 .24 ), but the full-KL reference re-solves predictions systematically earlier than the Subset-KL lenses, by four to five hidden states on average. Prediction depth is the fine-grained statistic where the expensive refer-ence retains a visible edge; the task-level results of the main text are unaffected by it. 
+
+Causal basis extraction. Finally we rerun the original pa-per’s causal-fidelity experiment: for each lens and layer, ex-tract the k=16 orthonormal directions whose mean-ablation most changes the lens output, then ablate each direction in the model and measure the KL against the clean output (Ap-pendix H). Every lens’s directions are causally real: ablat-ing them moves the model two orders of magnitude more than random directions (mean top-8 KL 0.39–0.48 at GPT-2, 0.69–0.81 at 8B, vs. ≈0.002 –0.007 random), and our lenses match the reference on this transfer strength. On the finer statistic (Spearman correlation between the lens’s claimed Table 22: Head-selector comparison at 8B: ToxIn with the same unembedding-derived direction (100 toxic prompts; Toxic-BERT; PPL on WikiText-2, baseline 9.66). Zero-ablation acts on the top-15 flagged heads themselves; soft subtraction acts on the attention output of the layers containing them (7–11 layers per selector). All trained lenses share the identical 250-step annealed schedule; the random row averages three seed-0 draws, which partially overlap.                           
+
+> zero-ablate top-15 soft λ=0 .3
+> Head selector ∆tox PPL ∆tox PPL LoRA Top-k+IS −16 .7%9.9 −17 .6% 11.8 LoRA Top-k+0 .4% 9.8 −27 .8%12.7 full-rank tuned (ref.) −0.8% 9.8 −23 .3% 11.9 logit lens −7.3% 10.1 −17 .7% 11.5 15 random heads +5 .2% 9.8 ——
+
+influence ordering and the realized model KL), the refer-ence leads at GPT-2 (0.71 vs. 0.57–0.61 LoRA, 0.40 logit), while at 8B the statistic stops discriminating between lenses entirely (0.52–0.65 for all, logit included). The qualitative counterpart is Figure 31: the full-rank and Top -k+IS trajec-tory grids on the same prompt are near-identical. 
+
+## L Case-Study Scope and Caveats 
+
+All results here are replications intended to validate lens fi-delity at scale. The LLaMA runs use reduced evaluations (Appendix I); the 2WMH templates and their programmati-cally constructed explicit prompts are imperfect references; and dictionary-based DART scoring favors lexically explicit toxicity. The injection results and the 8B ablations are causal interventions, while the 70B localization and the diffusion account of its null ablation remain observational. The 8B full-rank reference enters the injection and DART compar-isons through its per-layer residual translators (a half-block hookpoint mismatch; Appendix J), so its agreement num-bers there are conservative, and the selector comparison of Table 22 is a single-run evaluation. Fine-grained statistics (injection-layer rankings, prediction depth, influence order-ings) are the last lens properties to stabilize during training and should be read from converged, annealed lenses; the 8B seed study shows they are also the most seed-sensitive: coarse results (the strongest DART head, interior-vs-final layer se-lection for the recommended lens) replicate across all three training seeds, while the exact picked layer and top-5 shares move within the ranges reported above. The trained 8B lenses in the injection and toxicity analyses share a single 250-step cosine-annealed schedule, identical to the 70B run’s; the detection captures of Table 16 and the whole-model audit of Section 5 predate this schedule (earlier-schedule check-points), and the earlier bracketing checkpoints supported the same coarse conclusions. Finally, the layer-selection advan-tage of trained lenses is specific to the over-injection regime, and the logit lens’s failures are specific to scale: at GPT-2 it selects an effective injection layer and localizes adequately. 0 2 4 6 8 10 0510 15 20 25 30       
+
+> injection layer
+> 0246810
+> tweak factor τ
+> 0510 15 20 25 30
+> injection layer
+> 0.1 0.2 0.3 0.4
+> P(answer)
+> 0.02 0.04 0.06 0.08 0.10 0.12
+> P(answer)
+
+Figure 18: Lens-read P (answer ) at LLaMA-3-8B as a func-tion of injection layer ( y) and tweak factor τ (x), on the control set (top) and 2WMH (bottom); the star marks the peak (2WMH: layer 17 at τ =4 ). This is the lens’s view of the injected state, not the model’s output; causal effects appear in Table 17 and Figure 16. Table 23: Cross-lens agreement of DART head rankings over all attention heads. Top-5 counts shared heads among each lens’s five strongest. Trained lenses agree at every scale; the logit lens’s rank agreement with trained lenses decays with scale, although it still identifies the strongest heads. The 8B full-rank row carries the residual-translator caveat of Table 20. 
+
+Model Comparison Pearson Spearman Kendall Top-25% Top-50% Top-5 GPT-2 Top-k+IS vs. Top-k 0.869 0.610 0.464 0.64 0.68 3/5 Top-k+IS vs. full-rank 0.776 0.570 0.420 0.67 0.72 2/5 Top-k vs. full-rank 0.884 0.529 0.392 0.61 0.71 4/5 logit vs. Top-k+IS 0.950 0.731 0.554 0.78 0.76 4/5 logit vs. Top-k 0.779 0.581 0.428 0.64 0.69 3/5 logit vs. full-rank 0.677 0.475 0.337 0.67 0.65 2/5 LLaMA-3-8B Top-k+IS vs. Top-k 0.946 0.414 0.340 0.51 0.66 3/5 Top-k+IS vs. full-rank 0.838 0.258 0.205 0.39 0.60 3/5 logit vs. Top-k+IS 0.836 0.121 0.091 0.36 0.54 3/5 logit vs. Top-k 0.888 0.265 0.188 0.41 0.57 4/5 LLaMA-3-70B logit vs. Top-k+IS 0.533 0.023 0.018 0.27 0.54 5/5 0.0 2.5 5.0 7.5 10.0 010 20 30 40 50 60 70     
+
+> injection layer
+> 0.0 2.5 5.0 7.5 10.0
+
+tweak factor τ
+
+> 010 20 30 40 50 60 70
+> injection layer
+> 0.1 0.2 0.3 0.4 0.5
+> P(answer)
+> 0.02 0.04 0.06 0.08 0.10 0.12 0.14
+> P(answer)
+
+Figure 19: As Figure 18, for LLaMA-3-70B (control set top, 2WMH bottom; 2WMH peak at layer 78 , τ =2 ). 0 2 4 6 8 10 
+
+tweak factor τ
+
+> 0246810
+> best-layer lift  P * /Pobs  8B 2wmh 8B hand 70B 2wmh 70B hand
+
+Figure 20: Lens-read answer recovery as a function of the tweak factor τ at each model’s best injection layer. 0 5 10 15 20 25 30 0.01 0.02 0.03 0.04 0.05 0.06 0.07 
+
+> P(answer)
+
+0 20 40 60 80 
+
+injection layer ℓ
+
+0.04 0.06 0.08 0.10 0.12 0.14      
+
+> P(answer)
+> ΔℓLoRA Top-k+IS ΔℓLoRA Top-k
+> Δℓlogit lens causal Eℓ
+> Pobs (no injection) last layer
+
+Figure 21: Layer-by-layer profiles behind Table 18 (2WMH, 
+
+τ =2 ; LLaMA-3-8B top, 70B bottom): the causal profile Eℓ
+
+(solid) against each lens’s deficiency profile ∆ℓ (dashed, rescaled to the same axis). Small stars mark each lens’s selected layer and the large star the causal optimum; the selected layers and captured gains are quantified in Table 18. The trained lenses peak at or beside the interior causal opti-mum; the logit lens rises monotonically to the last layer. 8B      
+
+> τ= 2 8B
+> τ= 4 70B
+> τ= 2 70B
+> τ= 4 0.0 0.5 1.0 1.5 2.0 2.5 3.0
+> 100 ⋅ Δ P(ans) / KL nat
+> LoRA Top-k+IS LoRA Top-k
+> logit lens last layer
+
+Figure 22: Collateral damage at the selected layer (2WMH): answer-probability gain per nat of distortion of the next-token distribution. The logit lens’s selection coincides with the final layer and is omitted; exact values in Appendix Table 19. 8B      
+
+> τ= 2 8B
+> τ= 4 70B
+> τ= 2 70B
+> τ= 4 010 20 30
+> top-1 token kept (%)
+> LoRA Top-k+IS LoRA Top-k
+> logit lens last layer
+
+Figure 23: Fraction of examples whose top-1 token survives injection at the same selected layers as Figure 22. λ=0.05 λ=0.1 λ=0.2 λ=0.3 −20 −10 010 20 30   
+
+> change vs. baseline (%)
+> -7.5 -11.0 -15.9 -17.6 +1.2 +3.3 +10.1 +22.4 Δ toxicity Δ perplexity
+
+Figure 24: ToxIn soft subtraction at 8B trades toxicity against perplexity as the subtraction strength λ grows. attn_in attn_out resid_mid mlp_in mlp_out resid_post attn heads (original)  
+
+> −10 010 20 30 40
+> toxicity reduction (%)
+> +29.6 +18.6 -13.6 +1.1 +1.7 +21.0 +13.4
+
+GPT-2 (12 layers) 
+
+> attn_in attn_out resid_mid mlp_in mlp_out resid_post attn heads (original)
+> 010 20 30 40
+> toxicity reduction (%)
+> +1.7 +9.0 +1.6 -5.0 +33.7 +27.4 +11.0
+
+LLaMA-3-8B (32 layers)  
+
+> expanded hookset original scope (attn heads)
+
+Figure 25: The whole-model ablation audit (GPT-2 top, LLaMA-3-8B bottom): soft subtraction of the lens-mapped toxic direction at the top-flagged hookpoints of each compo-nent type, best operating point under a PPL ≤ 1.10 × bud-get, compared with the original attention-heads-only recipe (hatched bar, dashed line). The most effective targets lie out-side attention at both scales and differ between them. GPT-2 LLaMA-3-8B LLaMA-3-70B 010 20 30 
+
+> top-5 head share (%)
+> 29 16 330 35 10 32 20 36 19 logit lens LoRA Top-k+IS LoRA Top-k
+> full-rank, full KL
+
+Figure 26: Share of the total toxic signal carried by the top-5 heads, by model and lens. Localization is comparable at GPT-2 and 8B and far more diffuse at 70B; the logit lens’s con-centration declines with scale relative to the trained lenses. Per-head maps appear in Figures 27–29. 0 10 20 30 
+
+head 
+
+0510 15 20 25 30 
+
+> layer
+
+0200 400 600 800 1000 
+
+> toxic top-50 count
+
+Figure 27: DART per-head toxic-token counts at LLaMA-3-8B (LoRA Top -k+IS lens): the signal concentrates in a few late-layer heads. Boxes mark the top-5 heads; the strongest (L23.H24 ) and the top-5 share are quantified in Table 20. 0 20 40 60 
+
+head 
+
+> 010 20 30 40 50 60 70
+> layer
+> 0200 400 600 800
+> toxic top-50 count
+
+Figure 28: As Figure 27, for LLaMA-3-70B: the same late-layer localization holds but is far more diffuse (Table 20). 0 5 10 15 20 25 30 0250 500 750 1000 1250 1500 1750     
+
+> summed toxic count  early half late half 020 40 60 80
+
+layer 
+
+> 02000 4000 6000 8000
+> summed toxic count
+
+Figure 29: DART toxic signal aggregated by layer (LLaMA-3-8B top, 70B bottom), showing the late-layer skew quanti-fied in Table 20. LLaMA-3-8B LLaMA-3-70B −15 −10 −5 05
+
+> Δ mean toxicity (%)
+> -16.7 +4.1 +4.2 -0.5 DART top-15 heads 15 random heads
+
+Figure 30: ToxIn zero-ablation: removing the DART-flagged heads reduces toxicity at 8B while removing random heads does not; at 70B neither does. When ␣Mary ␣and ␣John ␣went ␣to ␣the ␣store ,␣John ␣gave ␣a ␣drink ␣to 
+
+full-rank tuned 
+
+embed L0 L1 L2 L3 L4 L5 L6 L7 L8 L9 L10 L11 output 
+
+the Mary the John to the same . and John a new drink the the 's the , to the Bible . the , the man , the the was the was to the first of he , him " , the 's the F to the Lord of he , him great , the 's his of to the church in he was him little to him is her , to the town , he was him lot to the is his , to the church , and was his little to him is her , to the church , they was his great to him was his are to the church , they said his little to the was Mary were to the church , they said themspeech to them was Mary were to the church , they said them little to Mary was Mary were to the church , they said them sermon to Mary you was I were to the church , they said them letter to Mary the was I were to the church , they said them sermon to Mary 
+
+> When ␣Mary ␣and ␣John ␣went ␣to ␣the ␣store ,␣John ␣gave ␣a ␣drink ␣to
+
+LoRA Top-k+IS 
+
+embed L0 L1 L2 L3 L4 L5 L6 L7 L8 L9 L10 L11 output 
+
+of the of of the metic , the of the metic drink the the s the F to the same of and , a new , be s the F to the United of and , the lot , the s the F to the United of and 's a lot , the Mary the F to the United of the was a lot to the s the , to the United of the was a lot to the . was his , to the United , and was a lot to the , was his , to the church where he was his lot to the . 's his were to the church , he was his lot to the . 's Mary were to the church , they was themspeech to the Jane Mary were to the church , they was themspeech to Mary . was Mary were to the church , they was themspeech to Mary you was I were to the church , they told them toast to them the was I were to the church , they said them sermon to Mary 
+
+0.0 0.2 0.4 0.6 0.8 1.0 
+
+> top-1 probability
+
+Figure 31: The classic prediction-trajectory grid (top-1 token of the lens readout at every layer and position; shading = probability) for the full-rank tuned lens and LoRA Top -k+IS on the same GPT-2 prompt. Both lenses read the same computation: the indirect object emerges around L9–L10 and stabilizes to the model’s final prediction.
