@@ -1,0 +1,602 @@
+Title: You Only Pass Once: Answering and Abstaining Together in a Single Forward Pass of a Frozen Language Model
+
+URL Source: https://arxiv.org/pdf/2608.14465v1
+
+Published Time: Mon, 17 Aug 2026 01:02:00 GMT
+
+Number of Pages: 23
+
+Markdown Content:
+Preprint. Under review. 
+
+# YOU ONLY PASS ONCE : A NSWERING AND ABSTAIN -
+
+# ING TOGETHER IN A SINGLE FORWARD PASS OF A FROZEN LANGUAGE 
+
+# MODEL 
+
+Ziyang Luo ∗
+
+zluo352@gatech.edu 
+
+Zhongyao Chu ∗
+
+justedwardchu@gmail.com 
+
+Xinjie He 
+
+xh2442@columbia.edu 
+
+Youting Wang 
+
+ginkoin613@gmail.com 
+
+Xukui Qin 
+
+kuschqin@gmail.com 
+
+Runxiong Wu 
+
+calvin.wu@wisc.edu 
+
+Yan-Syuan Chen 
+
+yansyuanchen@utexas.edu 
+
+## ABSTRACT 
+
+A frozen language model on reasoning tasks has two coupled weaknesses: it under-uses evidence that its own residual stream already encodes, and it fails to detect when the input is insufficient to answer, so it confabulates. This paper con-solidates two research lines—developed separately by its authors, reported here together as one system—that address these on the same residual stream: a condi-tional steering probe writes the stream at mid-stack layers and recovers reasoning accuracy from a frozen backbone, and a zero-shot sufficiency direction d reads the stream and abstains when information is insufficient. We deploy both in a single forward pass and study the interference between them. The steering write shifts the residual state that d reads: on small models the one-pass gate loses up to 8 AU-ROC points of cross-domain transfer, while reading a separate clean pass doubles inference cost. We keep d fixed and train a small network to reconstruct the pre-steering residual from the steered one—mean-squared error on (steered, clean) residual pairs that cost nothing to collect, with no sufficiency labels—then read d
+
+on the reconstruction. Because training never sees sufficiency labels, the correc-tion inherits the direction’s cross-task stability. The resulting system, YOPO (You Only Pass Once), answers, steers, and abstains from one forward pass of a frozen Qwen2.5 backbone (1.5B/3B/7B). One corrected pass recovers most of the two-pass ceiling: at 1.5B, transfer AUROC rises 0.836 → 0.888 (ceiling 0.918 ) and in-domain 0.913 → 0.959 . A supervised gate stacked on the correction—our flag-ship —takes the top one-pass score at every scale (in-domain 0.982 /0.984 /0.997 ,
+
+above the two-pass ceiling; transfer within 0.006 /0.003 of it at 3B/7B), at a trans-fer cost we quantify rather than hide; the purely label-free correction remains the transfer-safe choice at 1.5B ( 0.888 vs. 0.859 ). End to end, three-way ac-curacy more than doubles the frozen baseline ( 0.375 → 0.798 on 1.5B αNLI), exceeds either component alone ( 0.590 steering-only, 0.560 gate-only), and the one-pass system beats the two-pass reference at every scale ( 0.798 /0.830 /0.893 
+
+vs. 0.753 /0.790 /0.863 ) and on ten backbones across six model families ( 10 /10 ). We chart the full capacity–transfer frontier, giving quantitative form to our de-sign principle that abstention should not be trained in; the interference is concen-trated on small models and inverts at 7B, where the steered read is already the better substrate ( 0.995 vs. 0.985 in-domain) and the identity-initialized correction learns to do nothing. A source-side audit—early-layer separability as a shortcut signal—catches our own αNLI construction leaking a surface artifact, so we an-chor every architectural claim on native-label replications (SQuAD2, RepLiQA, 
+
+> ∗
+
+Equal contribution. 
+
+1arXiv:2608.14465v1 [cs.CL] 14 Aug 2026 Preprint. Under review. MuSiQue). On the standard four-domain suite we contribute, to our knowledge, the first answer-or-abstain (hybrid) benchmark and take it on both axes: our gate tops every in-domain dataset, and—deployed with zero target labels—is the only gate family that survives domain transfer, the label-free direction fit on the hard-est source (MuSiQue) matching its own supervised in-domain ceiling on two of three transferable targets while every trained competitor collapses toward chance; the two are operating points of one label-conditioned system. Chain-of-thought answering, whose generated drafts can never reach our prefill-time gate by con-struction, raises answerable multi-hop QA five-fold ( 0.062 → 0.313 on MuSiQue). 
+
+## 1 INTRODUCTION 
+
+Consider a frozen language model asked to perform abductive inference: given observations, pick the more plausible explanation (Bhagavatula et al., 2020). Two failure modes dominate. First, the model under-uses information it already has : its residual stream demonstrably encodes evidence that never reaches the answer logits, and lightweight inference-time interventions can recover it. Second, the model does not know when it has too little : when the input is genuinely insufficient, a frozen model answers anyway—confidently—rather than abstaining. A deployable reasoning system must do both: maximally extract what the context supports, and abstain when the context supports noth-ing. Both capabilities live on the same substrate, and this paper consolidates the two research lines that built them—one per author group, reported here as one system. Our steering line shows that a small conditional steering probe that writes the residual stream of a completely frozen backbone at a few mid-stack layers lifts abductive accuracy by up to +21 .7 pp on Qwen2.5-1.5B and +4 .96 pp (exact McNemar p=1 .7×10 −7) on the hardest full-precision 7B wall (§7). Complementarily, our 
+
+sufficiency line shows that a zero-shot difference-of-means direction d that reads the residual stream detects insufficient context far ahead of the model’s own behavior—held-out sel-AUROC reaches 
+
+0.935 /0.997 /0.935 /0.783 across four QA domains whose zero-shot spoken accuracies are only 
+
+0.854 /0.873 /0.588 /0.535 —and, in a three-family comparison on native labels (§10), that transfer debt grows with write access : crossing domains costs the read-only direction 2.7 pp, a constrained activation-writer (a steering probe of the same design as this paper’s writer, trained on the judgment task) 16 .3 pp, and a free weight-writer (LoRA) 23 .1 pp, both write families landing below the target domain’s own zero-shot baseline—shipping a trained judgment is, on average, worse than shipping nothing—while the direction alone exports a gain ( +8 .6 pp on average, 9 of 12 transfer arenas; see also the supervised-classifier cross-domain collapse of Lavi et al., 2025). In-domain the ordering reverses—write freedom wins ( 0.826 → 0.843 → 0.909 four-arena mean, LoRA taking all four)— so the principle prices transfer , not accuracy, and this paper measures that price as a function of capacity and scale. This paper studies the regime any real deployment requires: writer and reader in the same forward pass , since a separate clean pass for the gate doubles inference cost. There the two interfere—the write perturbs the very state the direction reads. The effect is measurable: on Qwen2.5-1.5B, moving the read from the clean to the steered pass costs the gate 0.962 → 0.913 in-domain and 0.918 → 0.836 
+
+on cross-task transfer. Two obvious fixes fail: a clean pass restores the gate at double cost, and a task-supervised gate on steered states restores in-domain accuracy but pays in transfer, steeply at small scale ( 3–5 points below the label-free repair at 1.5B). The sharper question: how much of the read can one steered pass recover before any task supervision, with its transfer cost, must be spent? Our answer removes the perturbation , not the abstention. The write is a smooth function of the residual it reads, so its effect can be learned and undone by reconstruction from (steered, clean) pairs that need no annotation; carrying no sufficiency labels, the repaired read keeps the direction’s transfer. 
+
+Contributions. We report the two component lines as first-class results on one shared frozen grid, and add the practice and benchmarks that make them deploy together: (i) the steering writer with its full injection-geometry benchmark across scale and datasets (§7); 2Preprint. Under review. (ii) the zero-shot sufficiency reader with its design principle quantified, for the first time, as a measured capacity–transfer frontier in the fused setting (§6); (iii) the label-free correction that lets the two share one forward pass, doubling end-to-end three-way accuracy over the frozen baseline while matching the two-pass reference (§7); (iv) a controlled same-field comparison of three one-pass fusion architectures (reconstruction, read-only with a self-suppressing write, and layer-ordering) on a shared injection module, showing the interference’s severity is protocol-dependent (§10); (v) the first answer-or-abstain (hybrid) benchmark on the standard four-domain suite (to our knowledge), where the supervised gate leads in-domain on all four datasets and the label-free direction, fit on the hardest source, transfers best across domains (§10). The technical core is item (iii), a label-free correction of the residual stream . We keep the zero-shot direction d fixed —never retrained, which preserves its provenance and transfer—and learn a small map M that removes the steering perturbation: M reconstructs the clean sufficiency-layer residual from the steered residual(s) under a plain MSE objective. Training uses no sufficiency labels ; the (steered, clean) pairs are free by construction (run the extractor once with hooks on and off), so nothing task-specific about abstention is learned. At inference the system runs one steered pass, reads s = d⊤M (hsteer ), and abstains when s falls below a percentile threshold. Steering keeps its reasoning gain, the direction keeps its zero-shot transfer, and the read is repaired. Our highest-scoring one-pass gate stacks a small supervised boost on this correction (§5); the purely label-free map below is both the mechanism that makes one pass viable and the transfer-safe fallback. Concretely, on the frozen Qwen2.5 grid, neither component approaches the combination: on 1.5B 
+
+αNLI 3-way accuracy the frozen baseline scores 0.375 , steering-only 0.590 , gate-only 0.560 , and the fused one-pass system 0.798 —beating the two-pass reference at every scale ( 0.798 /0.830 /0.893 
+
+vs. 0.753 /0.790 /0.863 ) and on ten backbones across six model families (§9, 10/10). The correction itself is label-free and effective where it is needed: at 1.5B it lifts the one-pass gate from 0.913 /0.836 
+
+(in-domain/transfer AUROC) to 0.944 /0.888 , recovering 63% of the transfer contamination. And the contamination follows a scale law—the clean-vs-steered transfer gap falls 0.082 → 0.031 →
+
+0.013 across 1.5B/3B/7B, inverting in-domain at 7B (the steered read beats the clean read, 0.995 vs. 
+
+0.985 ), where the identity-initialized map correctly learns to do nothing. The correction thus matters most exactly where frozen-model steering pays most—small models—and the two results compose into a budget-conditioned recipe (§12). 
+
+Proposed configuration. Under the hard one-pass budget we propose the full-capacity gate—multi-layer de-contamination plus BCE boost—which takes the top one-pass score in-domain at every scale (above the two-pass ceiling) and the top transfer at 3B and 7B. The Pareto frontier we chart is what disciplines this choice: task-specific capacity buys in-domain accuracy and costs transfer, monotonically—our quantitative confirmation, in the fused setting, of the sufficiency line’s design law—and the price is scale-dependent: negligible at 3B and above, real at 1.5B, where the label-free map is the transfer-safe fallback ( 0.888 vs. 0.859 ) and no one-pass gate we built beats the two-pass clean read’s transfer ( 0.918 ). We report this ceiling violation-free, alongside the variants that failed (§11). 
+
+## 2 RELATED WORK 
+
+Activation steering. Fixed contrastive directions added to the residual stream (Turner et al., 2023; Panickssery et al., 2024), inference-time shifts along learned directions (Li et al., 2023), representa-tion engineering (Zou et al., 2023), task/function vectors (Todd et al., 2024; Ilharco et al., 2023), low-rank subspace rewrites (Wu et al., 2024), and conditional gating of a fixed vector (Lee et al., 2024). Our steering probe differs by making the steering direction itself an input-conditioned function of the residual; this paper reports that writer’s full benchmark across scale and studies its interaction with a reader. Answerability and sufficiency reading. Models linearly encode (un)answerability (Kadavath et al., 2022; Slobodkin et al., 2023); a difference-of-means direction transfers across datasets (Lavi et al., 2025). Our sufficiency line establishes the zero-shot sufficiency gate, escorts its verdict into the model’s own spoken answer via zero-training relay steering (execution fidelity 
+
+1.0000 in 16/16 cells, §10), and shows on native labels why the read must stay untrained: the internal readout runs far ahead of the model’s spoken behavior, while any judgment trained in absorbs the source domain’s signature and pays for it under shift in proportion to write access—landing, for both 3Preprint. Under review.                         
+
+> Embedding Layers 0–11 (frozen)
+> Layer 12
+> Layers 13–15 (frozen)
+> Layer 16
+> Layers 17–19 (frozen)
+> Layer 20
+> Layers 21–27 (frozen) RMSNorm + LM head
+> input tokens answer logits
+> read rat spread-5 positions ( B×5×1536 )direction MLP
+> 1536 →384 →1536
+> SiLU →u(r)
+> magnitude gate
+> 1536 →5,σ×αmax
+> →a
+> write r←r+a∥r∥u(r)
+> steering sub-probe ( ×3, identical design)
+> ≈3.58M params ( ≈1% of backbone) ·probe-only training (answer cross-entropy) dashed = read (hook) solid = write-back blue = injection layers gray = frozen
+
+Figure 1: The conditional steering probe (the writer): at each injection layer a per-layer sub-probe reads the residual at spread-5 prompt positions, emits an input-conditioned unit direction (MLP) and a gated magnitude, and writes r+a∥r∥u(r) back through forward hooks. The backbone stays frozen; the edit is hot-swappable and fully reversible. write families, below the target domain’s own zero-shot baseline—a failure mode the supervised-classifier collapse of Lavi et al. (2025) foreshadows. The fused, one-pass setting—reading through an active write—is what neither line treated alone and what this paper adds. Reconstruction as repair. Our map is trained like a denoiser (Vincent et al., 2008; Lehtinen et al., 2018): reconstruct the unperturbed state from the perturbed one, with the corruption process (here, the steering write) supplying free training pairs. Unlike representation “patching”/editing analyses, the target here is not interpretability but preserving a downstream zero-shot readout; and unlike supervised probes, the objective carries no task labels, which is what preserves transfer. 
+
+## 3 SETUP : A WRITER AND A READER ON THE RESIDUAL STREAM 
+
+The writer: the conditional steering probe (the steering line’s contribution). At each of a few mid-stack layers ℓ of a frozen backbone, a small MLP reads the residual rℓ,t at five spread prompt positions and writes back r′ = r + a ∥r∥ u(r), with learned unit direction u and gated magnitude a
+
+(Figure 1). Only the probe ( ∼1% of backbone parameters) is trained, on answer cross-entropy; the backbone is untouched. Injection layers: {12 , 16 , 20 } (1.5B, 7B), {16 , 20 , 24 } (3B). 
+
+The reader: the zero-shot sufficiency gate (the sufficiency line’s contribution). From labeled source-domain examples, d = mean( h | sufficient ) − mean( h | insufficient ) at a mid layer; score 
+
+s = d⊤h at the pre-answer position; the threshold is fit on a selection split in-domain and re-derived label-free (median projection of unlabeled target inputs) cross-domain. Two read-layer rules coexist here, matched to construction. The controlled grid (§4–§7) fixes the layer at proportional depth (18 at 1.5B/7B, 24 at 3B, ≈ 0.65 )—adequate there because every gate variant reads the same layer. The 
+
+standard-suite sections use the causal-onset protocol (§10), which selects the layer per domain and in fact excludes layer 18 on the QA domains (negative steering-response); where the rules disagree, causal-onset is the corrected one. Terminology: “zero-shot” here means two specific things, neither of them “no data”—(i) the direction has no fitted weights (two class means and one threshold; no gradient-trained parameters that could absorb task signature), and (ii) it is applied cross-task without target-domain data . Labeled source examples are used—to compute the means—but nothing is optimized against them. 4Preprint. Under review. model read in-domain transfer (HellaSwag) 1.5B clean pass (2 passes) 0.962 0.918 
+
+1.5B steered pass (1 pass) 0.913 0.836 
+
+3B clean pass (2 passes) 0.967 0.922 
+
+3B steered pass (1 pass) 0.942 0.891 
+
+7B clean pass (2 passes) 0.985 0.968 
+
+7B steered pass (1 pass) 0.995 0.955 
+
+Table 1: Contamination (AUROC, full vs. replace; αNLI in-domain, HellaSwag zero-shot transfer): the fixed zero-shot direction d read on the steered vs. clean pass. The steering write costs the gate 
+
+8.2 transfer points at 1.5B and 3.1 at 3B; at 7B the transfer cost is 1.3 points and the in-domain effect inverts (the steered residual is a better substrate for the read than the clean one). The conflict is concentrated at small scale. 
+
+Data. In-domain: αNLI reshaped into four redaction conditions (full / rm-obs1 / rm-obs2 / replace-both), following the sufficiency line’s construction; sufficient = full, insufficient = replace-both. Transfer: (i) HellaSwag (Zellers et al., 2019) under the analogous full / rm-first / rm-last / replace construction; (ii) RepLiQA (Monteiro et al., 2024)—human-written fictional documents absent from the web, ruling out memorization—with passage-window conditions full / rm-ctx / rm-ans / replace (RepLiQA also ships native answerability labels; the native-label study of §8 and the standard suite of §10 use those, the constructed conditions here serve only the controlled-transfer axis); (iii) BoolQ (Clark et al., 2019) passages under full / rm-first / rm-last / replace. All transfer sets are used zero-shot : d and every map are fit on αNLI only. The two lines maintained independent codebases throughout, which this paper exploits as internal cross-validation: every sufficiency-gate quantity on the controlled grid was recomputed by the fusion codebase from the sufficiency line’s recipe, and wherever both implementations measured the same cell their agreement is reported. §8 runs the fused system directly on the sufficiency line’s construction manifests, prompts, and pipeline. 
+
+Metric. AUROC(full vs. replace) of the sufficiency score on held-out validation items, in-domain (αNLI) and zero-shot transfer; all reads from a single steered forward pass unless explicitly marked as the two-pass reference. 
+
+## 4 THE FUSION PROBLEM : S TEERING CONTAMINATES THE READ 
+
+Running the reader on the writer’s pass is not free. Table 1 isolates the contamination: the same fixed d, read at the same layer, on the clean vs. the steered pass. Why not just fix it with supervision? Training a gate on steered states does restore in-domain accuracy—and that is precisely the trap. the sufficiency line’s design law says trained abstention learns the task, not the sufficiency signal, and collapses under shift; our grid confirms the law’s fused-setting analogue quantitatively (§6): every supervised bit of capacity added to the one-pass gate moves it along a Pareto frontier—up in-domain, down in transfer. §8 then tests the law at its source—training the abstention itself into the writer—and finds it scale-conditional rather than absolute on our constructed axis : two opposite collapse modes at 1.5B, stability (and transferring abstention) at 7B, but never a transfer win over the calibrated read. The sufficiency line’s native four-domain comparison sharpens the same boundary from the other side: at 7B on native labels, both write-trained families still land below the target’s own zero-shot baseline ( −16 .3/ − 23 .1 pp; §1)—scale relaxes the collapse on the constructed axis without repealing the price on native labels. 
+
+## 5 METHOD : A L ABEL -F REE CORRECTION OF THE STEERING 
+
+## PERTURBATION 
+
+The design principle is not a prohibition but a cost curve: supervised capacity added to the gate buys in-domain accuracy and is paid for in transfer (we chart the exchange rate in §6, and it falls with scale). What carries a transfer cost is training the abstention ; training away the perturbation 
+
+5Preprint. Under review.                     
+
+> Context + Question
+> L0. . . L 11 (clean) L12 . . . L 27 (steered)
+> answer logits
+> frozen LLM: residual stream
+> conditional steering probe
+> writes r+a∥r∥u(r), layers {12 ,16 ,20 }⊕
+> de-contamination map M
+> label-free: trained steered →clean, dFIXED read hsteer 18
+> gate: s=d⊤M(hsteer )s < τ ?abstain (0)
+> yes else: steered answer (1/2)
+
+Figure 2: YOPO (You Only Pass Once): one-pass fusion with a label-free correction. The steering probe (blue, the writer) writes the residual stream at layers {12 , 16 , 20 }; the same steered pass is read at a mid layer, passed through the reconstruction map M (ours, orange—trained only to reconstruct the clean residual, never on sufficiency labels), and scored against the FIXED zero-shot direction d
+
+(the sufficiency gate, purple, the reader). Below threshold τ (a percentile cut) the system abstains; otherwise it emits the steering-amplified answer. One forward pass serves both the write and the read. Layer indices shown for Qwen2.5-1.5B/7B; 3B uses {16 , 20 , 24 }, read layer 24. carries none, because a reconstruction target encodes no task judgment. We exploit exactly this asymmetry—learn the effect of the write on the state, not the sufficiency decision: 
+
+min  
+
+> M
+
+E M  hsteer  − hclean 22, s = d⊤M  hsteer  , (1) where hclean /hsteer are the sufficiency-layer residuals of the same input with steering hooks off/on— a pairing that is free (no annotation; one extra training-time forward), and d stays fixed. Two in-stantiations: (i) single-layer : M (h) = h + U σ (V h ), a low-rank (r=64) residual corrector on the sufficiency layer alone; (ii) multi-layer (ML) : M is a one-hidden-layer MLP reading the concate-nated steered residuals of the injection span (e.g. layers {12 , 14 , 16 , 18 , 20 } at 1.5B), reconstructing the clean sufficiency-layer state—richer input for undoing a multi-layer write. The full-capacity configuration—our flagship —stacks a small BCE-trained supervised boost on top of the recon-structed read; this does touch labels and buys in-domain at a transfer price we quantify rather than hide (negligible at 3B and above, §6). The key property is what the map is not trained on: sufficiency labels never enter the reconstruction objective, so nothing about “when to abstain on αNLI” can leak into M . The map only learns the geometry of the steering perturbation—which is task-general, because the probe’s write is a smooth function of the residual it reads. Figure 2 shows the assembled one-pass system. 
+
+Scope of “label-free.” Wherever this paper (tables included) marks a gate variant label-free , the claim is specific: no abstention/sufficiency labels are optimized against anywhere in the read path . It is not a claim that the system is unsupervised: the steering probe is gradient-trained on answer labels (its own transfer cost is priced separately, on the write-access ladder of §8); the direction d uses labeled source examples to compute two class means but has no fitted parameters that could absorb a task signature (§3); M trains on reconstruction alone. The one component that does optimize against abstention labels—the flagship’s boost—is the one that pays in transfer, which is the design law’s point. 
+
+Algorithm 1: YOPO inference (one forward pass) Input: item x; frozen backbone; steering probe (injection layers I={12 , 16 , 20 }); reconstruc-tion map M ; fixed sufficiency direction d; read layer ℓr =18 ; threshold τ
+
+1. Run one forward pass on x; during the pass: 2. at each ℓ ∈ I : rℓ ← rℓ + a ∥rℓ∥ u(rℓ) // steering write (answer) 
+
+3. at ℓr : capture the steered residual hsteer // no second pass 
+
+4. s ← d⊤M (hsteer ) // reconstructed sufficiency read 
+
+5. if s < τ return abstain // τ : a label-free percentile 
+
+6. else return arg max answer logits // steering-amplified answer 
+
+6Preprint. Under review. 
+
+model one-pass gate in-domain transfer (HellaSwag) 1.5B naive d⊤hsteer (floor) 0.913 0.836 
+
+1.5B de-contam → d [recon] 0.944 0.888 
+
+1.5B ML de-contam → d [recon] 0.959 0.869 
+
+1.5B ML de-contam + BCE boost 0.982 0.859 
+
+1.5B ref: 2-pass clean read 0.962 0.918 
+
+3B naive d⊤hsteer (floor) 0.942 0.891 
+
+3B de-contam → d [recon] 0.969 0.908 
+
+3B ML de-contam → d [recon] 0.973 0.911 
+
+3B ML de-contam + BCE boost 0.984 0.917 
+
+3B ref: 2-pass clean read 0.967 0.922 
+
+7B naive d⊤hsteer (floor) 0.995 0.955 
+
+7B de-contam → d [recon] 0.995 0.955 
+
+7B ML de-contam → d [recon] did not converge (§11) 7B ML de-contam + BCE boost 0.997 0.965 
+
+7B ref: 2-pass clean read 0.985 0.968 
+
+Table 2: The one-pass sufficiency gate across scale (AUROC full vs. replace; αNLI in-domain, HellaSwag zero-shot transfer; single steered pass except the italic reference). De-contamination is label-free; the BCE boost is supervised. At 1.5B capacity trades transfer for in-domain along a clean frontier; at 3B the boosted map reaches in-domain above the 2-pass ceiling at a 0.006 transfer cost; at 7B the identity-anchored map learns ≈identity (floor = de-contam row) because there is no contamination left to undo. See Figure 3. 0.92 0.94 0.96 0.98 1.00  
+
+> in-domain AUROC ( NLI, full vs. replace)
+> 0.84 0.86 0.88 0.90 0.92 0.94 0.96
+> zero-shot transfer AUROC (HellaSwag)
+> Qwen2.5-1.5B Qwen2.5-3B Qwen2.5-7B
+> naive steered read (floor) de-contam (label-free foundation) ML de-contam (label-free) flagship: ML de-contam + BCE boost (proposed) 2-pass clean read (reference, 2 ×cost)
+
+Figure 3: The one-pass capacity–transfer frontier across scale. Each hue is a frozen Qwen2.5 back-bone; points are one-pass gates in increasing capacity order (line); the haloed ⋆ is our proposed flagship (ML de-contamination + BCE boost) and × is the two-pass clean-read reference ( 2× cost). At 1.5B the frontier slopes down—capacity buys in-domain and costs transfer; at 3B it flattens; at 7B all one-pass gates cluster at the ceiling. The 7B multi-layer reconstruction point is omitted (con-vergence failure, §11). 
+
+## 6 RESULTS : THE ONE -P ASS PARETO FRONTIER , A CROSS SCALE 
+
+The correction repairs the read, label-free (1.5B). The single-layer map lifts transfer 0.836 →
+
+0.888 —recovering 63% of the contamination with no sufficiency labels—and in-domain 0.913 →
+
+0.944 ; the multi-layer map trades some transfer ( 0.869 ) to reach the 2-pass clean ceiling in-domain (0.959 ). 
+
+The design law, quantified (1.5B). Moving down Table 2’s 1.5B block adds task-specific capacity: in-domain rises 0.944 → 0.982 while transfer falls 0.888 → 0.859 —the design law as a measured 7Preprint. Under review. frontier, not a binary. No one-pass gate we built beats the 2-pass clean read’s transfer at 1.5B ( 0.918 ); the label-free map narrows the gap from 8.2 to 3.0 points. 
+
+The trade-off relaxes with scale (3B). Every 3B variant improves both columns over the floor, and the frontier flattens: the boosted map reaches 0.984 in-domain—above the clean ceiling—at a transfer within 0.006 of it ( 0.917 vs. 0.922 ). 
+
+At 7B there is no perturbation left to correct—and the map learns that. The steered read already beats the clean read in-domain ( 0.995 vs. 0.985 ) and sits within 0.013 on transfer; the identity-initialized map, with nothing to undo, learns ≈identity (its row coincides with the floor to four decimals). This no-harm behavior is a design property of the residual corrector, not luck: the reconstruction objective, not a hyper-parameter, decides it, which is what lets one recipe deploy across scale. 
+
+Scale trend. Contamination (clean −steered transfer gap): 0.082 at 1.5B, 0.031 at 3B, 0.013 at 7B (Figure 3). The fusion problem is a small-model problem—which is where frozen-model steering buys the most reasoning accuracy in the first place ( +21 .7 pp at 1.5B vs. +4 .96 pp at 7B, §7). De-contamination is the piece that makes the small-model deployment coherent: big write, repaired read, one pass. 
+
+Cross-dataset axes saturate—a negative result about the benchmark, not the gate. Our constructed RepLiQA/BoolQ transfer axes turn out too easy (every gate 0.98 –1.00 : a different-document replacement is superficially detectable), and a hard variant (same document, answer sen-tence deleted) too hard—every gate, including the two-pass clean read, floors at 0.56 –0.68 (§11, item v). The discriminative constructed axis is therefore HellaSwag; the calibrated middle ground the bracketing calls for is exactly what native labels provide, and §8 moves the fused system onto that axis. 
+
+## 7 THE STEERING PROBE ’S BENCHMARK AND THE COMBINED SYSTEM 
+
+The two components are results of this paper in their own right, not borrowed baselines: this section reports the writer’s full benchmark (consolidating the steering line) and the combined end-to-end system; the reader’s fused-setting quantification is §6, and its standalone characterization on native labels is §10. 
+
+Steering: injection-geometry grid. Appendix A (Table 10) sweeps the writer’s configuration— layer count ( 1/3/5/7), injection positions (last vs. spread-5), and αmax —across three datasets and the scale ladder. Three regularities: spread positions dominate last-token injection at every layer count (1.5B αNLI +20 .2 vs. +14 .7 at 3 layers), layer count is a weak lever, and gains are competence-modulated—large where the frozen baseline B0 is weak, small where it is strong (best 7B cell: 81 .1 αNLI vs. 76 .5 frozen). 
+
+Combined system (YOPO): answer or abstain, end to end. Following the sufficiency line’s pro-tocol, we evaluate 3-way accuracy (correct = right answer on answerable conditions, abstain on the no-information condition) on the 4-condition validation sets, with percentile-calibrated thresh-olds (quantile transfer across tasks). Policies: frozen baseline, steering-only, gate-only (clean read, no steering), the 2-pass reference (steered answer + clean gate), and YOPO—our one-pass fusion (steered answer + gate from the naive steered read, the de-contamination map, the multi-layer map, or the flagship)—each at abstain percentiles {20 , 25 , 30 }; Table 3 reports p=25 (matching the 25% 
+
+insufficient prior; the sweep is in the released JSONs). The flagship’s BCE boost is fit on the in-domain train rows with the end-to-end-consistent label (answerable = any non-replace condition); on 4-condition data this, not full-vs-rest, is the gate’s actual job. Four readings. (i) Neither component suffices alone: steering-only never abstains and gate-only forgoes the reasoning gain; the combination beats both everywhere (e.g. 1.5B αNLI: 0.375 baseline, 
+
+0.590 steer-only, 0.560 gate-only, 0.798 fused flagship). (ii) One pass beats two in-domain: the flagship gate tops the 2-pass reference at every scale ( 0.798 vs. 0.753 at 1.5B; 0.830 vs. 0.790 at 3B; 0.893 vs. 0.863 at 7B—its one-pass gate AUROC on the same items is 0.989 /0.993 /0.998 ); the label-free de-contamination gate already ties or beats it ( 0.760 /0.790 /0.880 ; at 7B the steered read is the better substrate, consistent with Table 1). (iii) The design law is visible end to end: on HellaSwag transfer at 1.5B the flagship pays for its in-domain lead ( 0.512 vs. the label-free map’s 0.592 and the 8Preprint. Under review.                                                                     
+
+> policy 1.5B 3B 7B
+> αNLI Hella αNLI Hella αNLI Hella frozen baseline B0(never abstains) 0.375 0.500 0.563 0.400 0.628 0.604
+> steering-only (never abstains) 0.590 0.502 0.625 0.502 0.668 0.592
+> gate-only (clean read, no steering) 0.560 0.602 0.743 0.560 0.828 0.780
+> steering +clean gate (2-pass ref.) 0.753 0.598 0.790 0.642 0.863 0.768
+> steering +naive steered gate (1 pass) 0.698 0.580 0.760 0.616 0.880 0.754
+> steering +de-contam gate (1 pass, label-free) 0.760 0.592 0.790 0.626 0.880 0.754
+> steering +ML de-contam gate (1 pass, label-free) 0.773 0.598 0.798 0.630 0.668 0.592
+> steering +flagship gate (1 pass, proposed) 0.798 0.512 0.830 0.652 0.893 0.696
+
+Table 3: Combined-system benchmark: end-to-end 3-way accuracy (answer correctly on answer-able conditions / abstain on the no-information condition), 4-cond validation sets, abstain percentile 
+
+p=25 via quantile transfer. “Label-free” scopes to the read path : no abstention labels are optimized against (the steering probe in every row is answer-label trained; see §5). The 7B ML de-contam cells inherit that variant’s convergence failure (§11) and are reported for completeness. 2-pass 0.598 ); at 3B it leads even there ( 0.652 vs. 0.642 ); at 7B the label-free single-layer map is the best one-pass transfer policy we measure ( 0.754 )—the same capacity–transfer frontier as §6, now in accuracy points. (iv) The transfer caveat is the writer’s, not the gate’s: at 1.5B on HellaSwag, steering-only ( 0.502 ) does not beat the baseline ( 0.500 )—the αNLI-trained single-task probe does not transfer its answer gain (§7)—so the fused system’s transfer value there is carried by the gate. 
+
+## 8 NATIVE LABELS : B EHAVIORAL VS . I NTERNAL , AND THE FUSED SYSTEM 
+
+Our 4-condition sets construct insufficiency by redaction. The sufficiency line’s earlier native-label study, which this section replicates and builds on, complements them with native human labels on Qwen2.5-7B: SQuAD 2.0 (Rajpurkar et al., 2018), whose unanswerable questions are adversarially written with planted decoy answers, and RepLiQA (Monteiro et al., 2024) full doc-uments (contamination-free), recast as a binary sufficiency judgment (gold token 1/2; 2,000/2,000 and 749/253 train/eval, class-balanced—the standard suite of §10 supersedes these cuts with strict fit-1,200/sel-800/test-2,000 splits per domain). 
+
+The model knows, but does not say. On the same 125 unanswerable RepLiQA items, the behav-ioral route (answering with explicit permission to abstain) still force-answers 44; a difference-of-means read of the same forward pass separates 124/125, catching all 44. Across prompting variants the behavioral ceiling is ≈ 0.89 decision accuracy (forced chain-of-thought) while the read is essen-tially saturated (our replication: ranking AUROC 0.9988 )—direct evidence that the sufficiency sig-nal exists in the residual stream and the decision pathway does not use it. On adversarial SQuAD2, 
+
+everything ties at ≈ 0.86 : when models do force-answer there, 62 –71% of the answers are exactly the annotator-planted decoy—traps good enough to fool the behavior fool the internal signal too. 
+
+The write-access ladder. In the sufficiency line’s native-label study (values below are as mea-sured there; this construction and protocol differ from the standard-suite figures of §10, so the two are not expected to coincide numerically), training the judgment in-domain works and ranks by write freedom: free weight-write (LoRA r=3 ) beats the steering probe trained on the same data, which beats the read-only probe. Under task shift (SQuAD2 →RepLiQA zero-shot) the ranking 
+
+inverts by the same key : the free-write rung collapses hardest (a ∼ 23 pp drop with a ∼ 44% force-answer rate), constrained activation-writing drops moderately, and the read-only direction drops least—recoverable to the best value in this comparison by a one-line label-free recalibration (me-dian threshold, balanced prior). The four-domain study (§1) generalizes this single cell to the full 
+
+4×4×3 grid and the ladder holds ( −2.7/ − 16 .3/ − 23 .1 pp; the sufficiency line’s measurement reports p=2 .3×10 −5). The free-write rung was additionally re-run from scratch in the fusion line’s environment—trainer and evaluator identical—and the collapse and its dangerous direction replicate independently: SQuAD2 0.893 in-domain, RepLiQA 0.779 under shift with a 42 .2% force-answer rate (the same regime; the single cross-domain cell sits within the documented ±0.10 seed spread). The one place our re-run visibly departs is the RepLiQA in-domain free-write rung, which retrains to only 0.874 on our machine—a 749-item training set is exactly where LoRA is seed- and budget-9Preprint. Under review. sensitive—but the conclusion is reference-free and survives: under shift the ordering is read >
+
+constrained-write > free-write, and the free-write rung carries the highest force-answer rate. Read 
+
+< constrained write < free write in-domain, inverting under shift: the design law of §4, measured a third way, on real labels. YOPO’s architecture sits at the ladder’s low-capacity end: a read-only gate plus a constrained writer, with the write’s side effect on the read cancelled label-free. 
+
+The fused system on the native-label construction. The ladder evaluates the writer and the reader as alternatives ; deployment stacks them—which raises the write–read interference question on this data. We run the full fusion pipeline on the same manifests (Qwen2.5-1.5B; a scale the ladder study does not cover): train the steering probe on the SQuAD2 judgment task in the identical configuration, read the sufficiency direction from the same steered pass, and repair with the reconstruction map. Three findings. (i) The behavioral–internal gap widens at small scale: 1.5B zero-shot judgment scores 0.710 /0.597 (SQuAD2/RepLiQA, the latter with 78% force-answer), yet the probe protocol reads 0.770 /0.980 on the same model’s clean states—RepLiQA insufficiency is already saturated in the 1.5B residual stream while the behavioral route collapses; the model that most needs the gate has the signal and cannot say it. (ii) Contamination is benign when the writer optimizes the judgment itself: the steered read matches the clean read in-domain ( 0.859 vs. 0.863 AUROC) and beats it on SQuAD2 →RepLiQA transfer ( 0.943 vs. 0.939 ; 0.949 with the multi-layer map, decision accuracy 
+
+0.878 after median calibration—the best one-pass transfer policy). Unlike the αNLI writer, trained on answering (Table 1), this writer is trained on the very judgment the gate reads: the perturbation correlates with the signal, and the 7B-style inversion appears at 1.5B. The interference is a property of the writer’s objective, not of writing per se. (iii) The design law bites harder on real data: 
+
+the flagship again leads in-domain ( 0.867 AUROC, 0.792 accuracy) but collapses across datasets (0.565 /0.530 )—the supervised boost binds to SQuAD2’s adversarial signature just as LoRA does behaviorally ( −23 .7 pp), while every label-free variant transfers intact. On real data the flagship is an in-domain instrument; cross-dataset deployment belongs to the label-free stack plus median calibration. The 7B leg both replicates and extends. Run end-to-end in the fusion environment, every behavioral and probe row of the earlier study reproduces to within 0.008 (zero-shot judgment 0.855 /0.874 ,probe on SQuAD2 0.859 , cross-task strict/median/ranking 0.834 /0.917 /0.960 ); the one disagree-ment is RepLiQA’s in-domain threshold placement, where ranking is saturated on both sides (AU-ROC 0.9988 )—placement, not signal. In the fused setting the perturbation is absent in-domain (0.929 steered = 0 .929 clean) and small on transfer ( 0.941 vs. 0.965 ); the multi-layer map’s con-vergence failure replicates on real data (AUROC 0.50 , §11); and the flagship again leads in-domain (0.934 AUROC, 0.868 accuracy) with a far smaller transfer debt than at 1.5B ( 0.882 vs. 0.565 )—the contamination scale law, reproduced on native labels. 
+
+One direction, measured across five datasets. With clean states on disk, the full direction-transfer cross-matrix costs only arithmetic (Table 4); every cell is recomputed from our own extractions. To the four datasets above we add a fifth with a different failure mode: MuSiQue (Trivedi et al., 2022) multi-hop questions with native answerability labels (2,000/1,000 balanced, supports-first windows so the gold chain is never truncated). At 7B, 19 of 20 off-diagonal cells are ≥ 0.795 ranking AUROC (mean 0.879 ; the exception, αNLI →MuSiQue, 0.766 ): directions fit on native labels rank our constructed minimal pairs and vice versa (HellaSwag →SQuAD2 0.930 ; SQuAD2 →RepLiQA 
+
+0.961 ). At 1.5B half the cells sit at or below 0.68 : the “one sufficiency direction” picture emerges with scale —the geometric face of the flagship’s transfer-debt law ( 0.565 → 0.882 ), visible in the raw vectors as the αNLI–HellaSwag cosine rising 0.58 → 0.75 . (An earlier internal pre-validation on an easier controlled αNLI variant found the same ordering as our 0.805 on the harder minimal-pair construction.) MuSiQue splits sharply by role: hardest target column (no source exceeds 0.830 ;in-domain only 0.850 —multi-hop sufficiency is genuinely harder) yet at 7B the strongest source row (all four transfer cells ≥ 0.916 ): the direction distilled from the hardest data generalizes best. Fusion follows suit—the MuSiQue-trained one-pass stack transfers to RepLiQA at 0.917 (ranking AUROC 
+
+0.969 ) and SQuAD2 at 0.844 , while the reverse SQuAD2 →MuSiQue direction manages 0.742 —and the multi-layer map’s 7B convergence failure replicates a third time here (AUROC 0.50 in all six fusion analyses; §11). 
+
+Writing on the hardest data: the free-write rung, retrained on multi-hop. Is the LoRA rung’s collapse ( −23 .7 pp, 44% force-answer) a property of free writing, or of SQuAD2’s adversarial sig-nature? Retraining the identical rung on MuSiQue mostly dissolves it: in-domain 0.876 , trans-fer 0.857 /0.846 (MQ →SQuAD2/RepLiQA)—a 2–3 pp drop against the SQuAD2-trained rung’s 10 Preprint. Under review. Table 4: Direction-transfer cross-matrix, computed entirely from our stored states. Each row: the sufficiency direction d is fit on that dataset’s train split (the sufficiency line’s v2 protocol: per-layer difference of means on an 80% subset, L∗ by held-out AUROC, frozen); each column: ranking AUROC ( ↑) of that frozen direction on the target dataset’s evaluation split, clean states, no recali-bration. Diagonal (gray) = in-domain. αNLI/HellaSwag are our constructed 4-condition sets (suf-ficient = non-replace ); SQuAD2/RepLiQA carry native labels; MuSiQue (multi-hop, supports-first windows, native answerability labels) is both the hardest target column and, at 7B, the strongest source row. Layer sweep restricted to the capture set shared by all five extractions.                                                                 
+
+> Qwen2.5-1.5B (tested on) Qwen2.5-7B (tested on) trained on αNLI Hella SQuAD2 RepLiQA MuSiQue αNLI Hella SQuAD2 RepLiQA MuSiQue
+> αNLI .986 .748 .648 .465 .677 .995 .928 .805 .795 .766 HellaSwag .923 .905 .648 .480 .657 .967 .959 .930 .905 .808 SQuAD2 .766 .872 .863 .941 .817 .801 .828 .932 .961 .815 RepLiQA .919 .599 .552 .999 .616 .867 .914 .913 .988 .830 MuSiQue .799 .864 .865 .949 .832 .918 .935 .916 .969 .850 off-diagonal mean / min: .740 / .465 .879 / .766
+
+11 .4 pp—with force-answer 18 .5/28 .1% against 42 .2% . The drift still points the dangerous way (force-answer rises from 6% in-domain), but training data alone halves it. Consistent with the cross-matrix: judgment training, like direction fitting, inherits the hard data’s generality; what cannot (next) is training the abstention into the answering head. 
+
+Training the abstention itself: two collapses that scale cures, and one that calibration cures. 
+
+The ladder trains the judgment ; the expensive end, per §4, is training the abstention into the writer. We test it directly: a hybrid steering probe with a three-way head (answer 1, answer 2, “cannot answer”), same architecture and budget as the answer-only writer, trained once on αNLI and once on MuSiQue, scored end-to-end by three-way accuracy. At 1.5B the design law fires in two oppo-site directions: the αNLI-trained hybrid transfers with abstention recall collapsed to 0.08 (it stops abstaining), the MuSiQue-trained one over-abstains ( 91% /70% of answerable items)—each small model ships its training set’s abstention prior, not the concept. At 7B both collapses vanish: in-domain 0.880 (αNLI, above the two-pass reference 0.8625 ) and 0.872 (MuSiQue, beating its two-pass reference 0.798 by 7.4 pp) with over-abstention ≤ 0.10 ; αNLI →HellaSwag transfer reaches 
+
+0.726 with abstention recall 0.848 —trained abstention does transfer at 7B ( 0.08 → 0.848 ), a sec-ond scale-emergent capability. Transferring is not winning, though (the four-domain suite lands the trained families below target zero-shot even at 7B, §1), and scale does not deliver a transfer win here either: MuSiQue →HellaSwag lands at 0.682 , below the zero-shot three-way prompt ( 0.702 )—the hardest training data did not buy the best transferred abstention, in sharp contrast to its best-source status at the read level. Decomposing that failure is more instructive than the failure itself (Appendix B). Three results carry the weight: recalibrating the hybrid’s own abstention logit with a label-free target quantile recovers +6 –8 pp everywhere (the gap was a decision-layer failure, not a representation one); the write’s net value is +7 –8 pp in-domain and zero-to-negative on transfer; and both pre-registered repairs fall short of the calibrated clean read—a raw read–write split fails exactly because it lacks the reconstruction map (gate AUROC 0.917 clean → 0.858 steered), and a multi-source hybrid cures the prior-carry collapse but only ties its transfer line ( 0.744 < 0.784 ). 
+
+Where the interference lives, and the one repair that breaks the trade-off. A controlled de-composition localizes the damage exactly: under transfer the trained abstention score is untouched (ranking AUROC 0.9337 steered vs. 0.9338 clean) while the answer head pays 6.4 pp—of which only 1.9 pp is the write per se and ≈ 4.5 pp is the abstain-class gradient shaping the shared steering vector. Four independent write-side repairs (down-weighting, KL anchoring, PCGrad) all remove the interference and all repay it in gate quality: within one shared write vector, answer fidelity and abstention expressiveness trade at par under shift (Appendix B). The variant that breaks the trade-off moves the abstention out of the write : keep the write answer-only and train a small MLP head that 
+
+reads the steered residual (layer 18, stop-gradient into the write path). This read-head improves both sides at once: interference gone by construction, and the gate better than every prior score (0.955 steered / 0.964 clean vs. the zero-shot direction’s 0.920 and the prompt’s 0.934 , same items). 11 Preprint. Under review.                                     
+
+> Embedding Layers 0–11 (frozen)
+> Layer 12
+> Layers 13–15 (frozen)
+> Layer 16
+> Layer 17 (frozen) Layer 18 (read) Layer 19 (frozen)
+> Layer 20
+> Layers 21–27 (frozen) RMSNorm + LM head
+> input tokens
+> answer-only write (×3, Fig. 1 design) direction u(r)·self-muting gate a
+> trained: answer CE (answerable rows only)
+> +gate suppression on unlabeled OOD prompts
+> ⇒in-domain aactive ·under shift a→0
+> abstention read-head (459K) MLP 3584 →128 →1on the layer-18 state
+> trained: BCE, stop-gradient into the write path
+> →sufficiency score s
+> decision (label-free)
+> s≥Quantile 1−q(target scores )⇒“cannot answer” else answer = arg max answer logits
+> one forward pass ·backbone frozen ·dashed = read (hook) ·solid = write-back operating points: in-domain-first (two-sided gate) ·balanced ( λ=0 .3)
+
+Figure 4: YOPO-2: one pass, write and read on separate channels. The answer-only steer-ing write (orange) fires through a self-suppressing magnitude gate trained with unlabeled out-of-distribution negatives—active in-domain, near-zero under shift. Abstention never touches the write: a small read-head (blue) scores sufficiency from the layer-18 state of the same pass (stop-gradient), and a label-free quantile threshold turns the score into the abstain decision (green). In-domain this configuration beats the two-pass reference on every seed ( 0.877 –0.883 ); under shift it holds parity with the best alternative ( 0.781 ± 0.012 vs. 0.784 ) while the read-head’s score is the best transfer gate we measure ( 0.955 –0.964 AUROC). End to end it sets the best transfer score we measure— 0.793 ± 0.003 over three seeds, the first trained abstention to beat the calibrated behavioral read ( 0.784 )—while its in-domain steered chan-nel ( 0.878 ± 0.007 ) still beats the two-pass reference. The advantage is source-general (one αNLI head beats the zero-shot direction on every transfer column of the five-dataset sweep) but scale-emergent like everything else here: the steered-channel head collapses at 1.5B ( 0.627 ) and recovers through 3B ( 0.825 ) to 7B ( 0.955 )—a fourth scale-emergence datum. Finally, teaching the write to 
+
+self-mute on unlabeled out-of-distribution prompts yields YOPO-2 (Figure 4): answer-only write with a self-suppressing gate, read-head abstention, label-free threshold, one forward pass. At λ=0 .3
+
+(three seeds) it scores 0.877 ± 0.008 in-domain—above the two-pass reference on every seed—and 
+
+0.781 ± 0.012 on transfer with the steering active: parity, not victory, against the calibrated read (0.784 ). Two further gate objectives trace one monotone steering-strength frontier (Appendix B); we report two operating points—in-domain-first ( 0.883 ± 0.008 ) and balanced (parity under shift)— and record that, with the write active, surpassing the calibrated read under shift is out of reach for this architecture at 7B. Taken together, the dissection refines the design law from a price list to an architectural rule: the ab-stention belongs on the read side—trained there, it beats every alternative under shift ( 0.797 ± 0.002 
+
+on the muted channel) and cedes nothing in-domain; trained into the write, four independent repairs confirm a structural answer-fidelity/abstention trade that none can beat. And the whole system can live in one forward pass with the write active: in-domain everything above the two-pass reference, under shift parity with the best alternative. The design law, conditioned on scale and located at the write, survives—as an architecture rule rather than a prohibition. 12 Preprint. Under review. Table 5: Cross-family end-to-end validation: ten backbones, six families, 0.5B–7B. Same pipeline as Table 3 on the αNLI 4-condition policy benchmark (answer/abstain accuracy, ↑, ab-stention budget p=25% ): zero-shot baseline; steering only; the proposed one-pass flagship (steer +
+
+multi-layer map + BCE boost); the two-pass reference (clean re-read, 2× cost). Last column: gate ranking AUROC read from the steered pass, naive →flagship ( = echo size and its repair). Steering probes for non-Qwen backbones come from our earlier backbone studies or are retrained by the same recipe (layers mapped by proportional depth); single seed per cell. Bold = one-pass flagship 
+
+≥ two-pass reference.                                                                   
+
+> backbone size baseline steer only flagship (1 pass) 2-pass ref. gate naive →flagship Qwen2.5 0.5B 0.318 0.420 0.620 0.545 0.720 →0.981 OLMo-2 1B 0.485 0.535 0.743 0.662 0.920 →0.987 TinyLlama (Llama arch.) 1.1B 0.375 0.375 0.565 0.500 0.830 →0.963 Qwen2.5 1.5B 0.375 0.590 0.797 0.752 0.903 →0.989 StableLM-2 1.6B 0.375 0.480 0.695 0.625 0.823 →0.987 SmolLM2 1.7B 0.375 0.580 0.787 0.777 0.754 →0.982 Qwen2.5 3B 0.562 0.625 0.830 0.790 0.926 →0.993 Phi-3-mini 3.8B 0.375 0.375 0.610 0.578 0.930 →0.997 Qwen2.5 7B 0.627 0.667 0.892 0.863 0.988 →0.998 Mistral 7B 0.375 0.375 0.608 0.527 0.899 →0.996
+
+## 9 BEYOND QWEN : T EN BACKBONES , S IX FAMILIES 
+
+Every number so far lives on one model family. The identical pipeline—probe, one-pass extraction, direction, flagship gate, end-to-end benchmark—is re-run on seven further backbones spanning five other families (Qwen2.5-0.5B, OLMo-2-1B, TinyLlama-1.1B, StableLM-2-1.6B, SmolLM2-1.7B, Phi-3-mini-3.8B, Mistral-7B), nothing retuned: layers mapped by proportional depth, Qwen hyper-parameters verbatim, single seed per cell (Table 5). Three regularities. (i) The one-pass flagship beats the two-pass reference on 10 of 10 backbones (flagship gate AUROC 0.963 –0.998 every-where): the fusion is a property of instruction-tuned residual streams, not of Qwen. (ii) The pertur-bation’s size varies by family—catastrophic (SmolLM2 0.975 → 0.754 ) to nearly absent (OLMo-2 
+
+0.926 → 0.920 )—yet the repaired gate lands at ≥ 0.963 on every backbone: the interference varies, the solution does not. (iii) On the three backbones where steering buys no answer lift (TinyLlama, Phi-3-mini, Mistral-7B), the gate alone still adds +19 to +23 pp end to end: the reader does not need the writer to succeed. 
+
+## 10 THE STANDARD SUITE : S ELF -A UDIT , R EPLICATION , AND THE FIRST 
+
+## HYBRID BENCHMARK 
+
+Everything so far was measured on benchmarks at least partly of our own construction. This section audits those constructions with a source-side leak test, replicates the reader’s claims on a standard four-domain suite under an independently implemented protocol, and contributes the first hybrid 
+
+(answer-or-abstain) benchmark on that suite. 
+
+The construction audit (a red flag we confirm on ourselves). A sufficiency judgment cannot precede the integration of question and context, so linear separability in early layers can only be a construction artifact—a source-side check requiring no target data (Lavi et al., 2025). Sweeping diff-of-means AUROC per layer over stored clean states: our 4-condition αNLI construction separates at layer 11 already ( 0.908 ; layer 12: 0.955 ), HellaSwag is milder but flagged (L11 0.793 ), and native RepLiQA flags hardest of all (layer 2: ≥ 0.99 —question–document topic mismatch is surface-visible); native SQuAD2 shows the clean profile ( ≤ 0.60 through layer 12) and MuSiQue-Full never crosses 0.90 . The constructed-set in-domain gate numbers of §6–§7 therefore ride partly on a shortcut and should be read as controlled-construction results; the architecture’s claims are anchored on the native-label replications (§8) and the suite below. The audit itself is a contribution: cheap, source-side, and worth making standard for constructed abstention benchmarks. 
+
+The judgment task (task B) on the standard suite: an independent re-implementation. The sufficiency line’s protocol selects the read layer by a causal-onset gate followed by an in-gate 
+
+13 Preprint. Under review.                                                      
+
+> in-domain decision acc. cross-domain (12 arenas) system params SQuAD2 RepLiQA MQ-C MQ-F mean vs. self vs. target zs zero-shot spoken judgment 00.854 0.873 0.588 0.535 ———
+> +forced chain-of-thought 00.817 0.886 0.555 0.516 ———read-only direction 00.860 0.953 0.785 0.705 0.799 −2.7+8.6(9/12) constrained write (steering) 8.3M 0.853 0.976 0.849 0.695 0.681 −16 .3−3.2(6/12) free write (LoRA) 7.5M 0.888 0.994 0.949 0.803 0.678 −23 .1−3.5(5/12)
+
+Table 6: The three-family comparison on the standard four-domain suite (Qwen2.5-7B, judgment decision accuracy; the sufficiency line’s measurement). In-domain, capacity ranks the families (LoRA sweeps all four); across the 12 cross-domain arenas the ranking inverts: only the read-only direction exports a gain over the target’s own zero-shot spoken judgment ( +8 .6 pp mean, 9 of 12 arenas), both write families landing below it. Forced chain-of-thought lowers the spoken judgment on three of four domains. 
+
+peak : L0 = arg max ℓ |ψ(ℓ) − ψ(ℓ−1) |—ψ being the line’s steering-response score—lands unanimously on layer 19 in all four domains, and the read layer is the selection-split AUROC peak over ℓ ≥ L0 (hs[19–28]); one rule for all cells , with the cross-domain threshold cali-brated as the median projection of a few hundred unlabeled target inputs. Early layers—the shortcut axes the audit flags—fall below the causal onset and are excluded automatically. Re-implemented in the fusion codebase (independent extraction code and fit/sel cuts), reading at the gated layers (hs21/hs19/hs19/hs19), the decision-accuracy diagonal reproduces within ≈ 0.4 pp: 
+
+0.8575 /0.9520 /0.7840 /0.7010 on SQuAD2/RepLiQA/MuSiQue-C/MuSiQue-F against the line’s own 0.8595 /0.9530 /0.7850 /0.7050 . The gate is what makes these numbers agree: RepLiQA’s global selection-AUROC peak is an early layer (AUROC 0.999 , read 0.9765 ) that the causal onset excludes as a shortcut axis, and the gated hs19 gives the causally valid 0.9520 ; the protocol is now a component of our stack. Our trained read-head, applied across both a prompt-format and a dataset shift, stays serviceable (ties the in-domain-fitted gate on MuSiQue-C, 0.7775 vs. 0.7840 ) but trails on single-paragraph domains—sharpening its role: it is the abstention channel of the fused system ,not a competitor to the right-layer gate as a pure detector. 
+
+Three families on one suite: the write-access ladder, in full. Table 6 measures the introduction’s three-family comparison: read-only direction, constrained activation-writer (a steering probe of the fusion line’s design, trained on the judgment task), and free weight-writer (LoRA), each fit per domain and evaluated on all four. In-domain, write freedom wins ( 0.826 → 0.843 → 0.909 mean, LoRA taking all four). Crossing domains the ordering inverts by the same key: the direction gives back 2.7 pp and still beats the target’s own zero-shot baseline in 9 of 12 arenas ( +8 .6 pp mean); the write families give back 16 .3/23 .1 pp and land below it ( −3.2/ − 3.5 pp)—shipping a trained judgment across domains is, on average, worse than shipping nothing. Forcing chain-of-thought lowers the spoken judgment on three of four domains: behavioral reasoning does not recover the internal signal. 
+
+The hybrid task (task C): to our knowledge, the first benchmark on this suite. The suite’s judge framing tests the decision alone; deployment asks for the hybrid: answer when the context suffices, abstain when it does not. We benchmark it directly (Table 7)—one greedy generation pass per domain under an answer-or-say-“unanswerable” prompt, with every gate variant composed offline over the same stored states. Scoring is fully deterministic: answerable rows score on the answer under SQuAD-official normalization (containment in either direction against any gold alias, or token-F1 ≥ 0.5); unanswerable rows score on abstention, detected by a fixed published regex set. The scorer also emits a “gray-zone” file (strict misses with 0.2 < F1 < 0.5) as a hook for optional LLM adjudication; no reported number in this paper depends on it —every task-C figure is the deterministic tier alone: Three findings. (i) RepLiQA benefits most: OR-composing the model’s own abstention with the gate yields +18 .3 pp ( 98 .6% of the oracle gap) and lifts answered-precision 0.459 → 0.636 —internal knowledge converted into deployment-visible trust, the paper’s mechanism measured end to end. 
+
+(ii) On adversarial SQuAD2 all systems tie (+0 .8 pp): annotator-planted decoys fool the internal signal along with the behavior. (iii) On multi-hop the binding constraint is answering, not ab-stention: raw answerable-QA is 0.319 /0.062 on MuSiQue-C/F, so the oracle headroom collapses 14 Preprint. Under review.                                           
+
+> raw QA hybrid accuracy answered-precision domain (answerable) zero-shot +calib. zs +sufficiency gate oracle zs →+gate SQuAD2 0.890 0.826 0.830 0.834 0.945 0.749 →0.786
+> RepLiQA 0.632 0.622 0.748 0.805 0.816 0.459 →0.636
+> MuSiQue-C 0.319 0.625 0.622 0.619 0.660 0.637 →0.645
+> MuSiQue-F 0.062 0.505 0.503 0.502 0.531 0.275 →0.275
+
+Table 7: Task C (hybrid answer-or-abstain) on the standard four-domain suite with the zero-shot sufficiency gate, Qwen2.5-7B. Columns: raw answerable-QA accuracy; hybrid accuracy under zero-shot, calibrated zero-shot, and OR-composition with the sufficiency gate; the oracle upper bound; and the precision of answers actually given, zero-shot → +gate. OR-composition on RepLiQA gains +18 .3 pp ( 98 .6% of the oracle gap) and lifts answered-precision 0.459 → 0.636 ; the multi-hop domains are answering-bound.                             
+
+> in-domain cross-domain target gen-only zero-shot dread-head (flagship) hardest-source doracle SQuAD2 0.826 0.834 0.845 0.828 0.945
+> RepLiQA 0.622 0.805 0.805 0.745 0.816
+> MuSiQue-C 0.625 0.619 0.642 0.625 0.660
+> MuSiQue-F 0.505 0.502 0.505 –0.531
+
+Table 8: Task C (hybrid answer-or-abstain) on the standard four-domain suite, Qwen2.5-7B. Hy-brid accuracy: answerable rows scored on the answer (normalized containment or token-F1 ≥ 0.5), unanswerable rows on abstention; OR-composition with the generation’s own abstention. In-domain gates are fit on the target’s own split (read-head cells are three-seed means, ± ≤ 0.002 ); the cross-domain column applies the direction fit on the hardest source (MuSiQue-Full, label-free threshold) to each target (its own row is in-domain, marked “–”). The supervised read-head leads every in-domain cell; cross-domain, the label-free direction from the hardest source matches in-domain on two of three transferable targets while the supervised gate collapses off-diagonal. Multi-hop targets are answering-bound (oracle within 3.5/2.7 pp of gen-only). to 3.5/2.7 pp and no abstention policy has room—the task-C ceiling there is answering capability (task A). Everywhere, OR-composition beats gate-priority: the generation’s own abstention carries signal the gate does not. 
+
+The flagship gate on the hybrid task: in-domain and cross-domain. The table above uses the zero-shot direction; Table 8 benchmarks the full source ×target matrix. Per dataset we fit a super-vised read-head (BCE MLP 3584 →128 →1 on the layer-18 state, the flagship’s read-side form) and the zero-shot direction; diagonal cells use a labeled threshold, off-diagonal cells a label-free one (combined abstention rate matched to the known insufficient prior—no target labels). Read-head cells are three-seed means ( ± ≤ 0.002 ). Our system takes the benchmark on both axes. (i) It tops every in-domain dataset (0.845 /0.805 /0.642 /0.505 ), beating the direction everywhere it can move (largest margin +2 .3 pp on MuSiQue-C; RepLiQA and MuSiQue-F tie at the domain ceiling). (ii) With zero target labels, it is the only gate family that survives transfer. Fit on the hardest source (MuSiQue-Full), the label-free direction transfers at 0.828 /0.745 /0.625 and matches its own super-vised in-domain ceiling on two of three targets (SQuAD2 0.828 vs. 0.834 ; MuSiQue-C 0.625 vs. 
+
+0.619 ), while every trained competitor collapses off-diagonal (read-head ranking AUROC 0.563 on MuSiQue-C →SQuAD2)—the cross-matrix ordering of §8, decided on task C. Two honest limits sharpen the claim: RepLiQA keeps a 6 pp gap to the supervised ceiling (the price of zero-label de-ployment, still ahead of every trained alternative), and the multi-hop domains are answering-bound. 
+
+(iii) One label-conditioned system covers both regimes —the read-head where the target has labels, the hardest-source direction where it does not. That no single gate wins both is our design principle, not a shortfall: re-standardizing the supervised gate by label-free target statistics recovers the worst collapsed cell ( 0.563 → 0.768 ) but degrades the strong ones and never overtakes the direction (§11). 
+
+Unlocking the answering side without touching the judge. Chain-of-thought answering is the standard treatment for multi-hop questions, but it writes intermediate conclusions—including er-15 Preprint. Under review. SQuAD2 RepLiQA MuSiQue-C MuSiQue-F 0.5 0.6 0.7 0.8 0.9 task-C hybrid accuracy  0.845 0.805 0.642 0.505 0.828 0.745 0.625  
+
+> 0.945 0.816 0.660 0.531
+> src
+> in-domain ( fl agship read-head) cross-domain (hardest-source d, label-free) oracle (ceiling) zero-shot ( fl oor)
+
+Figure 5: Task C (hybrid answer-or-abstain) on the standard four-domain suite, Qwen2.5-7B (Ta-ble 8). Blue: the in-domain flagship read-head, top on all four datasets. Orange: the label-free direction fit on the hardest source (MuSiQue-Full), deployed cross-domain with no target labels—it reaches the in-domain bar on SQuAD2 and MuSiQue-C and trails only on RepLiQA (MuSiQue-F is the source, so it has no cross bar). The oracle cap (dashed) and zero-shot floor (solid gray) bound each domain: the wide oracle gap on SQuAD2 is answering headroom, while on the multi-hop do-mains the oracle nearly meets the floor—these are answering-bound, and no gate has room there. roneous ones—into the very context a later reader would consume; in Table 6’s behavioral rows, 
+
+forcing it lowers spoken judgment on three of four domains ( 0.588 → 0.555 , 0.535 → 0.516 on the MuSiQue variants). Because our gate reads the prefill state, the hazard is excluded tempo-rally: the judge decides before the first reasoning token exists. Under a step-by-step answering prompt with the prefill gate unchanged (pre-registered lines: answerable QA ≥ 0.15 begins the unlock, ≥ 0.25 is a clear success), answerable QA rises 0.319 → 0.482 on MuSiQue-C and 
+
+0.062 → 0.313 on MuSiQue-F—five-fold on the hardest domain—and hybrid accuracy sets records on both ( 0.625 → 0.690 ; 0.505 → 0.579 ). The gate’s calibration under the reasoning prompt matches its judge-prompt values ( 0.94 /0.78 selection AUROC), confirming the temporal isolation empirically. The residual 45% over-abstention on answerable MuSiQue-F items is the answering ceiling again, not a gate failure: when the model cannot assemble the answer, abstaining is often the calibrated response, and the oracle sits only 2.7 pp above baseline here. 
+
+The full fusion, verified end to end. Two integrations close the loop. (i) Relay steering: re-implemented on the fusion stack (independent directions, thresholds, extraction code), it reproduces its signature result in full— execution fidelity 1.0000 in all 16 cells : the model speaks exactly the judge matrix, per item, the cross-domain cost still one unlabeled scalar. Two interference phenom-ena meet here and must not be conflated: internal interference is downstream layers overwriting an injected verdict (write-to-speak, resolved by the relay); write–read interference (§4) is the steering write perturbing the sufficiency read (write-to-read, resolved by the reconstruction map)—two faces of one shared interface, addressed on complementary sides. (ii) Single-forward deployment: the hybrid runs as a true one-pass product—the gate reads the generation prompt’s own prefill state (the judge-fitted direction transfers across prompt frames at 0.94 –0.99 selection AUROC)—and repro-duces the offline-composed benchmark within ≤ 2 pp, preserving the RepLiQA gain at +17 .5 pp. Whatever the model later writes, chain-of-thought drafts included, cannot reach the judge: reasoning pollution is architecturally excluded. 
+
+Three fusion architectures, compared on one field. The interference of §4 admits three architec-tural remedies, and this suite lets us compare them under a controlled protocol: one shared injection module (the same answer-trained probe, layers {16 , 20 , 24 }, α=0 .3), one scorer, one exam, so the only variable is how each design handles the write’s contamination of the read. (A) Reconstruction :read the map-restored pre-injection state (§5)—the controlled-set optimum. (B) Read-only with a self-muting write : inject always-on, score sufficiency read-only from the layer-18 state, threshold label-free—the simplest design, no pre-filter and no map. (C) Layer ordering (the sufficiency line’s single-pass fusion): a coarse judgment gates injection, drops the most-uncertain δ-quantile to keep those streams clean, writes only at post-judgment layers, and adjudicates on the clean band. We re-implement (C) on our stack and place (B) beside it (Table 9; three-way hybrid accuracy, in-domain, single seed): 16 Preprint. Under review.             
+
+> configuration (shared injection module) RepLiQA MuSiQue-C zero-shot baseline 0.636 0.626 (B) injection off (read-only ablation) 0.822 0.628 (C) layer ordering (sufficiency line, replicated) 0.852 0.717 (B) read-only, zero-training direction 0.874 0.734 (B) read-only, BCE read-head 0.887 0.800
+
+Table 9: Three one-pass fusion architectures on one shared injection module (answer-trained probe, layers {16 , 20 , 24 }, α=0 .3), three-way hybrid accuracy, in-domain. (A) reconstruction is the discriminative-set optimum; under this generative protocol the simplest read-only design (B, BCE read-head) leads both cells, and (C) layer-ordering reproduces the sufficiency line’s reported gains. The write–read interference is protocol-dependent: severe on the controlled set, mild here. Row (B) numbers are seed-checked on both trained components (footnote in text); (C) is single-seed. Our shared-module re-implementation of (C) reproduces the sufficiency line’s own in-domain cells (0.840 /0.743 in the original runs; 0.852 /0.717 here—almost exact on RepLiQA, same-sign and smaller on MuSiQue-C). Two findings. (i) The simplest design leads in-domain (B, read-head): (C)’s pre-filter and stream-dropping and (A)’s map are both avoidable here, because under the gen-erative protocol the diff-of-means direction stays separable on the injected state (class separation compresses about twofold, clean −6.1/+15 .3 to injected −4.8/+8 .3, but does not collapse; read-side recall 0.979 ). This does not overturn §5: on the discriminative controlled set the interference is severe and (A) remains the optimum—the conflict’s severity is protocol-dependent. (ii) The ab-lation localizes the write’s role : injection off, the model over-abstains on its own (MuSiQue-C wrong-abstain 0.612 , answerable accuracy 0.296 ); injection on restores both ( 0.209 /0.621 ). The write suppresses spontaneous over-abstention; the read catches genuine insufficiency—orthogonal roles. The sharper causal witness: injection destroys behavioral abstention (unanswerable items fabricate full answers) while read-side recall holds at 0.979 —read-side abstention survives exactly what write-side abstention does not. Cross-domain, (B) transfers by swapping one unlabeled thresh-old (rq →mqc 0.691 , mqc →rq 0.752 ; both above the target zero-shot). Seed scope. (B) is re-checked on both trained components: read-head seeds {0, 1, 2} move the BCE cells by ≤ 0.0015 (RepLiQA 
+
+0.887 ±0.000 , MuSiQue-C 0.800 ±0.001 ); retraining the injection module with a second seed and re-running the full generative pipeline moves the d-version by ≤ 0.003 (0.874 → 0.877 , 0.734 → 0.732 )and the BCE cells to 0.889 /0.795 . Worst case across both axes, (B, read-head) keeps a +3 .4/ + 7 .8-point margin over (C). The (C) replication and the ablation/cross-domain cells remain single-seed and we report them as such. 
+
+Positioning and a caveat. The paper’s two lines put one shared read–write interface to two com-plementary ends. The sufficiency line reads a judgment the frozen model already holds and escorts it to faithful speech— say what you know (task B; zero-training relay steering); the fusion writes 
+
+the reasoning the model lacks, reads the sufficiency it has, and combines them into an answer-or-abstain system in a single pass (task C). One interface, two uses: speak what is known, write what is not, and—the fusion’s own piece—read soundly through the write, so the two can share one for-ward pass. Finally, a cross-line audit of the steering trainer found a position-indexing defect in the steering trainer’s spread-5 positions under left padding (mixed-length batches slide non-last position slots); the end-to-end results stand—training and evaluation share the same positions and the probe adapts—but “spread-5” should be read as “the trainer’s realized positions” rather than the nominal design; single-position and last-position results are unaffected. 
+
+## 11 WHAT FAILED 
+
+Consistent with our pre-registration protocol, we report the variants that did not survive. (i) Super-vised MLPs on the steered read (d-anchored and full): in-domain 0.972 –0.979 but transfer 0.846 –
+
+0.867 at 1.5B—on or below the frontier, never above. (ii) A learned layer-combination read : never better than the naive floor at any scale. (iii) The multi-layer reconstruction map does not converge at 7B (AUROC 0.50 ; MSE stalls at 6× budget): large-magnitude outlier channels dominate the raw MSE and the map fits the mean. A per-feature-standardized variant repairs 7B ( 0.983 /0.967 )but degrades 1.5B/3B transfer—the standardization statistics are in-domain quantities, leaking task 17 Preprint. Under review. signature by the very mechanism this paper studies—so we report the registered recipe with its failure; the identity-anchored single-layer map is the scale-robust variant. The failure replicates on native-label data and MuSiQue (all six fusion analyses): three datasets, one diagnosis. (iv) At 3B the BCE-trained demap exceeds the clean ceiling on transfer ( 0.9324 ± 0.0023 over five seeds, every seed above 0.922 ) but does not extend to 7B—reported as a scale-local observation, not a claim. (v) Our constructed cross-dataset axes fail as benchmarks : the replace constructions saturate (0.98 –1.00 for every gate) and the hard rm-ans condition floors everyone at 0.56 –0.68 including the two-pass clean read; on the hard axis the supervised boost degrades most ( 0.668 → 0.565 )—the de-sign law’s signature even where the signal is weak. (vi) Domain-adversarial de-contamination does not help : a gradient-reversal discriminator on the map’s objective is neutral at weak strength and damages transfer at meaningful strength ( λ=0 .3: 0.784 )—forcing domain invariance erases part of the sufficiency signal itself. (vii) A write-site relocation ({12 , 16 , 20 } → { 16 , 20 , 24 }, +3 .13 pp in the sufficiency line’s generative measurement) does not replicate under the discriminative two-token 
+
+αNLI evaluation ( −0.9/ − 1.4 pp at both magnitudes); the gain is evaluation-protocol-specific and we keep {12 , 16 , 20 }. (viii) No single supervised gate wins task C both in-domain and cross-domain :the read-head leads every in-domain cell but collapses off-diagonal, and its label-free-standardized and multi-source repairs never overtake the direction cross-domain—the supervised-in-domain / label-free-cross-domain split is the capacity–transfer principle itself, not a gap a single gate closes. 
+
+## 12 DISCUSSION 
+
+What this evaluation establishes. The claims rest on one of the broadest evaluations of frozen-model reasoning-with-abstention we are aware of: the writer’s injection-geometry grid (§7, Ap-pendix A); the reader’s capacity–transfer frontier at three scales (§6); end-to-end accuracy where one pass beats two at every scale and on ten backbones across six families (§9); a native-label study with a write-access ladder (§8); and, on the standard four-domain suite, a source-side construction audit, a cross-implementation validation of the right-layer protocol, and the first answer-or-abstain benchmark on it (to our knowledge), which our system tops in-domain on all four datasets while its label-free family is the only one to survive transfer (§10). The deployment impact is concrete: a frozen backbone gains a reasoning writer and a trustworthy abstention reader in a single forward pass, at no accuracy cost over the two-pass alternative and no per-domain labels. 
+
+A budget-conditioned recipe. If a second (partial) forward is affordable, the clean read remains the transfer-optimal gate. Under a hard one-pass budget our default is the flagship (multi-layer de-contamination + boost): it is the score leader in-domain at every scale and on transfer at 3B and above. Fall back to the purely label-free map when the deployment is small-scale (1.5B) and 
+
+worst-case task shift dominates—there the boost’s transfer cost is real ( 0.888 → 0.859 ). Why label-free transfers. The reconstruction target is a physical state, not a task judgment; the map learns to invert a perturbation whose geometry is induced by the probe, not by the dataset. The mo-ment labels enter (boost), task signature enters, and transfer pays, in proportion to how much the labels helped in-domain. Limitations. Our 4-condition sets construct insufficiency by redaction, and the audit of §10 shows the αNLI construction carries an early-layer artifact: constructed-set in-domain gate numbers are controlled-construction results, the architecture’s claims anchored on the native-label and standard-suite replications; the two cross-dataset constructions were too easy to rank gates (§11), leaving HellaSwag as the redaction-axis transfer evidence, complemented by the native-label and standard-suite axes. Every quantity was recomputed within this paper’s two codebases—behavioral, probe, and both write rungs replicated from raw manifests—so no number rests on unverified artifacts; a bit-level identity check between the two lines’ fitted d vectors was not performed and is not load-bearing (no claim depends on vector identity, only on both read-ing the same signal, which the item-level replication establishes). The main capacity–transfer grid is Qwen2.5; the cross-family grid covers ten backbones and six families but one benchmark axis (αNLI), ≤8B. Most grid cells are single-seed with a consistent 1.5B/3B/7B trend; where seeds were re-run the effects hold (task-C flagship three-seed ± ≤ 0.002 ; the 3B demap cell stable over five seeds, 0.9843 ± 0.0005 /0.9324 ± 0.0023 ), but full error bars on the capacity–transfer and steering grids await a re-extraction we did not run. The multi-layer reconstruction recipe is not scale-robust as registered (§11); only the identity-anchored single-layer map is. 18 Preprint. Under review. 
+
+## 13 CONCLUSION 
+
+A frozen model’s residual stream can host both a reasoning writer and a sufficiency reader in a single forward pass—but only if the architecture respects one asymmetry: keep the abstention a calibrated read (training it in collapses outright at small scale and, even at 7B where it stabilizes and transfers, buys in-domain accuracy without ever beating the calibrated read under shift), but do train away the perturbation the write leaves on the read (this is label-free and transfers). The reconstruction map operationalizes exactly this—a fixed zero-shot direction and a learned inverse of the write—and the resulting system, YOPO, answers, steers, and abstains from one forward pass at no loss to the two-pass alternative. Across the Qwen2.5 scale grid the map removes most of the perturbation where it is largest (small models) and reduces to the identity where there is none to remove (7B), and the remaining capacity–transfer frontier—which we chart rather than collapse to a single point—quantifies, in the fused setting, the design principle the read-only gate was built on. REPRODUCIBILITY STATEMENT 
+
+Every number in this paper is recomputable from committed per-item logs, scored JSON artifacts, and the scripts listed in Appendix C; residual extractions and trained probes are regenerable from the same scripts (large binaries are excluded from the repository by size, not by necessity). All datasets are public benchmarks ( αNLI, HellaSwag, PIQA, BoolQ, SQuAD 2.0, RepLiQA, MuSiQue), used under their published licenses via their canonical releases. All experiments ran on a single Apple-silicon workstation (128 GB unified memory, bfloat16); Appendix C documents the Apple-silicon-specific engineering required to reproduce them. ETHICS STATEMENT 
+
+This work uses only public benchmark datasets; no human subjects, personal data, or annotation labor were involved. The backbone models are open-weight and remain completely frozen: every intervention is an inference-time, hot-swappable edit, reversible by removing a forward hook. The system’s purpose is harm-reducing—teaching a frozen model to abstain when its context is insuf-ficient reduces confident confabulation, a primary failure mode of deployed assistants. The same read/write machinery could in principle steer models toward undesired behavior; we study and re-lease only reasoning-accuracy and abstention applications, and the design law we quantify (trained behavioral control collapses under shift) is itself evidence that such misuse transfers poorly. 
+
+## REFERENCES 
+
+Chandra Bhagavatula, Ronan Le Bras, Chaitanya Malaviya, Keisuke Sakaguchi, Ari Holtzman, Han-nah Rashkin, Doug Downey, Scott Yih, and Yejin Choi. Abductive commonsense reasoning. In 
+
+International Conference on Learning Representations , 2020. Yonatan Bisk, Rowan Zellers, Ronan Le Bras, Jianfeng Gao, and Yejin Choi. Piqa: Reasoning about physical commonsense in natural language. In Proceedings of AAAI , 2020. Christopher Clark, Kenton Lee, Ming-Wei Chang, Tom Kwiatkowski, Michael Collins, and Kristina Toutanova. Boolq: Exploring the surprising difficulty of natural yes/no questions. In Proceedings of NAACL , 2019. Gabriel Ilharco, Marco Tulio Ribeiro, Mitchell Wortsman, Suchin Gururangan, Ludwig Schmidt, Hannaneh Hajishirzi, and Ali Farhadi. Editing models with task arithmetic. In International Conference on Learning Representations , 2023. Saurav Kadavath, Tom Conerly, Amanda Askell, Tom Henighan, Dawn Drain, Ethan Perez, Nicholas Schiefer, Zac Hatfield-Dodds, Nova DasSarma, Eli Tran-Johnson, et al. Language mod-els (mostly) know what they know. arXiv preprint arXiv:2207.05221 , 2022. Maor Juliet Lavi, Tova Milo, and Mor Geva. Detecting (un)answerability in large language models with linear directions. arXiv preprint arXiv:2509.22449 , 2025. 19 Preprint. Under review. Bruce W Lee, Inkit Padhi, Karthikeyan Natesan Ramamurthy, Erik Miehling, Pierre Dognin, Manish Nagireddy, and Amit Dhurandhar. Programming refusal with conditional activation steering. 
+
+arXiv preprint arXiv:2409.05907 , 2024. Jaakko Lehtinen, Jacob Munkberg, Jon Hasselgren, Samuli Laine, Tero Karras, Miika Aittala, and Timo Aila. Noise2noise: Learning image restoration without clean data. In Proceedings of ICML ,2018. Kenneth Li, Oam Patel, Fernanda Vi´ egas, Hanspeter Pfister, and Martin Wattenberg. Inference-time intervention: Eliciting truthful answers from a language model. In Advances in Neural Information Processing Systems , 2023. Joao Monteiro, Pierre-Andre Noel, Etienne Marcotte, Sai Rajeswar, Valentina Zantedeschi, David Vazquez, Nicolas Chapados, Christopher Pal, and Perouz Taslakian. Repliqa: A question-answering dataset for benchmarking llms on unseen reference content. Advances in Neural Infor-mation Processing Systems , 2024. Nina Panickssery, Nick Gabrieli, Julian Schulz, Meg Tong, Evan Hubinger, and Alexander Matt Turner. Steering llama 2 via contrastive activation addition. arXiv preprint arXiv:2312.06681 ,2024. Pranav Rajpurkar, Robin Jia, and Percy Liang. Know what you don’t know: Unanswerable questions for SQuAD. In Proceedings of ACL , 2018. Aviv Slobodkin, Omer Goldman, Avi Caciularu, Ido Dagan, and Shauli Ravfogel. The curious case of hallucinatory (un)answerability: Finding truths in the hidden states of over-confident large language models. In Proceedings of EMNLP , 2023. Eric Todd, Millicent L Li, Arnab Sen Sharma, Aaron Mueller, Byron C Wallace, and David Bau. Function vectors in large language models. In International Conference on Learning Representa-tions , 2024. Harsh Trivedi, Niranjan Balasubramanian, Tushar Khot, and Ashish Sabharwal. Musique: Multihop questions via single-hop question composition. Transactions of the Association for Computational Linguistics , 10, 2022. Alexander Matt Turner, Lisa Thiergart, David Udell, Gavin Leech, Ulisse Mini, and Monte Mac-Diarmid. Activation addition: Steering language models without optimization. arXiv preprint arXiv:2308.10248 , 2023. Pascal Vincent, Hugo Larochelle, Yoshua Bengio, and Pierre-Antoine Manzagol. Extracting and composing robust features with denoising autoencoders. In Proceedings of ICML , 2008. Zhengxuan Wu, Aryaman Arora, Zheng Wang, Atticus Geiger, Dan Jurafsky, Christopher D Man-ning, and Christopher Potts. Reft: Representation finetuning for language models. In Advances in Neural Information Processing Systems , 2024. Rowan Zellers, Ari Holtzman, Yonatan Bisk, Ali Farhadi, and Yejin Choi. Hellaswag: Can a ma-chine really finish your sentence? In Proceedings of ACL , 2019. Andy Zou, Long Phan, Sarah Chen, James Campbell, Phillip Guo, Richard Ren, Alexander Pan, Xuwang Yin, Mantas Mazeika, Ann-Kathrin Dombrowski, et al. Representation engineering: A top-down approach to ai transparency. arXiv preprint arXiv:2310.01405 , 2023. 
+
+## A THE STEERING INJECTION -G EOMETRY GRID 
+
+Datasets: αNLI, HellaSwag (Zellers et al., 2019), and PIQA (Bisk et al., 2020). Each probe is trained on 5k items of its task (seed 0) and evaluated on 1,532 held-out items against the frozen baseline B0. “–” cells are configurations outside the registered sweep, not pending runs. 20 Preprint. Under review. 
+
+config αmax αNLI HellaSwag PIQA 
+
+Qwen2.5-1.5B frozen B0 – 50 .8 74 .1 68 .6
+
+1 layer, last 0.3 65 .6 (+14 .8) 74 .9 (+0 .8) 70 .6 (+2 .0)
+
+1 layer, last 0.5 65 .5 (+14 .6) 74 .5 (+0 .4) 72 .6 (+4 .0)
+
+1 layer, spread-5 0.3 69 .1 (+18 .3) 75 .8 (+1 .7) 73 .4 (+4 .8)
+
+1 layer, spread-5 0.5 70 .4 (+19 .5) 76 .2 (+2 .1) 75 .8 (+7 .2)
+
+3 layers, last 0.3 65 .5 (+14 .7) 74 .7 (+0 .6) 72 .7 (+4 .1)
+
+3 layers, last 0.5 65 .9 (+15 .0) 74 .5 (+0 .4) 72 .5 (+3 .9)
+
+3 layers, spread-5 0.3 71 .1 (+20 .2) 77 .3 (+3 .2) 74 .7 (+6 .1)
+
+3 layers, spread-5 0.5 72 .5 (+21 .6) 77 .7 (+3 .6) 76 .0 (+7 .4)
+
+5 layers, last 0.3 65 .5 (+14 .6) 75 .1 (+1 .0) 71 .9 (+3 .3)
+
+5 layers, last 0.5 66 .1 (+15 .2) – –5 layers, spread-5 0.3 70 .4 (+19 .6) 77 .3 (+3 .1) 76 .5 (+7 .9)
+
+5 layers, spread-5 0.5 71 .2 (+20 .4) – –7 layers, last 0.3 66 .2 (+15 .3) 75 .5 (+1 .3) 72 .5 (+3 .9)
+
+7 layers, last 0.5 66 .6 (+15 .8) 75 .3 (+1 .1) 72 .2 (+3 .6)
+
+7 layers, spread-5 0.3 71 .3 (+20 .4) 77 .5 (+3 .3) 75 .9 (+7 .3)
+
+7 layers, spread-5 0.5 72 .4 (+21 .5) 78 .5 (+4 .3) 74 .8 (+6 .2)
+
+Qwen2.5-3B frozen B0 – 66 .6 63 .0 74 .9
+
+1 layer, last 0.3 72 .5 (+5 .9) 81 .7 (+18 .7) 77 .9 (+3 .0)
+
+1 layer, last 0.5 72 .4 (+5 .7) 81 .9 (+18 .9) 77 .5 (+2 .6)
+
+1 layer, spread-5 0.3 74 .5 (+7 .9) 82 .9 (+19 .9) 80 .9 (+5 .9)
+
+1 layer, spread-5 0.5 74 .9 (+8 .3) 84 .1 (+21 .1) 81 .3 (+6 .4)
+
+3 layers, last 0.3 72 .8 (+6 .1) 82 .5 (+19 .5) 78 .3 (+3 .4)
+
+3 layers, last 0.5 72 .7 (+6 .1) 84 .0 (+21 .0) 78 .9 (+4 .0)
+
+3 layers, spread-5 0.3 76 .2 (+9 .5) 84 .0 (+21 .0) 80 .6 (+5 .7)
+
+3 layers, spread-5 0.5 75 .5 (+8 .8) 84 .1 (+21 .1) 80 .8 (+5 .9)
+
+5 layers, last 0.3 73 .3 (+6 .7) 82 .0 (+19 .0) 78 .5 (+3 .5)
+
+5 layers, last 0.5 73 .7 (+7 .0) – –5 layers, spread-5 0.3 75 .1 (+8 .5) 83 .9 (+20 .9) 81 .1 (+6 .2)
+
+5 layers, spread-5 0.5 75 .8 (+9 .2) – –7 layers, last 0.3 74 .2 (+7 .5) 81 .7 (+18 .7) 77 .5 (+2 .6)
+
+7 layers, last 0.5 73 .6 (+6 .9) 84 .5 (+21 .5) 78 .5 (+3 .5)
+
+7 layers, spread-5 0.3 74 .9 (+8 .3) 84 .5 (+21 .5) 80 .3 (+5 .4)
+
+7 layers, spread-5 0.5 76 .4 (+9 .7) 82 .6 (+19 .6) 80 .1 (+5 .2)
+
+Qwen2.5-7B frozen B0 – 77 .6 86 .0 84 .7
+
+3 layers, last 0.3 77 .9 (+0 .3) 85 .9 (−0.1) 85 .0 (+0 .3)
+
+3 layers, last 0.5 77 .9 (+0 .3) – –3 layers, spread-5 0.3 80 .5 (+2 .9) 88 .2 (+2 .2) 85 .1 (+0 .4)
+
+3 layers, spread-5 0.5 80 .7 (+3 .1) – –5 layers, last 0.3 78 .5 (+0 .8) 86 .0 (+0 .0) 85 .4 (+0 .7)
+
+5 layers, last 0.5 78 .7 (+1 .1) – –5 layers, spread-5 0.3 80 .8 (+3 .2) 88 .8 (+2 .8) 85 .1 (+0 .5)
+
+5 layers, spread-5 0.5 81 .1 (+3 .5) – –7 layers, last 0.3 78 .4 (+0 .8) 86 .1 (+0 .1) 85 .4 (+0 .7)
+
+7 layers, last 0.5 79 .2 (+1 .6) – –7 layers, spread-5 0.3 80 .6 (+3 .0) 88 .2 (+2 .2) 85 .8 (+1 .2)
+
+7 layers, spread-5 0.5 81 .0 (+3 .4) – –
+
+Table 10: Steering benchmark grid: accuracy (% ∆ vs. the frozen baseline B0) across injection layer count, position scheme, and αmax , per dataset and backbone. 
+
+## B TRAINING THE ABSTENTION IN: D ECOMPOSITION AND REPAIRS 
+
+This appendix carries the full decomposition and repair experiments behind the summary of §8. 
+
+Decomposing the hybrid’s transfer failure (post-hoc on stored states, then pre-registered follow-ups). The hybrid commits to “cannot answer” by argmax at generation time—an uncalibrated thresh-old frozen into the weights. Re-reading its own p(“0” ) as a score and thresholding at the label-free quantile of the target set (the same trick the read-only stack uses) recovers +6 –8 pp everywhere (MuSiQue →HellaSwag 0.682 → 0.744 ; → αNLI 0.7325 → 0.810 ; ranking AUROC of the trained 21 Preprint. Under review. score 0.918 –0.970 ): most of the transfer gap was never a representation failure, only a decision-layer one. The remainder cleanly separates the write’s value by domain: in-domain the write beats the calibrated clean read by +7 –8 pp ( 0.864 vs. 0.790 MuSiQue; 0.885 vs. 0.8125 αNLI)—training 
+
+does refine the in-domain partition—while on transfer its net contribution is zero to negative ( 0.744 
+
+vs. the calibrated clean three-way prompt’s 0.784 on HellaSwag; 0.810 vs. 0.815 on αNLI). The calibrated clean three-way prompt is itself a strong baseline we have not seen reported (though its prompt format differs from the two-way judgment sets above, so the numbers are not directly com-parable across constructions). 
+
+Two pre-registered repair candidates. D1, a raw read–write split (the write stays answer-only; abstention becomes a quantile-calibrated read of a direction fit on the writer’s steered features), fails both its lines ( 0.624 on HellaSwag against targets > 0.744 and > 0.784 )—and fails for the thesis’s reason : without the reconstruction map, the answer-writer’s perturbation swamps the cross-domain read (gate AUROC 0.917 clean → 0.858 steered; answer accuracy 0.820 → 0.719 ). The split architecture is fine—its clean-channel variant scores 0.774 —but reading a steered pass raw is exactly the write–read interference of §4; the correction is not an optional part. D2, a multi-source hybrid (αNLI +MuSiQue 50/50 at the same 2,000-item budget), repairs what it targets and no more: the prior-carry collapse is cured outright (transfer over-abstention 0.269 → 0.099 ; on 
+
+αNLI 0.26 → 0.047 with abstention recall 0.96 ), in-domain stays near the full single-source cells with half the per-source data ( 0.870 αNLI, 0.845 MuSiQue), and—most telling—its argmax equals 
+
+its calibrated score ( 0.744=0 .744 on HellaSwag): source diversity internalizes the threshold that single-source training leaves miscalibrated. But it exactly ties, rather than beats, its pre-registered transfer line ( 0.744 ), still short of the calibrated clean read ( 0.784 ). 
+
+Four write-side repairs, one fate. On the αNLI-trained hybrid, abstain-class down-weighting (λ=0 .25 /0.5: answer head 0.789 /0.781 , gate 0.900 /0.920 ), a KL answer-preservation anchor (best answer head, 0.811 ; gate 0.897 ), and PCGrad gradient surgery (answer head 0.787 ; gate 0.891 , the worst net score, 0.716 ) all eliminate the write–read interference and all pay for it in gate quality: within a single shared write vector, answer fidelity and abstention expressiveness trade at par under shift ( λ=0 .5’s 0.746 is the best write-side net, +1 pp over baseline). The repair that breaks the trade-off—moving the abstention out of the write entirely—is the read-head of §8. 
+
+Steering-strength frontier (gate objectives). Suppressing the write’s magnitude gate on unlabeled out-of-distribution prompts at λ=0 .3 gives the balanced YOPO-2 operating point of §8; stronger suppression ( λ=0 .5/1.0: 0.782 /0.786 transfer) buys no more and bleeds in-domain ( 0.860 /0.8575 ). Two further gate objectives close the question: a hinge that penalizes only OOD magnitudes above a floor (three seeds: in-domain 0.859 ± 0.018 , transfer 0.781 ± 0.013 ) and a two-sided objective that additionally holds in-domain magnitudes up (in-domain 0.883 ± 0.008 —above the two-pass reference on every seed, the best in-domain configuration we have—but transfer 0.764 ± 0.014 ). Three mechanistically distinct objectives trace one monotone frontier: each increment of in-domain steering gain costs a comparable increment of out-of-domain suppression, while the suppressed-channel score stays configuration-independent at 0.793 –0.797 .
+
+## C REPRODUCIBILITY 
+
+All numbers are recomputable from committed per-item logs and scripts. Steering grid (Ta-ble 10): scripts/m27b grid.sh trains every cell ( train steer.py , 5k items, seed 0, lr 10 −4, 3 epochs, batch 4) and evaluates on 1,532 held-out items ( eval steer.py ); per-item JSONs in experiments/m27/runs/ , table via scripts/m27 table.py .
+
+Gate/fusion grids (§6): residual extraction via scripts/m28 extract.py 
+
+(320-token budget; 4-cond builders scripts/m28 build *.py ); variants and Pareto rows via scripts/m28b eval.py /m28c eval.py (fits are CPU-deterministic, torch.manual seed(0) ; seed sensitivity of the one above-ceiling cell: scripts/m28b replicate.py , seeds 0–4). End-to-end (Table 3): 
+
+scripts/m29 extract.py (clean+steered logits and residuals in one pass pair) and 
+
+scripts/m29 e2e eval.py ; the flagship’s BCE label is answerable = non-replace. 
+
+Native-label study (§8): the sufficiency line’s manifests and pipeline ship in its v2 de-livery; our fused run uses scripts/m30 convert.py → train steer.py (their configuration: layers {12 , 16 , 20 }, spread-5, learned gate, αmax =0 .3, 2,000 items, 322 Preprint. Under review. epochs) → scripts/m29 extract.py (--max-len 2304 for full documents) →
+
+scripts/m30 analyze.py (their probe protocol verbatim: 80/20 split by example id, seed 7, layer and threshold chosen on the held-out 20%, frozen before eval; median calibration for cross-dataset thresholds). Cross-matrix (Table 4): scripts/m31 cross matrix.py , pure post-processing of the stored m29/m30 extractions; layer sweep over the shared capture set, one JSON per scale in experiments/m31/ . Ladder self-replication and cross-family grid (M31): scripts/m31 grid.sh runs (a) the LoRA r=3 rung with the sufficiency line’s trainer/evaluator copied verbatim (scripts/m31 train peft.py /m31 eval peft.py ;their hyperparameters: q/k/v/o/gate/up/down, 3 epochs, lr 10 −4) on their SQuAD2 judgment manifests, and (b) the full extract →e2e pipeline on every non-Qwen backbone (V21 probes from the m12/m21 backbone studies or retrained by the same recipe; layers mapped by proportional depth). Backbones are stock instruction-tuned checkpoints, frozen throughout; probes are the only trained parameters ( ≈1% of backbone). MuSiQue leg, hybrid probe, and calibration study (M32–M34): scripts/m32 build musique.py builds the judgment set from MuSiQue-Full (supports-first word budget so gold chains are never truncated; token p99 1226 ,all windows ≤ 2048 ); scripts/m32 grid v2.sh runs probe training, chunked extraction, the six bidirectional fusion analyses, both 5×5 cross-matrices, and the LoRA rung on MuSiQue. The three-way hybrid probes ( scripts/m33 train hybrid.py , label set {0, 1, 2} with 
+
+0 = “cannot answer”; MuSiQue variant carries the true answer among the candidates as a trap) and their extractions/analysis run from scripts/m33 grid v3.sh → m33 analyze.py (acc3 
+
+standard: answerable rows scored on the answer, insufficient rows on abstention). The calibration decomposition is scripts/m34 recalib.py (label-free quantile of p(“0” ) at the designed insufficient fraction); the read–write split and multi-source cells are scripts/m34 grid.sh 
+
+with pre-registered decision lines in the script header. Standard-suite benchmark (M39, §10): 
+
+scripts/m39 build data.py assembles the four domains (test sets verbatim from the Lavi release / the sufficiency line’s committed curated-MuSiQue manifests / the deterministic seed-7 MuSiQue-Full rebuild; source-side fit/sel cut from earlier pools, seed 7—a documented deviation shown immaterial by the 16/16 replication); m39 extract.py captures every de-coder layer’s last-prompt-token state plus the judge logits; m39 analyze.py implements the HOME/TRAVEL layer protocol, the unlabeled-median threshold, and the red-flag audit; 
+
+m39 generate.py + m39 score.py produce the hybrid benchmark (one generation pass, gates composed offline). Apple-silicon reproducibility notes: all tokenizer calls bucket shapes with 
+
+pad to multiple of=128 (unbucketed dynamic padding balloons MPSGraph’s per-shape cache); LoRA training on MPS additionally requires segmented execution ( --segment-steps ,fresh process per segment, AdamW moments reset at boundaries, constant lr)—a workaround for a driver-side per-process leak in backward passes through frozen 7B weights, documented in 
+
+ICLR STATUS.md .23

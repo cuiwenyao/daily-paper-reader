@@ -6,38 +6,38 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-08-16
-- 运行时间：2026-08-16 20:28:38 UTC
+- 最新运行日期：2026-08-17
+- 运行时间：2026-08-17 20:57:06 UTC
 - 运行状态：成功
 - 本次总论文数：6
 - 精读区：2
 - 速读区：4
 
 ### 今日简报（AI）
-今日精读两篇高分论文，并速读多篇多智能体与多模态推理研究。最值得关注的是9.0分的《Interpreting Language Model Hidden States at Scale》与8.0分的《Actionable Hallucination Detection》，分别揭示大模型隐状态可解释性和将潜在不确定性转化为智能体批判的检测路径。建议优先精读这两篇，再按兴趣浏览多智能体通信拓扑与结构化奖励等速读主题。
-- 详情：[/202608/16/README](/202608/16/README)
+今日共读6篇论文，其中2篇精读、4篇速读。最值得关注的是冻结语言模型单次前向传播同时作答与弃权（9.0分），以及语义约束下组装新结构的学习（8.0分）。建议优先精读这两篇，并速览表格推理与因果拓扑相关研究。
+- 详情：[/202608/17/README](/202608/17/README)
 
 ### 精读区论文标签
-1. [Interpreting Language Model Hidden States at Scale](/202608/16/2608.10260v1-interpreting-language-model-hidden-states-at-scale)  
+1. [You Only Pass Once: Answering and Abstaining Together in a Single Forward Pass of a Frozen Language Model](/202608/17/2608.14465v1-you-only-pass-once-answering-and-abstaining-together-in-a-single-forward-pass-of-a-frozen-language-model)  
    标签：评分：9.0/10、query:ns-xai
-   evidence：将透镜式隐状态解释扩展到任意宽度与组件类型的大语言模型
-2. [Actionable Hallucination Detection: Translating Latent Uncertainty into Agentic Critique](/202608/16/2608.10430v1-actionable-hallucination-detection-translating-latent-uncertainty-into-agentic-critique)  
+   evidence：在单次前向中，通过引导探针提升推理并用充分性方向实现弃权，直接面向冻结大模型的推理与可解释性
+2. [Learning to Assemble Novel Structures with Unfamiliar Parts under Semantic Constraints](/202608/17/2608.13684v1-learning-to-assemble-novel-structures-with-unfamiliar-parts-under-semantic-constraints)  
    标签：评分：8.0/10、query:ns-xai
-   evidence：将潜在不确定性转化为局部自然语言批判以纠正幻觉
+   evidence：融合语言符号约束与视觉学习的神经符号架构用于结构组装。
 
 ### 速读区论文标签
-1. [Discovering Efficient and Explainable Communication Topologies for LLM-based Multi-Agent Systems via Causal Inference](/202608/16/2608.12921v1-discovering-efficient-and-explainable-communication-topologies-for-llm-based-multi-agent-systems-via-causal-inference)  
+1. [SheetCompass: Hierarchical Relation Graphs for Agentic Spreadsheet Reasoning](/202608/17/2608.14452v1-sheetcompass-hierarchical-relation-graphs-for-agentic-spreadsheet-reasoning)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：提出模型无关的因果解释框架，解释基于LLM的多智能体通信拓扑
-2. [StructReward: Efficient Structured Process Rewards for Self-Correcting Multimodal Reasoning](/202608/16/2608.08326v2-structreward-efficient-structured-process-rewards-for-self-correcting-multimodal-reasoning)  
+   evidence：用层次关系图显式建模表格结构并引导大模型智能体推理，属于图式神经符号混合方法
+2. [FITTER: Vocabulary-Agnostic Cross-Domain Inference on Temporal Knowledge Graphs](/202608/17/2608.10668v1-fitter-vocabulary-agnostic-cross-domain-inference-on-temporal-knowledge-graphs)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：通过结构化步骤级过程奖励增强多模态推理的监督与可解释性
-3. [Learning from Consensus and Disagreement: Unsupervised On-Policy Self-Distillation with Minority-Trajectory Contrast](/202608/16/2608.08764v1-learning-from-consensus-and-disagreement-unsupervised-on-policy-self-distillation-with-minority-trajectory-contrast)  
+   evidence：面向时间知识图谱的神经结构模型，支持跨域推理，属于神经符号方法。
+3. [Discovering Efficient and Explainable Communication Topologies for LLM-based Multi-Agent Systems via Causal Inference](/202608/17/2608.12921v2-discovering-efficient-and-explainable-communication-topologies-for-llm-based-multi-agent-systems-via-causal-inference)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：无监督在线自蒸馏提升语言模型推理且无需外部监督
-4. [Decoding Task Progress from VLA Representations](/202608/16/2608.13474v1-decoding-task-progress-from-vla-representations)  
+   evidence：面向LLM多智能体系统的通信拓扑可解释性
+4. [Implementing Computational Law in Wolfram Language for the Governance of Artificial Intelligence](/202608/17/2608.13958v1-implementing-computational-law-in-wolfram-language-for-the-governance-of-artificial-intelligence)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：用机制解释性探针从VLA残差流解码任务进度
+   evidence：用GPT-4将自然语言法律陈述翻译为形式化符号逻辑。
 
 
 <div class="dpr-home-promo-card">
