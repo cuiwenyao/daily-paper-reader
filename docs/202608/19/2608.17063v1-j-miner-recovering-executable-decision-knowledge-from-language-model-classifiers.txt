@@ -1,0 +1,840 @@
+Title: J-Miner: Recovering Executable Decision Knowledge from Language-Model Classifiers
+
+URL Source: https://arxiv.org/pdf/2608.17063v1
+
+Published Time: Wed, 19 Aug 2026 00:10:36 GMT
+
+Number of Pages: 19
+
+Markdown Content:
+# J-Miner: Recovering Executable Decision Knowledge from Language-Model Classifiers 
+
+# Yunfan Gao 
+
+gaoyunfan1602@gmail.com Shanghai Research Institute for Intelligent Autonomous Systems, Tongji University Shanghai, Shanghai, China 
+
+# Xinyi Huang 
+
+xinyihuang25@m.fudan.edu.cn Shanghai Key Laboratory of Data Science, College of Computer Science and Artificial Intelligence, Fudan University Shanghai, Shanghai, China 
+
+# Tao Sheng 
+
+shengtao03@meituan.com Meituan Shanghai, China 
+
+# Haorui Song 
+
+hwwysong@gmail.com Shanghai Research Institute for Intelligent Autonomous Systems, Tongji University Shanghai, Shanghai, China 
+
+# Yun Xiong 
+
+yunx@fudan.edu.cn Shanghai Key Laboratory of Data Science, College of Computer Science and Artificial Intelligence, Fudan University Shanghai, Shanghai, China 
+
+# Haofen Wang ∗
+
+carter.whfcarter@gmail.com College of Design and Innovation, Tongji University Shanghai, Shanghai, China 
+
+## Abstract 
+
+Large language models can be fine-tuned into specialized classi-fiers that perform well across diverse text tasks and make complex judgments, but they typically expose only final labels, leaving the decision knowledge acquired through fine-tuning implicit within the model. We study how to mine this internal decision knowl-edge from a fine-tuned classifier and encode it in an executable representation that can be inspected, validated, and reused beyond the source classifier. We introduce J-Miner, which mines text-level named concepts by aggregating vocabulary-aligned internal sig-nals across layers and token positions, and uses the classifier’s own predictions to learn executable decision rules over them. This pro-cess distills local internal readouts into an explicit classifier-level knowledge representation. Across multiple classification tasks, J-Miner rules reproduce up to 98.3% of source-classifier decisions and achieve 6.0–29.5 percentage points higher behavioral fidelity than equally compact rules learned from input words. Further analysis shows that the named concepts reflect internal semantic evidence associated with task decisions, while the learned rules consolidate these distributed signals into inspectable decision structures. The resulting decision knowledge also transfers to lightweight stan-dalone students: using about 1/24 as many parameters as the source classifiers, they reconstruct and execute the representation from raw text while retaining 99.8% of the source classifiers’ mean task accuracy. These findings show that task-specific decision knowl-edge can be faithfully represented in an explicit, executable form and reused beyond the classifier in which it was learned. 
+
+## Keywords 
+
+language-model classifiers, executable decision knowledge, mecha-nistic interpretability, rule extraction, knowledge transfer 
+
+> ∗Corresponding author.
+
+## 1 Introduction 
+
+LLM-based classifiers leverage the broad language understanding of pretrained LLMs to support flexible and effective text classification. By adapting these representations to task-specific judgments, they can process open-ended inputs, varied expressions, and long-range dependencies that conventional classifiers built on fixed vocabu-laries or hand-engineered features often miss. Lightweight LLM classifiers are therefore increasingly deployed for spam filtering, toxicity detection, content moderation, sentiment and intent analy-sis, and risk screening, and they have shown strong performance across diverse classification tasks [4, 9, 16, 17]. Fine-tuning concen-trates this general language capacity on a downstream decision. Yet the deployed model typically returns only a predicted class label. The label conveys the model’s judgment while leaving the acquired task knowledge hidden. Through fine-tuning, an LLM classifier can acquire task-relevant semantic patterns and decision regularities that organize evidence across inputs. This knowledge remains embedded in the classifier rather than exposed by its output label, making it difficult to observe, explain, or use to guide downstream models and tasks. A growing body of work seeks to characterize the knowledge encoded inside language models. For example, Integrated Gradi-ents and attention rollout trace input influence and information routing [1, 23]. Probes, the Tuned Lens, and sparse autoencoders expose decodable variables and internal feature bases [3, 7, 13]. These methods support model inspection, but their outputs are often difficult to reuse directly in downstream tasks. Knowledge distillation transfers predictive behavior to a smaller model while leaving that behavior implicit in a new predictor [14]. Concept bottleneck models expose an intermediate representation, but their concept vocabularies are commonly predefined, externally gener-ated, or learned for the student [15, 19, 20]. The task knowledge acquired by the classifier is thus often visible but difficult to reuse, or reusable but hidden inside another model. 
+
+> 1arXiv:2608.17063v1 [cs.LG] 17 Aug 2026 Yunfan Gao, Xinyi Huang, Tao Sheng, Haorui Song, Yun Xiong, and Haofen Wang
+
+Figure 1: From opaque predictions to executable decision knowledge. J-Miner recovers vocabulary-aligned internal concepts and an executable rule that exposes how their con-tributions produce a classifier prediction. 
+
+This gap motivates J-Miner, which connects the interpretation of a classifier’s task knowledge with its reuse. Figure 1 presents this motivation at three levels. A deployed LLM classifier exposes only its verdict. Existing views reveal surface cues or isolated internal signals, but often stop at observation rather than making the ob-served knowledge reusable. J-Miner maps intermediate classifier states into vocabulary space, recovers vocabulary-named internal concepts, and mines compact Boolean rules and weighted decision logic over these concepts. To this end, we further explore three re-search questions. RQ1 (Recover) focuses on whether task-specific decision concepts can be identified and whether their relationships can be recovered as decision logic that reproduces the classifier’s decisions. RQ2 (Reveal) focuses on whether the recovered logic captures task knowledge beyond surface keyword correlations and what it reveals about how the classifier organizes evidence into a decision. RQ3 (Transfer) focuses on whether a compact student can learn this internal decision knowledge while preserving the classifier’s behavior and enabling more efficient inference. Across diverse binary and multiclass tasks, J-Miner identifies a small set of internal concepts, names them with words from the model’s vocabulary, and recovers the Boolean rules and weighted decision logic that organize them. The concepts frequently acti-vate without literal occurrence of their names, while their names, weights, and per-example contributions reveal the evidence em-phasized in each decision. The recovered decision knowledge can also be learned by a compact model. A 33.2M E5-small student reproduces 88.7–98.0% of source-classifier decisions directly from raw text and executes the fixed decision logic without the source classifier at inference. This work makes three contributions: 
+
+• We introduce J-Miner, which mines task-specific decision knowledge from internal classifier representations and or-ganizes it into named concepts and compact executable rules. This exposes the regularities behind a single verdict in a form that can be examined, behaviorally validated, and reused. 
+
+• Across diverse classification tasks, model scales, and model families, J-Miner extracts compact, executable decision knowledge that reflects classifier behavior substantially more faithfully than capacity-matched surface-level lexical rules. It also reveals classifier-specific decision patterns that cannot be inferred from final predictions alone. 
+
+• We show that the mined concepts and rules can be trans-ferred to a substantially smaller standalone model, which retains near-source task performance and high behavioral agreement while keeping the transferred decision knowl-edge explicit and executable. 
+
+## 2 Related Work 2.1 Interpreting Internal Representations 
+
+Pretrained language models have become a foundation for text classification. Task adaptation can attach a classification head or express the label through a verbalized token [8, 21]. These classi-fiers have been applied to semantically varied inputs in toxicity, abusive-language, and hate-speech detection [5, 16, 17], but their deployed interface usually exposes only the predicted label. Inter-pretability research therefore examines the evidence and internal representations that support the model’s decision. Attribution and attention methods identify influential inputs or information flow, while probes test whether a target variable is decodable from an in-termediate representation [1, 13, 23]. Lens methods pursue a more direct vocabulary-space account. The logit lens applies the unem-bedding to intermediate residual states, but representation drift can make these direct readouts difficult to interpret [18]. The tuned lens addresses this limitation with learned layer-specific transla-tors, whereas the Jacobian lens uses local derivatives to transport source-layer states toward the final residual space [3, 12]. Sparse autoencoders, and more recently ClassifSAE, take a complementary route by organizing activations into learned feature bases [7, 17]. Their concepts are learned feature directions of a trained autoen-coder rather than readouts in the classifier’s own vocabulary space. These advances broaden what can be observed inside a model. J-Miner organizes recurring vocabulary-aligned internal signals into a task-specific decision procedure. 
+
+## 2.2 Extracting Decision Knowledge 
+
+Knowledge extraction seeks to make what a model has learned explicit and understandable. For a classifier, this requires moving from isolated evidence or features to a model-level account of how they combine into predictions. Rule extraction offers one such ac-count. Classical methods approximate black-box predictors with trees or symbolic expressions, with an emphasis on global rules 
+
+> 2J-Miner: Recovering Executable Decision Knowledge from Language-Model Classifiers
+
+and behavioral fidelity [2, 6, 10]. Because their predicates are usu-ally defined over inputs or introduced outside the model, recent work has moved rule extraction closer to neural representations. MechaRule grounds behaviorally proposed predicates in causally tested neurons, while NEUROLOGIC extracts logic over thresholded internal units [11, 22]. Anchoring predicates in causally tested neu-rons improves internal grounding. Their decision logic is expressed through externally proposed concepts or anonymous units. Con-cept bottlenecks and distillation approach the neighboring problem of making learned knowledge explicit or reusable [14–16, 19, 20, 24]. Their concept sets are typically predefined, externally generated, or learned for the student. J-Miner asks whether vocabulary-aligned evidence recovered from the classifier can form an intelligible, be-haviorally grounded executable rule that a compact student can reconstruct and run without the teacher. 
+
+## 3 Problem Definition 
+
+Let X be the input space and Y the set of classes, each represented by a verdict token. A task-specific language-model classifier predicts 
+
+𝑓 𝜃 (𝑥 ) = arg max  
+
+> 𝑦 ∈ Y
+
+𝑧 𝜃 (𝑦 | 𝑥 ), (1) for an input 𝑥 ∈ X , where 𝑧 𝜃 (𝑦 | 𝑥 ) is the logit of verdict token 𝑦 . We freeze the classifier and assume read-only access to its internal states and verdict logits. Given this classifier, J-Miner seeks to recover a small set of named internal variables and an executable rule that uses these variables to reproduce the classifier’s predictions. For a concept budget 𝐾 , let C𝐾 = {𝑣 1, . . . , 𝑣 𝐾 } denote internal coordinates named by tokens from the classifier’s own vocabulary, and let 𝑐 𝜃 (𝑥 ) ∈ { 0, 1}𝐾 denote their message-level activation state for input 𝑥 . J-Miner seeks C𝐾 , 𝑐 𝜃 , and a decision rule 𝑔 : {0, 1}𝐾 →Y such that 
+
+𝑓 𝜃 (𝑥 ) ≈ b𝑓 𝐽 (𝑥 ) = 𝑔 (𝑐 𝜃 (𝑥 )) . (2) The task therefore produces a compact vocabulary of named con-cepts, their activation state for each input, and an executable rule specifying how those concepts combine into a verdict. 
+
+## 4 Method 
+
+J-Miner organizes its method into Recover, Reveal, and Transfer. Recover uses J-Lens to obtain vocabulary-aligned readouts, mines recurring coordinates as message-level concepts, and fits executable rules over them. Reveal exposes how the recovered concepts con-tribute to decisions across examples and layers. Transfer trains a compact text model to reconstruct these concepts and apply the fixed rule without running the source classifier or J-Lens at infer-ence. Figure 2 summarizes the method. 
+
+## 4.1 Vocabulary-Aligned J-Lens Readout 
+
+J-Miner uses the Jacobian lens (J-Lens) described by Gurnee et al. [12] as its vocabulary-space readout. J-Lens estimates how an inter-mediate residual state is transported into the final residual space, where the classifier’s own normalization and unembedding express it as vocabulary scores. Let ℎ𝑙,𝑝 (𝑥 ) be the residual state at layer 
+
+𝑙 and position 𝑝 , and let ℎ𝐿,𝑝 ′ (𝑥 ) be a final-layer state. For each source layer, J-Lens estimates the average Jacobian 
+
+𝐽 𝑙 = E(𝑥,𝑝 )
+
+∑︁ 𝑝 ′ ≥𝑝 
+
+𝜕ℎ 𝐿,𝑝 ′ (𝑥 )
+
+𝜕ℎ 𝑙,𝑝 (𝑥 )
+
+
+
+. (3) The expectation is estimated on a calibration corpus. The operator 
+
+𝐽 𝑙 approximates the average first-order transport from a source-layer state to the later final-layer states it can affect. Applying the classifier’s final normalization and vocabulary unembedding 𝑈 
+
+produces 
+
+𝑟 𝑙,𝑝 (𝑥 ) = 𝑈 Norm  𝐽 𝑙 ℎ𝑙,𝑝 (𝑥 ) . (4) Thus, every inspected layer and position yields a ranking over the classifier’s own vocabulary. High-ranking coordinates provide names for locally readable internal directions. At this stage they remain layer–position observations. They become concepts only after they are aggregated into recurring message-level variables. 
+
+## 4.2 Message-Level Concept Construction 
+
+Let P ( 𝑥 ) denote the content positions of input 𝑥 and L the layers used for concept collection. J-Miner gathers the highest-ranked vocabulary coordinates across these positions and layers. With token normalization 𝜈 , retained rank 𝑅 , and a fixed exclusion set B,the message-level event set is 
+
+E ( 𝑥 ) = ©«Ø 
+
+> 𝑙 ∈ L
+
+Ø  
+
+> 𝑝 ∈ P ( 𝑥 )
+
+𝜈  Top 𝑅 (𝑟 𝑙,𝑝 (𝑥 )) ª ®¬
+
+\ B ,𝑐 𝑣 (𝑥 ) = ⊮[𝑣 ∈ E ( 𝑥 )] .
+
+(5) The indicator 𝑐 𝑣 (𝑥 ) records whether coordinate 𝑣 is read anywhere in the designated region of the message. Aggregation separates the method from a single-token explanation: a selected concept is a recurring message-level variable derived from many local readouts. J-Miner selects a compact set of these variables on construction data 𝐷 𝑐 . Let 𝑦 𝜃 (𝑥 ) ∈ { 0, . . . , |Y| − 1} denote the numeric encoding of verdict token 𝑓 𝜃 (𝑥 ). For a candidate 𝑣 , its support and teacher-conditional trigger rate are supp (𝑣 ) = 1
+
+|𝐷 𝑐 |∑︁ 𝑥 ∈𝐷 𝑐 
+
+𝑐 𝑣 (𝑥 ), 𝑞 𝑦 (𝑣 ) = 1
+
+𝑛 𝑦 ∑︁ 𝑥 ∈𝐷 𝑐   
+
+> 𝑦 𝜃 (𝑥 )=𝑦
+
+𝑐 𝑣 (𝑥 ), (6) where 𝑛 𝑦 is the number of construction examples assigned encoded verdict 𝑦 . We rank each candidate by the largest one-vs-rest trigger-rate gap, Δ(𝑣 ) = max 𝑦 |𝑞 𝑦 (𝑣 ) − 𝑞 ¬𝑦 (𝑣 )| , where 𝑞 ¬𝑦 (𝑣 ) is its mean trigger rate among construction examples outside class 𝑦 . For binary verdicts, this reduces to |𝑞 1 (𝑣 )− 𝑞 0 (𝑣 )| . After removing insufficiently supported coordinates, the selected vocabulary and concept vector are 
+
+C𝐾 = TopK 𝑣 :supp (𝑣 ) ≥ 𝜏 Δ(𝑣 ), 𝑐 𝜃 (𝑥 ) = 𝑐 𝑣 (𝑥 )  
+
+> 𝑣 ∈ C 𝐾
+
+. (7) Here 𝐾 controls representational capacity across method configu-rations. Classifier predictions provide the selection target, while dataset labels do not enter concept ranking or rule fitting. 
+
+## 4.3 Executable Rule Induction 
+
+J-Miner first searches for short Boolean abstract syntax trees over 
+
+𝑐 𝜃 (𝑥 ). Positive and negated concept literals are composed with and and or, and size-bounded canonical candidates are selected 
+
+> 3Yunfan Gao, Xinyi Huang, Tao Sheng, Haorui Song, Yun Xiong, and Haofen Wang
+
+Figure 2: J-Miner overview. The method consists of three components: Recover, Reveal, and Transfer. 
+
+by construction-set fidelity. These short ASTs compactly expose conjunction, disjunction, and absence. To represent decisions in which multiple concepts contribute with different strengths, J-Miner retains the same binary concept basis and fits a signed linear scorecard. Its learned weights accu-mulate evidence for and against a verdict while preserving a direct mapping from every term to a named concept. The scorecard takes the form 
+
+𝑔 (𝑐 ) = ⊮[𝑤 ⊤𝑐 + 𝑏 > 𝑡 ]. (8) The executable rule is the tuple R = (C 𝐾 , 𝑤, 𝑏, 𝑡 ): an ordered con-cept vocabulary, signed coefficients, an intercept, and a decision threshold. This weighted extension records both which concepts participate in a decision and how evidence accumulates across them. For binary verdicts, writing e𝑦 𝑥 = 2𝑦 𝜃 (𝑥 ) − 1 and 𝛼 𝑦 = |𝐷 𝑐 |/( 2𝑛 𝑦 ),the scorecard parameters solve the class-balanced, regularized lo-gistic objective 
+
+(𝑤 ∗, 𝑏 ∗) = arg min 
+
+> 𝑤,𝑏
+
+∑︁ 𝑥 ∈𝐷 𝑐 
+
+𝛼 𝑦 𝜃 (𝑥 ) log 
+
+
+
+1 + 𝑒 −e𝑦 𝑥 (𝑤 ⊤𝑐 𝜃 (𝑥 )+ 𝑏 ) 
+
++ 𝜆 Ω(𝑤 ).
+
+(9) We use the convex L2 regularizer Ω(𝑤 ) = 12 ∥𝑤 ∥22. The fitted binary scorecard uses the fixed threshold 𝑡 = 0. The regularization strength, numerical solver, and iteration limit are described in Section 5. After fitting, R remains fixed for held-out evaluation and downstream student learning. For multiclass verdicts, balanced multinomial logistic regression yields one linear score per class and predicts the class with maximum score. We connect the three stages by carrying one fitted scorecard through the method. We first recover it from teacher predictions, then reveal its decision structure through coefficients and example-level contributions, and finally transfer it by pairing the unchanged scorecard with student-predicted concepts. The learned scorecard exposes its organization without a sepa-rate explanation model. Coefficient 𝑤 𝑗 gives the global direction and strength of concept 𝑗 , while 
+
+𝑎 𝑗 (𝑥 ) = 𝑤 𝑗 𝑐 𝑗 (𝑥 ) (10) is its contribution on example 𝑥 . These quantities support population-level concept rankings and per-example decomposi-tions. Layer-wise sequences of 𝑟 𝑙,𝑝 (𝑥 ) additionally show when readable concepts and verdict preferences emerge. Reveal analyzes these derived quantities rather than fitting another predictor. 
+
+## 4.4 Concept-Mediated Transfer 
+
+Transfer replaces classifier-side concept acquisition with a com-pact predictor while preserving the learned decision rule. Run-ning J-Lens and the concept construction procedure on student-training text produces supervision triples (𝑥, 𝑐 𝜃 (𝑥 ), 𝑓 𝜃 (𝑥 )) . The stu-dent reader is a map 𝑠 𝜙 : X → [ 0, 1]𝐾 . For concept 𝑗 , let 𝑛 + 
+
+> 𝑗
+
+and 𝑛 −
+
+> 𝑗
+
+be its positive and negative counts in the student-training data and let 𝜌 𝑗 = 𝑛 − 
+
+> 𝑗
+
+/max (𝑛 + 
+
+> 𝑗
+
+, 1). Concept reconstruction minimizes 
+
+Lconcept (𝑥 ) = − 1
+
+𝐾 
+
+> 𝐾
+
+∑︁ 
+
+> 𝑗 =1
+
+𝜌 𝑗 𝑐 𝑗 (𝑥 ) log 𝑠 𝜙,𝑗 (𝑥 )+ ( 1 − 𝑐 𝑗 (𝑥 )) log (1 − 𝑠 𝜙,𝑗 (𝑥 ))  .
+
+(11) 
+
+> 4J-Miner: Recovering Executable Decision Knowledge from Language-Model Classifiers
+
+This trains the student to recover the rule inputs. An optional auxiliary head 𝑎 𝜙 predicts the classifier verdict dur-ing training, 
+
+L( 𝑥 ) = Lconcept (𝑥 ) + 𝛽 Lverdict 
+
+ 𝑎 𝜙 (𝑥 ), 𝑓 𝜃 (𝑥 ) . (12) The auxiliary head shapes the shared text representation but is dis-carded for rule-mediated inference. The learned rule is not refitted and receives no gradient during student training. At inference, the binarization operator 𝐵 (𝑢 )𝑗 = ⊮[𝑢 𝑗 ≥ 0.5] thresholds the student probabilities before passing them through the same rule, 
+
+𝑐 𝜙 (𝑥 ) = 𝐵 (𝑠 𝜙 (𝑥 )) , b𝑓 𝜙 (𝑥 ) = 𝑔 (𝑐 𝜙 (𝑥 )) . (13) This path requires only the compact text encoder, its concept head, and the executable rule. The difference between 𝑔 (𝑐 𝜃 (𝑥 )) and 𝑓 𝜃 (𝑥 )
+
+measures the residual error of rule recovery. The difference between 
+
+𝑔 (𝑐 𝜙 (𝑥 )) and 𝑔 (𝑐 𝜃 (𝑥 )) measures the additional decision changes induced by concept reconstruction. 
+
+## 5 Experimental Setup 5.1 Datasets and Models 
+
+We evaluate J-Miner on nine English text-classification tasks. The six binary tasks are SMS spam, sentence sentiment, formality, IMDB review sentiment, toxicity, and sarcasm; the three multiclass tasks are HateXplain, SNIPS-3, and SNIPS-7. Recover and Reveal cover all nine tasks. Transfer covers the six binary tasks and extends the interface to SNIPS-3 and SNIPS-7. Each task uses an independently fine-tuned Qwen3.5-0.8B classifier that is frozen before J-Miner is applied. To examine changes in model scale and architecture, the four-task panel also includes Qwen3.5-2B and Qwen3.5-4B within the Qwen family, alongside Gemma-3 1B, Llama-3.2 1B, and Phi-4 mini across families. This panel covers sentiment, formal-ity, IMDB, and toxicity. The six-task Transfer experiments use a 33.2M-parameter E5-small-v2 encoder. The multiclass extensions use frozen MiniLM-22M and E5-base-109M encoders. 
+
+## 5.2 Baselines 
+
+J-Miner extracts candidate concepts from J-Lens readouts and fits executable rules over them. To separate the concept source from the rule learner, we construct a matched Surface baseline. On the same construction split, it ranks literal input words against teacher predictions and selects the same feature budget 𝐾 . Both routes then fit class-balanced LR-𝐾 heads with L2 regularization ( 𝐶 = 1.0), 
+
+lbfgs , and at most 2,000 iterations, and are evaluated on the same frozen test examples. They therefore share data, feature budget, class weighting, and prediction head; their binary indicators come from J-Lens concepts or literal word occurrence. Binary rules use a zero threshold, and multiclass rules choose the class with the largest score. To compare J-Miner with commonly used model interpretability methods, we include vanilla readout, SAE, attention rollout [1], In-tegrated Gradients [23], and a dense probe. Vanilla readout and SAE extract vocabulary coordinates and sparse latent features from in-termediate states. Attention rollout and Integrated Gradients assign importance to input tokens through attention paths and gradients. The 1,024-dimensional dense probe predicts the classifier verdict directly from hidden states. All methods use the same construction and test splits and the same classifier target. Compact-rule com-parisons also match the feature budget 𝐾 and prediction head. To separate the sources of standalone prediction, the Transfer exper-iments fix the 33.2M E5-small-v2 encoder, training data, training budget, and test examples. Surface predicts literal indicators and executes the frozen Surface scorecard. J-only predicts J-Miner con-cepts and executes the frozen J-Miner rule. J+Aux adds a verdict loss to the concept-reconstruction objective, discards the auxiliary head after training, and produces the final verdict from the predicted concepts and frozen rule. 
+
+## 5.3 Metrics 
+
+We evaluate recovered rules and compact students through two com-plementary dimensions: task performance and behavioral agree-ment. Accuracy measures prediction quality against dataset labels. Teacher fidelity measures agreement with the corresponding frozen classifier. Multiclass experiments also report macro-F1 to reflect class-wise performance. Reveal further measures non-literal acti-vation, scorecard-contribution concentration, and layer-wise label-state stabilization. Transfer additionally reports concept prediction quality and model size. We estimate confidence intervals by paired bootstrap and assess paired prediction differences with McNemar tests. We report repeated runs as mean ± standard deviation. 
+
+## 6 Results 6.1 RQ1: Recovering executable decision rules 
+
+RQ1 asks whether vocabulary-aligned evidence read from a frozen classifier’s intermediate states is sufficient to recover its decision be-havior and compositional structure. J-Lens locates concept-aligned signals across layers and token positions, but individual readouts do not show how these concepts combine at the message level to form the final verdict. To address this gap, J-Miner aggregates recurring readouts into message-level binary concepts and learns how they combine to reproduce teacher decisions. Message-level concepts aggregated from J-Lens readouts support compact executable decision rules. As shown in Table 1, AST-5 uses five signed concept literals to reach .693–.980 teacher fidelity across the six binary tasks while making conjunction, disjunction, and absence explicit. On the same candidate concept basis, LR-16 assigns weights to all 16 selected concepts and accumulates their signed evidence. Its fidelity improves on every task by 0.33–6.17 percentage points and reaches .750–.983. The two rule forms form a progression from symbolic structure to weighted execution. AST-5 makes the compact composition explicit. LR-16 preserves teacher decisions more completely and supports per-example execution and replay. To measure the value of the internal concept basis for executable recovery, we compare LR-16 with a matched Surface scorecard under the same feature budget and LR head. LR-16 achieves higher teacher fidelity on all six binary tasks, with gains of 6.00–29.50 percentage points. The unweighted mean gain across the six tasks is 17.08 points, with a paired 95% interval of [15 .39 , 18 .75 ]. Every task-level interval lies above zero. Compact rules built from J-Lens readouts therefore reproduce teacher behavior more faithfully than rules built from literal words. Appendix B.1 reports the complete task-level statistics. 
+
+> 5
+
+Yunfan Gao, Xinyi Huang, Tao Sheng, Haorui Song, Yun Xiong, and Haofen Wang 
+
+Teacher Acc. AST-5 LR-16 Surface Fid. Task Acc. Fid. Acc. Fid. 
+
+Binary 
+
+SMS .980 .967 .980 .983 .983 .923 Sentiment .905 .807 .818 .808 .843 .623 Formality .948 .912 .940 .925 .953 .787 IMDB .945 .825 .833 .880 .895 .698 Toxicity .855 .843 .895 .843 .905 .610 Sarcasm .888 .688 .693 .738 .750 .663 
+
+Multiclass 
+
+HateXplain .622 .512 .673 .523 .660 .653 SNIPS-3 1.000 .987 .987 .993 .993 .980 SNIPS-7 .982 .851 .865 .850 .863 .817 
+
+Table 1: Executable recovery at 𝐾 = 16 . AST-5 reports one selected five-literal signed Boolean rule for binary tasks and one such rule per class for multiclass tasks. LR-16 is the weighted scorecard. Surface is the matched literal-word score-card. Acc. is gold accuracy and Fid. is teacher fidelity. Bold marks the best executable rule for each available metric. 
+
+J-Miner recovers executable decision rules from both binary and multiclass classifiers. For binary tasks, AST-5 learns one signed Boolean rule, while LR-16 combines 𝐾 = 16 concepts into one thresholded score. For multiclass tasks, we retain the concept dis-covery and selection procedure. AST-5 learns one five-literal rule for each class in a one-versus-rest ensemble, while LR-16 learns one score for each class. On HateXplain, SNIPS-3, and SNIPS-7, AST-5 reaches .673, .987, and .865 teacher fidelity, respectively. LR-16 reaches .660, .993, and .863. The recovered Boolean AST and weighted scorecard replay the classifier’s decision from the same concept state. Figure 3 traces both rule forms on a held-out Sentiment example. AST-5 expresses a positive verdict as (amazing or not nobody ) together with the ab-sence of bad , dead , and worse . The example activates amazing , bad ,and worse . The amazing concept satisfies the positive condition, but the active bad and worse concepts cause the corresponding ab-sence conditions to fail. The rule therefore reproduces the teacher’s negative verdict. LR-16 then assigns a signed contribution to each active concept in the same state. The contribution from amazing 
+
+is +1.093, while those from bad and worse are −2.093 and −1.202. These contributions sum to −2.202. Adding the −0.053 intercept gives 𝑧 (𝑥 ) = −2.255 ≤ 0, which yields a negative verdict. AST-5 specifies how the concepts combine, while LR-16 shows how their evidence accumulates into a thresholded score. We further extend the evaluation of executable recovery across model scales and families. We repeat the same teacher-ranked bal-anced scorecard comparison on Sentiment, Formality, IMDB, and Toxicity across three Qwen sizes and one trained classifier each from Gemma, Llama, and Phi. Figure 4 summarizes the resulting 24 matched task–classifier cells. The recovered executable rules reach .773–.953 teacher fidelity across these cells and exceed the matched Surface rules by 11.5–35.5 percentage points. Their gold accuracy is also higher in every cell. Across the tested model scales and fam-ilies, J-Miner organizes decision-associated internal readouts into Sentiment classification NEGATIVE / POSITIVE  
+
+> INPUT
+
+"the 1st twilight is soooo bad" TEACHER: NEGATIVE 
+
+1 Recover a compositional Boolean rule 5 NAMED CONCEPTS              
+
+> amazing = 1 nobody = 0 bad = 1 dead = 0 worse = 1
+> FALSE ⟹NEGATIVE
+> SAME CONCEPT STATE c(x) =[1, 0, 1, 0, 1]
+
+2 Add signed evidence to the same concepts LR-16               
+
+> ACTIVE CONCEPT ci(x) × wi= contribution
+> amazing 1 × (+1.093) = + 1.093
+> bad 1 × (−2.093) = − 2.093
+> worse 1 × (−1.202) = − 1.202
+> nobody, dead: ci(x) = 0 ⟹ contribution = 0
+> s(x) = + 1.093 − 2.093 − 1.202 = − 2.202
+> z(x) = − 0.053 + s(x) = − 2.255 threshold τ= 0
+> z(x) = − 2.255 ≤ 0 ⟹ NEGATIVE
+> ( amazing OR NOT nobody )
+> AND NOT bad AND NOT dead AND NOT worse
+
+Figure 3: A recovered Sentiment rule rendered as a Boolean AST and a linear scorecard. Both use the same named indica-tors and reproduce the classifier’s negative verdict. Qwen3.5-0.8B Qwen3.5-2B Qwen3.5-4B Gemma-3-1B Llama-3.2-1B Phi-4-mini           
+
+> 0.6 0.7 0.8 0.9 1.0
+> Fidelity / accuracy
+> QWEN FAMILY CROSS-FAMILY
+> Dataset: Metric: Method: Sentiment Formality IMDB Toxicity Fidelity Accuracy J-Miner Surface
+
+Figure 4: Matched J-Miner and Surface recovery across four tasks and six classifiers. Labels report the J-Miner-minus-Surface gaps in teacher fidelity and gold accuracy. 
+
+executable decision logic that replays teacher decisions with high fidelity and retains the corresponding task performance. 
+
+## 6.2 RQ2: Revealing decision structure 
+
+RQ1 established that J-Miner recovers named concepts and exe-cutable rules from a classifier’s internal readouts. RQ2 asks what decision structure this mechanism makes visible. We examine the decision-relevant information carried by task-specific concepts, how the recovered rule composes these concepts into individual pre-dictions, and how J-Miner, compared with interpretability methods such as sparse autoencoders (SAEs), presents decision knowledge through directly named concepts and explicit rule composition. 
+
+6J-Miner: Recovering Executable Decision Knowledge from Language-Model Classifiers 1.0 .5 0 .5 1.0      
+
+> Class trigger-rate gap (construction)
+> click cash call nobody happy enjoy 这句话 this kids nonsense beautifully crap absolutely hate bullshit and shit your
+> 0.93 0.85 0.84 0.44 0.43 0.42 0.71 0.70 0.66 0.55 0.55 0.49 0.67 0.64 0.63 0.25 0.20 0.19
+> SMS Sentiment Formality IMDB Toxicity Sarcasm
+> (a) Class association
+> 1.5 .75 0.75 1.5
+> Mean score contribution (held out)
+> 1.40 0.47 0.47 0.36 0.37 0.31 1.20 1.42 0.78 0.46 0.60 0.32 0.64 0.75 0.38 0.75 0.19 0.25
+> (b) Rule contribution
+> associated with class 0 associated with class 1
+
+Figure 5: Selected concepts and their role in classifier deci-sions. The panels compare construction-set class association with held-out contribution for each coordinate. 
+
+6.2.1 Task-specific concept vocabularies. To determine what decision-relevant information task-specific concepts carry and how the recovered rule composes that information into predictions, we analyze the selected concepts at two levels. In Figure 5a, we measure each concept’s trigger-rate gap between the classifier’s two verdicts on the construction split. This gap establishes which verdict each concept is associated with. In Figure 5b, we mea-sure each concept’s mean signed contribution to the recovered score on held-out examples. This quantifies how strongly and in which direction it contributes to recovered decisions. The class-association analysis identifies vocabularies aligned with each task. The SMS vocabulary centers on promotion cues such as click , cash , and call . The Sentiment and IMDB vocabularies emphasize affective and evaluative cues. Toxicity includes hostile expressions such as hate and bullshit . Together, the concept names, class associations, and score contributions make feature importance in the recovered rule directly readable through named concepts. To examine how named concepts activate across different sur-face forms, we compute 𝑃 (name absent | coordinate fires ) for each selected concept. For each task, we average this proportion across its 16 selected concepts. The task-level means range from .805 to .986 across the six binary tasks. We then restrict the analysis to con-cepts whose printed names appear at least once in the test corpus. The corresponding task-level means remain between .777 and .980 (Appendix C.1). These activation patterns show that vocabulary names provide readable anchors for internal directions that recur across different surface forms. Named concepts thereby express these internal directions as readable task-specific decision knowl-edge. The recovered rule further reveals how this knowledge is composed into individual decisions. 
+
+6.2.2 From concepts to decisions. The recovered rule assigns each concept a direction and magnitude. For concept 𝑗 , we compute its mean signed contribution E𝑥 [𝑤 𝑗 𝑐 𝑗 (𝑥 )] on held-out examples. This measure combines the rule coefficient with the concept’s activation frequency and identifies the concepts with the greatest influence on recovered scores. The highest-contributing concepts align with the corresponding task semantics. click makes the largest contribution to the class-1 SMS score, and this provides the largest positive contribution in Formality. nobody , kids , and nonsense shift the corresponding scores toward class 0. These signed contributions define the executable score used for prediction. At the individual-example level, we decompose each recovered score into active concept contributions 𝑎 𝑗 (𝑥 ) = 𝑤 𝑗 𝑐 𝑗 (𝑥 ) and an intercept. We measure decision concentration by the minimum number of active concepts needed to cover 90% of absolute feature contribution. Across non-default held-out predictions, the task-level median ranges from 3 to 11. Sarcasm decisions concentrate in three concepts. Sentiment, Formality, IMDB, and Toxicity require four to six concepts, and SMS accumulates its class-1 score across eleven promotion-related concepts. These medians show that local decisions range from three dominant concepts in Sarcasm to eleven jointly contributing promotion-related concepts in SMS. The budget analysis tests how much of the classifier’s behavior is captured by the highest-ranked concepts. With only one teacher-ranked concept and an intercept, the scorecard already reaches held-out teacher fidelity between .698 and .950 across SMS, Sen-timent, Formality, IMDB, and Toxicity, with a five-task mean of .804 (Table 6). At every 𝐾 ∈ { 1, 2, 4, 8, 16 , 32 , 64 }, the teacher-ranked scorecards for all six tasks achieve higher fidelity than the median of 100 random nested orderings drawn from the same candidate pool (Table 7). The first few ranked concepts capture a large share of the recovered teacher behavior. Larger vocabularies add coverage. Figure 6 reports when task-specific readouts become stably aligned with the classifier’s final prediction across depth. At each layer, we measure agreement between the J-Lens label-margin sign and the final prediction. We define L95 as the earliest layer from which agreement remains at least .95 through L22. Across the six binary tasks, L95 lies between L10 and L15. SMS reaches it at L10. Sentiment, Formality, IMDB, Toxicity, and Sarcasm reach it at L14 or L15. Before stabilization, label states often remain at the class-0 default. As task-specific readouts consolidate, the label state becomes persistently aligned with the final verdict. The L10–L15 range places stable label-state alignment in the middle-to-late layers across all six tasks. 
+
+6.2.3 Direct presentation of decision knowledge. We compare J-Miner concepts and SAE features under shared data splits and classifier targets. Figure 7a reports the predictive performance of the 
+
+> 7Yunfan Gao, Xinyi Huang, Tao Sheng, Haorui Song, Yun Xiong, and Haofen Wang
+
+0 5 10 15 20 22 
+
+Source layer 
+
+.40 .60 .80 .95 1.0 
+
+> Agreement with final verdict  95%
+> L10-L15 crystallization window
+> SMS (L10) Sentiment (L15) Formality (L14) IMDB (L15) Toxicity (L15) Sarcasm (L14)
+
+Figure 6: Layer-wise agreement between the J-Lens label-margin sign and the classifier’s final prediction across six binary tasks. Markers identify L95, the earliest layer from which agreement remains at least .95 through L22. 
+
+development-selected heads. SAE reaches .9025 mean gold accuracy, compared with .8900 for J-Miner, with task-level gaps from .0067 to .0217. The matched four-literal SAE and J-Miner rules reach mean classifier fidelities of .9117 and .8671, respectively. The matched Toxicity rules show how the two interfaces present their decision variables. The SAE rule reaches .845 truth accuracy using four latent IDs that require activation-token lookup. The J-Miner rule reaches .832 and composes absolutely , angry , hate ,and viol . Across the four tasks, J-Miner’s selected-name content-word share ranges from .750 to 1.000, with no external lookup. SAE’s share ranges from .000 to .227, and each rule requires four lookup rows. Thus, while maintaining predictive performance close to SAE, J-Miner presents task-specific decision knowledge directly as named predicates and makes their composition into verdicts explicit. J-Miner places internal prediction, vocabulary-native concept identity, and executable composition in one interface. The selected concepts expose global importance, their local contributions explain individual verdicts, and the same named state becomes structured supervision for the compact model in RQ3. J-Miner          
+
+> vocabulary predicates (absolutely OR angry OR hate OR viol )
+> test truth accuracy 0.832
+
+SAE                                     
+
+> latent predicates (L01763 OR L04592 OR L07865 OR L13769 )
+> L01763 .,and is a...
+> L04592 .<empty> ?!,...
+> L07865 .<empty> ,!?...
+> L13769 .!,<empty> ?...
+> test truth accuracy 0.845
+> .85 .90 .95 Tox Form Sent IMDB Mean
+> 99.0% 99.3% 97.5% 98.6% 98.6%
+> (a) Best-head gold accuracy J-Miner / SAE ratios by task
+> Tox Form Sent IMDB
+> 0.0 0.5 1.0
+> (b) Named-predicate CWS selected rule literals
+> Tox Form Sent IMDB
+> 024
+> (c) External lookups rows per selected rule
+> J-Miner SAE
+
+Figure 7: Matched rules and direct presentation of decision knowledge. The upper panel compares Toxicity rules with truth accuracies of .832 and .845. The lower panels report four-task best-head gold accuracy, selected-name content-word share, and external lookup rows. 
+
+## 6.3 RQ3: Standalone interface execution 
+
+Recover and Reveal produce a concept–rule interface composed of named concept coordinates and a fixed scorecard, making the clas-sifier’s decision knowledge executable and inspectable. Obtaining these concept states for new text still requires the source classifier and J-Lens readouts of its intermediate states. RQ3 therefore asks whether a compact student can learn this decision knowledge from raw text, retain task performance close to that of the source clas-sifier, and operate independently through a substantially lighter inference path. To answer this question, we replace only the classifier’s concept acquisition process with a compact reader. The concept vocabulary and decision rule established in Recover remain fixed throughout student training and evaluation. The student learns to reconstruct the intermediate decision representation required by the existing rule, allowing the experiment to directly test whether the recovered decision knowledge can be transferred to a smaller model. We compare three student routes using the same 33.2M E5-small encoder, data splits, training budget, and test examples across six tasks and three student seeds. Surface predicts literal input indica-tors and applies the corresponding fixed scorecard. J-only predicts J-Miner concepts and applies the scorecard established in Recover. 
+
+J+Aux adds source classifier verdict supervision during concept training while retaining the same inference path through predicted concepts and the fixed scorecard as J-only. Figure 8 shows that lightweight students can acquire and execute the recovered decision knowledge. A character MLP and a 22.6M MiniLM with a trained task head already form executable routes on all three tasks. Fine-tuning the 33.2M E5-small further raises fidelity, with the final route reaching between 90.0% and 95.0%.     
+
+> 8J-Miner: Recovering Executable Decision Knowledge from Language-Model Classifiers Char n-gram LR Char n-gram MLP (64) MiniLM + task head E5-small + task head Fine-tuned E5-small + Aux 50% 75% 80% 85% 90% 95%
+> Teacher fidelity
+> 22.6M 33.2M 33.2M
+> .532 .678 .785 .815
+> Toxicity 0.900
+> .883 .880 .910 .917
+> Formality 0.950
+> .798 .843 .830 .918
+> IMDb 0.937
+
+Figure 8: Standalone execution across student architectures. Trained task heads over fixed MiniLM and E5-small encoders already support the recovered interface, while encoder fine-tuning further raises fidelity.                                       
+
+> Task Source classifier Surface J-only J+Aux J+Aux fidelity Toxicity 85.5 57.4 85.4 86.7 89.3 Formality 94.8 86.1 92.0 93.2 95.0 IMDB 94.5 84.8 91.2 93.6 93.1 SMS 98.0 97.3 97.4 98.0 98.0 Sentiment 90.5 78.3 87.7 90.7 90.2 Sarcasm 88.8 75.6 81.2 88.6 88.7 Mean 92.0 79.9 89.2 91.8 92.4
+
+Table 2: Standalone interface reconstruction. Columns give gold accuracy. The last gives teacher fidelity. 
+
+Across the six tasks, the 33.2M J+Aux student largely retains the task performance of the 0.8B source classifiers while executing the recovered interface independently. Its mean gold accuracy is 91.8%, compared with 92.0% for the source classifiers, and no task differs by more than 1.67 percentage points. The student also repro-duces between 88.7% and 98.0% of source classifier decisions, with a mean fidelity of 92.4%. Together, task performance and behavioral fidelity show that standalone reconstruction preserves the source classifiers’ predictive capability and most of their decision behavior. The matched Surface comparison further isolates the transfer value of the recovered concepts. With the same encoder, data, train-ing budget, and interface capacity, J+Aux reaches 91.8% mean gold accuracy, compared with 79.9% for Surface. J+Aux exceeds Surface by between 7.11 and 29.28 percentage points on the other five tasks and by 0.67 points on SMS, where both routes approach ceiling. Across all six tasks, the recovered concept–rule interface provides a stronger representation for lightweight reuse than literal indicators under matched conditions. J-only reaches 89.2% mean gold accuracy, showing that con-cept supervision alone already forms a standalone execution path. Adding the auxiliary verdict objective increases gold accuracy by between 0.56 and 7.39 percentage points and source classifier fi-delity by between 0.44 and 5.72 points across the six tasks, even though concept macro-F1 decreases on every task. This divergence shows that average concept reconstruction quality and the final execution of the frozen rule are distinct objectives. Verdict fidelity depends on how reconstruction errors propagate through the frozen scorecard’s coordinate weights and decision threshold. Because the scorecard remains fixed, execution differences can be localized through coordinate errors, fixed weights, and local contributions. The resulting student has 24.1 times fewer parameters than the source classifier and operates without running the source classifier or J-Lens at deployment. It predicts explicit concept states directly from raw text and applies the fixed rule to produce its outputs. This design retains task performance close to that of the source classifier while exposing concept weights and per-example contributions. 
+
+## 7 Discussion 
+
+J-Miner’s results show that task-specific decision behavior in the evaluated LLM classifiers is highly compressible. Internal signals appear across layers and positions, yet a few recurring readout di-rections capture much of the resulting behavior. With one selected concept and an intercept, five tasks reach 80.4% mean teacher fi-delity. Compact concept sets recover more decisions, and their matched advantage over surface features recurs across the tested model sizes and families. This concentration indicates that con-tinuous, distributed computation can admit a low-dimensional, discrete abstraction at the decision boundary. J-Miner represents this abstraction with internal variables and an executable rule that composes their contributions to reproduce the classifier’s verdict. The fidelity of this compression depends on how hidden states are measured and represented. J-Lens uses task-agnostic external text to fit a common vocabulary-space readout. This calibration keeps the construction comparable across tasks, while average Ja-cobian transport and vocabulary projection define an information bottleneck between the hidden state and the named concept. The alternative-basis comparison makes this choice visible. SAE fea-tures retain slightly more predictive information on some tasks, while J-Miner concepts are named directly and enter the same ex-ecutable rule and per-example decision trace. An internal basis therefore determines both how much behavior can be recovered and what form the recovered knowledge can take. Future work can vary the calibration distribution to measure changes in fidelity and coordinate stability, and combine high-fidelity latent features with direct vocabulary anchors. J-Miner separates decision knowledge from the parameters that produced it. This changes the object of transfer. The compact stu-dent reconstructs the recovered concept state and executes the fixed rule, so the named decision variables and their composition remain available outside the source classifier. Decision knowledge becomes a portable object that stays comparable as its implementing model changes. Future studies can trace how concepts and rules form during fine-tuning and align across checkpoints to test whether task-specific compression has a shared structure. More complex reasoning tasks and output spaces can test how much decision knowledge this compact executable form can recover. 
+
+> 9
+
+Yunfan Gao, Xinyi Huang, Tao Sheng, Haorui Song, Yun Xiong, and Haofen Wang 
+
+## 8 Conclusion 
+
+We propose J-Miner, a method that mines named concepts from decision-relevant internal readouts and composes them into exe-cutable rules, thereby recovering executable decision knowledge from language-model classifiers. Across the evaluated classifiers, the resulting representation reproduces source decisions more faith-fully than capacity-matched literal-word rules. Non-literal concept activations and per-example concept contributions further make the recovered decision structure directly inspectable. Compact students can reconstruct these concept states from raw text and execute the fixed rules without invoking the source classifier or J-Lens at infer-ence time, while retaining near-source task performance and high decision agreement. These results show that task-specific decision knowledge can be recovered as an explicit, executable object and reused beyond its source classifier. 
+
+## References 
+
+[1] Samira Abnar and Willem Zuidema. 2020. Quantifying Attention Flow in Trans-formers. In Proceedings of the 58th Annual Meeting of the Association for Computa-tional Linguistics . Association for Computational Linguistics, Online, 4190–4197. doi:10.18653/v1/2020.acl-main.385 [2] Osbert Bastani, Carolyn Kim, and Hamsa Bastani. 2017. Interpreting Blackbox Models via Model Extraction. arXiv:1705.08504 [cs.LG] [3] Nora Belrose, Igor Ostrovsky, Lev McKinney, Zach Furman, Logan Smith, Danny Halawi, Stella Biderman, and Jacob Steinhardt. 2023. Eliciting Latent Predictions from Transformers with the Tuned Lens. arXiv:2303.08112 [cs.LG] [4] Daniel Borkan, Lucas Dixon, Jeffrey Sorensen, Nithum Thain, and Lucy Vasser-man. 2019. Nuanced Metrics for Measuring Unintended Bias with Real Data for Text Classification. In Companion Proceedings of the 2019 World Wide Web Conference (WWW ’19 Companion) . ACM, 491–500. arXiv:1903.04561 doi:10.1145/3308560.3317593 [5] Tommaso Caselli, Valerio Basile, Jelena Mitrović, and Michael Granitzer. 2021. HateBERT: Retraining BERT for Abusive Language Detection in English. In 
+
+Proceedings of the 5th Workshop on Online Abuse and Harms . Association for Computational Linguistics, Online, 17–25. doi:10.18653/v1/2021.woah-1.3 [6] Mark Craven and Jude W. Shavlik. 1995. Extracting Tree-Structured Repre-sentations of Trained Networks. In Advances in Neural Information Processing Systems 8 (NIPS 1995) . 24–30. https://proceedings.neurips.cc/paper/1995/hash/ 45f31d16b1058d586fc3be7207b58053-Abstract.html [7] Hoagy Cunningham, Aidan Ewart, Logan Riggs, Robert Huben, and Lee Sharkey. 2023. Sparse Autoencoders Find Highly Interpretable Features in Language Models. arXiv:2309.08600 [cs.LG] [8] Jacob Devlin, Ming-Wei Chang, Kenton Lee, and Kristina Toutanova. 2019. BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding. In Proceedings of the 2019 Conference of the North American Chapter of the Asso-ciation for Computational Linguistics: Human Language Technologies, Volume 1 .Association for Computational Linguistics, Minneapolis, Minnesota, 4171–4186. doi:10.18653/v1/N19-1423 [9] Lucas Dixon, John Li, Jeffrey Sorensen, Nithum Thain, and Lucy Vasserman. 2018. Measuring and Mitigating Unintended Bias in Text Classification. In Proceedings of the 2018 AAAI/ACM Conference on AI, Ethics, and Society (AIES ’18) . ACM, New Orleans, LA, USA, 67–73. doi:10.1145/3278721.3278729 [10] Nicholas Frosst and Geoffrey Hinton. 2017. Distilling a Neural Network Into a Soft Decision Tree. arXiv:1711.09784 [cs.LG] [11] Chuqin Geng, Anqi Xing, Li Zhang, Ziyu Zhao, Yuhe Jiang, and Xujie Si. 2025. NEUROLOGIC: From Neural Representations to Interpretable Logic Rules. arXiv:2501.08281 [cs.LG] [12] Wes Gurnee, Nicholas Sofroniew, Adam Pearce, Mateusz Piotrowski, Isaac Kauvar, Runjin Chen, Anna Soligo, Paul Bogdan, Euan Ong, Rowan Wang, T. Ben Thompson, David Abrahams, Subhash Kantamneni, Emmanuel Ameisen, Joshua Batson, and Jack Lindsey. 2026. Verbalizable Representations Form a Global Workspace in Language Models. Transformer Circuits Thread. https: //transformer-circuits.pub/2026/workspace/index.html [13] John Hewitt and Percy Liang. 2019. Designing and Interpreting Probes with Con-trol Tasks. In Proceedings of the 2019 Conference on Empirical Methods in Natural Language Processing and the 9th International Joint Conference on Natural Lan-guage Processing (EMNLP-IJCNLP) . Association for Computational Linguistics, Hong Kong, China, 2733–2743. arXiv:1909.03368 doi:10.18653/v1/D19-1275 [14] Cheng-Yu Hsieh, Chun-Liang Li, Chih-Kuan Yeh, Hootan Nakhost, Yasuhisa Fujii, Alexander Ratner, Ranjay Krishna, Chen-Yu Lee, and Tomas Pfister. 2023. Distilling Step-by-Step! Outperforming Larger Language Models with Less Training Data and Smaller Model Sizes. In Findings of the Association for Com-putational Linguistics: ACL 2023 . Association for Computational Linguistics. doi:10.18653/v1/2023.findings-acl.507 [15] Pang Wei Koh, Thao Nguyen, Yew Siang Tang, Stephen Mussmann, Emma Pierson, Been Kim, and Percy Liang. 2020. Concept Bottleneck Models. In 
+
+Proceedings of the 37th International Conference on Machine Learning . PMLR. arXiv:2007.04612 [16] Roberto Labadie-Tamayo, Djordje Slijepčević, Xihui Chen, Adrian Jaques Böck, Andreas Babic, Liz Freimann, Christiane Atzmüller, and Matthias Zeppelzauer. 2025. Distilling Knowledge from Large Language Models: A Concept Bottleneck Model for Hate and Counter Speech Recognition. Information Processing & Management (2025). arXiv:2508.08274 [17] Mathis Le Bail, Jérémie Dentan, Davide Buscaldi, and Sonia Vanier. 2026. Unveil-ing Decision-Making in LLMs for Text Classification: Extraction of Influential and Interpretable Concepts with Sparse Autoencoders. In Findings of the Associ-ation for Computational Linguistics: EACL 2026 . Association for Computational Linguistics, Rabat, Morocco, 2477–2504. doi:10.18653/v1/2026.findings-eacl.129 [18] nostalgebraist. 2020. Interpreting GPT: The Logit Lens. LessWrong. https://www. lesswrong.com/posts/AcKRB8wDpdaN6v6ru/interpreting-gpt-the-logit-lens [19] Tuomas Oikarinen, Subhro Das, Lam M. Nguyen, and Tsui-Wei Weng. 2023. Label-Free Concept Bottleneck Models. In International Conference on Learning Representations (ICLR) . arXiv:2304.06129 https://openreview.net/forum?id= FlCg47MNvBA [20] Sukrut Rao, Sweta Mahajan, Moritz Böhle, and Bernt Schiele. 2024. Discover-then-Name: Task-Agnostic Concept Bottlenecks via Automated Concept Discovery. In Computer Vision – ECCV 2024 (Lecture Notes in Computer Science, Vol. 15135) .Springer. arXiv:2407.14499 doi:10.1007/978-3-031-72980-5_26 [21] Timo Schick and Hinrich Schütze. 2021. Exploiting Cloze-Questions for Few-Shot Text Classification and Natural Language Inference. In Proceedings of the 16th Conference of the European Chapter of the Association for Computational Linguistics: Main Volume . Association for Computational Linguistics, Online, 255–269. doi:10.18653/v1/2021.eacl-main.20 [22] Francesco Sovrano, Gabriele Dominici, and Marc Langheinrich. 2026. Neuron-Anchored Rule Extraction for Large Language Models via Contrastive Hierarchi-cal Ablation. arXiv:2605.03058 [cs.LG] [23] Mukund Sundararajan, Ankur Taly, and Qiqi Yan. 2017. Axiomatic Attribution for Deep Networks. In Proceedings of the 34th International Conference on Machine Learning (Proceedings of Machine Learning Research, Vol. 70) . PMLR, 3319–3328. https://proceedings.mlr.press/v70/sundararajan17a.html [24] Yue Yang, Artemis Panagopoulou, Shenghao Zhou, Daniel Jin, Chris Callison-Burch, and Mark Yatskar. 2023. Language in a Bottle: Language Model Guided Concept Bottlenecks for Interpretable Image Classification. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) .arXiv:2211.11158 10 J-Miner: Recovering Executable Decision Knowledge from Language-Model Classifiers 
+
+## A Frozen concept–rule construction 
+
+For each task, we construct a frozen concept–rule object from recurring J-Lens readouts. It consists of a selected message-level vocabulary, an indicator map, and a fitted scorecard. We pair it with a capacity-matched Surface object whose indicators come from literal words in the input. The two routes share the same teacher target, feature budget, scorecard family, and held-out examples, and differ only in the source of their indicators. 
+
+## A.1 Data separation and object freezing 
+
+J-Miner separates lens fitting, rule construction, and held-out eval-uation across distinct data roles. External calibration text is used only to fit the averaged Jacobian lens. On the in-domain construc-tion split, frozen teacher predictions determine candidate support, feature ranking, and scorecard fitting. Gold labels do not enter con-struction and are reserved for the separate accuracy readback. The test split is evaluated only after the selected concept vocabulary and scorecard have been fixed. After construction, the selected vocabulary C𝐾 , the deterministic message-level indicator map 𝑐 𝜃 (𝑥 ), and the fitted scorecard 𝑔 remain fixed. The matched Surface route produces an analogous object within the same data boundaries. The comparison therefore reduces to how the two routes transform their respective evidence sources into a 𝐾 -dimensional indicator basis. 
+
+## A.2 Message-level indicator construction 
+
+J-Lens exposes vocabulary coordinates at individual layers and token positions, whereas the rule we seek must operate on an entire message. We therefore pool local readouts over the span that contains the input text, excluding the instruction template and the terminal Decision: position. For the primary Qwen classifiers, we retain the three highest-ranked vocabulary coordinates at every content position across source layers 14–22 and the final-layer identity readout at layer 23. We strip and lowercase the decoded strings, remove strings shorter than two characters and task-specific prompt or label terms, and take their union across the inspected region. A coordinate 𝑣 then becomes a message-level indicator 
+
+𝑐 𝑣 (𝑥 ) = ⊮[𝑣 appears anywhere in the retained readouts for 𝑥 ] .
+
+(14) This aggregation turns a coordinate that may appear at different positions and depths into one executable variable for the whole message. We next select the compact concept basis using the construction split alone. We discard coordinates that occur in fewer than .03 of the construction examples and rank the remainder by their largest one-vs-rest trigger-rate difference under the frozen teacher predic-tions. For binary tasks, this score reduces to the absolute difference between the two class-conditional trigger rates. The first 𝐾 = 16 coordinates form the frozen vocabulary C𝐾 . All filtering and rank-ing finish before the test split is read, fixing the internal-readout basis used by the J-Miner scorecard. 
+
+## A.3 Capacity-matched Surface construction 
+
+To determine whether J-Miner’s recovery comes from information carried by internal readouts rather than the expressive capacity of a sixteen-dimensional rule, we construct a capacity-matched Surface route. For an input 𝑥 , we lowercase the raw text and split it on non-alphanumeric characters other than apostrophes. Let 𝜏 (𝑥 )
+
+denote the resulting set of distinct word types with at least two characters. A word enters the Surface candidate vocabulary only if it appears in at least .03 of the construction examples: 
+
+V𝑆 =
+
+(
+
+𝑣 : 1
+
+|𝐷 𝑐 |∑︁ 𝑥 ∈𝐷 𝑐 
+
+⊮[𝑣 ∈ 𝜏 (𝑥 )] ≥ .03 
+
+)
+
+. (15) We rank these candidates against the same frozen teacher pre-dictions using the class-conditional trigger-rate gap applied to the J-Miner basis above. The first 𝐾 = 16 words form the Surface vo-cabulary C𝑆 𝐾 , with 
+
+𝑐 𝑆 𝑣 (𝑥 ) = ⊮[𝑣 ∈ 𝜏 (𝑥 )] , 𝑐 𝑆 (𝑥 ) = 𝑐 𝑆 𝑣 (𝑥 ) 
+
+> 𝑣 ∈ C 𝑆 𝐾
+
+. (16) We use the J-Miner and Surface indicator vectors to fit the same class-balanced logistic scorecard described in Section 5. Binary tasks use a zero threshold, while multiclass tasks select the class with the highest score. We hold the construction split, teacher target, support threshold, feature budget, class weighting, scorecard family, and test examples fixed, changing only the source of the indicators. The held-out fidelity difference therefore asks how much additional teacher behavior the internal-readout basis retains relative to an equal-capacity literal-word basis. 
+
+## B Extended validation of executable recovery 
+
+The main paper establishes the primary recovery result across six binary tasks: message-level concepts aggregated from J-Lens read-outs form compact scorecards that recover teacher decisions more faithfully than capacity-matched Surface features. This appendix follows the factors that determine how much teacher behavior this interface preserves. We first separate late-layer label-state access from concept compression and then ask whether the same recovery direction recurs across model scales and families. We next vary feature budget and candidate ordering to locate the source of com-pactness before extending the same construction to multiclass and additional validation settings. 
+
+## B.1 Binary classification tasks statistics 
+
+We first distinguish late-layer access to the teacher decision from its compression into sixteen recurring message-level concepts. Table 1 gives the primary comparison between the two compact scorecards, while Table 3 places label-state access, compact recovery, and paired uncertainty on the same held-out examples. Table 4 separately reports the paired tests and fidelity restricted to teacher errors. Label-state fidelity is the mean agreement between the decision-position J-Lens label state and the frozen teacher over layers 17–22. 
+
+𝐹 𝐽 and 𝐹 𝑆 are the held-out teacher fidelities of the J-Miner and Surface scorecards at 𝐾 = 16. Each paired interval resamples the same held-out examples and estimates 𝐹 𝐽 − 𝐹 𝑆 .Across the six tasks, label-state fidelity ranges from .991 to .998, indicating that the teacher verdict is almost completely readable from the selected late layers. Compressing these readouts into six-teen recurring message-level concepts retains .750–.983 teacher fi-delity. The amount of information lost in this compression varies by task, but J-Miner remains more faithful than the capacity-matched                                    
+
+> 11 Yunfan Gao, Xinyi Huang, Tao Sheng, Haorui Song, Yun Xiong, and Haofen Wang
+> Task Label-state fid. 𝐹 𝐽 𝐹 𝑆 Δ𝐹 (pp) Paired 95% CI SMS .997 .983 .923 +6.00 [3.00, 9.33] Sentiment .994 .843 .623 +22.00 [17.50, 26.50] Formality .998 .953 .787 +16.67 [13.33, 20.17] IMDB .998 .895 .698 +19.67 [15.50, 24.00] Toxicity .994 .905 .610 +29.50 [25.33, 33.67] Sarcasm .991 .750 .663 +8.67 [3.50, 13.67]
+
+Table 3: Binary recovery fidelity and paired differences on the primary held-out test sets. Label-state fidelity reports mean agreement between the decision-position J-Lens label state and the frozen teacher over layers 17–22. 𝐹 𝐽 and 𝐹 𝑆 report the teacher fidelities of the J-Miner and Surface scorecards at 𝐾 = 16 .
+
+Task McNemar 𝑝 𝐹 𝐽 
+
+> err
+
+/𝐹 𝑆 
+
+> err
+
+SMS 1.21 ×10 −4 .500/.667 ( 𝑛 = 6) Sentiment 4.37 ×10 −20 .684/.491 ( 𝑛 = 57) Formality 4.52 ×10 −21 .774/.581 ( 𝑛 = 31) IMDB 2.24 ×10 −18 .636/.545 ( 𝑛 = 33) Toxicity 3.14 ×10 −39 .713/.586 ( 𝑛 = 87) Sarcasm .00127 .552/.358 ( 𝑛 = 67) 
+
+Table 4: Paired tests and recovery fidelity on teacher errors. 
+
+𝐹 err restricts J-Miner and Surface fidelity to held-out examples on which the frozen teacher disagrees with the dataset label. 
+
+Surface scorecard on every task. The gains range from 6.00 to 29.50 percentage points, and every task-level paired interval lies above zero. The late-layer label state already makes the teacher verdict available. When compressed into an executable rule, internal con-cepts preserve more of that verdict than literal input words. Our recovery target is the frozen teacher rather than the gold label. We therefore also examine examples on which the teacher is wrong. Table 4 shows that J-Miner reproduces a larger share of teacher errors on five of the six tasks. SMS is the only reversal, and its conditional subset contains six examples. Together with the complete test-set comparison, this result shows that the recovered scorecard captures teacher-specific decision behavior, including decisions that disagree with the gold label. 
+
+## B.2 Results across model scales and families 
+
+Having separated late-layer access from compact recovery on the primary binary classifiers, we vary classifier scale and model family to determine whether the internal-over-Surface direction remains visible. We compare three Qwen sizes and trained classifiers from Gemma, Llama, and Phi on Sentiment, Formality, IMDB, and Toxic-ity. Every task–classifier cell uses 𝐾 = 16, construction-split teacher ranking, the same class-balanced logistic scorecard construction, and frozen test examples. Figure 4 summarizes teacher fidelity and gold accuracy across the model panel, while Table 5 gives the com-plete teacher-fidelity values and paired intervals. All classifiers use training seed 17. Llama IMDB uses a sequence limit of 520 to retain the terminal Decision: position.                                                                                                        
+
+> Task Classifier 𝐹 𝐽 𝐹 𝑆
+> Δ𝐹
+> (pp) 95% CI (pp) Sentiment Qwen 0.8B .843 .623 +22.00 [17.50, 26.50] Qwen 2B .822 .633 +18.83 [14.50, 23.17] Qwen 4B .780 .642 +13.83 [9.17, 18.50] Gemma-3 1B .875 .632 +24.33 [20.00, 28.83] Llama-3.2 1B .773 .628 +14.50 [9.67, 19.33] Phi-4 mini .825 .660 +16.50 [11.83, 21.17] Formality Qwen 0.8B .953 .787 +16.67 [13.33, 20.17] Qwen 2B .942 .792 +15.00 [11.50, 18.50] Qwen 4B .922 .807 +11.50 [8.17, 14.83] Gemma-3 1B .922 .802 +12.00 [8.50, 15.67] Llama-3.2 1B .907 .787 +12.00 [8.33, 15.67] Phi-4 mini .918 .788 +13.00 [9.67, 16.50] IMDB Qwen 0.8B .895 .698 +19.67 [15.50, 24.00] Qwen 2B .915 .692 +22.33 [18.33, 26.33] Qwen 4B .885 .717 +16.83 [12.83, 21.00] Gemma-3 1B .882 .723 +15.83 [11.83, 19.83] Llama-3.2 1B .902 .712 +19.00 [15.17, 23.00] Phi-4 mini .918 .720 +19.83 [15.83, 23.83] Toxicity Qwen 0.8B .905 .610 +29.50 [25.33, 33.67] Qwen 2B .893 .618 +27.50 [22.83, 32.00] Qwen 4B .920 .565 +35.50 [31.33, 39.83] Gemma-3 1B .920 .615 +30.50 [26.33, 34.67] Llama-3.2 1B .873 .587 +28.67 [24.33, 32.83] Phi-4 mini .850 .580 +27.00 [22.33, 31.67]
+
+Table 5: Teacher-fidelity results across model scales and fam-ilies. 𝐹 𝐽 and 𝐹 𝑆 report the held-out teacher fidelities of the matched J-Miner and Surface scorecards at 𝐾 = 16 . Intervals are paired example-bootstrap intervals for 𝐹 𝐽 − 𝐹 𝑆 .
+
+Within the Qwen family, J-Miner achieves higher teacher fidelity than Surface in all twelve task–classifier cells from 0.8B to 4B. The task-equal mean gaps are 20.92 percentage points for Qwen 2B and 19.42 points for Qwen 4B. Recovered fidelity and gap magnitude vary across checkpoints, and the scale trajectories are task depen-dent. Formality has the smallest gap at each Qwen scale, whereas Toxicity has the largest. Gemma, Llama, and Phi repeat this result. All twelve cells sat-isfy 𝐹 𝐽 > 𝐹 𝑆 , with task-equal mean gaps of 20.67, 18.54, and 19.08 percentage points, respectively. Their corresponding 95% intervals are [18 .63 , 22 .71 ], [16 .42 , 20 .58 ], and [17 .00 , 21 .13 ], all above zero. Across the full panel, all 24 matched cells favor J-Miner. Decision-associated internal readouts therefore yield more faithful executable recovery than capacity-matched literal-word features in every eval-uated task–classifier setting. 
+
+## B.3 Feature budgets and candidate ranking 
+
+The scale and family comparisons above hold 𝐾 = 16 fixed. This common budget keeps construction, inspection, and reconstruction centered on the same frozen concept–rule object, but it does not show whether the recovery advantage depends on this setting or how feature capacity and candidate ordering contribute. We address these questions with two nested sweeps. Candidate ranking and 
+
+> 12
+
+J-Miner: Recovering Executable Decision Knowledge from Language-Model Classifiers 1 2 4 8 16 32 0.5 0.6 0.7 0.8 0.9 1.0 
+
+SMS              
+
+> .950 .967 .980 .983 .983 .987 .733 .807 .837 .890 .923 .940
+> 124816 32
+
+Sentiment            
+
+> .698 .758 .795 .837 .843 .847 .500 .522 .522 .602 .623 .650
+> 124816 32
+
+Formality              
+
+> .833 .853 .923 .940 .953 .965 .728 .765 .757 .785 .787 .820
+> 124816 32 0.5 0.6 0.7 0.8 0.9 1.0
+
+IMDB             
+
+> .760 .790 .817 .863 .895 .902 .635 .635 .687 .697 .698 .747
+> 124816 32
+
+Toxicity          
+
+> .778 .860 .888 .885 .905 .907 .472 .543 .558 .603 .610 .573
+> J-Miner Surface Low budget ( K≤ 4 )Primary ( K= 16 )
+
+Feature budget K
+
+> Held-out teacher fidelity
+
+Figure 9: Teacher fidelity across matched feature budgets. Each panel compares J-Miner and Surface scorecards from 𝐾 = 1 to 
+
+𝐾 = 32 under the same teacher target and prediction head. The dotted line marks the primary 𝐾 = 16 setting. 
+
+Task 𝐾 = 1 𝐾 = 2 𝐾 = 4 𝐾 = 8 𝐾 = 16 𝐾 = 32 SMS .950/.733 .967/.807 .980/.837 .983/.890 .983/.923 .987/.940 Sentiment .698/.500 .758/.522 .795/.522 .837/.602 .843/.623 .847/.650 Formality .833/.728 .853/.765 .923/.757 .940/.785 .953/.787 .965/.820 IMDB .760/.635 .790/.635 .817/.687 .863/.697 .895/.698 .902/.747 Toxicity .778/.472 .860/.543 .888/.558 .885/.603 .905/.610 .907/.573 
+
+Table 6: J-Miner/Surface teacher fidelity across matched feature budgets. Each cell reports the two scorecards under the same teacher target, feature budget, prediction head, and held-out examples. Internal and Surface candidates are ranked independently within their respective candidate pools. 
+
+Task 𝐾 = 1 𝐾 = 2 𝐾 = 4 𝐾 = 8 𝐾 = 16 𝐾 = 32 𝐾 = 64 SMS .950 (.553) .967 (.593) .980 (.668) .983 (.783) .983 (.883) .987 (.935) .987 (.963) Sentiment .698 (.555) .758 (.563) .795 (.559) .837 (.587) .843 (.639) .847 (.694) .873 (.750) Formality .833 (.527) .853 (.548) .923 (.599) .940 (.667) .953 (.762) .965 (.838) .965 (.883) IMDB .760 (.522) .790 (.527) .817 (.537) .863 (.554) .895 (.590) .902 (.633) .918 (.694) Toxicity .778 (.550) .860 (.543) .888 (.553) .885 (.564) .905 (.611) .907 (.688) .908 (.780) Sarcasm .583 (.487) .637 (.527) .695 (.531) .718 (.568) .750 (.613) .787 (.665) .828 (.717) 
+
+Table 7: Teacher fidelity under teacher-ranked and random internal candidate orderings. Each cell reports the teacher-ranked LR-𝐾 fidelity; parentheses give the median fidelity of 100 random nested orderings drawn from the same candidate pool and evaluated with the same scorecard construction. 
+
+13 Yunfan Gao, Xinyi Huang, Tao Sheng, Haorui Song, Yun Xiong, and Haofen Wang 
+
+scorecard fitting use construction-split teacher predictions, while the test split is reserved for the fidelity readback. We first test whether the advantage of internal concepts over Sur-face features depends on the primary 𝐾 = 16 setting. The matched sweep covers SMS, Sentiment, Formality, IMDB, and Toxicity, the five tasks with complete Surface budget curves, and varies 𝐾 from 1 to 32. At each budget, J-Miner and Surface select the top 𝐾 features from their respective candidate pools and use the same teacher target, scorecard family, class weighting, and held-out examples. Figure 9 shows both fidelity curves, with their values in Table 6. The advantage of internal concepts is already present in the first selected coordinate. With one concept and an intercept, J-Miner reaches .698–.950 teacher fidelity across the five tasks, with a mean of .804, compared with .614 for a single Surface word. From 𝐾 = 1to 𝐾 = 32, all 30 observed task-by-budget gaps remain positive and range from +4.67 to +33 .33 percentage points. The curves also reveal different capacity requirements across tasks. For SMS, both routes quickly approach high fidelity, and the Surface scorecard narrows the gap as its vocabulary expands. Toxicity retains a wide internal-over-Surface gap. J-Miner moves from .905 at 𝐾 = 16 to .907 at 𝐾 = 32, while Surface moves from .610 to .573. Increasing the feature budget therefore affects the tasks differently. Literal words cover much of the directly expressed evidence in SMS, whereas adding more Surface features in Toxicity does not produce a similarly faithful compact rule. The matched comparison changes both feature provenance and candidate ordering. To examine ranking within the internal repre-sentation, we fix each task’s candidate pool and compare its teacher-ranked vocabulary with 100 random nested orderings drawn from the same pool. This comparison covers all six binary tasks and extends the budget to 𝐾 = 64. Every random ordering uses the same LR-𝐾 fitting and held-out evaluation as the teacher-ranked route. Table 7 reports teacher-ranked and random-order fidelity. The teacher-ranked ordering exceeds the random-order median in every displayed task-by-budget cell, showing that construction ranking places more predictive internal coordinates earlier in the fi-nite vocabulary. SMS reaches .980 teacher fidelity with four teacher-ranked concepts, compared with a .668 random median at the same budget, and gains little as the vocabulary grows further. Sarcasm continues to absorb decision information beyond the primary bud-get, rising from .750 at 𝐾 = 16 to .828 at 𝐾 = 64. Sentiment and IMDB also continue to improve beyond 𝐾 = 16. Different tasks therefore require different numbers of coordinates to cover their decision-associated information. The budget curves expose two complementary forms of con-centration. Predictive internal coordinates are concentrated near the front of the teacher-ranked vocabulary, so a small concept set already recovers much of the teacher’s behavior. The decision infor-mation not expressed by those first coordinates is task dependent, and a larger vocabulary extends its coverage. Candidate ranking determines which information enters a limited budget first, while feature capacity determines how much decision structure the score-card can ultimately contain. The multiclass results next show how this capacity boundary appears when a fixed vocabulary does not cover every class-associated coordinate. 
+
+## B.4 Multiclass recovery and validation 
+
+Multiclass tasks make this capacity boundary more explicit because the same fixed vocabulary must represent several class directions. We extend the binary construction to a class-balanced multinomial scorecard at 𝐾 = 16 and predict the class with the largest score. HateXplain, SNIPS-3, and SNIPS-7 use the same readout, candidate ranking, scorecard fitting, and held-out replay path. Table 8 re-ports label-state and compact-scorecard fidelity. Table 9 separately reports the class coverage available under the fixed vocabulary.                 
+
+> Task Classes Label-state fid. J-Miner fid. Surface fid. HateXplain 3.937/.921 .660/.619 .653/.622 SNIPS-3 31.000/1.000 .993/.993 .980/.980 SNIPS-7 7.998/.998 .863/.834 .817/.819
+
+Table 8: Multiclass recovery fidelity against frozen teacher predictions, reported as accuracy/macro-F1. Label-state fi-delity measures the classifier readout before compression; J-Miner and Surface fidelity measure the two compact score-cards at 𝐾 = 16 .
+
+Task Min. recall Associated-class coverage Zero-feature rows HateXplain .399 2/3 134/600 SNIPS-3 .980 3/3 2/297 SNIPS-7 .165 5/7 126/665 
+
+Table 9: Fixed-budget multiclass class coverage. Associated-class coverage counts classes represented by at least one coor-dinate in the selected vocabulary. Zero-feature rows contain no active selected concept, so the multinomial intercept de-termines their prediction. 
+
+SNIPS-3 shows the case in which the fixed vocabulary covers the full class space. Its sixteen selected concepts represent all three classes, only two test examples activate no concept, and J-Miner retains .993/.993 teacher fidelity. SNIPS-7 also has a nearly complete label-state readout at .998/.998, but its top-16 vocabulary represents only five of seven classes. Classes 5 and 6 have no selected coor-dinate, 126 examples fall back to the intercept-defined prediction, and class-6 recall falls to .165. HateXplain exhibits the same coverage boundary. Its selected vocabulary represents two of three classes, omits a coordinate as-sociated with the offensive class, and produces 134 zero-feature rows. J-Miner reaches .660/.619 teacher fidelity, close to Surface at .653/.622. The multiclass results show that a class decision can be read from the model’s label state even when compression into a fixed concept vocabulary does not retain every class-associated direction. We also examine the complete recovery path when the decision structure is known. On a closed-world task with an implanted compositional rule and a controlled candidate space, J-Miner and the vanilla-lens control both reach 1.000 rule F1, teacher fidelity, and directional counterfactual fidelity across three seeds. When 
+
+> 14 J-Miner: Recovering Executable Decision Knowledge from Language-Model Classifiers
+
+the required coordinates are available in the candidate space, the ranking, rule-construction, and replay path can recover and execute the target rule exactly. Real-text recovery additionally requires recurring message-level coordinates to be found from checkpoint readouts. Sarcasm has the lowest recovery fidelity in the primary six-task comparison, so we repeat the frozen comparison on a fresh 600-example lockbox. J-Miner exceeds Surface by 5.50 percentage points in teacher fidelity, with a paired 95% interval of [0.33 , 10 .67 ]. The internal-over-Surface direction observed on the primary test set therefore continues on a new sample. Finally, we stratify the same IMDB recovery comparison by input length. The held-out examples span 70 to 512 tokens, and every observed length bin retains a positive internal-over-Surface gap. The fixed concept–rule construction thus extends from short inputs to the longer reviews represented in the current IMDB setting. 
+
+## C Inspecting the recovered interface 
+
+Appendix B establishes that the frozen scorecard recovers teacher behavior. We now open this executable interface and follow its coordinates from activation to verdict. We first examine how a vo-cabulary name anchors an internal direction across surface forms, then trace how the resulting state is weighted and stabilizes into a verdict. We then place this executable object alongside alterna-tive feature representations and examine how a fixed vocabulary allocates coverage across class directions. 
+
+## C.1 Non-literal activation of named coordinates 
+
+Each coordinate is presented through a vocabulary item, but its activation does not require that item to appear verbatim in the input. The printed name provides a readable anchor for an internal readout direction, while different surface expressions can activate the same direction. We measure this relationship with the non-literal activation rate. For concept 𝑐 ,
+
+𝑞 (𝑐 ) = 𝑃 (printed name of 𝑐 is absent from 𝑥 | 𝑐 (𝑥 ) = 1). (17) Concept firing uses the message-level indicator in Equation 14; name occurrence uses normalized substring matching in the input. A larger 𝑞 (𝑐 ) means that more activations occur without a literal match to the printed name. We summarize this behavior in two ways. The first average includes all sixteen coordinates selected for a scorecard. The second includes only coordinates whose printed names occur at least once in the held-out test set, restricting the analysis to coordinates for which a literal match is empirically possible. Table 10 reports both quantities. Across the six tasks, the all-coordinate mean ranges from .8045 to .9861. After restricting the calculation to coordinates whose names appear in the test corpus, the mean remains between .7766 and .9798. Most activations in this subset occur without the corresponding word form. Held-out examples show how these coordinates respond across surface forms. The Formality sentence “A seasonal ACE Index is sim-ply the summation of all the storm values” activates seven selected coordinates, four of whose names are absent from the sentence. A negative IMDB review activates ten evaluative coordinates, nine                                     
+
+> Task Test 𝑛 All-16 mean Never-seen names Observed-name mean Surface SMS 300 .9376 7.8890 .0000 Sentiment 600 .9649 0.9649 .0000 Formality 600 .8045 2.7766 .0000 IMDB 600 .9323 1.9277 .0000 Toxicity 600 .9861 5.9798 .0000 Sarcasm 600 .9108 4.8811 .0000
+
+Table 10: Non-literal activation of the six teacher-ranked scorecard vocabularies. All-16 mean averages all selected coordinates; never-seen names counts coordinates whose printed name is absent from held-out text. The observed-name mean includes only coordinates whose printed name occurs in held-out text. Surface indicators are defined by literal word occurrence and therefore have zero non-literal activation. 
+
+non-literally, including nonsense , ridiculous , and worst . These examples show that printed names anchor recurring internal direc-tions rather than literal word detectors. Together, these activations form the state 𝑐 (𝑥 ) executed by the frozen scorecard. 
+
+## C.2 Composition and label-state stabilization 
+
+Given the message-level state 𝑐 (𝑥 ), the frozen scorecard computes 
+
+𝑧 (𝑥 ) = 𝑏 +
+
+> 𝐾
+
+∑︁ 
+
+> 𝑗 =1
+
+𝑤 𝑗 𝑐 𝑗 (𝑥 )
+
+and uses the sign of 𝑧 (𝑥 ) to produce the binary verdict. Weight 𝑤 𝑗 
+
+determines the direction and magnitude of coordinate 𝑗 in the score, while the intercept 𝑏 defines the baseline state in the absence of sufficient concept evidence. The named coordinates thereby form an executable decision rule whose terms can be read back individually. Figure 10 opens the six frozen LR-16 rules. It displays the largest signed terms, while each persisted scorecard retains its complete sixteen-coordinate vocabulary, coefficients, and intercept. The tasks organize their decisions through different vocabulary directions. SMS assigns positive weight to promotion-related coordinates such as click , contact , online , and cash . Sentiment accumulates opposing evidence from amazing and happy versus 
+
+bad , dead , and worse . The common scorecard form therefore exposes a task-specific organization learned from each classifier’s behavior. The SMS salon false positive in Figure 11a shows this composi-tion in one prediction. Its message-level state activates click , cash ,
+
+call , money , paid , sale , and price . Adding their contributions to the −4.5606 intercept gives 𝑧 (𝑥 ) = +3.3112 and reproduces the teacher’s spam prediction. On the same input, the matched Sur-face rule activates only ur and produces a score of −1.1063. The input does not enumerate the promotion concepts literally, yet their combined contribution drives the recovered verdict. For each prediction, we write the local contribution of coordi-nate 𝑗 as 𝑎 𝑗 (𝑥 ) = 𝑤 𝑗 𝑐 𝑗 (𝑥 ). The top-three share is the proportion of absolute contribution carried by the three largest active terms. 
+
+> 15
+
+Yunfan Gao, Xinyi Huang, Tao Sheng, Haorui Song, Yun Xiong, and Haofen Wang stupid kids nobody nothing government this officials   
+
+> 这句话
+> -1.90 -1.69 -1.31 -1.05 +1.35 +2.50 +2.91 +3.36
+> teacher fidelity = 0.953 |intercept = -2.16
+
+Formality   
+
+> meaningless nonsense worst terrible wonderful fascinating beautifully thanks
+> -0.95 -0.88 -0.86 -0.82 +0.93 +1.23 +1.48 +1.91
+> teacher fidelity = 0.895 |intercept = +0.26
+
+IMDB   
+
+> but and your them themselves shit sarcast screaming
+> -1.45 -1.14 -1.14 +1.07 +1.09 +1.72 +2.08 +2.38
+> teacher fidelity = 0.750 |intercept = -0.06
+
+Sarcasm         
+
+> −3 −2 −1 0123
+> LR coefficient (toward teacher class 0 <- 0 -> teacher class 1)
+> bad dead worse nobody happy amazing enjoy congratulations
+> -2.09 -2.08 -1.20 -1.10 +1.00 +1.09 +1.10 +1.33
+> teacher fidelity = 0.843 |intercept = -0.05
+
+Sentiment         
+
+> −3 −2 −1 0123
+> LR coefficient (toward teacher class 0 <- 0 -> teacher class 1)
+> xxxx cash xyz danger online contact illegal click
+> -0.02 +1.05 +1.13 +1.28 +1.36 +1.50 +1.68 +2.86
+> teacher fidelity = 0.983 |intercept = -4.56
+
+SMS         
+
+> −3 −2 −1 0123
+> LR coefficient (toward teacher class 0 <- 0 -> teacher class 1)
+> fuck asshole dead angry absolutely hate horrific viol
+> +1.42 +1.42 +1.52 +1.73 +1.78 +2.00 +2.67 +3.42
+> teacher fidelity = 0.905 |intercept = -3.04
+> all 16 coefficients are positive
+
+Toxicity 
+
+Current unified teacher-ranked J-Miner LR-16 scorecards 
+
+Balanced logistic heads over 16 named internal concepts | Qwen3.5-0.8B, seed 17 | 8 strongest terms shown per task, preserving both signs when available 
+
+> Decision rule: class 1 when intercept + sum(weight x concept trigger) > 0; otherwise class 0. The frozen JSON files contain all 16 terms and replayed test predictions.
+
+Figure 10: Frozen teacher-ranked scorecards at 𝐾 = 16 for the six binary tasks. Bars show the strongest signed coordinates, with direction indicating whether each coordinate moves the score toward teacher class 1 or class 0. Annotations report the intercept and held-out teacher fidelity; the persisted objects retain all sixteen coordinates and coefficients. 
+
+Effective support, Í𝑗 |𝑎 𝑗 |
+
+2
+
+Í𝑗 𝑎 2
+
+𝑗 
+
+,
+
+measures how broadly contribution is distributed, and 𝑚 90 is the minimum number of active coordinates needed to cover 90% of absolute feature contribution. The resulting composition is task specific. Sarcasm concentrates its main contribution in three coor-dinates. Sentiment, Formality, IMDB, and Toxicity require four to six, whereas SMS requires eleven promotion-related coordinates. A frozen rule can therefore form a verdict around a few dominant concepts or accumulate a broader set of aligned contributions. We next follow these decision states through model depth. At layer 𝑙 , verdict agreement is the fraction of examples whose J-Lens label-margin sign matches the final teacher prediction. L95 is the earliest layer from which agreement remains at least .95 through L22. An example’s settling layer is the earliest layer after which its label-margin sign no longer changes; examples that do not settle in the observed range are assigned L23. All six tasks reach L95 between L10 and L15. SMS reaches sustained agreement at L10, Formality and Sarcasm at L14, and Sentiment, IMDB, and Toxicity at L15. The class-specific median settling layers in Figure 11b differ by as much as twelve layers. In several tasks, an early class-0 state gives way as task-specific coordinates become stably readable and the label state aligns with the final verdict. The SMS trace follows the same progression: position-level readouts develop from price 
+
+and discount into coupon and promo , and its label state settles on spam from L14. Tables 11 and 12 bring the two structures together. Label-state statistics describe when decision information stabilizes through depth, while contribution statistics describe how the same decision state is composed by the frozen rule. Every active coordinate has a readable signed contribution at the example level. Across layers, the corresponding task-specific state becomes stably aligned with the final verdict. Together, the scorecard exposes verdict composition, and the layer trace locates label-state stabilization. 
+
+16 J-Miner: Recovering Executable Decision Knowledge from Language-Model Classifiers 
+
+(a) Representative SMS trace L10 L12 L14 L16 L18 L20 L22 
+
+Source layer 
+
+% coupon 
+
+> profits
+> price
+> profits
+> price
+> discount
+> discount
+> price
+> discount
+> 折扣
+> discount
+> off
+> discount
+> off
+
+off price 
+
+> discounts
+> price
+> priced
+> price
+> prices
+> sale
+> customers
+> coupon
+> coupons
+> coupon
+> promo
+> on
+> for
+
+salon salon  
+
+> shops
+> salon
+> shops
+> salon
+> shops
+> salon
+> haircut
+> salon
+> haircut
+> salon
+> appointment
+> appointment
+> visit
+> verdict margin
+> spam
+> +0.31
+> ham
+> -0.38
+> spam
+> +0.56
+> spam
+> +4.31
+> spam
+> +5.12
+> spam
+> +10.44
+> spam
+> +9.88
+> position
+
+(b) Class-specific settling 0 5 10 15 20 22 
+
+Settling layer, median [IQR] 
+
+Toxicity Sentiment Formality IMDB Sarcasm SMS 
+
+early default region 
+
+Final class 0 (margin <= 0) Final class 1 (margin > 0) 
+
+Figure 11: Decision-state evolution at example and population levels. (a) A held-out SMS false positive traced through position-level readout concepts and layer-wise label margins; its label state settles on spam from L14. (b) Median settling layers and interquartile ranges by final class across the six binary tasks. 
+
+Task Trace 𝑛 L95 Median settle 
+
+𝑦 = 0/1
+
+Mean flips SMS 1,494 10 10 / 2 2.00 Sentiment 3,000 15 7 / 15 3.40 Formality 3,000 14 0 / 13 0.51 IMDB 3,000 15 0 / 15 0.50 Toxicity 3,000 15 3 / 15 2.22 Sarcasm 3,000 14 6 / 13 2.82 
+
+Table 11: Label-state stabilization across six binary tasks. L95 and settling layer describe when the layer-wise label state stabilizes; mean flips counts label-state changes across the traced layers. 
+
+Task Median active Top-3 share Effective support 𝑚 90 Zero-feature rows Fidelity SMS 3.5 .394 10.35 11 100 .983 Sentiment 5.0 .807 3.77 4 10 .843 Formality 7.0 .687 5.06 6 5 .953 IMDB 7.0 .600 5.94 6 6 .895 Toxicity 2.0 .628 5.51 6 225 .905 Sarcasm 3.0 1.000 2.29 3 36 .750 
+
+Table 12: Scorecard contribution concentration across six bi-nary tasks. Top-three share, effective support, and 𝑚 90 de-scribe the distribution of absolute contribution. Fidelity is agreement between the frozen LR-16 scorecard and held-out teacher predictions. 
+
+Task Best-head gold Rule fidelity Name CWS Lookups Toxicity .8517/.8600 .8967/.9467 1.0000/.0000 0/4 Formality .9433/.9500 .9350/.9700 .7500/.2269 0/4 Sentiment .8550/.8767 .8200/.8083 1.0000/.0703 0/4 IMDB .9100/.9233 .8167/.9217 1.0000/.0056 0/4 Mean .8900/.9025 .8671/.9117 .9375/.0757 0/4 
+
+Table 13: Matched J-Miner/SAE comparison across four tasks. Cells report J-Miner/SAE. Best-head gold is the gold accu-racy of the development-selected linear head; rule fidelity is agreement between the matched four-literal rule and frozen teacher predictions. CWS is the selected-name content-word share, and lookups count external activation-token rows re-quired to read the rule predicates. 
+
+## C.3 Alternative feature representations 
+
+With this execution path visible, the comparison turns to the object exposed by each representation. We compare J-Miner with alterna-tive feature representations at similar predictive operating points, asking whether the predicates that form each rule remain directly named and executable. We first compare J-Miner coordinates with SAE features under the same data splits and classifier targets. Development-selected heads reach mean gold accuracies of .8900 and .9025, with task-level differences of .0067–.0217. Matched four-literal rules reach mean teacher fidelities of .8671 and .9117. SAE has higher rule fidelity on Toxicity, Formality, and IMDB; J-Miner reaches .8200 on Sentiment, above SAE at .8083. These values place the two representations in a similar predictive range and allow their rule forms to be compared directly. The difference becomes concrete in the matched Toxicity rules in Figure 7, which reach truth accuracies of .832 and .845. The J-Miner rule directly composes absolutely , angry , hate , and viol .These predicates retain their vocabulary identity inside the rule. 
+
+17 Yunfan Gao, Xinyi Huang, Tao Sheng, Haorui Song, Yun Xiong, and Haofen Wang 
+
+(a) Toxicity feature-representation comparison 
+
+Feature source Fidelity Signal source Exposed object Dictionary coordinates Executable head Surface words .5883 input text literal input words 16/16 Yes Attention rollout .5683 attention routing input tokens N/A Yes Integrated Gradients .5933 input attribution input tokens N/A Yes Sparse autoencoder .9333 internal activation latent IDs naming required Yes Vanilla readout .9183 internal readout vocabulary coordinates 2/16 Yes J-Miner .9050 internal readout vocabulary coordinates 11/16 Yes Dense probe 1.0000 hidden state 1,024 dimensions N/A No 
+
+(b) Four-task representation-suite fidelity 
+
+Task Surface J-Miner Vanilla SAE Toxicity .5883 .9050 .9183 .9333 Formality .7867 .9533 .9617 .9783 Sentiment .6650 .8567 .8633 .8167 IMDB .7150 .8950 .8900 .9400 
+
+(c) Four-task naming diagnostics 
+
+Task J dict. Vanilla dict. Non-literal J Predictive naming J/V/SAE Toxicity 11/16 2/16 .9861 .5066/.5003/.5392 Formality 15/16 10/16 .8045 .5668/.5589/.5640 Sentiment 15/16 4/16 .9675 .5151/.5176/.5258 IMDB 14/16 3/16 .9323 .5336/.5070/.5251 
+
+Table 14: A bounded feature-representation comparison. Panel (a) uses the same Toxicity split and frozen teacher target. Except for the dense probe, rows use a 16-feature budget, a class-balanced logistic head, and representation-specific feature selection. Panel (b) reports teacher fidelity within the same suite. Panel (c) reports dictionary-word coordinates and name-to-firing balanced accuracy for J-Miner, vanilla readout, and SAE. 
+
+The SAE rule instead uses four latent IDs whose meanings require activation-token lookup. Across the four tasks, J-Miner’s selected-name CWS ranges from .7500 to 1.0000 without external lookup. The SAE range is .0000–.2269, and each rule requires four lookup rows. Both representations support compact prediction, but J-Miner preserves predicate identity and rule execution in the same named representation. To place this matched comparison in a broader representation context, we also use the bounded suite in Table 14. The suite shares the same Toxicity split and frozen teacher target. Except for the dense probe reference, each predictive row selects sixteen features within its own representation and fits a class-balanced logistic head. Because selection is representation specific, these fidelities compare operating points within this suite and are separate from the unified teacher-ranked J-Miner/Surface comparison in Table 1. Surface words, attention rollout, and Integrated Gradients map predictions back to input words or token importance. They support compact predictive heads, but the exposed objects remain input ele-ments. The dense probe decodes the teacher verdict perfectly from 1,024 hidden dimensions in this Toxicity setting and serves as a decodability reference rather than a compact rule. SAE, vanilla read-out, and J-Miner construct compact features from internal states, but retain different feature identities. SAE exposes latent IDs that require subsequent naming. Vanilla readout and J-Miner expose vocabulary coordinates; within this suite, 2 of 16 vanilla coordinates and 11 of 16 J-Miner coordinates are English dictionary words. The four-task suite gives SAE the highest fidelity on Toxicity, For-mality, and IMDB, while vanilla readout has the highest Sentiment point estimate. J-Miner exceeds SAE on Sentiment and remains in the same compact-fidelity range on the other tasks. This operating point combines compact predictive information with vocabulary coordinates that enter an explicit scorecard. Dictionary-coordinate count and predictive naming measure different properties. The former asks whether a selected coordi-nate directly prints as an English word. The latter asks whether literal occurrence of that printed name can predict the coordinate’s activation. Predictive naming remains near chance for all three internal representations: .5066–.5668 for J-Miner, .5003–.5589 for vanilla readout, and .5251–.5640 for SAE. Literal name occurrence therefore neither separates these representations nor substitutes for their actual activation states. As in the non-literal analysis above, a vocabulary name identifies the coordinate, while different surface forms can support its activation. Together, the comparisons place predictive fidelity alongside the object exposed by each representation. J-Miner retains classifier-internal predictive information and presents the selected coor-dinates directly as vocabulary predicates. The frozen scorecard records their direction, weight, and composition in the same repre-sentation. Once the coordinates have been selected, the scorecard makes their execution explicit. We next examine how much class-direction coverage a fixed vocabulary retains. 
+
+## C.4 Multiclass coverage under a fixed budget 
+
+In the binary tasks, the fixed 𝐾 = 16 vocabulary supports two opposing verdict directions. When the same budget is used for a multiclass task, its sixteen coordinates must provide evidence for several class scores. We first test whether the class label state can be read stably from the classifier. We then examine whether compression into a fixed vocabulary retains those class directions in the executable scorecard.      
+
+> 18 J-Miner: Recovering Executable Decision Knowledge from Language-Model Classifiers 0510 15 20 22
+> Source layer
+> 0.2 0.4 0.6 0.8 1.0
+> Argmax agreement with final verdict  95% agreement
+
+a Multiclass label states crystallize discretely      
+
+> HateXplain (L21) SNIPS-3 (L15) SNIPS-7 (L15)
+> 0510 15 20 22
+> Source layer
+> 0.0 2.5 5.0 7.5 10.0 12.5 15.0 17.5
+> Median winner-runner-up logit margin  L15
+
+b Confidence rises after the label transition        
+
+> 01234567
+> Number of nonzero margin contributions
+> SNIPS-7 SNIPS-3 HateXplain
+> 126/665 default rows 2/297 default rows 134/600 default rows
+
+c Non-default LR-16 margins use three to four concepts  
+
+> Effective support m90
+> HateXplain 2/3 classes covered SNIPS-3 3/3 classes covered SNIPS-7 5/7 classes covered 0.00 0.25 0.50 0.75 1.00
+> Teacher fidelity / recall
+
+d Compression exposes class-coverage failures   
+
+> Exact decision LR-16 overall LR-16 worst class
+
+Figure 12: Multiclass label-state formation and class coverage under a fixed budget. (a) Agreement between each layer’s class argmax and the frozen teacher verdict; markers denote L95. (b) The median winner–runner-up label logit margin. (c) Effective support and 𝑚 90 for non-default winner–runner-up feature margins; annotations report rows with no active selected concept. (d) Label-state fidelity, overall LR-16 fidelity, and minimum class recall. SNIPS-3 retains all three class directions, whereas HateXplain and SNIPS-7 cover only part of their class spaces under the sixteen-coordinate budget. 
+
+At each layer, we define the multiclass label state as the argmax over the class label-token readouts and define the winner–runner-up margin as the difference between the two largest readout log-its. HateXplain, SNIPS-3, and SNIPS-7 reach L95 at L21, L15, and L15, respectively. Their held-out label-state fidelities are .937/.921, 1.000/1.000, and .998/.998, reported as accuracy/macro-F1. SNIPS-3 and SNIPS-7 undergo a sharp label-state transition around L15, after which their winner–runner-up margins widen. HateXplain changes more gradually and reaches sustained agreement only in the final layers. The multiclass verdict is therefore stably readable before we compress it into the selected vocabulary. The multinomial scorecard assigns a weighted score to each class and predicts the class with the largest score. For predicted class ˆ 𝑦 
+
+and runner-up 𝑟 , coordinate 𝑗 contributes 
+
+𝑎 ( ˆ𝑦,𝑟 ) 
+
+> 𝑗
+
+(𝑥 ) =  𝑤 ˆ𝑦 𝑗 − 𝑤 𝑟 𝑗 
+
+ 𝑐 𝑗 (𝑥 )
+
+to their score difference. Among examples with at least one active selected concept, HateXplain, SNIPS-3, and SNIPS-7 require medi-ans of three, four, and three coordinates to cover 90% of the absolute winner–runner-up feature contribution. At the same time, the tasks contain 134/600, 2/297, and 126/665 zero-feature rows, respectively. All sixteen selected concepts are inactive on these rows, so the class intercepts determine the prediction. Concentrated contributions therefore describe how the scorecard organizes available concept evidence, but they do not establish coverage of the complete class space. SNIPS-3 shows the execution path when every class direction is retained. Its selected vocabulary covers all three classes, only two test examples are zero-feature rows, and the scorecard reaches .993/.993 teacher fidelity with a minimum class recall of .980. SNIPS-7 provides the corresponding coverage contrast. Its label-state fi-delity reaches .998/.998, but its selected vocabulary covers five of seven classes. Classes 5 and 6 have no associated selected coordi-nate, 126 examples fall back to an intercept-defined prediction, and LR-16 reaches .863/.834 fidelity while class-6 recall is .165. HateX-plain shows the same pattern with two of three classes covered and 134 zero-feature rows. Tables 8 and 9 in Appendix B.4 report the complete task-level results. These results separate a readable class state from the class di-rections retained in a fixed vocabulary. Label-token readout can present the classifier’s verdict stably, while concept selection de-termines which decision directions enter the executable interface. The fixed budget therefore controls not only rule size but also the class space that the scorecard can represent explicitly.

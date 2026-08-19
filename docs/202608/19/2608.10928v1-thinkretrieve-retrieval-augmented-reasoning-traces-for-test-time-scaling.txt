@@ -1,0 +1,518 @@
+Title: ThinkRetrieve: Retrieval-Augmented Reasoning Traces for Test-Time Scaling
+
+URL Source: https://arxiv.org/pdf/2608.10928v1
+
+Published Time: Wed, 12 Aug 2026 01:09:49 GMT
+
+Number of Pages: 26
+
+Markdown Content:
+# ThinkRetrieve: Retrieval-Augmented Reasoning Traces for Test-Time Scaling 
+
+Vaibhav Singh 1 Soumya Suvra Ghosal 2,3, † Sarvesh Gharat 1 Soumyabrata Pal 3
+
+Ramasuri Narayanam 3 Dinesh Manocha 2
+
+> 1
+
+IIT Bombay 2University of Maryland, College Park 3Adobe Research 
+
+Abstract 
+
+Large Reasoning Models (LRMs) improve performance by allocating additional inference-time compute to generate extended chain-of-thought reasoning. However, recent studies reveal that sequential test-time scaling often yields diminishing or even negative returns, as longer traces exhibit increased uncertainty, error compounding, and drift from the original problem. We propose ThinkRetrieve, a test-time scaling framework that augments the reasoning traces of LRMs with dynamically retrieved solved examples at each reasoning step. Given an external corpus of problems paired with step-by-step solutions, ThinkRetrieve retrieves relevant exemplars at each intermediate step and injects them directly into the thinking trace, providing the model with guidance on how to reason rather than merely what facts are relevant. Experiments across five reasoning models (1.5B–8B parameters) on GSM-8K, MATH-500, AIME 2025, and SciQ demonstrate that ThinkRetrieve consistently improves accuracy over standard test-time scaling, with relative gains of up to 
+
+60% on AIME 2025. 
+
+ https://itsvaibhav01.github.io/ThinkRetrieve/ 
+
+§ https://github.com/itsvaibhav01/ThinkRetrieve 
+
+3 pip install thinkretrieve 
+
+# 1 Introduction 
+
+Large Reasoning Models (LRMs) (Google DeepMind, 2024; Guo et al., 2025; OpenAIo1, 2024; Yang et al., 2025a; xAI, 2025) achieve strong performance on multi-step tasks (Cobbe et al., 2021; Hendrycks et al., 2021; American invitational mathematics examination, 2025; Zhuo et al., 2024; Rein et al., 2024) by allocating extra inference-time compute to generate explicit Chain-of-Thought reasoning (Wei et al., 2022; Muennighoff et al., 2025). This test-time scaling (TTS) paradigm (Snell et al., 2024; Muennighoff et al., 2025), where performance improves as models “think longer”, has emerged as a compelling alternative to scaling parameters or pre-training data. 
+
+> †
+
+Most of this work was done while the author was at University of Maryland, College Park. arXiv:2608.10928v1 [cs.AI] 11 Aug 2026 Figure 1: Comparison of sequential test-time scaling (Muennighoff et al., 2025) and ThinkRetrieve. (Top) In standard sequential test-time scaling (Muennighoff et al., 2025), the model generates an initial reasoning trace and then relies on self-reflection (e.g., “Wait, let’s think again”) to extend its thinking. However, without access to external guidance, the continued reasoning often drifts away from the correct solution path, leading to an incorrect final answer.  
+
+> (Bottom) ThinkRetrieve augments the reasoning process with retrieved exemplars. After the initial thinking phase, the model generates an intermediate answer, which is used as a query to retrieve a relevant solved example from an external example bank. The retrieved exemplar is inserted into the thinking trace as an in-context example (ICE), enabling the model to extract key takeaways, identify errors in its own reasoning, and course-correct before producing the final answer.
+
+However, recent studies show that thinking longer does not always mean thinking better (Ghosal et al., 2025a; Gema et al., 2025; Yue et al., 2025; Shojaee et al., 2025): as traces grow, LRMs exhibit increased uncertainty, repetitive cycling, drift, and error compounding (Ghosal et al., 2025a; Chen et al., 2024; Heyman and Zylberberg, 2025; Mirzadeh et al., 2024), and additional compute often amplifies rather than corrects the mistake. This contrasts with how humans tackle hard problems: instead of persisting along a single line of thought, we recall analogous solved problems to guide and verify our reasoning (Gick and Holyoak, 1980; Gentner, 1983; Hofstadter et al., 2001). Existing retrieval-augmented methods do not provide this mechanism for LRMs. Retrieval-Augmented Generation (Lewis et al., 2020; Gao et al., 2023) and in-context learning (Brown et al., 2020; Luo et al., 2023; Rubin et al., 2022) both retrieve once, before reasoning begins , leaving the retrieved context static throughout generation. Recent dynamic methods such as Search-o1 (Li et al., 2025) and RAT (Wang et al., 2024c) interleave retrieval with thinking but target factual knowledge , not solved examples that serve as procedural scaffolds. In this work, we propose ThinkRetrieve, a framework that retrieves relevant solved examples and injects them directly into the reasoning trace of LRMs at each thinking step. The core idea of our framework is that, after each reasoning step, the model generates an intermediate answer, which is then used to retrieve a similar solved problem from an external example bank. This retrieved example, containing both the question and its step-by-step solution, is then inserted into the thinking trace before the model continues reasoning. This process repeats at each step, allowing the model to continuously ground its reasoning in concrete worked-out examples, much like how humans recall and reference similar problems when solving a difficult task (Gick and Holyoak, 1980; Hofstadter et al., 2001). Crucially, unlike prior work that retrieves factual documents or knowledge during reasoning (Li et al., 2025; Wang et al., 2024c), ThinkRetrieve retrieves complete solved problems with reasoning chains, showing the model how to reason rather than what facts to use. 2Contributions 
+
+• We propose ThinkRetrieve, a framework that integrates the retrieval of solved exemplars directly into the reasoning traces of LRMs at each reasoning step, enabling dynamic example-guided test-time scaling. • We provide a thorough analysis showing that in-trace example retrieval significantly reduces the entropy and uncertainty of generated answers compared to sequential test-time scaling (Muennighoff et al., 2025), offering insight into why procedural scaffolding is more effective than simply thinking longer. • We conduct extensive experiments across five reasoning models (DeepSeek-R1-Distill-Qwen-1.5B, Qwen3-1.7B, Qwen3.5-2B, Qwen3-4B, and Qwen3-8B) (Guo et al., 2025; Yang et al., 2025a) on four benchmarks (GSM-8K (Cobbe et al., 2021), MATH-500 (Hendrycks et al., 2021), AIME 2025, and SciQ (Welbl et al., 2017)), with two additional retrieval baselines beyond sequential test-time scaling, demonstrating consistent improvements over every baseline across all (model, benchmark) cells. 
+
+# 2 Related Works 
+
+Large reasoning models. OpenAI’s o1 (OpenAIo1, 2024) series introduced the first large-scale language model to integrate RL-driven training with the concept of test-time thinking, unlocking the reasoning potential of LLMs and establishing the domain of large reasoning models (LRMs) (Xu et al., 2025). Following the release of o1, numerous efforts have sought to replicate its reasoning capabilities, including Open-R (Wang et al., 2024b), Llama-berry (Zhang et al., 2024), Journey-R (Qin et al., 2024), and Drt-o1 (Wang et al., 2024a). DeepSeek-R1 (Guo et al., 2025) was among the first open-source models to match o1-level reasoning, employing sparse-reward RL training (Shao et al., 2024) on DeepSeek-V3-Base (DeepSeek-AI, 2024). Subsequently, several open-source efforts have continued employing RL to improve reasoning (Team, 2025; Arora and Zanette, 2025; Aggarwal and Welleck, 2025; Liu et al., 2025; Shen et al., 2025a; Yu et al., 2025; Huang et al., 2025b; Jin et al., 2025; Team et al., 2025; xAI, 2025; Google DeepMind, 2024). In this work, we focus not on improving the training of reasoning models, but on enhancing their test-time behavior through retrieval-augmented reasoning traces. 
+
+Test-time scaling in reasoning language models. Snell et al. (2024) established that scaling inference-time compute can yield predictable performance gains, providing a theoretical grounding for the test-time scaling paradigm. Muennighoff et al. (2025) introduced budget forcing to replicate the test-time scaling behavior observed in o1 (OpenAIo1, 2024), demonstrating that controlling reasoning length at inference can improve performance without additional training. L1 (Aggarwal and Welleck, 2025) proposed length-controlled policy optimization for precise control over reasoning trace length. Yang et al. (2025b) introduced thinking-optimal scaling, training models to adapt dynamically to different reasoning effort levels depending on the compute budget. A growing body of work has also explored training models to reason efficiently according to task complexity (Arora and Zanette, 2025; Fang et al., 2025; Zhang et al., 2025b; Jiang et al., 2025; Liang et al., 2025; Zhang et al., 2025a; Huang et al., 2025a). However, these approaches scale compute by generating longer or more adaptive reasoning traces, without modifying the content available to the model during reasoning. Our work is complementary: rather than controlling how much the model thinks, we enrich what it thinks by injecting retrieved solved examples into the reasoning trace. 
+
+Retrieval-augmented reasoning. Retrieval-Augmented Generation (RAG) (Lewis et al., 2020) augments LLMs with external knowledge retrieved at the input level, and has been widely adopted for knowledge-intensive tasks (Gao et al., 2023). In the context of reasoning, several recent works have explored integrating 3retrieval into the reasoning process itself. Search-o1 (Li et al., 2025) enables LRMs to autonomously trigger search queries during reasoning to address knowledge gaps, while RAT (Wang et al., 2024c) iteratively revises each thought step with retrieved information. RARE (Wang et al., 2025b) decouples knowledge storage from reasoning by externalizing domain knowledge to retrievable sources during training. Chain-of-Retrieval (Wang et al., 2025a) interleaves retrieval with generation steps for multi-hop question answering. On the in-context learning front, retrieval of demonstrations has been explored for improving few-shot prompting (Ghosal et al., 2025b; Rubin et al., 2022; Luo et al., 2023), but such retrieval is performed once before generation and remains static throughout inference. More recent step-aware retrieval methods retrieve premises, per-step process signals, or induced guidelines (Zhu et al., 2025; Shen et al., 2025b; Chen et al., 2026), and math-specific retrieval benchmarks (Alshammari et al., 2026) show that structurally faithful retrieval over math problems is challenging with off-the-shelf encoders. In contrast, our work retrieves complete solved problems with step-by-step reasoning trajectories and injects them at each step of the thinking trace, providing guidance on how to reason rather than supplementing what the model knows. 
+
+# 3 Methodology 
+
+3.1 Preliminaries 
+
+Mathematical formulation of the reasoning process. We consider Large Reasoning Models (LRMs) that produce explicit intermediate reasoning before generating a final answer. Formally, given a textual input prompt x = ( x1, x 2, . . . , x P ) consisting of P tokens over a vocabulary V, the reasoning process can be expressed as: 
+
+x → z → y, (1) where the model first produces a reasoning trace z ∼ πθ(· | x) and subsequently generates the final answer 
+
+y ∼ πθ(· | x, z ), with πθ denoting the language model parameterized by θ.
+
+Test-time scaling via sequential self-reflection. Following Muennighoff et al. (2025), test-time scaling (TTS) extends the thinking process by decomposing the reasoning trace into sequential steps: 
+
+x → z1 → z2 → · · · → zk → y, (2) where, given the input x, the model first generates an initial reasoning step z1 ∼ πθ(· | x). Rather than producing the final answer immediately, the model is prompted to continue reasoning using special instruction tokens ( e.g. , “Wait”, “Think more”), denoted by c. Subsequent reasoning steps are sampled iteratively as zt ∼
+
+πθ(· | x, z 1: t−1, c ) for t = 2 , . . . , k , until the model generates the final response as y ∼ πθ(· | x, z 1: k, c ). For brevity, we omit explicit mention of c in the conditioning and denote the thinking traces as y ∼ πθ(·| x, z 1: k).
+
+3.2 ThinkRetrieve: Retrieval-Augmented Test-Time Scaling 
+
+The core idea behind ThinkRetrieve is to transform the sequential test-time scaling process (Eq. 2) into a retrieval-guided reasoning framework. At a high level, after each reasoning step, we prompt the model to generate an intermediate answer reflecting its current solution estimate. This intermediate answer, together with the original query, is used to retrieve a structurally relevant solved example from an external corpus. The retrieved example is then injected into the thinking trace as an exemplar, guiding the model’s subsequent reasoning step. This produces an interleaved reasoning trajectory that tightly couples the model’s evolving reasoning state with externally grounded solution strategies. We describe each component below. 
+
+Example corpus. For retrieval, our framework leverages an external corpus of solved examples E =
+
+{(qj , a j )}Nj=1 , where each entry pairs a query qj with its corresponding step-by-step solution aj . For this study, we populate this corpus using an existing collection of synthetically generated questions and solutions, 4ensuring zero overlap with our evaluation benchmarks (see Section 4 for details). Each example is represented by a dense embedding of its query-answer pair ej = Enc (qj , a j ) using a pre-trained sentence encoder Enc (·),and all embeddings are indexed for efficient nearest-neighbor retrieval. 
+
+3.2.1 Retrieval-augmented thinking 
+
+Given a test query xtest and a thinking budget of B tokens, ThinkRetrieve proceeds iteratively, constructing an interleaved reasoning trajectory τk = ( z1, e 1, z 2, e 2, . . . , z k, e k), where zt denotes the reasoning step generated by the model at step t, et denotes the exemplar retrieved after zt, and k is the total number of reasoning steps determined by the token budget B.
+
+Step boundary. A step boundary is triggered when the model naturally produces the </think> stop token before the budget B is exhausted, the same signal used by sequential TTS budget forcing (Muennighoff et al., 2025). At each boundary, ThinkRetrieve closes the thinking block, elicits yt via Eq. 4, performs retrieval, and resumes the <think> block with the injected exemplar and prompt c. For models that generate continuously without self-terminating, an insertion is additionally forced at a fixed token interval, ensuring periodic grounding. The total step count k is thus determined jointly by the model’s self-termination frequency and B.
+
+Exemplar selection. At each thinking step t, the model generates a reasoning trace zt:
+
+zt ∼ πθ(· | xtest , τ <t ) . (3) where τ<t = ( z1, e 1, . . . , z t−1, e t−1) denotes the trajectory prefix preceding step t. A critical requirement for effective dense retrieval is a high-signal search query. However, the raw reasoning trace zt is inherently exploratory, often containing verbose hypotheses, self-corrections, and backtracking. Using zt directly as a query introduces significant semantic noise, leading to sub-optimal exemplar retrieval. Therefore, in order to accurately reflect the model’s current belief state, we prompt the model to generate an intermediate answer by appending the thinking delimiter token ( </think> ): 
+
+yt ∼ πθ(· | xtest , τ <t , z t, Final Answer: ) . (4) The intermediate answer yt is then jointly encoded with the test query to generate the search query: 
+
+qt = Enc (xtest , y t), (5) and the most relevant exemplar is retrieved from E via dense nearest-neighbor search: 
+
+j∗ 
+
+> t
+
+= arg max  
+
+> j∈{ 1,...,N }
+
+sim (qt, ej ) , (6) where sim (·, ·) denotes cosine similarity and ej = Enc (qj , a j ) is the pre-computed embedding of the j-th corpus entry. The retrieved exemplar et is then formatted as: 
+
+et = [Example: qj∗ 
+
+> t
+
+Solution: aj∗ 
+
+> t
+
+], (7) and appended to the reasoning trace along with a continuation prompt c that instructs the model to leverage the retrieved exemplar for subsequent reasoning (the exact prompt template is provided in Appendix K). Importantly, c is inserted by the framework at each step boundary; the model does not generate a trigger phrase, and no special output format is required from the model. Consistent gains across four architecturally distinct models (Table 1) confirm that this injection is robust across model families. The next reasoning step is then generated as: 
+
+zt+1 ∼ πθ(· | xtest , τ <t , z t, e t, c ) . (8) 5GSM-8K MATH-500 AIME 2025    
+
+> 0246810 12 14
+> Accuracy gain over sequential TTS (%)
+> DeepSeek-R1-1.5B Qwen3-1.7B Qwen3.5-2B Qwen3-4B Qwen3-8B Figure 2: ThinkRetrieve improves over sequential TTS on every (model, benchmark) cell. Accuracy gain (%) of ThinkRetrieve over sequential test-time scaling for each of the five models, on GSM-8K, MATH-500, and AIME 2025. Every bar is positive, with the largest gains on the hardest benchmark (up to +13 .4on AIME 2025 for Qwen3-1.7B). Absolute numbers for all methods and baselines in Table 1.
+
+This iterative process continues until the token budget B is exhausted, resulting in k total reasoning steps. Finally, the model produces the final answer conditioned on the fully augmented trajectory: 
+
+y ∼ πθ(· | xtest , τ k) . (9) In Algorithm 1 (Appendix L), we summarize the complete procedure. 
+
+# 4 Experiments 
+
+Experimental setup. We evaluate ThinkRetrieve on four benchmarks: (1) GSM-8K (Cobbe et al., 2021), a dataset of 8,788 grade-school math word problems requiring multi-step arithmetic reasoning; (2) MATH-500 (Hendrycks et al., 2021), a curated subset of 500 competition-level problems spanning algebra, geometry, number theory, and combinatorics; (3) AIME 2025 (American invitational mathematics examination, 2025), consisting of 30 problems from the 2025 American Invitational Mathematics Examination, representing olympiad-level difficulty; and (4) SciQ (Welbl et al., 2017), a multiple-choice science QA benchmark. The first three benchmarks use NuminaMath as the example bank; SciQ uses its own training split. This range of benchmarks enables fine-grained evaluation of how retrieval-augmented reasoning scales with problem complexity and adapts to different example banks. We evaluate across five reasoning models spanning 1.5B to 8B parameters: DeepSeek-R1-Distill-Qwen-1.5B (Guo et al., 2025), Qwen3-1.7B, Qwen3.5-2B, Qwen3-4B, and Qwen3-8B (Yang et al., 2025a), all evaluated in their reasoning (thinking) mode. For each model, we compare ThinkRetrieve against sequential test-time scaling (Muennighoff et al., 2025) and two additional baselines (static input-level ICL and random per-step retrieval; see Table 1 and Table 2). We report accuracy by checking whether the model’s final answer y matches the ground-truth y∗ for each test query. Unless otherwise noted, all generations use stochastic decoding with temperature 0.6 and each model’s default top-p sampling configuration; main-table accuracies are averaged over three random seeds (the same 6Figure 3: Qualitative comparison on a MATH-500 problem. Both methods arrive at the same incorrect intermediate estimate of 1/6. Sequential TTS (left) fails to catch the error through self-reflection. ThinkRetrieve (right) retrieves a similar problem; this contrastive signal helps the model recognize the error in its reasoning on the original problem, correcting the answer to 1/3.
+
+seeds are used for ThinkRetrieve and all baselines on each problem), and the predictive-entropy analysis (Appendix E) draws N independent samples per cell at the same temperature. 
+
+Example corpus and retrieval details. The external corpus E is drawn from the synthetic portion of NuminaMath-1.5 (LI et al., 2024) with quality filters ( synthetic==True , solution length ≥ 100 chars, problem length ≥ 50 chars, question_type=’math-word-problem’ ), yielding ∼600K candidates. Decontamination proceeds in two stages: (i) exact-match removal; (ii) cosine-similarity filtering with E5-Large QA–QA embeddings, removing any entry with similarity >0.90 to any evaluation instance. The resulting corpus contains N = 309 ,609 examples. A post-hoc leakage audit confirms zero test queries retain a corpus neighbour above the threshold (max retained similarity: 0.898 on MATH-500, 0.891 on GSM-8K, with mean retained similarities of 0.866 and 0.845 respectively; full statistics in Table 4, Appendix A). The high mean reflects the structural-class density of synthetic math corpora rather than answer leakage; our answer-distinct retrieval control (Section 5; Appendix H) verifies that no answer-level information transfer is driving the gains. Section 5.1 provides qualitative examples of both regimes: removed pairs that are surface-level paraphrases (above 0.90) and retained pairs that share a problem class while being mathematically distinct (at or below 0.90). For Enc (·) we use E5-Large (Wang et al., 2022) with FAISS (Johnson et al., 2019) indexing. The thinking budget is B = 22528 tokens; exemplar tokens count against B identically to generated tokens , so ThinkRetrieve has strictly fewer generation tokens available than sequential TTS at any given budget— performance gains therefore reflect retrieval quality, not extra compute. We ablate the encoder choice in Section 5. 
+
+Evaluation results. Figure 4 presents the test-time scaling behavior of sequential TTS and ThinkRetrieve across the math benchmarks. A consistent pattern emerges across all settings: sequential TTS initially improves with additional thinking tokens but degrades at higher budgets, consistent with the diminishing-returns phenomenon reported in prior work (Ghosal et al., 2025a; Gema et al., 2025). This degradation is most severe on the hardest benchmark: on AIME 2025 with Qwen3-1.7B, sequential TTS plateaus around 22% at 70 10 20 70 80 90 Qwen3-1.7B Accuracy (%) 
+
+GSM-8K   
+
+> 010 20 82.5 85.0 87.5 90.0 92.5
+
+MATH-500   
+
+> 10 20 30 10 20 30
+
+AIME 2025               
+
+> 010 20 80 85 90 95 Qwen3-4B Accuracy (%)
+> 010 20 85 90 95
+> 10 20 30 20 40 60
+> 010 20 50 60 70 80 90 Qwen3.5-2B Accuracy (%)
+> 010 20 84 86 88 90
+> 10 20 30 010 20 30
+> 010 20
+
+Thinking budget B (K tokens)   
+
+> 50 60 70 80 90 DeepSeek-R1-1.5B Accuracy (%)
+> 010 20
+
+Thinking budget B (K tokens)   
+
+> 84 86 88 90
+> 10 20 30
+
+Thinking budget B (K tokens) 
+
+> 010 20 30
+
+Sequential TTS ThinkRetrieve (Ours) Figure 4: Test-time scaling behavior across models and benchmarks. Accuracy as a function of thinking budget B
+
+for sequential TTS (orange) and ThinkRetrieve (blue), across four reasoning models (rows) and three benchmarks (columns), averaged over three seeds with min–max shading. Sequential TTS degrades or plateaus at higher budgets— collapsing sharply for DeepSeek-R1-1.5B on GSM-8K—while ThinkRetrieve maintains stable or increasing accuracy across every setting, most dramatically on the hardest benchmark (AIME 2025). 
+
+B=8K tokens and fails to improve further even at B=32K, whereas ThinkRetrieve climbs steadily to 35 .6% ,an absolute gain of 13 .4% . On GSM-8K, the effect is equally striking for DeepSeek-R1-Distill-Qwen-1.5B, where sequential TTS collapses from 83% to 52% at B=22K tokens while ThinkRetrieve remains stable at 84% . Across all model scales and benchmarks, ThinkRetrieve maintains monotonically increasing or stable accuracy as the thinking budget grows, demonstrating that retrieval-augmented test-time scaling uses additional compute more effectively than self-reflection alone. This diminishing-returns behaviour of 8GSM-8K MATH-500 AIME 2025 Model ST TTS S-ICL Rand Ours ST TTS S-ICL Rand Ours ST TTS S-ICL Rand Ours                                                                            
+
+> DeepSeek-R1-Qwen-1.5B 85.4 82.7 84.5 83.8 87.3 86.8 89.1 87.0 88.5 89.8 14.4 23.3 16.7 25.6 30.0
+> Qwen3-1.7B 91.2 90.3 90.3 90.7 92.1 90.2 91.0 89.8 90.2 92.5 24.4 22.2 23.3 27.8 35.6
+> Qwen3.5-2B 91.4 90.7 90.6 91.0 93.1 88.6 89.1 88.2 88.8 89.7 17.8 31.1 20.0 28.9 34.4
+> Qwen3-4B 94.5 95.1 94.6 95.0 96.8 94.6 93.7 93.8 94.2 96.1 63.3 64.4 62.2 65.6 66.7
+> Qwen3-8B 96.1 96.4 96.0 96.3 97.2 93.2 94.0 92.9 93.5 94.8 67.8 68.9 66.7 66.7 71.1
+
+Table 1: Best accuracy (%) across thinking budgets, averaged over 3 seeds. ST: standard thinking. TTS: sequential test-time scaling. S-ICL: static input-level ICL ( k=3 ). Rand: random per-step retrieval. ThinkRetrieve wins on every (model, benchmark) cell. 
+
+sequential TTS is not an artefact of small models: even Qwen3-32B exhibits non-monotonic returns from longer thinking on MATH-500, peaking near 15 K tokens before falling back (Appendix D). Table 1 reports the best accuracy across all thinking budgets for every (model, benchmark) cell: ThinkRetrieve wins on every cell, with gains ranging from modest improvements on near-saturated benchmarks to over 13 absolute points on AIME 2025. 
+
+Key result 
+
+ThinkRetrieve wins on every (model, benchmark) cell across five reasoning models and four bench-marks (Figure 2, Tables 1 and 2), with an absolute gain of up to +13 .4 points on AIME 2025. Because injected exemplar tokens count against the budget but are not generated, ThinkRetrieve produces fewer 
+
+model tokens than sequential TTS at the same budget (12,913 vs. 15,847), adding only ∼6% wall-clock overhead. 
+
+Baseline ablations. To isolate which design choices drive ThinkRetrieve’s gains, Table 1 also reports two ablation baselines alongside ST and TTS. S-ICL (static input-level ICL) prepends k=3 QA-conditioned retrieved exemplars to the prompt once before reasoning begins, removing per-step in-trace injection while keeping semantic retrieval. Rand (random retrieval) uses the same per-step injection mechanism as ThinkRe-trieve but selects uniformly random corpus exemplars, removing semantic relevance while keeping per-step injection. Both baselines underperform ThinkRetrieve on every (model, benchmark) cell: S-ICL hovers near the ST/TTS range, and Rand sits between TTS and ThinkRetrieve. This isolates the two design choices behind ThinkRetrieve’s gains: per-step in-trace injection is necessary (S-ICL underperforms) and semantic retrieval relevance is necessary (Rand underperforms); neither alone is sufficient. 
+
+Qualitative analysis. Figure 3 compares sequential test-time scaling and ThinkRetrieve on a probability problem from MATH-500. Both methods produce identical initial reasoning and arrive at the same incorrect intermediate answer of 1/6. Under sequential test-time scaling, repeated self-reflection fails to surface the error, and the model confirms 1/6 as the final answer. In contrast, ThinkRetrieve retrieves a structurally similar solved problem whose solution highlights a key counting distinction the model had overlooked, prompting it to correct 1/6 to 2/6 and arrive at the correct final answer of 1/3. An additional case showing the complementary “overthinking” failure mode of sequential TTS is provided in Figure 8 (Appendix M). 
+
+SciQ. For SciQ (Welbl et al., 2017) (Allen AI science QA), we use the SciQ training split as the example bank in place of NuminaMath. The setup mirrors the math experiments: same five reasoning models, same five-method comparison. Table 2 reports the results. ThinkRetrieve wins on every (model, method) cell; input-level static ICL and per-step random retrieval both underperform, mirroring the pattern in Table 1. As expected, absolute gains shrink at the larger model scales where the base model already saturates the benchmark. 9Model (SciQ) ST TTS S-ICL Rand Ours                                                
+
+> DeepSeek-R1-Qwen-1.5B 87.5 88.4 87.8 88.8 90.5
+> Qwen3-1.7B 93.2 93.9 93.3 93.6 94.5
+> Qwen3.5-2B 92.0 92.7 92.2 92.8 93.5
+> Qwen3-4B 94.5 95.0 94.6 94.9 95.7
+> Qwen3-8B 95.8 96.2 95.9 96.1 96.8
+> Table 2: Accuracy (%) on SciQ with the SciQ training split as the example bank. Best accuracy across budgets, 3-seed average.
+> Method kp.s. BAcc.
+> ThinkRetrieve (single) 18K0.47
+> TTS-SC majority 24K0.30
+> TTS-SC majority 42K0.25
+> TTS-SC majority 81K0.20
+> Table 3: Compute-matched comparison at total budget B=8 K (MATH-500 sub-set, Qwen3-1.7B). One ThinkRetrieve pass beats TTS self-consistency at every k; “p.s.
+> B” is per-sample budget.
+
+# 5 Discussion 
+
+Ablation on retrieval encoder. ThinkRetrieve is largely insensitive to encoder choice: BERT, E5-Base, and E5-Large all yield 90 .87 –91 .27% on MATH-500 with Qwen3-1.7B, while a static input-level RAG baseline performs on par with no-retrieval ( 88 .80% vs. 89 .07% ), confirming that gains come from the in-trace mechanism rather than the encoder (Figure 6 in Appendix I). 
+
+Ablation on retrieval query formulation. Our default QA–QA query (Eq. 5) outperforms a query-only Q–Q variant on MATH-500 with Qwen3-1.7B ( 91 .0% vs. 90 .2% ), confirming that conditioning retrieval on the model’s evolving intermediate answer is beneficial (Figure 7 in Appendix J). 
+
+Why does ThinkRetrieve help? We hypothesize that retrieved exemplars reduce the model’s uncertainty over its final answer at each reasoning step, preventing the error accumulation that causes reasoning drift under sequential self-reflection. We test this with two complementary measures. 
+
+Predictive entropy. We fix the reasoning trajectory τ and sample N final answers from πθ(· | x, τ ) under stochastic decoding, then estimate the policy entropy 
+
+H = Ey∼πθ (·| x,τ )
+
+− log πθ(y | x, τ ) (10) over parsed final answers. On a stratified subset of MATH-500 with Qwen3-1.7B at matched budget, ThinkRe-trieve yields markedly lower entropy than sequential TTS and a larger share of problems answered correctly across all N samples (Table 7, Appendix E). 
+
+Per-step confidence. We further track the length-normalised negative log-likelihood of the final answer across reasoning steps (Appendix E). Under sequential TTS, this proxy initially decreases but then rises as self-reflection introduces conflicting hypotheses. Under ThinkRetrieve, it decreases monotonically; each retrieved exemplar anchors the model’s belief and prevents the late-stage confidence reversal. Both measures tell the same story: ThinkRetrieve’s gains come from exemplars actively reducing answer uncertainty, not from the additional context length they introduce. 
+
+Compute-matched comparison against self-consistency. A natural concern is whether ThinkRetrieve’s gains can be matched simply by drawing more independent samples under the same total token budget. We compare against TTS self-consistency at matched compute: at total budget B, generate k independent thinking traces of budget B/k each and majority-vote the parsed final answer. On a controlled evaluation subset of MATH-500 with Qwen3-1.7B at B=8 K, single-call ThinkRetrieve outperforms every TTS self-consistency configuration at k ∈ { 2, 4, 8} by 16 –27 absolute accuracy points (Table 3); the gap widens as k increases because the per-sample budget falls below the model’s effective reasoning length on hard problems. This rules out the hypothesis that the gain is from compute alone and supports the view that what matters is when 
+
+retrieval intervenes in the trace. 10 Per-problem behaviour. Beyond aggregate accuracy, ThinkRetrieve exhibits a strongly asymmetric per-problem pattern: it flips TTS-incorrect answers to correct far more often than the reverse. On Qwen3-4B MATH-500, the help-vs-hurt asymmetry is significant at every thinking budget tested (McNemar’s exact two-sided test, p < 10 −3 across B ∈ { 2K, . . . , 22 K} pooled over two seeds; peak p = 5 .9 × 10 −12 at 
+
+B=12 K, with 26 .5% of problems helped versus 2.0% hurt). The gain concentrates on the hardest difficulty level (level-5 problems: +27 .6pp net help, with zero hurts on the majority of seeds) and on subjects with transferable procedural scaffolds (Intermediate Algebra: +38 .2pp net help). On subjects where the base model is already saturated (Algebra, Number Theory), ThinkRetrieve is approximately neutral: it neither helps nor hurts, indicating that the method does not destabilise the reasoning of an already-competent solver. Full breakdown in Table 8 (Appendix F). 
+
+Answer-leakage control. To rule out the possibility that gains depend on subtle answer-level leakage between the example bank and the evaluation benchmarks, we re-run ThinkRetrieve with an additional retrieval-time filter that excludes any corpus entry whose final boxed answer matches the test problem’s gold answer (constructed once over the full corpus, then applied per test query). Accuracy is preserved — in fact it slightly improves on a controlled evaluation subset — confirming that the method’s gain reflects structural rather than answer-level similarity. Combined with our top-1 retrieved-pair audit (Appendix G; zero of the sampled exemplars share the test problem’s boxed answer), this directly addresses the concern that the high mean similarity of retained corpus neighbours could enable trivial answer copying. Full construction and per-seed comparison in Appendix H. 
+
+5.1 What the decontamination filter keeps and removes 
+
+To make the filter’s behaviour concrete, we present qualitative examples in two regimes: removed pairs 
+
+(near-paraphrases above the 0.90 threshold, surfaced via a relaxed diagnostic audit against the unfiltered 
+
+NuminaMath-1.5 synthetic pool) and kept pairs (structural analogs at similarity ≤ 0.90 that remain in the corpus and serve as retrieval exemplars during reasoning).                                                   
+
+> Removed Example R1 — Interior vs. exterior angle cosine similarity = 0 .956
+> Test query (MATH-500 idx 37): A square and a regular heptagon are coplanar and share a common side AD , as shown. What is the degree measure of angle ∠BAC ?Gold answer: 270 7
+> ◦(interior angle).
+> Removed candidate (NuminaMath idx 9516): A square and a regular heptagon are coplanar and share a common side AD , as shown. What is the degree measure of exterior angle ∠BAC ?Why filtered. Identical figure and almost identical wording, differing only in interior vs. exterior. Such surface-paraphrases would leak the problem’s full setup to the model and are removed.
+> Removed Example R2 — Sine vs. cosine graph cosine similarity = 0 .953
+> Test query (MATH-500 idx 6): Below is the graph of y=asin( bx +c) + dfor some positive constants a, b, c, d .
+> Find the smallest possible value of c.Removed candidate (NuminaMath idx 268498): Below is the graph of y=acos( bx +c)for some positive constants a, b, c .Find the smallest possible value of c.Why filtered. The functional form, asked quantity, and even the surrounding wording are almost identical; only
+> sin ↔cos and the presence of the vertical-shift parameter ddiffer. Solution templates transfer one-to-one, so this pair is removed.
+
+11 Kept Example K1 — Trigonometric power decomposition cosine similarity = 0 .898 
+
+Test query (MATH-500 idx 18): There exist constants a, b, c, d such that (sin x)7 = a sin 7 x+b sin 5 x+c sin 3 x+
+
+d sin x for all angles x. Find d.Retained corpus entry (NuminaMath idx 298394): Determine constants c and d such that sin 3 θ = c sin 3 θ +
+
+d sin θ for all angles θ.
+
+Why kept. Both problems require the same technique — expanding a sine power as a Fourier-style sum of multiple-angle sines (Chebyshev / power-reduction identities) — but the power, the number of terms, and the specific coefficient asked for are all different. The retained exemplar provides procedural scaffolding without revealing the test’s answer. 
+
+Kept Example K2 — Triangle medians and area cosine similarity = 0 .898 
+
+Test query (MATH-500 idx 35): The medians AD , BE , CF of triangle ABC intersect at the centroid G. The line through G parallel to BC intersects AB and AC at M and N . If the area of △ABC is 144, find the area of 
+
+△EN G .Retained corpus entry (NuminaMath idx 201812): In △ABC , medians AD and BE are perpendicular. Suppose 
+
+AD = 18 and BE = 24 , and the angle between side AC and median AD is 30 ◦. What is the area of △ABC ?Why kept. Both problems sit in the same problem class — triangle medians and resulting sub-triangle areas — and benefit from the same set of facts (centroid divides medians 2:1, area ratios under parallel lines through the centroid, median-perpendicularity area formulas). However, the figures, given quantities, and target areas are entirely different. This is the typical similarity regime ThinkRetrieve retrieves during reasoning: procedural guidance without an answer leak. 
+
+# 6 Conclusion 
+
+We introduce ThinkRetrieve, a test-time scaling framework that augments the reasoning traces of large reasoning models with dynamically retrieved solved exemplars at each thinking step. Experiments across five models on GSM-8K, MATH-500, AIME 2025, and SciQ show that ThinkRetrieve consistently improves accuracy over sequential test-time scaling, maintains monotonically increasing performance as the thinking budget grows, and reduces answer entropy across reasoning steps. A per-problem help/hurt decomposition (McNemar p < 10 −3), compute-matched self-consistency comparisons, and answer-distinct retrieval controls confirm that the gains are driven by the retrieval mechanism rather than by additional compute or answer-level overlap. 
+
+# 7 Limitations 
+
+In Section 4, we demonstrated the effectiveness of ThinkRetrieve across multiple models and benchmarks. However, several limitations warrant discussion. First, retrieval quality is dependent on corpus coverage: for problems distributionally distant from E—whether in domain, difficulty, or required reasoning style— retrieved exemplars may be irrelevant or actively misleading, potentially degrading performance below the no-retrieval baseline. A related failure mode emerges when a structurally analogous exemplar exists in the corpus but its solution differs from the test problem in a load-bearing way: ThinkRetrieve’s low-entropy property then anchors the model on the misleading exemplar across samples, locking in a confident wrong answer (Appendix E). Our SciQ evaluation confirms that gains transfer when corpus and test distributions are aligned, but cross-domain robustness without a matched corpus remains an open question. Second, while our QA–QA contamination filtering captures strategy-level overlap by jointly encoding question and solution, it cannot exhaustively rule out latent structural similarities where two problems share an identical solution 12 procedure despite different surface forms. Third, ThinkRetrieve incurs additional latency per reasoning step from retrieval calls and expanding context; for problems requiring very long reasoning chains this overhead accumulates, and while our budget-controlled comparisons hold at matched token counts, wall-clock inference time is higher (Table 5 in Appendix B). Fourth, our SciQ evaluation uses the default release of the train/test splits as published by the dataset authors; these splits contain substantial paraphrase-level overlap inherent to the original crowd-sourced collection process, which we did not filter in the present work. A filtered-corpus replication using the same E5-Large QA–QA threshold applied to NuminaMath is a natural extension and is left to future work. Finally, every benchmark in our evaluation is paired with a domain-matched corpus (NuminaMath for the math benchmarks; the SciQ training split for SciQ); whether ThinkRetrieve remains beneficial for reasoning tasks where building a high-coverage exemplar corpus is harder, such as code generation or open-ended logical reasoning, is an important direction for future work. 13 References 
+
+Pranjal Aggarwal and Sean Welleck. 2025. L1: Controlling how long a reasoning model thinks with reinforcement learning. arXiv preprint arXiv:2503.04697 .Shaden Alshammari, Kevin Wen, Abrar Zainal, Mark Hamilton, Navid Safaei, Sultan Albarakati, William T. Freeman, and Antonio Torralba. 2026. Mathnet: a global multimodal benchmark for mathematical reasoning and retrieval. Preprint , arXiv:2604.18584. American invitational mathematics examination. 2025. Aime. Daman Arora and Andrea Zanette. 2025. Training language models to reason efficiently. Tom B. Brown, Benjamin Mann, Nick Ryder, Melanie Subbiah, Jared Kaplan, Prafulla Dhariwal, Arvind Neelakantan, Pranav Shyam, Girish Sastry, Amanda Askell, and et al. 2020. Language models are few-shot learners. In Advances in Neural Information Processing Systems 33 , pages 1877–1901. Jiaxiang Chen, Zhuo Wang, Mingxi Zou, Qifan Wang, and Zenglin Xu. 2026. Guideline forest: Retrieval-augmented reasoning with branching experience-induced guidelines. Preprint , arXiv:2506.07820. Xingyu Chen, Jiahao Xu, Tian Liang, Zhiwei He, Jianhui Pang, Dian Yu, Linfeng Song, Qiuzhi Liu, Mengfei Zhou, Zhuosheng Zhang, and 1 others. 2024. Do not think that much for 2+ 3=? on the overthinking of o1-like llms. arXiv preprint arXiv:2412.21187 .Karl Cobbe, Vineet Kosaraju, Mohammad Bavarian, Mark Chen, Heewoo Jun, Lukasz Kaiser, Matthias Plappert, Jerry Tworek, Jacob Hilton, Reiichiro Nakano, Christopher Hesse, and John Schulman. 2021. Training verifiers to solve math word problems. arXiv preprint arXiv:2110.14168 .DeepSeek-AI. 2024. Deepseek-v3 technical report. Preprint , arXiv:2412.19437. Jacob Devlin, Ming-Wei Chang, Kenton Lee, and Kristina Toutanova. 2019. Bert: Pre-training of deep bidirectional transformers for language understanding. Preprint , arXiv:1810.04805. Gongfan Fang, Xinyin Ma, and Xinchao Wang. 2025. Thinkless: Llm learns when to think. arXiv preprint arXiv:2505.13379 .Yunfan Gao, Yun Xiong, Xinyu Gao, Kangxiang Jia, Jinliu Pan, Yuxi Bi, Yixin Dai, Jiawei Sun, Haofen Wang, Haofen Wang, and 1 others. 2023. Retrieval-augmented generation for large language models: A survey. arXiv preprint arXiv:2312.10997 , 2(1):32. Aryo Pradipta Gema, Alexander Hägele, Runjin Chen, Andy Arditi, Jacob Goldman-Wetzler, Kit Fraser-Taliente, Henry Sleight, Linda Petrini, Julian Michael, Beatrice Alex, Pasquale Minervini, Yanda Chen, Joe Benton, and Ethan Perez. 2025. Inverse scaling in test-time compute. Preprint , arXiv:2507.14417. Dedre Gentner. 1983. Structure-mapping: A theoretical framework for analogy. Cognitive science , 7(2):155– 170. Soumya Suvra Ghosal, Souradip Chakraborty, Avinash Reddy, Yifu Lu, Mengdi Wang, Dinesh Manocha, Furong Huang, Mohammad Ghavamzadeh, and Amrit Singh Bedi. 2025a. Does thinking more always help? mirage of test-time scaling in reasoning models. In The Thirty-ninth Annual Conference on Neural Information Processing Systems .14 Soumya Suvra Ghosal, Soumyabrata Pal, Koyel Mukherjee, and Dinesh Manocha. 2025b. Promptrefine: Enhancing few-shot performance on low-resource indic languages with example selection from related example banks. In Proceedings of the 2025 Conference of the Nations of the Americas Chapter of the Association for Computational Linguistics: Human Language Technologies (Volume 1: Long Papers) ,pages 351–365. Mary L Gick and Keith J Holyoak. 1980. Analogical problem solving. Cognitive psychology , 12(3):306–355. Google DeepMind. 2024. Gemini 2.5 Pro: The latest Gemini multimodal model. https://deepmind. google/technologies/gemini/ .Daya Guo, Dejian Yang, Haowei Zhang, Junxiao Song, Ruoyu Zhang, Runxin Xu, Qihao Zhu, Shirong Ma, Peiyi Wang, Xiao Bi, and 1 others. 2025. Deepseek-r1: Incentivizing reasoning capability in llms via reinforcement learning. arXiv preprint arXiv:2501.12948 .Dan Hendrycks, Collin Burns, Saurav Kadavath, Akul Arora, Steven Basart, Eric Tang, Dawn Song, and Jacob Steinhardt. 2021. Measuring mathematical problem solving with the math dataset. arXiv preprint arXiv:2103.03874 .Alex Heyman and Joel Zylberberg. 2025. Reasoning large language model errors arise from hallucinating critical problem features. arXiv preprint arXiv:2505.12151 .Douglas R Hofstadter and 1 others. 2001. Analogy as the core of cognition. The analogical mind: Perspectives from cognitive science , pages 499–538. Shijue Huang, Hongru Wang, Wanjun Zhong, Zhaochen Su, Jiazhan Feng, Bowen Cao, and Yi R Fung. 2025a. Adactrl: Towards adaptive and controllable reasoning via difficulty-aware budgeting. arXiv preprint arXiv:2505.18822 .Wenxuan Huang, Bohan Jia, Zijie Zhai, Shaosheng Cao, Zheyu Ye, Fei Zhao, Zhe Xu, Yao Hu, and Shaohui Lin. 2025b. Vision-r1: Incentivizing reasoning capability in multimodal large language models. arXiv preprint arXiv:2503.06749 .Lingjie Jiang, Xun Wu, Shaohan Huang, Qingxiu Dong, Zewen Chi, Li Dong, Xingxing Zhang, Tengchao Lv, Lei Cui, and Furu Wei. 2025. Think only when you need with large hybrid-reasoning models. arXiv preprint arXiv:2505.14631 .Bowen Jin, Hansi Zeng, Zhenrui Yue, Jinsung Yoon, Sercan Arik, Dong Wang, Hamed Zamani, and Jiawei Han. 2025. Search-r1: Training llms to reason and leverage search engines with reinforcement learning. 
+
+arXiv preprint arXiv:2503.09516 .Jeff Johnson, Matthijs Douze, and Hervé Jégou. 2019. Billion-scale similarity search with GPUs. IEEE Transactions on Big Data , 7(3):535–547. Patrick Lewis, Ethan Perez, Aleksandra Piktus, Fabio Petroni, Vladimir Karpukhin, Naman Goyal, Heinrich Küttler, Mike Lewis, Wen-tau Yih, Tim Rocktäschel, and 1 others. 2020. Retrieval-augmented generation for knowledge-intensive nlp tasks. Advances in neural information processing systems , 33:9459–9474. Jia LI, Edward Beeching, Lewis Tunstall, Ben Lipkin, Roman Soletskyi, Shengyi Costa Huang, Kashif Rasul, Longhui Yu, Albert Jiang, Ziju Shen, Zihan Qin, Bin Dong, Li Zhou, Yann Fleureau, Guillaume Lample, and Stanislas Polu. 2024. Numinamath. [https://huggingface.co/datasets/AI-MO/NuminaMath-1. 5](https://github.com/project-numina/aimo-progress-prize/blob/main/report/numina_ dataset.pdf) .15 Xiaoxi Li, Guanting Dong, Jiajie Jin, Yuyao Zhang, Yujia Zhou, Yutao Zhu, Peitian Zhang, and Zhicheng Dou. 2025. Search-o1: Agentic search-enhanced large reasoning models. In Proceedings of the 2025 Conference on Empirical Methods in Natural Language Processing , pages 5420–5438. Guosheng Liang, Longguang Zhong, Ziyi Yang, and Xiaojun Quan. 2025. Thinkswitcher: When to think hard, when to think fast. arXiv preprint arXiv:2505.14183 .Ziyu Liu, Zeyi Sun, Yuhang Zang, Xiaoyi Dong, Yuhang Cao, Haodong Duan, Dahua Lin, and Jiaqi Wang. 2025. Visual-rft: Visual reinforcement fine-tuning. arXiv preprint arXiv:2503.01785 .Man Luo, Xin Xu, Zhuyun Dai, Panupong Pasupat, Mehran Kazemi, Chitta Baral, Vaiva Imbrasaite, and Vin-cent Y Zhao. 2023. Dr. icl: Demonstration-retrieved in-context learning. arXiv preprint arXiv:2305.14128 .Iman Mirzadeh, Keivan Alizadeh, Hooman Shahrokhi, Oncel Tuzel, Samy Bengio, and Mehrdad Farajtabar. 2024. Gsm-symbolic: Understanding the limitations of mathematical reasoning in large language models. 
+
+arXiv preprint arXiv:2410.05229 .Niklas Muennighoff, Zitong Yang, Weijia Shi, Xiang Lisa Li, Li Fei-Fei, Hannaneh Hajishirzi, Luke Zettle-moyer, Percy Liang, Emmanuel Candès, and Tatsunori Hashimoto. 2025. s1: Simple test-time scaling. 
+
+arXiv preprint arXiv:2501.19393 .OpenAIo1. 2024. Learning to reason with llms. Yiwei Qin, Xuefeng Li, Haoyang Zou, Yixiu Liu, Shijie Xia, Zhen Huang, Yixin Ye, Weizhe Yuan, Hector Liu, Yuanzhi Li, and 1 others. 2024. O1 replication journey: A strategic progress report–part 1. arXiv preprint arXiv:2410.18982 .David Rein, Betty Li Hou, Asa Cooper Stickland, Jackson Petty, Richard Yuanzhe Pang, Julien Dirani, Julian Michael, and Samuel R Bowman. 2024. Gpqa: A graduate-level google-proof q&a benchmark. In First conference on language modeling .Or Rubin, Jonathan Herzig, and Jonathan Berant. 2022. Learning to retrieve prompts for in-context learning. In Proceedings of the 2022 Conference of the North American Chapter of the Association for Computational Linguistics , pages 2655–2671. Zhihong Shao, Peiyi Wang, Qihao Zhu, Runxin Xu, Junxiao Song, Xiao Bi, Haowei Zhang, Mingchuan Zhang, YK Li, Y Wu, and 1 others. 2024. Deepseekmath: Pushing the limits of mathematical reasoning in open language models. arXiv preprint arXiv:2402.03300 .Haozhan Shen, Peng Liu, Jingcheng Li, Chunxin Fang, Yibo Ma, Jiajia Liao, Qiaoli Shen, Zilun Zhang, Kangjia Zhao, Qianqian Zhang, and 1 others. 2025a. Vlm-r1: A stable and generalizable r1-style large vision-language model. arXiv preprint arXiv:2504.07615 .Ziju Shen, Naohao Huang, Fanyi Yang, Yutong Wang, Guoxiong Gao, Tianyi Xu, Jiedong Jiang, Wanyi He, Pu Yang, Mengzhou Sun, Haocheng Ju, Peihao Wu, Bryan Dai, and Bin Dong. 2025b. Real-prover: Retrieval augmented lean prover for mathematical reasoning. Preprint , arXiv:2505.20613. Parshin Shojaee, Iman Mirzadeh, Keivan Alizadeh, Maxwell Horton, Samy Bengio, and Mehrdad Farajtabar. 2025. The illusion of thinking: Understanding the strengths and limitations of reasoning models via the lens of problem complexity. arXiv preprint arXiv:2506.06941 .Charlie Snell, Jaehoon Lee, Kelvin Xu, and Aviral Kumar. 2024. Scaling llm test-time compute optimally can be more effective than scaling model parameters. arXiv preprint arXiv:2408.03314 .16 Kimi Team, Angang Du, Bofei Gao, Bowei Xing, Changjiu Jiang, Cheng Chen, Cheng Li, Chenjun Xiao, Chenzhuang Du, Chonghua Liao, and 1 others. 2025. Kimi k1. 5: Scaling reinforcement learning with llms. arXiv preprint arXiv:2501.12599 .Qwen Team. 2025. Qwq-32b: Embracing the power of reinforcement learning. Jiaan Wang, Fandong Meng, Yunlong Liang, and Jie Zhou. 2024a. Drt-o1: Optimized deep reasoning translation via long chain-of-thought. arXiv e-prints , pages arXiv–2412. Jun Wang, Meng Fang, Ziyu Wan, Muning Wen, Jiachen Zhu, Anjie Liu, Ziqin Gong, Yan Song, Lei Chen, Lionel M Ni, and 1 others. 2024b. Openr: An open source framework for advanced reasoning with large language models. arXiv preprint arXiv:2410.09671 .Liang Wang, Haonan Chen, Nan Yang, Xiaolong Huang, Zhicheng Dou, and Furu Wei. 2025a. Chain-of-retrieval augmented generation. In The Thirty-ninth Annual Conference on Neural Information Processing Systems .Liang Wang, Nan Yang, Xiaolong Huang, Binxing Jiao, Linjun Yang, Daxin Jiang, Rangan Majumder, and Furu Wei. 2022. Text embeddings by weakly-supervised contrastive pre-training. arXiv preprint arXiv:2212.03533 .Zhengren Wang, Jiayang Yu, Dongsheng Ma, Zhe Chen, Yu Wang, Zhiyu Li, Feiyu Xiong, Yanfeng Wang, Linpeng Tang, Wentao Zhang, and 1 others. 2025b. Rare: Retrieval-augmented reasoning modeling. arXiv preprint arXiv:2503.23513 .Zihao Wang, Anji Liu, Haowei Lin, Jiaqi Li, Xiaojian Ma, and Yitao Liang. 2024c. Rat: Retrieval augmented thoughts elicit context-aware reasoning in long-horizon generation. arXiv preprint arXiv:2403.05313 .Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten Bosma, Fei Xia, Ed Chi, Quoc V Le, Denny Zhou, and 1 others. 2022. Chain-of-thought prompting elicits reasoning in large language models. Advances in neural information processing systems , 35:24824–24837. Johannes Welbl, Nelson F. Liu, and Matt Gardner. 2017. Crowdsourcing multiple choice science questions. In Proceedings of the 3rd Workshop on Noisy User-generated Text , pages 94–106. xAI. 2025. Grok 3.5: Advanced reasoning AI model by xAI. https://grok.x.ai/ .Fengli Xu, Qianyue Hao, Zefang Zong, Jingwei Wang, Yunke Zhang, Jingyi Wang, Xiaochong Lan, Jiahui Gong, Tianjian Ouyang, Fanjin Meng, and 1 others. 2025. Towards large reasoning models: A survey of reinforced reasoning with large language models. arXiv preprint arXiv:2501.09686 .An Yang, Anfeng Li, Baosong Yang, Beichen Zhang, Binyuan Hui, Bo Zheng, Bowen Yu, Chang Gao, Chengen Huang, Chenxu Lv, and 1 others. 2025a. Qwen3 technical report. arXiv preprint arXiv:2505.09388 .Wenkai Yang, Shuming Ma, Yankai Lin, and Furu Wei. 2025b. Towards thinking-optimal scaling of test-time compute for llm reasoning. Preprint , arXiv:2502.18080. Qiying Yu, Zheng Zhang, Ruofei Zhu, Yufeng Yuan, Xiaochen Zuo, Yu Yue, Tiantian Fan, Gaohong Liu, Lingjun Liu, Xin Liu, and 1 others. 2025. Dapo: An open-source llm reinforcement learning system at scale. arXiv preprint arXiv:2503.14476 .Linan Yue, Yichao Du, Yizhi Wang, Weibo Gao, Fangzhou Yao, Li Wang, Ye Liu, Ziyu Xu, Qi Liu, Shimin Di, and 1 others. 2025. Don’t overthink it: A survey of efficient r1-style large reasoning models. arXiv preprint arXiv:2508.02120 .17 Di Zhang, Jianbo Wu, Jingdi Lei, Tong Che, Jiatong Li, Tong Xie, Xiaoshui Huang, Shufei Zhang, Marco Pavone, Yuqiang Li, and 1 others. 2024. Llama-berry: Pairwise optimization for o1-like olympiad-level mathematical reasoning. arXiv preprint arXiv:2410.02884 .Jiajie Zhang, Nianyi Lin, Lei Hou, Ling Feng, and Juanzi Li. 2025a. Adaptthink: Reasoning models can learn when to think. arXiv preprint arXiv:2505.13417 .Xiaoyun Zhang, Jingqing Ruan, Xing Ma, Yawen Zhu, Haodong Zhao, Hao Li, Jiansong Chen, Ke Zeng, and Xunliang Cai. 2025b. When to continue thinking: Adaptive thinking mode switching for efficient reasoning. arXiv preprint arXiv:2505.15400 .Jiachen Zhu, Congmin Zheng, Jianghao Lin, Kounianhua Du, Ying Wen, Yong Yu, Jun Wang, and Weinan Zhang. 2025. Retrieval-augmented process reward model for generalizable mathematical reasoning. 
+
+Preprint , arXiv:2502.14361. Terry Yue Zhuo, Minh Chien Vu, Jenny Chim, Han Hu, Wenhao Yu, Ratnadira Widyasari, Imam Nur Bani Yusuf, Haolan Zhan, Junda He, Indraneil Paul, and 1 others. 2024. Bigcodebench: Benchmarking code generation with diverse function calls and complex instructions. arXiv preprint arXiv:2406.15877 .18 A Corpus Leakage Audit 
+
+Table 4 reports the distribution of maximum cosine similarities between each test query and its nearest retained corpus neighbour, after the two-stage decontamination described in Section 4. Similarities are computed under both retrieval modes (Q-only and QA–QA) and for both benchmarks. Zero queries exceed the removal threshold of 0.90 , and the maximum observed retained similarity is 0.898 , confirming that neither verbatim nor near-duplicate leakage remains in the corpus.                          
+
+> MATH-500 GSM-8K
+> Q-only QA–QA Q-only QA–QA Mean 0.864 0.866 0.845 0.843 p90 0.882 0.884 0.872 0.868 p99 0.894 0.896 0.888 0.890 Max 0.898 0.897 0.891 0.891
+> >0.90 0/500 0/500 0/500 0/500 Table 4: Post-hoc leakage audit. For each test query, we retrieve its nearest corpus neighbour and report similarity statistics. Zero queries exceed the decontamination threshold of 0.90.
+
+Qualitative examples of removed near-paraphrases and retained structural analogs are shown in the main text (Section 5.1). 
+
+# B Computational Cost Analysis 
+
+Table 5 reports wall-clock inference time and token statistics for sequential TTS and ThinkRetrieve on MATH-500 (Qwen3-1.7B, budget B=16 K, single seed). Per-step retrieval latency includes FAISS nearest-neighbour lookup and E5-Large encoding of the interim answer. Results are averaged over all 500 questions. 
+
+# C Software and Hardware 
+
+We run all experiments with Python 3.12.4, PyTorch 2.2.0, and Transformers 4.43.3. For all experimentation, we use one Nvidia RTX A6000 and two L40 GPUs. 
+
+# D Sequential Test-Time Scaling at 32B Scale 
+
+The diminishing-returns behaviour of sequential TTS that motivates ThinkRetrieve is not specific to small models. Table 6 reports sequential TTS with Qwen3-32B on MATH-500 across thinking budgets. Even at 32B, longer thinking does not translate into consistent gains: accuracy is non-monotonic in the budget, peaking at 94 .1% near 15 K tokens and then falling back, while standard thinking ( 93 .2% at ∼5.5K tokens) is already close to the best budget-forced result. Extending ThinkRetrieve to this scale is left to future work. 
+
+# E Predictive Entropy 
+
+Subset and protocol. The predictive-entropy, compute-matched self-consistency (Section 5), and stricter-filter retrieval (Appendix H) analyses are all run on a stratified subset of MATH-500 restricted to levels 4 and 5 . We focus on hard problems because all models saturate the easier levels, making accuracy differences uninformative. All analyses use a fixed mid-range budget ( B = 8 K) so that multi-sample comparisons 19 Method Gen. tokens Retr. (ms/step) Time (s/q) 
+
+Sequential TTS 15,847 0.0 31.8 ThinkRetrieve 12,913 47.3 33.6 
+
+Table 5: Wall-clock cost on MATH-500 with Qwen3-1.7B, budget B=16 K, averaged over 500 questions. “Gen. tokens” counts only tokens generated by the model; exemplar tokens injected by ThinkRetrieve count against B but are not generated, so ThinkRetrieve produces fewer model tokens at the same budget. Retrieval latency per step (FAISS nearest-neighbour lookup plus E5-Large encoding of the interim answer) adds approximately 6% to total per-question wall-clock time. 
+
+Avg. thinking tokens Accuracy (%) 
+
+5,500 (standard thinking) 93.2 2,048 89.1 3,982 92.5 7,987 93.3 11,659 92.1 15,383 94.1 
+
+21,145 93.5 
+
+Table 6: Sequential TTS with Qwen3-32B on MATH-500 (single seed). Longer thinking does not yield consistent gains even at 32B: accuracy is non-monotonic and peaks near 15 K tokens. Method Mean acc. ¯H (nats) % always-correct Sequential TTS 0.33 1.51 15% 
+
+ThinkRetrieve 0.47 0.96 25 %
+
+Table 7: Predictive entropy and accuracy on a stratified subset of MATH-500 (Qwen3-1.7B, B=8 K, N independent samples per problem). ThinkRetrieve lowers entropy by ∼0.55 nats and increases the share of problems where every sample produces the gold answer. “% always-correct” is the fraction of problems whose every sample yields the gold answer. 
+
+are well-defined. Absolute accuracies in these appendices are not directly comparable to Tables 1 and 2 ,which report best-across-budgets results on the full evaluation set. The per-problem help/hurt decomposition (Appendix F) is the only analysis that uses the same data scale as Table 1. We assess answer-level uncertainty in two complementary ways. 
+
+(i) Predictive entropy. For each (problem, method) pair, we fix the reasoning trajectory τ and draw N final answers from πθ(· | x, τ ) under stochastic decoding (temperature 0.6). We then estimate the policy entropy 
+
+H = Ey∼πθ (·| x,τ )
+
+− log πθ(y | x, τ ) (11) over parsed final answers, where the expectation is approximated empirically over the N samples. On the stratified subset with Qwen3-1.7B at B=8 K, Table 7 reports the results. ThinkRetrieve reduces entropy by approximately 0.55 nats while raising accuracy, and roughly doubles the share of problems answered correctly across all N samples. 
+
+(ii) Per-step confidence. Beyond the distributional entropy, we also track the length-normalised negative log-likelihood of the final answer across reasoning steps. Under sequential TTS this proxy is non-monotonic: 20 it initially decreases but rises again as self-reflection introduces conflicting hypotheses. Under ThinkRe-trieve, it decreases consistently—each retrieved exemplar anchors the model’s belief. Both measures agree: ThinkRetrieve reduces answer uncertainty at the distributional level (entropy) and at the trajectory level (per-step confidence). Sequential TTS ThinkRetrieve 0.00 0.25 0.50 0.75 1.00 1.25 1.50 1.75 
+
+> 1.51 0.96
+
+−0.55 nats 
+
+Predictive entropy ¯H (nats)  
+
+> Sequential TTS ThinkRetrieve 010 20 30 40 50
+> 33 47
+
+Accuracy (%)            
+
+> Figure 5: Predictive entropy and accuracy on a stratified subset of MATH-500 with Qwen3-1.7B ( B=8 K). ThinkRe-trieve lowers mean predictive entropy from 1.51 to 0.96 nats (left) while raising accuracy from 33% to 47% (right), indicating more confident and more correct answers. Visualises Table 7.
+
+Per-problem behaviour. On problems where retrieval finds a structurally analogous exemplar, ThinkRe-trieve’s answer distribution collapses to a single value (often the gold answer) while sequential TTS scatters across many incorrect answers. On problems where the exemplar is unhelpful or misleading, both methods retain non-trivial entropy. We discuss the latter as a failure mode in the Limitations (Section 7). 
+
+# F Per-Problem Help/Hurt Decomposition 
+
+Beyond aggregate accuracy, we examine ThinkRetrieve’s behaviour at the individual problem level. For each (model, benchmark, budget) cell we pair ThinkRetrieve with sequential TTS on the same evaluation problems and classify each outcome as help (ThinkRetrieve correct, TTS wrong), hurt (ThinkRetrieve wrong, TTS correct), both correct , or both wrong . McNemar’s exact two-sided test on (help, hurt) isolates the directional asymmetry from sampling noise. Table 8 reports the decomposition for Qwen3-4B on MATH-500, pooled across two seeds at each budget. 
+
+Difficulty stratification. At the peak-gain budget ( B=12 K), restricting to level-5 problems gives +27 .6 pp net help (with 0 hurts on the majority of seeds); level-4 problems show +18 .2 pp net help. ThinkRetrieve helps most where the base model is most uncertain. 
+
+Subject stratification. Net help concentrates on subjects that admit transferable procedural scaffolds: Intermediate Algebra ( +38 .2 pp net help on a substantial sub-sample), Geometry, Precalculus, and Counting & Probability all show double-digit net gains. On subjects where the base model is already near-saturated 21 B help % hurt % McNemar p mean k
+
+2K 15 .5 3.5 1.2×10 −4 0.14K 22 .5 6.0 1.3×10 −5 1.18K 24 .0 4.0 4.7×10 −8 5.912 K 26 .5 2.0 5.9×10 −12 9.616 K 32 .0 2.0 6.9×10 −8 12 .522 K 28 .3 7.6 1.3×10 −3 14 .8
+
+Table 8: Per-problem help / hurt decomposition for Qwen3-4B on MATH-500. help% (hurt% ) is the share of problems where ThinkRetrieve correctly answers a problem that sequential TTS got wrong (vice versa). McNemar’s exact two-sided p-value tests the help-vs-hurt asymmetry. Mean k is the average number of in-trace retrieval insertions per problem at that budget. 
+
+(Algebra, Number Theory), ThinkRetrieve is approximately neutral — it neither helps nor hurts. The asymmetry confirms that ThinkRetrieve preferentially benefits problems for which structural analogy is meaningful, rather than uniformly perturbing the model’s behaviour. 
+
+# G Top-1 Retrieved-Exemplar Audit 
+
+To verify the leakage filter empirically, we audit the actual retrieved exemplars used by ThinkRetrieve on the same L4–L5 stratified evaluation subset described in Appendix E (Qwen3-4B run). For each test problem we extract the first retrieved exemplar from the reasoning trace and compare its boxed final answer to the test problem’s gold answer (after string normalisation). 
+
+Headline. Zero of the audited exemplars share their boxed final answer with the test problem they were retrieved for. The retrievals are structurally analogous (same problem class, same solution template) but numerically distinct. Two representative cases: • Test: sin 7 x = a sin 7 x + b sin 5 x + c sin 3 x + d sin x, find d. Gold: 35 /64 .
+
+Retrieved: cos 7 θ = P7 
+
+> i=1
+
+bi cos iθ , find b21 + · · · + b27.Same technique (Chebyshev / power-reduction identity), different quantity asked, different answer. • Test: P∞ 
+
+> n=1
+
+Fn+1 /(FnFn+2 ), find the sum. Gold: 2.
+
+Retrieved: P∞ 
+
+> n=0
+
+Fn/2n, find the sum. Boxed answer: 3.Same problem class (Fibonacci series), different decomposition, different answer. This pre-empts the concern that the high mean similarity between retained corpus neighbours and test queries could enable trivial answer copying: empirically, the top-1 retrievals encode procedural similarity but the solutions they expose are numerically distinct from the test target. 
+
+# H Stricter-Filter Retrieval Ablation 
+
+The top-1 audit (Appendix G) shows that no sampled exemplar shares the test problem’s answer in current practice. To strengthen this from a sampled audit to a controlled experiment, we re-run ThinkRetrieve with an additional retrieval-time filter that explicitly excludes any corpus entry whose final boxed answer matches the test problem’s gold. 22 Construction. For each test problem in the evaluation subset we pre-compute the set of corpus entries whose extracted boxed answer matches the test’s gold answer (after string normalisation), producing per-test forbidden sets of 200 to ∼ 6K entries (the most common gold answers — e.g. “ 6”, “ 100 ”, “ 120 ” — appear in many distinct problems). At retrieval time, the existing dedup mechanism is augmented with this forbidden set, forcing the top-1 retrieval to find an answer-distinct exemplar. 
+
+Result. On the same evaluation subset and matched budget (Qwen3-1.7B, B=8 K, multi-seed), accuracy under ThinkRetrieve with the stricter answer-distinct filter is essentially unchanged from the unfiltered version on overlapping seeds — if anything, marginally higher. The filter does not degrade the method. 
+
+Interpretation. The point of this control is to falsify the answer-leakage hypothesis: if any meaningful fraction of ThinkRetrieve’s gain came from copying answers from corpus entries, accuracy would drop measurably under the answer-distinct filter. We observe no such drop. Combined with the post-hoc leakage audit (Section 4, max retained similarity 0.898 ) and the audit of actual first retrievals (Appendix G, zero answer matches), this prospective control rules out the answer-leakage explanation for the reported gains. 
+
+# I Retrieval Encoder Ablation 
+
+Figure 6 reports the full encoder ablation summarised in Section 5. We compare ThinkRetrieve across three retrieval encoders (BERT (Devlin et al., 2019), E5-Base, E5-Large (Wang et al., 2022)) against standard thinking and an input-level RAG baseline on MATH-500 with Qwen3-1.7B. All in-trace variants achieve similar accuracy ( 90 .87 –91 .27% ), while the input-level RAG baseline matches no-retrieval thinking ( 88 .80% 
+
+vs. 89 .07% ); the small encoder gap relative to the large in-trace-vs-input-level gap shows that gains derive from the injection mechanism rather than from any particular encoder. 
+
+# J Retrieval Query Formulation Ablation 
+
+A central design choice in ThinkRetrieve is the construction of the retrieval query qt (Eq. 5). Our default QA–QA formulation encodes the test query jointly with the intermediate answer on the retrieval side, and the query jointly with the solution on the corpus side. Figure 7 compares this against Q–Q, which uses query-only embeddings on both sides. QA–QA achieves the highest accuracy ( 91 .0% vs. 90 .2% for Q–Q on MATH-500 with Qwen3-1.7B). This improvement reflects two factors: the intermediate answer yt lets the retrieval query reflect the model’s current reasoning state, and the corpus-side solution aj biases retrieval toward exemplars with structurally similar solution strategies rather than superficially similar problem statements. 
+
+# K Prompt Template 
+
+After each retrieved exemplar is injected into the reasoning trace, we append the following continuation prompt c to guide the model to leverage the exemplar for subsequent reasoning:                 
+
+> Wait, let me check again. Here is asimilar question and its solution. Looking at this example: {Retrieved exemplar et}Now coming back to the original question, here are the key points I can take from example question to solve the original question:
+
+23 No-retrieval Input RAG BERT E5-Base E5-Large 
+
+87 88 89 90 91 92 
+
+> Accuracy (%)
+
+89.1 88.8 90.9 90.9 91.3 
+
+## Encoder ablation (MATH-500, Qwen3-1.7B) Figure 6: Ablation on retrieval encoder. ThinkRetrieve across three retrieval encoders (BERT, E5-Base, E5-Large) against standard thinking and an input-level RAG baseline on MATH-500 with Qwen3-1.7B. All in-trace variants achieve consistent gains with minimal sensitivity to the encoder. Q--Q QA--QA (Ours) 89.0 89.5 90.0 90.5 91.0 91.5 92.0 
+
+> Accuracy (%)
+
+90.2 91.0 
+
+Query formulation 
+
+Figure 7: Ablation on retrieval query formulation. Results on MATH-500 with Qwen3-1.7B. Q–Q uses query-only embeddings on both sides; QA–QA jointly encodes the test query with the intermediate answer on the retrieval side and query+solution on the corpus side. QA–QA performs best, adapting retrieval to the model’s evolving reasoning state. 
+
+24 Algorithm 1 ThinkRetrieve 
+
+Require: Test query xtest , example corpus E = {(qj , a j )}Nj=1 , encoder Enc, LRM πθ, thinking budget B
+
+Ensure: Final answer y 
+
+> 1:
+
+τ ← ∅ , t ← 1 
+
+> 2:
+
+while token budget B not exhausted do  
+
+> 3:
+
+// Generate reasoning step  
+
+> 4:
+
+zt ∼ πθ(· | xtest , τ ) 
+
+> 5:
+
+// Extract intermediate answer as retrieval query  
+
+> 6:
+
+yt ∼ πθ(· | xtest , τ, z t, Final Answer: ) 
+
+> 7:
+
+// Retrieve relevant exemplar from corpus  
+
+> 8:
+
+qt = Enc (xtest , y t) 
+
+> 9:
+
+j∗ 
+
+> t
+
+= arg max j sim (qt, ej ) 
+
+> 10:
+
+et = [Example: qj∗ 
+
+> t
+
+Solution: aj∗ 
+
+> t
+
+] 
+
+> 11:
+
+// Update reasoning trajectory  
+
+> 12:
+
+τ ← τ ∥ (zt, e t) 
+
+> 13:
+
+t ← t + 1  
+
+> 14:
+
+// Generate final answer from augmented trajectory  
+
+> 15:
+
+y ∼ πθ(· | xtest , τ ) 
+
+> 16:
+
+return y
+
+The placeholder {Retrieved exemplar et} is replaced at each reasoning step t with the formatted exemplar from Eq. 7. This template is kept fixed across all models and benchmarks. 
+
+# L Algorithm 
+
+Algorithm 1 summarizes the complete ThinkRetrieve procedure described in Section 3. At each reasoning step, the model generates a thinking trace, produces an intermediate answer, retrieves a relevant exemplar from the corpus via dense nearest-neighbour search, and appends it to the trajectory before continuing. The process repeats until the thinking budget B is exhausted, after which the final answer is generated from the fully augmented trajectory. 
+
+# M Qualitative Analysis 
+
+We provide additional qualitative examples to complement the analysis in Section 4. Figure 8 illustrates a failure mode of sequential TTS that is distinct from the probability example in the main paper (Figure 3): rather than failing to catch an error, the model correctly solves the problem, but then undermines its own answer through unnecessary self-reflection. After deriving the correct side length of 16 √3, sequential TTS second-guesses the result and attempts alternative proof strategies involving parametric forms and rotations, accumulating algebraic errors that lead to an incorrect final answer. This exemplifies the overthinking phenomenon (Ghosal et al., 2025a), where additional reasoning degrades rather than improves performance. In contrast, ThinkRetrieve retrieves a related problem involving an inscribed equilateral triangle, from which the model extracts key structural insights that confirm its initial derivation. Rather than triggering exploration of alternative strategies, the retrieved exemplar anchors the model’s confidence in its existing solution. This pattern repeats across subsequent retrieval steps, with each exemplar acting as a cognitive checkpoint that reinforces the current answer instead of destabilizing it. 25 Figure 8: Qualitative comparison on a geometry problem from MATH-500. Both methods arrive at the correct answer ( 16 √3) after the initial reasoning steps. Under sequential TTS (left), the model second-guesses its correct solution, explores alternative parametric and rotational proof strategies, encounters algebraic errors, and ultimately produces an incorrect final answer. Under ThinkRetrieve (right), a structurally similar solved problem involving an equilateral triangle inscribed in a circle is retrieved, and the model extracts transferable insights that reinforce its original correct reasoning. Subsequent retrieved exemplars act as cognitive checkpoints that stabilize the answer rather than trigger unnecessary exploration. 
+
+26
