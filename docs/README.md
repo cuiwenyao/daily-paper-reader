@@ -6,46 +6,41 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-08-20
-- 运行时间：2026-08-20 21:01:56 UTC
+- 最新运行日期：2026-08-21
+- 运行时间：2026-08-21 20:37:53 UTC
 - 运行状态：成功
-- 本次总论文数：8
-- 精读区：5
-- 速读区：3
+- 本次总论文数：7
+- 精读区：1
+- 速读区：6
 
 ### 今日简报（AI）
-今日8篇论文，精读5篇、速读3篇，聚焦模型推理与可解释性。  
-最值一看：LLaMA 3.1 8B数值推理机制与缺省论据补全逻辑，均获9.0高分。  
-下一步可关注多模态推理与并行时序优化，如GLaQ和ParaTempo的速读成果。
-- 详情：[/202608/20/README](/202608/20/README)
+今日精读1篇、速读6篇，聚焦多类AI前沿；最值得关注是让大模型直接“说机器语言”的统一生成框架，另可留意可解释架构设计；建议普通读者从精读这篇入手，理解未来模型与系统交互的新方式。
+- 详情：[/202608/21/README](/202608/21/README)
 
 ### 精读区论文标签
-1. [Mechanistic Interpretability of Structure-Aware Numerical Reasoning in LLaMA 3.1 8B](/202608/20/2608.18419v1-mechanistic-interpretability-of-structure-aware-numerical-reasoning-in-llama-31-8b)  
-   标签：评分：9.0/10、query:ns-xai
-   evidence：对Llama 3.1 8B数值推理的机制可解释性
-2. [Pairwise Logical Selection of Enthymeme Completions under Semantic-Link Uncertainty](/202608/20/2608.18820v1-pairwise-logical-selection-of-enthymeme-completions-under-semantic-link-uncertainty)  
-   标签：评分：9.0/10、query:ns-xai
-   evidence：扩展神经符号管线，在语义链接不确定下对省略式论证补全进行成对逻辑选择
-3. [Identifying Implicit Premises for Logical Reconstruction of Argument Graphs](/202608/20/2608.18821v1-identifying-implicit-premises-for-logical-reconstruction-of-argument-graphs)  
-   标签：评分：9.0/10、query:ns-xai
-   evidence：融合大语言模型生成隐式前提与逻辑公式的神经符号管线，用于论证图逻辑重构
-4. [Divergent-Convergent Reasoning: Scaling Test-Time Compute through Structured Solution Synthesis](/202608/20/2608.15303v1-divergent-convergent-reasoning-scaling-test-time-compute-through-structured-solution-synthesis)  
+1. [When Machines Speak: A Unified Generative Framework for Integrating Machine-Native Symbols into Pretrained Large Language Models](/202608/21/2608.19529v1-when-machines-speak-a-unified-generative-framework-for-integrating-machine-native-symbols-into-pretrained-large-language-models)  
    标签：评分：8.0/10、query:ns-xai
-   evidence：提出通过结构化方案合成扩展大模型推理的测试期计算，属于大模型推理技术
-5. [Graphical Design of Interpretable Architectures](/202608/20/2608.18936v1-graphical-design-of-interpretable-architectures)  
-   标签：评分：8.0/10、query:ns-xai
-   evidence：用图形化符号设计可解释AI架构，支持概念瓶颈、稀疏探针等可解释建模
+   evidence：将预训练大语言模型扩展为把机器原生符号作为一等生成单元，弥合语言建模与结构化预测之间的鸿沟
 
 ### 速读区论文标签
-1. [Identifiability and Order-Dimension Limits of In-Context Learning on Partial Orders](/202608/20/2608.14004v1-identifiability-and-order-dimension-limits-of-in-context-learning-on-partial-orders)  
+1. [Graphical Design of Interpretable Architectures](/202608/21/2608.18936v2-graphical-design-of-interpretable-architectures)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：对偏序上的上下文学习做形式化符号分析，连接神经ICL与逻辑推理
-2. [GLaQ: Grounding Latent Queries in Visual Evidence for Multimodal Reasoning](/202608/20/2608.15517v1-glaq-grounding-latent-queries-in-visual-evidence-for-multimodal-reasoning)  
+   evidence：提出图形化符号系统用于设计和比较可解释架构，并映射到PyTorch einsum
+2. [Towards general embodied intelligence: integrating large language models, knowledge bases, and reasoning capabilities to build the next generation of AI agents](/202608/21/2608.19794v1-towards-general-embodied-intelligence-integrating-large-language-models-knowledge-bases-and-reasoning-capabilities-to-build-the-next-generation-of-ai-agents)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：通过潜在查询锚定视觉证据增强多模态大模型推理，提高推理能力而非可解释性
-3. [ParaTempo: Efficient Parallel Reasoning via Temporal Confidence](/202608/20/2608.16425v1-paratempo-efficient-parallel-reasoning-via-temporal-confidence)  
-   标签：评分：7.0/10、query:ns-xai
-   evidence：提出基于时间置信度的无训练异步并行推理机制，用于大模型分支级控制
+   evidence：综述LLM与知识库及推理能力的整合，强调逻辑推理和结构化知识的作用
+3. [Overcoming Shortcut Learning in Graph Neural Networks through Active Explanation Guidance](/202608/21/2608.14121v1-overcoming-shortcut-learning-in-graph-neural-networks-through-active-explanation-guidance)  
+   标签：评分：6.0/10、query:ns-xai
+   evidence：通过解释检查和人工反馈检测并去除GNN中的捷径，是一种可解释性驱动的方法
+4. [Margin-Regularized Structured Semantic Alignment for Brain-Language Correspondence](/202608/21/2608.16975v1-margin-regularized-structured-semantic-alignment-for-brain-language-correspondence)  
+   标签：评分：6.0/10、query:ns-xai
+   evidence：面向大模型脑语言解码可解释性的显式语义对齐方法
+5. [From Storage to Access: Verifiable Activation of Parametric Knowledge in LLMs via Explicit Priming and Implicit Reasoning](/202608/21/2608.18581v1-from-storage-to-access-verifiable-activation-of-parametric-knowledge-in-llms-via-explicit-priming-and-implicit-reasoning)  
+   标签：评分：6.0/10、query:ns-xai
+   evidence：目标是让大模型知识访问可验证并与推理解耦，从而支持可解释性。
+6. [When Text and Numbers Disagree: Evidence Arbitration in Large Language Models](/202608/21/2608.20116v1-when-text-and-numbers-disagree-evidence-arbitration-in-large-language-models)  
+   标签：评分：6.0/10、query:ns-xai
+   evidence：研究大模型对冲突证据的仲裁机制，有助于理解其推理行为
 
 
 <div class="dpr-home-promo-card">
