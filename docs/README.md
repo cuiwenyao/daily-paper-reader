@@ -6,41 +6,38 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-08-21
-- 运行时间：2026-08-21 20:37:53 UTC
+- 最新运行日期：2026-08-22
+- 运行时间：2026-08-22 20:27:57 UTC
 - 运行状态：成功
-- 本次总论文数：7
-- 精读区：1
-- 速读区：6
+- 本次总论文数：5
+- 精读区：0
+- 速读区：5
 
 ### 今日简报（AI）
-今日精读1篇、速读6篇，聚焦多类AI前沿；最值得关注是让大模型直接“说机器语言”的统一生成框架，另可留意可解释架构设计；建议普通读者从精读这篇入手，理解未来模型与系统交互的新方式。
-- 详情：[/202608/21/README](/202608/21/README)
+今日速读5篇论文，重点聚焦组合图推理、文本生成不确定性估计与LLM记忆管理。  
+最值得关注《ClosureBench》与《Forking Fast》，分别从基准构建和效率估计切入图推理与生成风险。  
+建议普通读者优先精读这两篇7分工作，后续可追踪它们的方法扩展与实验细节。
+- 详情：[/202608/22/README](/202608/22/README)
 
 ### 精读区论文标签
-1. [When Machines Speak: A Unified Generative Framework for Integrating Machine-Native Symbols into Pretrained Large Language Models](/202608/21/2608.19529v1-when-machines-speak-a-unified-generative-framework-for-integrating-machine-native-symbols-into-pretrained-large-language-models)  
-   标签：评分：8.0/10、query:ns-xai
-   evidence：将预训练大语言模型扩展为把机器原生符号作为一等生成单元，弥合语言建模与结构化预测之间的鸿沟
+- 本次无精读推荐。
 
 ### 速读区论文标签
-1. [Graphical Design of Interpretable Architectures](/202608/21/2608.18936v2-graphical-design-of-interpretable-architectures)  
+1. [ClosureBench: A Constructive Benchmark for Compositional Graph Reasoning](/202608/22/2608.18242v1-closurebench-a-constructive-benchmark-for-compositional-graph-reasoning)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：提出图形化符号系统用于设计和比较可解释架构，并映射到PyTorch einsum
-2. [Towards general embodied intelligence: integrating large language models, knowledge bases, and reasoning capabilities to build the next generation of AI agents](/202608/21/2608.19794v1-towards-general-embodied-intelligence-integrating-large-language-models-knowledge-bases-and-reasoning-capabilities-to-build-the-next-generation-of-ai-agents)  
+   evidence：用符号张量逻辑程序构建图推理基准，支持神经符号评测
+2. [Forking Fast: Efficiently Estimating Uncertainty Dynamics in Text Generation](/202608/22/2608.19611v1-forking-fast-efficiently-estimating-uncertainty-dynamics-in-text-generation)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：综述LLM与知识库及推理能力的整合，强调逻辑推理和结构化知识的作用
-3. [Overcoming Shortcut Learning in Graph Neural Networks through Active Explanation Guidance](/202608/21/2608.14121v1-overcoming-shortcut-learning-in-graph-neural-networks-through-active-explanation-guidance)  
+   evidence：针对LLM文本生成推理链分布的高效重采样分析，支持推理过程解释
+3. [Mental Model Management: An Operator-Based Framework for LLM Memory](/202608/22/2608.15451v1-mental-model-management-an-operator-based-framework-for-llm-memory)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：通过解释检查和人工反馈检测并去除GNN中的捷径，是一种可解释性驱动的方法
-4. [Margin-Regularized Structured Semantic Alignment for Brain-Language Correspondence](/202608/21/2608.16975v1-margin-regularized-structured-semantic-alignment-for-brain-language-correspondence)  
+   evidence：基于算子的心智模型将符号化概念操作与神经大模型结合
+4. [TraceSQL: Traceable Answerability Estimation for Reference-Free Text-to-SQL Verification](/202608/22/2608.17795v1-tracesql-traceable-answerability-estimation-for-reference-free-text-to-sql-verification)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：面向大模型脑语言解码可解释性的显式语义对齐方法
-5. [From Storage to Access: Verifiable Activation of Parametric Knowledge in LLMs via Explicit Priming and Implicit Reasoning](/202608/21/2608.18581v1-from-storage-to-access-verifiable-activation-of-parametric-knowledge-in-llms-via-explicit-priming-and-implicit-reasoning)  
+   evidence：面向无参考文本到SQL验证的可追溯可回答性估计，提升大模型裁决的可视化可解释性
+5. [MemTrapBench: Benchmarking Cognitive Traps in LLM Memory Use](/202608/22/2608.20202v1-memtrapbench-benchmarking-cognitive-traps-in-llm-memory-use)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：目标是让大模型知识访问可验证并与推理解耦，从而支持可解释性。
-6. [When Text and Numbers Disagree: Evidence Arbitration in Large Language Models](/202608/21/2608.20116v1-when-text-and-numbers-disagree-evidence-arbitration-in-large-language-models)  
-   标签：评分：6.0/10、query:ns-xai
-   evidence：研究大模型对冲突证据的仲裁机制，有助于理解其推理行为
+   evidence：以基准方式解释记忆如何扭曲大模型推理，属可解释性研究
 
 
 <div class="dpr-home-promo-card">

@@ -1,0 +1,841 @@
+Title: ClosureBench: A Constructive Benchmark for Compositional Graph Reasoning
+
+URL Source: https://arxiv.org/pdf/2608.18242v1
+
+Published Time: Thu, 20 Aug 2026 00:06:42 GMT
+
+Number of Pages: 30
+
+Markdown Content:
+ClosureBench: Compositional Graph Reasoning 
+
+# ClosureBench: A Constructive Benchmark for Compositional Graph Reasoning 
+
+Stefano Goria stefano@aimresearchlab.com 
+
+AIM Research Lab 
+
+aimresearchlab. com 
+
+Abstract 
+
+Large language models are widely reported to fail on multi-step compositional and logical reasoning, and a growing body of work has measured parts of this gap. Tracking it is itself hard: new models are trained on the benchmarks used to evaluate them, so a fixed test set decays into a memorisation check soon after release, which has motivated constructive 
+
+benchmarks that generate fresh instances on demand. We introduce ClosureBench , a constructive benchmark for probing, in depth and along controllable axes, where language models fail on graph-relational logical reasoning. Each task is built from explicit logic primitives—reachability, degree, set operations, connectivity, and aggregation—and its reference answer is computed by executing code that implements that logic exactly, giving programmatically verified ground truth and an unlimited supply of fresh instances. The benchmark spans 26 task categories at three compositional levels, with three independent difficulty knobs: graph size, edge density, and query depth. Evaluating models from 1.5B open weights to frontier systems (o3, GPT-4.1, Gemini 2.5, Claude Sonnet 4), we find that accuracy falls as graph size and query depth increase, and that the two interact: even the strongest frontier model degrades sharply from atomic to compositional queries. The difficulty is neither the surface form—it persists when the graph is given as a JSON edge list or an adjacency matrix rather than prose—nor the reasoning rule, which models state correctly, but carrying that rule out over the graph across many steps. A 4B model fine-tuned to emit verified programs instead of answers stays nearly flat across compositional levels, where every frontier model degrades sharply: o3, the strongest, falls from 96% on atomic queries to 82% on the most compositional, while the 4B model holds at 93%—matching or exceeding the frontier on the hardest tasks at a fraction of the token cost. The program offloads the multi-step execution to a runtime, and the model’s residual errors are almost entirely misread edges—the one step it still performs itself. Constructive generation also supports a direct memorisation check, comparing accuracy on seen versus freshly generated instances. 
+
+Keywords: graph reasoning, compositional generalisation, benchmarks, data contamina-tion, program synthesis 
+
+1 Introduction 
+
+Consider a compliance analyst at a bank who must answer a routine but consequential question: can money move from a given customer to a sanctioned entity through any chain of intermediaries? The transactions form a graph—accounts are nodes and a transfer is a directed edge—and the question asks whether a directed path connects the customer to the sanctioned account. Answering it means chaining several steps: following transfers, tracking which accounts have been reached, and combining the partial results. A missed path is an undetected sanctions exposure; a spurious one freezes a legitimate account. This is the kind 
+
+1arXiv:2608.18242v1 [cs.LG] 18 Aug 2026 Goria 
+
+of multi-step, relational question that organisations increasingly pose to language models in natural language—and the kind on which language models are reported to be unreliable. That report is consistent across settings: models handle single-step inference well but degrade as a task composes more steps. A formal analysis of chain-of-thought finds accuracy falling as deductions chain (Saparov and He, 2023); multi-hop question answering stays hard when questions genuinely require composing sub-questions rather than exploiting shortcuts (Trivedi et al., 2022; Ho et al., 2020); dedicated logical-reasoning suites expose systematic errors on nested and first-order structure (Hu et al., 2022b; Liu et al., 2020; Yu et al., 2020); and grade-school arithmetic loses accuracy under superficial edits, a sign of pattern-matching rather than a robust procedure (Mirzadeh et al., 2024). The newest reasoning-tuned models narrow but do not close the gap: OpenAI’s o1 improves sharply on planning benchmarks yet stays far from solving them (Valmeekam et al., 2024), and on controlled puzzles the strongest reasoning models collapse once compositional complexity crosses a threshold, curtailing their own reasoning effort as problems grow harder (Shojaee et al., 2025). Whether such failures reflect a genuine limit or the way we test for it is itself debated (Cheng et al., 2024)—a reason to measure them more precisely. Precise measurement runs into two obstacles. First, benchmarks decay: once a test set is public it is absorbed into the next round of training, so a fixed set of questions soon measures recall rather than reasoning—GSM8K (Cobbe et al., 2021) and MMLU (Hendrycks et al., 2021) have saturated, their scores can be inflated by training on leaked data (Zeng et al., 2024), and small surface edits already move them (Mirzadeh et al., 2024). Procedurally generated benchmarks address this by instantiating fresh instances on demand, as in the DyVal family (Zhu et al., 2024a,b) and monthly-refreshed suites such as LiveBench (White et al., 2024). Second, the benchmarks that do target graph reasoning—GraphQA (Fatemi et al., 2023), NLGraph (Wang et al., 2023), GraphWiz (Chen et al., 2024a), GraphArena (Tang et al., 2024), GraCoRe (Yuan et al., 2024), GraphInstruct (Luo et al., 2024), and the kinship-focused CLUTRR (Sinha et al., 2019)—score answers by string matching (Chen et al., 2024b) and vary difficulty along a single coarse axis, so they cannot isolate which 
+
+operation a model fails on or how much composition breaks it; the choice of graph encoding alone can move accuracy by tens of points (Fatemi et al., 2023), confounding reasoning with input format. The sanctions query is one instance of a general operation: the transitive closure of a relation, the set of all pairs joined by a directed path. Closure recurs far beyond finance—it decides whether a fault propagates through a dependency graph, whether a change reaches a downstream service, or who descends from whom in a lineage. Related operations recur just as widely: counting a node’s connections (degree), intersecting the sets two sources reach, finding mutually reachable groups (strongly connected components), or aggregating a quantity over a reachable set. We call these graph-relational logic primitives ; each is a precise, checkable operation on a graph, and realistic questions compose a handful of them. Measuring reasoning this precisely means controlling which primitives a question uses and 
+
+how many it composes, with a reference answer one can trust. 
+
+ClosureBench —named for that closure operation—provides both. Each task is a query over one or more logic primitives, and its reference answer is computed , not curated: the primitive is executed as a short program—a few lines of tensor logic (Domingos, 2025), which expresses graph operations as contractions over the adjacency matrix, run in the Ein 
+
+> 2ClosureBench: Compositional Graph Reasoning
+
+language 1 or, equivalently, in Python with NetworkX. 2 Because the answer is computed it is exact, and the generator can produce unlimited fresh, contamination-free instances from independent structural and surface seeds. The benchmark spans 26 task categories at three compositional levels and exposes three independent difficulty knobs—graph size, edge density, and query depth—so an evaluator can fix two and vary the third to localise where a model breaks. Models see only a natural-language question and return a JSON answer; they never see the program behind it. We make three contributions: 1. ClosureBench itself: a constructive benchmark of 26 graph-relational categories built from explicit logic primitives, with programmatically computed ground truth, three independent difficulty axes, and surface control ( §2). Because it supplies unlimited fresh instances, it also gives a direct check for memorisation—the gap between accuracy on seen and on freshly generated instances—which we use to separate recall from reasoning under fine-tuning ( §4.1). 2. A diagnostic of where language models fail on these tasks: accuracy falls as graph size and query depth grow and the two interact, and the failure is in executing the computation over the graph—it survives JSON and adjacency-matrix encodings and is not recovered by extra reasoning tokens—rather than in reading the graph or stating the rule ( §4.2–4.6). 3. Program synthesis as a level-invariant, low-cost alternative—emitting a program instead of an answer, an approach that has driven recent gains in graph reasoning (Zhu et al., 2025; Guo et al., 2025): a 4B model fine-tuned to emit verified programs stays nearly flat across compositional levels, where every frontier model degrades sharply, at a fraction of the token cost, with Ein and Python targets giving the same result ( §4.5). 
+
+2 ClosureBench Design 
+
+ClosureBench is built around four design principles, each addressing a specific failure mode of existing benchmarks: (1) Programmatic ground truth —every reference answer is computed by executing the task’s logic primitives as a program, eliminating human labelling errors; (2) Constructive generation —new instances are generated on demand, so the benchmark never runs out of fresh evaluation data; (3) Independent complexity axes —three orthogonal parameters let evaluators isolate specific failure modes; (4) Do-main grounding —tasks are framed in real-world verticals to test whether models handle contextualised graph descriptions. 
+
+2.1 Reasoning Primitives and Query Types 
+
+Every ClosureBench task is built from a small set of graph-relational primitives over a graph’s adjacency matrix. We define the primitives and the query types they induce below, and defer their computation to §2.5.       
+
+> 1. Ein is an open-source standalone language, implemented in Rust: https://github.com/egolabs-ai/ ein-lang .2. NetworkX, a Python library for graph algorithms: https://networkx.org .
+> 3Goria
+> Generation Graph Sampling Program (primitives) Ground Truth NL Question Evaluation Model JSON Answer Score
+
+Figure 1: The ClosureBench pipeline. Generation (top): graphs are sampled and a program over the task’s primitives computes verified ground truth (we use Ein, §2.5). 
+
+Evaluation (bottom): models receive only natural-language questions and produce JSON answers scored against precomputed ground truth. Models never see the programs. Represent a directed graph on n nodes by its adjacency matrix A ∈ { 0, 1}n×n, with 
+
+A[i, j ]=1 iff there is an edge i→j. Every reference answer is a function of A and a few designated query nodes. The primitives are: 
+
+• Degree. The out-degree of node i is the row sum dout (i) = P 
+
+> j
+
+A[i, j ]; the in-degree is the column sum. Query: “Alice pays Bob, Carol, and Dave. How many accounts does Alice pay?” ( dout (Alice)=3). 
+
+• Reachability (transitive closure). Node i reaches j if a directed path connects them. The closure matrix TC( A) has TC[ i, j ]=1 iff i reaches j; equivalently TC = Wn−1 
+
+> k=1
+
+Ak
+
+under Boolean arithmetic. Query: “X supplies Y , and Y supplies Z; is there a supply path from X to Z?” 
+
+• Reachable set. R(X) = {j : TC[ X, j ]=1 } is the set of nodes reachable from X. Query: 
+
+“How many nodes are reachable from X?” ( |R(X)|). 
+
+• Set operations. Queries combine reachable sets with intersection R(X)∩R(Y ), difference 
+
+R(X) \ R(Y ), or complement. Query: “Which nodes can X reach that Y cannot?” (R(X) \ R(Y )). 
+
+• Triangles. For an undirected graph the triangle count is trace( A3)/6 (each triangle closes six length-3 walks). Query: “How many groups of three nodes that all connect to one another are there?” 
+
+• Strongly connected components (SCC). Nodes i, j share an SCC iff each reaches the other, TC[ i, j ] ∧ TC[ j, i ]. Query: “Can X and Y each reach the other?” 
+
+• Ancestry and kinship. On a directed acyclic parent →child graph, ancestry is reach-ability, and kinship terms follow from it: an ancestor of X reaches X; siblings share a parent; cousins share a grandparent. Query: “Eve is a parent of Carol and Tina; who is the oldest ancestor of Tina?”, or “Are Carol and Dave cousins?” 
+
+• Aggregation. A scalar summary (sum, mean, or maximum) over a set, such as the mean out-degree over R(X), 1
+
+> |R(X)|
+
+P 
+
+> i∈R(X)
+
+dout (i). Query: “Among the nodes reachable from 
+
+X, what is their average number of outgoing links?” A query type is defined by which primitives it invokes and how they compose (Table 1). An atomic query invokes one primitive: “can X reach Y ?” is a single closure lookup. A 
+
+> 4ClosureBench: Compositional Graph Reasoning
+
+Table 1: Reasoning primitives, the questions they answer, and the categories that use them. 
+
+A is the adjacency matrix; R(X) is the set of nodes reachable from X.                                                       
+
+> Primitive Definition Example question Categories
+> Degree P
+> jA[i, j ]how many does X
+> point to? degree count, de-gree max Reachability TC[ X, Y ]can Xreach Y?reachability, has path Reachable-set size
+> |R(X)|how many can X
+> reach? reach then count, reach then filter Set opera-tions
+> R(X)∩R(Y),
+> R(X)\R(Y)reachable from Xbut not Y?set intersect, set difference, negative reach Triangles trace( A3)/6how many triangles? triangle count, trian-gle in subgraph Connectivity (SCC) TC[ i, j ]∧TC[ j, i ]are X, Y mutually reachable? scc same, scc then count Ancestry/kinship reachability on aDAG who is an ancestor of
+> X?ancestor, sib-ling, cousin, kin-ship chain Aggregation sum /avg /max over a set average degree of
+> R(X)? aggregate over set, mixed domain Composition branch/compose the above if reachable, count; else −1conditional, multi query, path and compare
+
+chain feeds one primitive’s output into the next: “how many nodes can X reach?” is reachability followed by a count over R(X). A composition adds control flow: “if X can reach Y , report |R(X)|, otherwise −1” runs a reachability test, branches on the result, then counts. The taxonomy ( §2.2) groups tasks by this structure, and the complexity axes ( §2.3) vary it independently. 
+
+2.2 Task Taxonomy 
+
+ClosureBench organises 26 categories into three levels of compositional difficulty (Table 2); Appendix A lists all of them with each category’s defining operation. 
+
+L1 (Atomic, 11 categories): a single primitive—triangle count, reachability, negative reachability, degree count, maximum degree, same-SCC membership, set intersection, set difference, and the kinship relations ancestor, sibling, and cousin. Each isolates one graph-relational operation. 
+
+L2 (Chain, 8 categories): two or three primitives where one feeds the next—reach-then-count, reach-then-filter, kinship chain, triangles in a reachable subgraph, path-and-compare, SCC-then-count, degree-then-reach, and intersect-then-size. “How many nodes can X reach?” is reachability followed by a count. 
+
+L3 (Composition, 7 categories): three to five primitives with branching or multiple queries—multi-query, conditional, aggregate-over-set, complex kinship, graph comparison, 
+
+> 5Goria
+
+Table 2: Task taxonomy. Each level increases the number of chained reasoning operations. L1–L3 are included in the current release (1,300 instances total). SCC: strongly connected component.                  
+
+> Level Name Steps Test Representative Categories
+> L1 Atomic 1550 triangle count, reach-ability, degree, ances-tor, set ops L2 Chain 2–3 400 reach-then-count, SCC-then-count, kinship chain L3 Composition 3–5 350 conditional, multi-query, aggregate-over-set
+
+chain-of-filters, and mixed-domain. “If X can reach Y , return the size of its reachable set, otherwise −1” combines a reachability test, a branch, and a count. 
+
+2.3 Three Independent Complexity Axes 
+
+Each ClosureBench instance is parameterised by three orthogonal complexity dimensions: 
+
+Graph size ( n): the number of entities (nodes). Increasing n makes the adjacency description longer and enlarges the space the model must track, without changing the computational structure. The held-out split uses n ∈ { 4, . . . , 10 }; the size-scaling study (§4.2) pushes n to 20 on a dedicated sweep. 
+
+Edge density ( ρ): the fraction of possible edges present ( ρ ∈ [0 .1, 0.5]). Sparse graphs (ρ = 0 .1) have few connections and simple reachability; dense graphs ( ρ = 0 .5) produce more triangles, larger reachable sets, and more complex SCC structures. 
+
+Query depth ( d): the number of chained reasoning operations, corresponding to levels L1–L3. Increasing d adds compositional steps without changing the underlying graph. These axes are orthogonal by construction: increasing n does not change d; increasing 
+
+ρ does not change n. This enables controlled ablation studies that isolate specific failure modes—for instance, testing whether a model that succeeds on 4-node graphs fails on 12-node graphs with the same query type, or whether density affects triangle counting but not reachability. 
+
+2.4 Surface Variation 
+
+A key design decision, motivated by GSM-Symbolic’s finding that surface perturbations degrade memorisation-dependent performance (Mirzadeh et al., 2024), is the separation of instance generation into structural and surface components controlled by independent seeds. 
+
+Structural seed: controls graph topology—which nodes connect to which—and therefore the reference answer. Two instances with the same structural seed but different surface seeds have identical answers but different natural-language realisations. 
+
+Surface seed: controls presentation features that do not affect the answer: 
+
+> 6ClosureBench: Compositional Graph Reasoning
+
+• Node labels from disjoint pools: letters (A–Z), personal names (Alice–Vic), server identifiers (srv-00–srv-29), or animal names (ant–zebu). 
+
+• Domain frames (16 total): fraud detection, supply chain, cybersecurity, compliance, kinship, healthcare, logistics, social media, academia, banking, real estate, telecom-munications, energy, government, transport, and abstract—each with domain-specific vocabulary (“transferred funds to” vs. “routes to” vs. “cites”). 
+
+• Presentation style (5 variants): flat, grouped by source, grouped by target with reversed verbs, randomly mixed, or varied per-source phrasing. 
+
+• Edge ordering : the order in which edges appear in the question text. The combinatorial space is large: for a 10-node graph, each label pool provides 10 10 +permutations; combined with 16 domains, 5 styles, and m! edge orderings, a surface seed indexes into a space exceeding 10 15 distinct realisations of the same graph structure. An evaluator can always generate a fresh surface configuration that shares no tokens with any training data, providing a structural defence against data contamination. 
+
+2.5 Generating and Verifying Instances 
+
+Generation runs offline (top of Figure 1). For each instance the generator samples a category and a structural triple ( n, ρ, d ), draws a graph with those parameters, and computes the reference answer by executing the category’s program over the graph; an independent surface seed ( §2.4) then verbalises the graph and question as natural-language text. At evaluation time (bottom of Figure 1) a model receives only that text and returns a JSON answer, scored against the precomputed reference. The five-step procedure is detailed in Appendix K. The answer is computed , not labelled, so it is correct by construction; we additionally cross-check every released instance against a second, independently written Python+NetworkX implementation of each category. Our primary engine is Ein , a tensor-logic language. Domingos (2025) argues that logical rules and Einstein summation are the same operation; the primitives of §2.1 are naturally tensor contractions over the adjacency matrix, so they express directly and compactly in Ein. We use it for three properties: (1) a parser and type-checker make execution deterministic and verifiable; (2) programs are compact, typically 4–8 lines ( ∼200 tokens), which later makes Ein an efficient program-synthesis target ( §4.5); and (3) it provides the graph primitives (transitive closure, reachability, degree, selection) as builtins. Triangle counting is four lines:              
+
+> A=edges ([[0 ,1 ,1] ,[1 ,0 ,1] ,[1 ,1 ,0]] , 3) A2 [i , k ] =A [i , j ] A [j , k ] A3 [i , j ] =A2 [i , k ] A [k , j ] Result =trace ( A3 ) /6.0
+
+Models never interact with Ein : the program runs only during generation, so any model can attempt ClosureBench without programming knowledge. 
+
+Data splits. We draw two disjoint splits from the generator, each stratified at 50 instances per category: a training split and a held-out split of 1,300 instances each. All models are evaluated on the held-out split; the fine-tuning experiments—the memorisation probe ( §4.1) and the program-synthesis models ( §4.5)—train on the training split and report on the held-out split. Because the held-out split is verbalised from fresh surface seeds, it 
+
+> 7Goria
+
+shares no surface tokens with the training split, so a model’s seen-vs-held-out accuracy gap reflects memorisation rather than transfer ( §4.1). 
+
+3 Experimental Setup 
+
+Our experiments use ClosureBench as a lens on how different classes of language model fail on graph-relational reasoning. We run three kinds of experiment: we evaluate open-weight and frontier models off the shelf, to map where accuracy breaks down ( §4.2–4.4); a 
+
+memorisation probe fine-tunes a model on the benchmark’s own instances, to test whether the constructive design can detect contamination ( §4.1); and a program-synthesis experiment fine-tunes a model to emit an executable program instead of an answer, to test whether the failure can be removed ( §4.5). This section gives the setup common to all three; Appendix G and the released code reproduce every number. In every experiment a model is shown a natural-language graph question and must return a single JSON object with an "answer" field—for example, “ srv-0 routes to srv-2; srv-2 routes to srv-4; is there a route from srv-0 to srv-4? ” expects {"answer": true} .The schema is described generically, with no per-category examples, so a model must infer the expected type from the wording, as a human evaluator would (verbatim prompts in Appendix F, the per-category schema in Appendix I). Where the provider supports it we evaluate in two modes— direct (answer immediately) and chain-of-thought (CoT: reason step by step, then answer)—and decode at temperature 0 throughout, so runs are deterministic and reproducible. 
+
+3.1 Models 
+
+We span three groups. Open-weight models of increasing size run locally on a single low-cost device (one NVIDIA GB10, DGX Spark): Qwen2.5-1.5B, Qwen3.5-2B, Qwen3-4B, and Qwen3.5-9B. 3 Frontier models are queried through their providers’ APIs (March 2026, default settings): GPT-4.1, GPT-4.1-mini, o3, Claude Sonnet 4, and Gemini 2.5 Flash; o3 is available in direct mode only. Fine-tuned models are Qwen3-4B adapted with LoRA (Hu et al., 2022a) for the memorisation and program-synthesis experiments; the configuration is in §3.4. 
+
+3.2 Evaluation Set and Difficulty 
+
+Unless stated otherwise, all models are evaluated on the same held-out split ( §2.5): 1,300 instances, 50 per category, drawn across the full difficulty range—graph size n ∈ { 4, . . . , 10 }
+
+and edge density ρ drawn continuously from [0 .1, 0.5], with query depth d set by each category’s level. The per-level accuracies we report therefore average over n and ρ; §4.2 breaks accuracy out along each axis. All models are evaluated on the full 1,300-instance split.         
+
+> 3. HuggingFace repositories (pinned commits): Qwen/Qwen2.5-1.5B-Instruct (989aa79 ), Qwen/Qwen3-4B
+> (1cfa9a7 ), Qwen/Qwen3.5-2B (15852e8 ), and Qwen/Qwen3.5-9B (c202236 ). The Qwen3.5 models use the
+> Qwen3 5ForConditionalGeneration architecture (multimodal-capable); we run text-only inference.
+> 8ClosureBench: Compositional Graph Reasoning
+
+3.3 Scoring 
+
+We report lenient accuracy throughout: an answer is correct if it matches the reference, with two documented tolerances for the source-inclusion ambiguity present in some question phrasings ( ±1 for the affected count categories, ±one element for the affected set categories). 
+
+Strict scoring removes both tolerances. The two track each other closely—the gap is 0 .0– 0.3pp for program-synthesis models, 0 .9–1 .6pp for frontier CoT, and 4 .5–6 .3pp for direct prompting and small open models—and preserve the ordering of methods; the scoring algorithm and every configuration under both conventions are in Appendix I (Table 10). 
+
+3.4 Fine-tuning Experiments 
+
+Two experiments fine-tune a model. The memorisation probe (§4.1) fine-tunes the base model on the training instances with the reference answers as targets: if this lifts accuracy on seen instances far above accuracy on fresh held-out instances, the gap measures how much the model has memorised rather than learned. The program-synthesis experiment (§4.5) fine-tunes the model to emit an executable program (in Ein or Python+NetworkX) whose execution yields the answer, testing whether offloading the computation removes the compositional failure of §4.2. Both use the same configuration: Qwen3-4B with LoRA ( r=16, α=32, dropout 0.05), learning rate 2 × 10 −4, batch size 4, 3 epochs, trained on the 1,300-instance training split and evaluated on the disjoint held-out split, on the same GB10 device. The memorisation probe is repeated over 3 seeds ( {42 , 137 , 256 }) and averaged. For program synthesis the model has no prior exposure to Ein; it learns the syntax from a 600-token specification appended to the system prompt. Ground truth is computed with the Ein runtime v0.3.0. 
+
+4 Results 
+
+We report results in three parts, one per contribution: the memorisation measurement ( §4.1), the diagnostic of where models fail ( §4.2–4.4), and program synthesis as an alternative ( §4.5). 
+
+4.1 Measuring Memorisation 
+
+A fixed benchmark cannot separate a model that solved its questions from one that memorised them, since those questions may already be in the model’s training data; a constructive benchmark can, because it supplies fresh instances. We fine-tune the base model on the 1,300 training instances with answer supervision ( §3.4) and track accuracy, over training epochs, on both the seen training instances and a disjoint held-out set. Figure 2 plots the two curves: seen accuracy climbs to 78.5% while held-out plateaus at ∼59% after epoch 5, a 19.3pp gap. Held-out accuracy does rise from the base model’s ∼34% to 59.2%, so fine-tuning yields some transferable gain; the 19.3pp gap is the part that does not transfer, and it widens with more training. The gap is for one model and configuration and its size will vary, so we treat the magnitude as illustrative, not a benchmark constant. Because ClosureBench can generate unlimited fresh instances, evaluators can always produce a held-out set that the model has never seen. The seen-vs-held-out gap then serves as a memorisation signal : a large gap (here 19.3pp) shows that part of the seen-set accuracy is memorisation that does not carry over to fresh instances. A fixed benchmark, where all    
+
+> 9Goria 0135
+> Fine-tuning epochs
+> 30 40 50 60 70 80
+> Accuracy (%)  19.3pp Seen (train) Held-out
+
+Figure 2: Measuring memorisation (Qwen3-4B fine-tuned on 1,300 answer pairs). The gap between seen (78.5%) and held-out (59.2%) accuracy (19.3pp by epoch 5) is a memorisation signal that a fixed benchmark cannot measure. instances are potentially in the training data, cannot make this measurement. Two caveats: this experiment tests supervised fine-tuning on aligned pairs and does not address subtler pretraining contamination, and the signal depends on the structural novelty of held-out instances. 
+
+4.2 Where Do Models Fail? 
+
+Table 3 presents accuracy across all models and levels. Every model degrades from L1 to L3, which establishes compositional depth as a difficulty axis. The L1–L3 drop (the “compositional slope”) is 20–26pp for open models and 17–23pp for frontier models including o3; for Ein SFT it is 1.3pp . Program synthesis removes the compositional penalty that the natural-language (NL) reasoning approaches all carry. Figure 3 plots the contrast. Beyond the level averages, accuracy depends on graph size, and the two interact. Figure 4 plots this for the open models on a dedicated size sweep ( n up to 20): L1 tasks degrade gently, while L3 tasks degrade steeply, so graph size and compositional depth compound rather than add. A sharp drop appears between n=4 and n=8—about 20pp for both Qwen3-4B and Qwen3.5-9B—after which accuracy declines gradually. The drop sits at nearly the same place for both model sizes, consistent with a limit in processing graph descriptions rather than a capacity limit, though we test only two small open models here; the L1–L3 gap widens from ∼26pp at n=4 to ∼30pp at n=16, where L3 falls to single digits. The frontier models show the same size dependence on the held-out split, which spans 
+
+n ∈ { 4, . . . , 10 } (Table 4). Overall accuracy falls with n for every frontier model except o3, whose L1 and L2 stay near-perfect. The decline is driven by L3, and it takes the form of a threshold rather than a gradient: on small graphs ( n ≤ 5) frontier models answer L3 at 85–95%, but past n ≈ 5 their L3 accuracy drops into a 55–70% band (o3 higher, ∼82%) and then plateaus rather than falling further. Edge density has a much weaker, non-monotonic effect (a few points from sparse to dense), so no single geometric axis orders the difficulty cleanly. Size-dependent degradation on compositional queries is thus a property of every NL-reasoning model we evaluate, open and frontier. 
+
+> 10
+
+ClosureBench: Compositional Graph Reasoning Qwen2.5 1.5B Qwen3 4B Qwen3.5 9B GPT-4.1 direct Sonnet 4 direct Flash direct o3 GPT-4.1 CoT Ein SFT (4B) 
+
+020 40 60 80 100 
+
+> Accuracy (%)
+> L1 L2 L3
+
+Figure 3: Accuracy by compositional level across all evaluated models. Every model degrades from L1 to L3 except Ein SFT (94% →93%). Dotted lines separate open models, frontier API, and program synthesis. 4 8 12 16 20 
+
+Graph size (n) 
+
+> 020 40 60 80
+> Accuracy (%)
+
+L1     
+
+> Qwen3-4B Qwen3.5-9B
+> 4812 16 20
+
+Graph size (n) 
+
+L2     
+
+> 4812 16 20
+
+Graph size (n) 
+
+L3 
+
+Figure 4: Accuracy vs. graph size ( n) at each compositional level, for the open models on a dedicated size sweep ( n up to 20). L1 degrades gently; L3 steeply. Size and depth compound rather than add. 
+
+4.3 Cost of Chain-of-Thought 
+
+The frontier models reach their best accuracy only with chain-of-thought: it recovers much of the compositional loss above (GPT-4.1 rises from 52.4% to 86.2% overall). The reasoning tokens are not free, and whether that accuracy is affordable depends on how many are spent per answer, which Table 5 quantifies. Figure 5 visualises this trade-off: Ein SFT achieves the best accuracy–cost Pareto point, while CoT models cluster in the high-token, moderate-accuracy region. 
+
+11 Goria 
+
+Table 3: Main results on ClosureBench (lenient scoring). All models are evaluated on the same 1,300-instance held-out split, spanning graph sizes n=4–10; accuracy is averaged over that range (Table 4 breaks it out by n). All methods degrade from L1 to L3 except Ein SFT, which stays nearly flat.                                                                
+
+> Model L1 L2 L3 Overall
+> Open models (direct mode)
+> Qwen2.5-1.5B 35.1 22.2 15.4 25.8 Qwen3.5-2B 40.2 31.8 23.1 33.0 Qwen3-4B 47.8 43.0 22.3 39.5 Qwen3.5-9B 52.0 46.2 26.3 43.3
+> Frontier API (direct mode)
+> GPT-4.1-mini 58.2 49.5 34.9 49.2 GPT-4.1 59.8 55.8 36.9 52.4 Gemini 2.5 Flash 94.5 89.8 73.4 87.4 Claude Sonnet 4 89.1 87.0 64.0 81.7 o3 96.4 97.2 82.0 92.8
+> Frontier API (chain-of-thought)
+> GPT-4.1-mini CoT 91.1 88.0 74.9 85.8 GPT-4.1 CoT 91.5 89.0 74.6 86.2 Claude Sonnet 4 CoT 90.5 90.2 65.1 83.6 Gemini 2.5 Flash CoT ‡91.8 82.8 63.1 81.3
+> Program synthesis
+> Ein SFT (Qwen3-4B) 94.2 95.8 92.9 94.3
+> ‡CoT decreases accuracy vs. direct mode (87.4%); see §4.3.
+
+Table 4: Held-out overall accuracy (%) by graph size n (lenient). Every frontier model degrades with n except o3, whose L1/L2 stay near-perfect. The decline is driven by the compositional (L3) tasks, which drop sharply once n exceeds ∼5 and then plateau rather than declining smoothly; per-n L3 estimates ( ∼50 instances each) are too noisy to tabulate. Modes: o3 and Gemini direct, GPT-4.1 and Claude CoT.                     
+
+> Model n=4 n=6 n=8 n=10 o3 95 90 94 94 Gemini 2.5 Flash 92 89 85 79 GPT-4.1 (CoT) 92 88 85 75 Claude Sonnet 4 (CoT) 92 81 78 78
+
+Costs scale superlinearly with compositional depth: models generate more tokens per reasoning step at higher levels, compounded by error-recovery overhead (“Wait, let me reconsider. . . ” segments that appear in 30–40% of L3 CoT traces). The result is a doubly unfavourable scaling regime: more tokens and lower accuracy per token as complexity grows. GPT-4.1 CoT uses ∼431 tokens per answer—a 60 × increase over direct mode—while only doubling accuracy. The Ein program-synthesis approach ( §4.5) breaks this trade-off: ∼200 tokens per answer at 94.3% accuracy gives the best cost-efficiency of any method evaluated. 
+
+> 12
+
+ClosureBench: Compositional Graph Reasoning 
+
+Table 5: Token cost per answer and cost-efficiency (tokens per correct answer). CoT reasoning consumes 10–50 × more tokens than direct mode, with superlinear scaling at higher compositional levels. ⋆
+
+Model Mode Tok/ans Acc. (%) Tok/correct 
+
+Qwen3-4B Direct 38 39.5 96 Qwen3.5-9B Direct 52 43.3 120 GPT-4.1 Direct 7 52.4 13 Gemini Flash Direct 1,261 87.4 1,443 GPT-4.1 CoT 431 86.2 500 o3 Direct 844 92.8 910 
+
+Ein SFT (4B) Program ∼200 94.3 212   
+
+> All accuracies are overall (1,300 instances, lenient scoring). 10 110 210 3
+
+Mean tokens per answer 
+
+> 30 40 50 60 70 80 90 100
+> Accuracy (%)
+> Qwen3-4B Qwen3.5-9B Gem. Flash o3 4.1m CoT 4.1 CoT Flash CoT
+> Ein SFT
+> Open direct API direct CoT o3 Ein SFT
+
+Figure 5: Token efficiency: accuracy vs. mean tokens per answer (log scale). Ein SFT (star) achieves the highest accuracy at moderate token cost. CoT is not uniformly beneficial. For GPT-4.1, it adds +70pp on aggregate over set 
+
+but costs −2pp on kinship complex , the category with the deepest traversal. For Gem-ini 2.5 Flash, CoT decreases accuracy on 15 of 26 categories (up to −30pp on reach then count )and lowers overall accuracy from 87.4% to 81.3%. Two effects contribute: the model already reasons internally in direct mode ( ∼1,000 thinking tokens), so added thinking sometimes revises a correct answer, and under CoT it returns no parseable answer on 9.5% of instances (Table 11), its reasoning trace exhausting the output budget before it emits JSON. A rough compute comparison points the same way: Ein SFT generates ∼200 tokens from a 4B model, while frontier CoT generates 400–1,200 tokens from much larger models. We do not have parameter counts for the closed frontier models, so we do not quantify a combined tokens-times-parameters ratio; the token counts alone already favour the small program-synthesis model. 
+
+13 Goria 
+
+4.4 Error Analysis 
+
+The results so far show where models fail; to see how , we read the failing responses. Among the 89 L3 errors of GPT-4.1 CoT (our best frontier CoT model), three families account for 69%; concrete examples are in Appendix L. 
+
+Direction confusion (24%, multi query): The model inconsistently parses directed edges. “X reports to Y” should encode as X→Y (out-degree of X), but the model sometimes counts edges pointing into X, confusing out-degree with in-degree or total degree. For example, a node with out-degree 1 and in-degree 2 is reported as having degree 3. The reachability component is often correct; only the degree is wrong. The error is systematic across instances. 
+
+Depth truncation (26%, kinship complex): The model finds the correct root ancestor but counts only 2–3 levels of descendants, systematically undercounting by 2–4. The distribution of errors is {− 3:10 , −4:6 , −2:5 }, consistent with a fixed depth limit. The model can trace a breadth-first traversal for a few steps but loses track of deeper branches. 
+
+Accumulation drift (19%, mixed domain): Multi-step arithmetic (find SCC, collect degrees, compute average) accumulates small errors. Answers are off by 0.1–0.5 on floats— each step is nearly correct but errors compound across 4–5 operations. The remaining 31% are format mismatches (lists instead of dicts) and semantic ambiguities (source inclusion). Across all L3 failures, graph size strongly predicts difficulty: 2% failure rate at n=4 vs. 36% at n=10. The model usually states the reasoning rule correctly; the failures are in carrying it out over the graph. Depth truncation and accumulation drift are execution errors—the model tracks a traversal or a running total for a few steps, then loses it—and they grow with the number of operations it must hold in working memory. Direction confusion is a separate, perceptual error: misreading the direction of an edge. Program synthesis ( §4.5) offloads the execution to a runtime, which removes the first kind and leaves only the second. 
+
+4.5 Program Synthesis as an Alternative 
+
+The execution bottleneck ( §4.4) motivates a different approach: train models to emit verified programs whose execution produces the answer, instead of carrying out the computation in context. When the program is syntactically correct and type-checks, the Ein runtime returns a deterministic result, which moves the multi-step execution from the model to the runtime. We fine-tune Qwen3-4B with LoRA ( r=16, α=32) on 1,300 (question, Ein program) pairs for 3 epochs. The model has zero prior exposure to Ein—it learns the complete syntax from a 600-token prompt specification appended to the system message. Training data and evaluation data are fully disjoint (1,300 / 1,300 instances), with no shared instances between splits. Results (Table 6): the Ein model executes on 99.6% of instances (1,295/1,300) and reaches 94.3% held-out (1,226/1,300), with a 3.7pp seen/held-out gap. The controlled comparison is within the same model: the fine-tuned-direct model from §4.1, trained on the same data with the same LoRA configuration but supervised on answers, reaches 59.2% held-out with a 19.3pp gap. Supervising on programs rather than answers adds 35pp of held-out accuracy and shrinks the generalisation gap by 5 ×, which indicates the model learns to write programs rather than to store input–output pairs. Held-out accuracy also 
+
+> 14 ClosureBench: Compositional Graph Reasoning
+
+Table 6: Direct answering vs. program synthesis on the same model (Qwen3-4B, matched LoRA configuration). Trained on the same data, fine-tuning to emit answers memorises (19.3pp seen/held-out gap), while fine-tuning to emit programs generalises (3.5–3.7pp gap). The fair within-model comparison is the fine-tuned-direct row against the program-synthesis rows.                     
+
+> Method Exec. rate Seen Held-out Gap
+> Qwen3-4B (base, direct NL) 100% 34.5% 34.2% —Qwen3-4B (answer SFT, direct) 100% 78.5% 59.2% 19.3pp Qwen3-4B (Python+NetworkX SFT) 97.8% 96.1% 92.6% 3.5pp Qwen3-4B (Ein SFT) 99.6% 98.0% 94.3% 3.7pp
+
+exceeds zero-shot o3 (92.8%), but that sets a task-specialised fine-tune against a general model prompted zero-shot, so we do not read it as evidence of a stronger model. The results we rely on are the near level-invariance (Table 3) and the low token cost ( §4.3). All 26 categories exceed 82% on held-out; 21 exceed 90%. The five below-90% categories (triangle count , degree count , triangle in subgraph , aggregate over set , mixed domain )involve either counting operations sensitive to single-edge errors or compound operations whose multi-step descriptions make edge extraction harder—the graph-reading error that remains once execution is offloaded ( §4.4). Among the 74 held-out errors, 61 (82%) are graph-parsing mistakes: the model writes syntactically valid Ein programs with correct logic but misreads one or more edges from the natural-language description. Only 8 errors (11%) involve incorrect program logic, and 5 (7%) are execution failures. The remaining bottleneck is therefore NL comprehension, not program synthesis. The approach works with other target languages. We fine-tune the same Qwen3-4B under identical hyperparameters ( r=16, α=32, 3 epochs, temperature 0) to emit Python+NetworkX programs. The Python baseline reaches 92.6% held-out accuracy at a 97.8% execution rate, with a 3.5pp seen/held-out gap, close to Ein’s 3.7pp. The two targets are within 1.7pp overall: Python wins or ties on 17 of 26 categories and leads on L3 by +2 .6pp, while Ein leads on atomic L1 queries and is more compact ( ∼128 vs. ∼156 generated tokens per answer). A zero-shot Python probe (GPT-4.1, 52 instances) reaches 78.8% at ∼219 tokens, which locates the gain in the fine-tuning. We use Ein for its tensor-logic verification guarantees and its compactness as an SFT target; the effect holds for any verified program-synthesis target that offloads the multi-step execution. Ein programs average ∼200 tokens per answer compared to ∼844 for o3 and ∼431 for GPT-4.1 CoT (Table 5). Combined with higher accuracy, the Ein approach uses ∼212 tokens per correct answer, 6 × fewer than o3 and 6–10 × fewer than frontier CoT models. 
+
+4.6 Robustness to Graph Encoding 
+
+The compositional penalty ( §4.4) could be an artefact of the natural-language presentation: a cleaner, structured encoding might remove it. We test this directly. On a 200-instance L1/L2/L3-uniform subset (whose NL accuracy matches the full set within 0.5pp), we re-render each graph under three encodings while holding the query sentence fixed: (i) the 
+
+> 15 Goria
+
+Table 7: Accuracy (%) across three graph encodings on the same 200-instance subset (direct mode, lenient scoring). The compositional penalty survives every encoding; encoding 
+
+preference is capacity-dependent (note the adjacency-matrix column reverses sign between small and frontier models).                      
+
+> Model NL JSON edges Adj. matrix
+> Qwen2.5-1.5B 26.5 26.5 24.5 Qwen3.5-2B 28.5 29.5 19.5 Qwen3-4B 40.0 38.0 24.5 Qwen3.5-9B 47.5 51.0 30.0 GPT-4.1 53.0 59.5 44.0 Gemini 2.5 Flash 84.5 88.5 91.0
+
+natural-language enumeration used throughout the paper, (ii) a JSON object with explicit 
+
+nodes and edges lists, and (iii) a labelled N ×N adjacency matrix. We evaluate four open models and two frontier models in direct mode. Table 7 yields three findings. (1) The bottleneck is not NL phrasing. A clean JSON edge list is statistically tied with NL for weaker models (Qwen2.5-1.5B: 26.5 vs. 26.5; Qwen3-4B: 38.0 vs. 40.0) and gives capable ones a moderate gain (+3 .5 to +6 .5pp, e.g. GPT-4.1 53.0 →59.5). Handing the model a perfectly structured edge list does not rescue it; the difficulty is in carrying out the computation over the graph, not the surface form. 
+
+(2) Encoding preference is capacity-dependent. The adjacency matrix is the worst 
+
+encoding for every open model ( −2 to −17 .5pp, worst for the mid-size models that cannot track an N ×N grid positionally on graphs up to n=20), yet the best encoding for the strongest model (Gemini 2.5 Flash, +6 .5pp over NL). An unambiguous, position-addressable matrix is too dense for weak models to parse but the cleanest input for a model with enough capacity to index it, which explains why prior work disagrees on the “best” graph encoding (Fatemi et al., 2023). (3) The compositional cliff persists across encodings. 
+
+The L1 →L3 drop survives all three representations for every model except Gemini under the adjacency matrix, where it flattens to L2 = 97 .0, L3 = 84 .8. Encoding choice reshuffles where 
+
+errors land without removing the compositional penalty, which keeps compositional depth as the main difficulty axis. One caveat on the matrix column: Gemini 2.5 Flash is a thinking model whose default mode spends internal reasoning tokens, so its strong adjacency-matrix result reflects that additional compute as well as the encoding itself; we read the column as capacity-dependent rather than as evidence that matrices are intrinsically easier. The three findings are unchanged under strict scoring. 
+
+5 Discussion 
+
+ClosureBench was built to test whether large language models actually execute compo-sitional graph logic or only appear to, and the results give a consistent answer. Even the strongest models still fail: accuracy is high on atomic queries and falls sharply as operations compose, and every model we tested—open and frontier—shows the same decline from L1 to L3 (o3 from 96% to 82%, the others further). 
+
+> 16 ClosureBench: Compositional Graph Reasoning
+
+The failure is not a lack of task understanding but of executing the computation over the graph. Three results place it there. It survives clean structured encodings—a JSON edge list or an adjacency matrix does not rescue it—so it is not an artefact of natural-language phrasing. It grows with graph size and depth together, as a working-memory limit would, for frontier models as well as open ones—o3’s overall accuracy is least affected (its atomic and chained sub-tasks stay near-perfect), but even its hardest queries degrade with size. And the individual errors are traversal and accumulation mistakes over a graph the model has otherwise read correctly. Fine-tuning does not fix this by teaching the logic. Supervising the model on the benchmark’s answers raises seen-set accuracy steeply while held-out accuracy plateaus—a 19.3pp gap—so the model memorises graph–answer pairs rather than learning to compute. The constructive design is what exposes this: with fresh instances always available, the gap is measurable, which a fixed benchmark cannot do. The clearest evidence is that the same 4B model succeeds once it no longer has to hold the computation in its head. Fine-tuned to emit a short program—in Ein or Python+NetworkX— and let a runtime execute it, it stays nearly flat across compositional levels (1.3pp from L1 to L3), matches or exceeds the frontier models on the hardest queries, and uses a fraction of the tokens. Its remaining errors are almost all misread edges, not wrong logic: once execution is offloaded, only reading the graph is left. Understanding the task was never the bottleneck; carrying out the computation was. 
+
+Limitations. (1) ClosureBench covers only graph-theoretic tasks with algorithmically computable ground truth. (2) The memorisation probe fine-tunes on answers for a single model and configuration; it is a diagnostic, not immunity, and does not address subtler pretraining contamination. (3) We lack 30B+ open models to bridge small open and frontier API. (4) The program-synthesis result uses one 4B base model and two program targets; whether the near level-invariance holds for other models and larger scales is untested. (5) Some question templates leave the source-inclusion convention implicit; we report strict and lenient scores side by side (Table 10) rather than resolving every template. 
+
+ClosureBench —generator, evaluation harness, and all model responses—is released at https://github.com/egolabs-ai/closurebench ; because instances are generated on demand, an evaluator is never limited to the splits we ship. 
+
+Broader Impact Statement 
+
+ClosureBench is an evaluation artifact; its intended effect is more reliable measurement of compositional reasoning and of memorisation. The benchmark is fully synthetic and contains no personal or sensitive data, so it carries no direct privacy or fairness risk. The main foreseeable misuse is training on the released instances to inflate reported scores; the memorisation measurement in §4.1 is designed to detect exactly this. The program-synthesis results point toward cheaper verified reasoning, which we read as a positive efficiency outcome rather than a capability risk. 
+
+Acknowledgments and Disclosure of Funding 
+
+> 17 Goria
+
+The author declares no competing interests, and this work received no specific external funding. 
+
+References 
+
+Nuo Chen, Yuhan Li, et al. GraphWiz: An instruction-following language model for graph problems. In Proceedings of KDD , 2024a. Zhi Rui Tam Chen, Zhi Hao Lin, et al. BEYONDBENCH: Benchmark-free evaluation of reasoning in language models. arXiv preprint arXiv:2509.24210 , 2024b. Kewei Cheng, Jingfeng Yang, Haoming Jiang, et al. Inductive or deductive? rethinking the fundamental reasoning abilities of LLMs. arXiv preprint arXiv:2408.00114 , 2024. Karl Cobbe, Vineet Kosaraju, et al. Training verifiers to solve math word problems. arXiv preprint arXiv:2110.14168 , 2021. Pedro Domingos. Tensor logic: The language of AI. arXiv preprint arXiv:2510.12269 , 2025. Proposes tensor logic as a unifying language for AI, showing that logical rules and Einstein summation are fundamentally the same operation. Bahare Fatemi, Jonathan Halcrow, and Bryan Perozzi. Talk like a graph: Encoding graphs for large language models. arXiv preprint arXiv:2310.04560 , 2023. Timnit Gebru, Jamie Morgenstern, Briana Vecchione, Jennifer Wortman Vaughan, Hanna Wallach, Hal Daum´ e III, and Kate Crawford. Datasheets for datasets. Communications of the ACM , 64(12):86–92, 2021. Xiaojun Guo et al. G1: Teaching LLMs to reason on graphs with reinforcement learning. 
+
+arXiv preprint arXiv:2505.18499 , 2025. Dan Hendrycks, Collin Burns, et al. Measuring massive multitask language understanding. In Proceedings of ICLR , 2021. Xanh Ho, Anh-Khoa Duong Nguyen, et al. Constructing a multi-hop QA dataset for comprehensive evaluation of reasoning steps. Proceedings of COLING , 2020. Edward J Hu, Yelong Shen, Phillip Wallis, Zeyuan Allen-Zhu, Yuanzhi Li, Shean Wang, Lu Wang, and Weizhu Chen. LoRA: Low-rank adaptation of large language models. 
+
+Proceedings of ICLR , 2022a. Simeng Hu, Tianle Ma, et al. FOLIO: Natural language reasoning with first-order logic. 
+
+arXiv preprint arXiv:2209.00840 , 2022b. Jian Liu, Leyang Cui, et al. LogiQA: A challenge dataset for machine reading comprehension with logical reasoning. In Proceedings of IJCAI , 2020. Zihan Luo, Xiran Song, Hong Huang, Jianxun Lian, et al. GraphInstruct: Empowering large language models with graph understanding and reasoning capability. arXiv preprint arXiv:2403.04483 , 2024. 
+
+> 18 ClosureBench: Compositional Graph Reasoning
+
+Iman Mirzadeh, Keivan Alizadeh, et al. GSM-Symbolic: Understanding the limitations of mathematical reasoning in large language models. arXiv preprint arXiv:2410.05229 , 2024. Abulhair Saparov and He He. Language models are greedy reasoners: A systematic formal analysis of chain-of-thought. arXiv preprint arXiv:2210.01240 , 2023. Parshin Shojaee, Iman Mirzadeh, Keivan Alizadeh, Maxwell Horton, Samy Bengio, and Mehrdad Farajtabar. The illusion of thinking: Understanding the strengths and limitations of reasoning models via the lens of problem complexity. arXiv preprint arXiv:2506.06941 ,2025. Koustuv Sinha, Shagun Sodhani, et al. CLUTRR: A diagnostic benchmark for inductive reasoning from text. In Proceedings of EMNLP , 2019. Jianheng Tang, Prashant Chandrasekar, and Jia Li. GraphArena: Evaluating and exploring large language models on graph computation. arXiv preprint arXiv:2407.00379 , 2024. Harsh Trivedi, Niranjan Balasubramanian, et al. MuSiQue: Multihop questions via single hop question composition. In Transactions of ACL , 2022. Karthik Valmeekam, Kaya Stechly, and Subbarao Kambhampati. LLMs still can’t plan; can LRMs? a preliminary evaluation of OpenAI’s o1 on PlanBench. arXiv preprint arXiv:2409.13373 , 2024. Hao Wang, Haotian Feng, et al. NLGraph: Can large language models solve graph problems in natural language? arXiv preprint arXiv:2305.10037 , 2023. Colin White, Samuel Dooley, et al. LiveBench: A challenging, contamination-free LLM benchmark. arXiv preprint arXiv:2406.19314 , 2024. Weihao Yu, Zihan Jiang, et al. ReClor: A reading comprehension dataset requiring logical reasoning. In Proceedings of ICLR , 2020. Zike Yuan et al. GraCoRe: Benchmarking graph comprehension and complex reasoning in large language models. arXiv preprint arXiv:2407.02936 , 2024. Qin Zeng et al. Inference-time decontamination: Reusing leaked benchmarks for large language model evaluation. Findings of ACL , 2024. Kaijie Zhu, Jiaao Chen, Jindong Wang, et al. DyVal: Dynamic evaluation of large language models for reasoning tasks. Proceedings of ICLR , 2024a. Kaijie Zhu, Jindong Wang, Qinlin Yao, Jiaao Chen, Sinno Jialin Pan, and Eric P. Xing. DyVal 2: Dynamic evaluation of large language models by meta probing agents. Proceedings of NeurIPS , 2024b. Zehua Zhu et al. Rethinking and benchmarking large language models for graph reasoning. 
+
+arXiv preprint arXiv:2509.24260 , 2025. 
+
+> 19
+
+Goria 
+
+Appendix A. Full Category Descriptions 
+
+L1 (11 categories): triangle count (trace( A3)/6), reachability (transitive closure, TC( A)[ s, t ]), negative reach (set complement), degree count/max, scc same, set intersect, set difference, ancestor, sibling, cousin. 
+
+L2 (8 categories): reach then count, reach then filter, kinship chain, triangle in subgraph, path and compare, scc then count, degree then reach, intersect then size. 
+
+L3 (7 categories): multi query, conditional, aggregate over set, kinship complex, graph comparison, chain of filters, mixed domain. 
+
+Appendix B. Sample Questions 
+
+Below we show one example question from each compositional level. Models receive only the natural-language text and must produce a JSON answer. The generator enforces that every entity named in a question is declared in the node list, and the examples below are reproduced directly from generator output. 
+
+L1 (reachability): 
+
+There are 6 stations: deer, cat, wren, puma, quail, lynx. lynx supplies power to deer. puma and quail draw power from deer. cat draws power from wren. wren supplies power to puma. Is there a path from lynx to quail? 
+
+L2 (reach then count): 
+
+There are 7 suppliers: newt, eagle, kiwi, ibis, zebu, owl, viper. eagle receives components from ibis. owl receives components from newt and zebu. newt ships to eagle and kiwi. kiwi ships to ibis. viper ships to eagle, kiwi, and zebu. How many suppliers can viper reach? 
+
+L3 (conditional): 
+
+There are 5 departments: kiwi, robin, bear, zebu, newt. bear reports to robin. zebu oversees bear. kiwi reports to bear and newt. If there is a reporting path from kiwi to robin, how many departments can kiwi reach? Otherwise return −1. 
+
+Appendix C. Per-Category Results 
+
+Table 8 reports Ein SFT held-out accuracy for all 26 categories. 
+
+Appendix D. Example Ein Program 
+
+The following annotated example shows how Ein computes the reference answer for a “reach then count” task (L2): given a directed graph, count the number of nodes reachable from a source node.                  
+
+> #Input : 5 - node directed graph , source =node 2#Ad jacency matrix (1 =edge exists )
+> A=edges ([[0 ,1 ,0 ,0 ,0] , [0 ,0 ,1 ,0 ,0] , [0 ,0 ,0 ,1 ,1] , [0 ,0 ,0 ,0 ,0] , [0 ,0 ,0 ,0 ,0]] , 5)
+
+20 ClosureBench: Compositional Graph Reasoning 
+
+Table 8: Ein SFT (Qwen3-4B + LoRA) held-out accuracy by category (50 instances per category). Categories below 90% are shown in red. 
+
+Level Category Held-out (%) 
+
+L1 triangle count 82 L1 reachability 98 L1 negative reach 96 L1 degree count 84 L1 degree max 94 L1 scc same 96 L1 set intersect 100 L1 set difference 98 L1 ancestor 96 L1 sibling 96 L1 cousin 96 L2 reach then count 100 L2 reach then filter 98 L2 kinship chain 92 L2 triangle in subgraph 86 L2 path and compare 96 L2 scc then count 100 L2 degree then reach 96 L2 intersect then size 98 L3 multi query 90 L3 conditional 100 L3 aggregate over set 88 L3 kinship complex 94 L3 graph comparison 96 L3 chain of filters 98 L3 mixed domain 84                              
+
+> #T r a n s itiv e closure : TC [i , j ] =1iff ican reach j
+> TC =tc ( A )
+> #Select row for source node 2
+> Row [ j ] =select ( TC , 2 , j )
+> #Count reachable nodes ( excluding source )
+> Result =sum ( Row )
+
+Walkthrough. Line 1 declares a 5 ×5 adjacency matrix. The edges 2 →3, 2 →4, 0 →1, 1→2, and 2 →3 are encoded as 1s. The tc builtin computes the transitive closure via repeated Boolean matrix multiplication. select extracts row 2 (source node), and sum counts the non-zero entries. The result (here, 3) becomes the ground-truth answer. Key properties: (1) the program is compact (6 lines, ∼80 tokens); (2) every operation is deterministic; (3) the type system ensures dimensional consistency (matrix × matrix →
+
+matrix); (4) the runtime guarantees termination. The model being evaluated never sees this 
+
+21 Goria 
+
+program—it receives only the natural-language question “How many nodes can node 2 reach in the following graph?” and must produce {"answer": 3}.
+
+Appendix E. Ein Syntax Specification 
+
+Ein is a minimal tensor-logic language with the following core constructs: 
+
+Declarations. Tensors are declared with explicit dimensions:                  
+
+> A=edges ([[0 ,1] ,[1 ,0]] , 2) #2 x2 adjacency matrix
+> v=vec ([1 ,0 ,1] , 3) #length -3 vector
+> s=42.0 #scalar
+
+Einstein summation. Named indices express contractions:                    
+
+> C [i , k ] =A [i , j ] B [j , k ] #matrix multiply
+> v [ i ] =A [i , j ] ones (3) [ j ] #row sums
+> s=A [i , j ] B [i , j ] #Frobenius inner product
+
+Repeated indices on the right-hand side are summed over (Einstein convention). Free indices on the left determine the output shape. 
+
+Builtins. Ein provides domain-specific operations: 
+
+• tc(A) — transitive closure (Boolean matrix power) 
+
+• reach(A, i) — nodes reachable from i
+
+• desc(A, i) — descendants of i (alias for reach) 
+
+• has path(A, i, j) — Boolean reachability test 
+
+• trace(A) — matrix trace ( P 
+
+> i
+
+Aii )
+
+• sum(v) , max(v) , min(v) — vector reductions 
+
+• select(A, i, j) — index a matrix element 
+
+• ge(a,b) , gt(a,b) , eq(a,b) — comparison predicates 
+
+• diag(A) , transpose(A) — structural operations 
+
+• ones(n) , zeros(n) , eye(n) — constructors 
+
+Semantics. Every program is a sequence of assignments evaluated top-to-bottom. The final assignment’s value is the program output. All operations are over non-negative reals; Boolean values are represented as {0, 1}. Programs are guaranteed to terminate (no loops, no recursion) and produce exactly one scalar, vector, or matrix value. 
+
+Appendix F. Baseline Prompts 
+
+System prompt (direct mode): 
+
+You are a reasoning assistant. Read the graph description carefully, reason about the structure, and provide your answer as a JSON object with an "answer" field. Do not include any explanation outside the JSON. 
+
+System prompt (CoT mode): 
+
+22 ClosureBench: Compositional Graph Reasoning 
+
+You are a reasoning assistant. Read the graph description carefully. Before providing your answer, think step by step about the graph structure and the computation needed. Then provide your final answer as a JSON object with an "answer" field. 
+
+System prompt (Ein code-gen mode): 
+
+The complete Ein syntax reference is appended to the system message. The model receives this specification at every inference call—it is the only source of Ein knowledge beyond the supervised training examples.                                                                                                                                                                                
+
+> Ein is aminimal tensor - logic language for graph computation . Programs operate on adjacency matrices and produce scalar or vector results . SYNTAX : -A=edges ([[0 ,1] ,[1 ,2]] , N ) --adjacency matrix from edge list , Nnodes -B [i , k ] =A [i , j ] A [j , k ] --Einstein summation ( repeated indices summed ) -Result =trace ( A ) --trace ( sum of diagonal ) -Result =sum ( A ) /sum (A , 1) --sum all /along axis -Result =tc ( A ) --transitive closure ( reachability matrix ) -Result =reach (A , i ) --nodes reachable from i , INCLUDING i-Result =desc (A , i ) --descendants of i , EXCLUDING i-Result =has_path (A , i , j ) --1.0 if path exists , else 0.0 -Result =select (V , i , d ) --select element ialong dim d-Result =ge / gt / eq (A , x ) --comparison predicates ( return 0/1) -U=ones ( N ) /zeros ( N ) --constructors -X=A*B/A+B/A-B--elementwise ops -: print Result --output ( MUST be last line ) RULES : -Start with comment : // category_name -Define A=edges (...) for the adjacency matrix -Compute answer using tensor operations -End with : print Result
+
+Appendix G. Reproducibility 
+
+The experimental setup—models, decoding, prompting, scoring, and the fine-tuning configuration— is given in §3; all API models were evaluated in March 2026 with provider-default settings. 
+
+Repository. The release at https://github.com/egolabs-ai/closurebench includes: 
+
+• The 1,300-instance evaluation set and all model responses (raw JSONL with reasoning traces) 
+
+• Instance generator: python -m closurebench.generator --seed <N> produces un-limited fresh instances with verified Ein ground truth 
+
+• Evaluation harness with lenient scoring: python scripts/run full benchmark.py 
+
+• Ein and Python SFT training scripts (fine-tuned adapter weights will be released on the Hugging Face Hub) 
+
+• All figures and tables are reproducible from the included data and scripts The constructive nature of the benchmark means evaluators are not limited to our 1,300 instances: generating a fresh set with a new seed takes under one minute and produces instances with machine-verified ground truth. 
+
+Appendix H. Datasheet, Licensing, and Maintenance 
+
+We summarise the release documentation for ClosureBench , following the datasheets-for-datasets framework of Gebru et al. (2021). 
+
+23 Goria 
+
+Motivation and intended use. ClosureBench is intended for evaluating compo-sitional graph-relational reasoning in language models and for measuring memorisation through the seen-vs-held-out gap. It is a diagnostic benchmark, not a training corpus: using the released instances as training data defeats the memorisation measurement, so we discourage it. 
+
+Composition. Each instance is a self-contained (question, reference answer) pair with metadata (category, level, result type, structural and surface seeds, and the Ein and Python programs that compute the answer). The release contains the training and held-out splits (1,300 instances each) and a further 2,500 instances provided for downstream fine-tuning. All instances are synthetic and contain no personal, sensitive, or human-subject data. 
+
+Collection and generation. Instances are generated programmatically (Appendix K); there is no human annotation, so there is no annotator bias or labelling error. Ground truth is computed by program execution and cross-checked between two independent implementa-tions. 
+
+Licensing. The dataset and generator are released under CC BY 4.0; the evaluation and training code under the MIT license. 
+
+Author statement. The authors bear all responsibility in case of any violation of rights for the released artifacts and confirm the licenses stated above. All released instances are synthetic and machine-generated; the release contains no third-party, personal, or human-subject data. 
+
+Hosting and maintenance. The data, generator, and evaluation harness are hosted in a public repository under a versioned release, with an archived snapshot (assigned a DOI) accompanying the camera-ready; the fine-tuned adapter weights will be released on the Hugging Face Hub. Because every instance is regenerable from the released code and seeds, the artifact does not depend on continued hosting of any single file. Corrections and issues are tracked in the repository. 
+
+Reproducibility. We follow the ML reproducibility checklist; code, data, hyperparame-ters, compute environment, and random seeds are documented in Appendix G. 
+
+Ethics and broader impact. The benchmark is synthetic and contains no personal data. Its intended effect is more reliable evaluation of reasoning. The main foreseeable misuse is training on the released instances to inflate scores, which the memorisation measurement (§4.1) is designed to expose. 
+
+Appendix I. Output Schema and Scoring 
+
+JSON output schema. Every model is asked to emit a single JSON object whose only required field is answer . The value type depends on the task’s result type , declared at generation time and fixed across all instances of a category. The full mapping is in Table 9. The schema is described generically in the system prompt—no per-category type hints or worked examples are given—so the model must infer the expected type from the question wording, exactly as a human evaluator would. The parser accepts standard JSON and additionally tolerates one common CoT artefact: a single {"answer": ... } object embedded in a longer string; anything else is recorded as a format error. 
+
+Scoring algorithm. Predicted answers are matched against the reference value with a single, deterministic procedure. The strict variant is the default; the lenient variant accepts 
+
+> 24
+
+ClosureBench: Compositional Graph Reasoning 
+
+Table 9: JSON output schema. Each instance carries a single result type ; the model’s 
+
+"answer" field must conform to the corresponding JSON value. Empty sets and zero counts are valid answers.                             
+
+> result type JSON value Example Categories
+> boolean true /false {"answer": true }reachability, scc same, con-ditional
+> integer non-negative integer {"answer": 3}triangle count, de-gree count, * then count
+> float finite real {"answer": 2.43 }aggregate over set, mixed domain
+> set JSON array of strings {"answer": ["a","c"] }
+> set intersect, set difference, ances-tor, sibling, cousin
+> string one node label {"answer": "kiwi" }
+> degree max, de-gree then reach
+> compound JSON object {"answer":
+> {"reach": true, "deg": 1}}
+> multi query
+
+the documented source-inclusion ambiguity for descendants/ancestors and the off-by-one corner of certain count categories (concretely: ±1 for the six count categories where the natural-language question is silent about whether the source node itself is counted, and ±
+
+source for the six set categories with the same ambiguity). The lenient relaxation never accepts a value that is more than one element away from the strict reference. 
+
+Ccount ambig is the set of integer-valued categories whose natural-language phrasing leaves source-inclusion ambiguous: reach then count , intersect then size , aggregate over set 
+
+and three others. Cset ambig is the corresponding set-valued list ( set intersect , set difference ,
+
+ancestor , sibling , cousin , negative reach ). The complete list is in the supplementary code ( closurebench/answer matching.py ). The strict variant of the algorithm sets both ambiguity sets to ∅ and is what we report under “strict scores” in §3 and Table 10. 
+
+Strict vs. lenient scores side-by-side. For transparency, Table 10 reports every 
+
+evaluated configuration under both scoring variants on the same 1,300 held-out instances. The strict/lenient gap is largest for direct prompting and small open models (4 .5–6 .3pp, where the model hedges on the unstated source-inclusion convention), 0 .9–1 .6pp for frontier CoT, and essentially zero (0 .0–0 .3pp) for the program-synthesis models. The reason is structural: Ein and Python answers are emitted by a runtime that decides source inclusion deterministically, so the model is never asked to guess the convention. The relative ordering of methods is identical under both scorings : the program-synthesis models lead under strict scoring (Ein 94.0, Python 92.6) by the same margin as under lenient. Lenient scoring does not inflate the reported result. 
+
+Appendix J. Format-Error Decomposition 
+
+To separate reasoning errors from output-formatting slips, Table 11 decomposes every held-out response into five mutually exclusive outcomes: strict-correct, correct only under lenient scoring, wrong answer, format error (malformed JSON, missing "answer" field, or 
+
+25 Goria 
+
+Algorithm 1 MatchAnswer (predicted p, reference r, type τ , category c, mode m ∈{strict , lenient }) 
+
+> 1:
+
+if p is None or p violates the JSON value type for τ then return FormatError  
+
+> 2:
+
+end if  
+
+> 3:
+
+if τ = boolean then return Bool (p) = Bool (r) 
+
+> 4:
+
+end if  
+
+> 5:
+
+if τ = integer then  
+
+> 6:
+
+δ ← | p − r| 
+
+> 7:
+
+if δ = 0 then return Correct  
+
+> 8:
+
+end if  
+
+> 9:
+
+if m = lenient and c ∈ Ccount ambig and δ = 1 then return Correct  
+
+> 10:
+
+end if  
+
+> 11:
+
+return WrongAnswer  
+
+> 12:
+
+end if  
+
+> 13:
+
+if τ = float then return |p − r| ≤ ϵ ? Correct : WrongAnswer ▷ ϵ =10 −2 
+
+> 14:
+
+end if  
+
+> 15:
+
+if τ = set then  
+
+> 16:
+
+Sp ← Set (p); Sr ← Set (r) 
+
+> 17:
+
+if Sp = Sr then return Correct  
+
+> 18:
+
+end if  
+
+> 19:
+
+if m = lenient and c ∈ Cset ambig and Sp △ Sr = {source } then return Correct  
+
+> 20:
+
+end if  
+
+> 21:
+
+return WrongAnswer  
+
+> 22:
+
+end if  
+
+> 23:
+
+if τ = string then return Trim (p) = Trim (r) ? Correct : WrongAnswer  
+
+> 24:
+
+end if  
+
+> 25:
+
+if τ = compound then  
+
+> 26:
+
+for all k ∈ keys( r) do  
+
+> 27:
+
+recurse with ( pk, r k, τ k, c, m ); any failure ⇒ WrongAnswer  
+
+> 28:
+
+end for  
+
+> 29:
+
+return Correct  
+
+> 30:
+
+end if 
+
+wrong value type), and no answer emitted. The schema is stated in every system prompt (Appendix F), yet frontier CoT methods still forfeit 2–5pp to format/schema slips, and Gemini 2.5 Flash CoT additionally returns no parseable answer on 9.5% of instances (its reasoning trace exhausts the output budget before emitting JSON). Program-synthesis models have effectively zero format errors because the runtime emits typed output rather than free-form JSON. 
+
+Appendix K. Generative Procedure 
+
+ClosureBench draws an instance in five steps, controlled by a structural seed sstr and a surface seed ssurf .
+
+> 26 ClosureBench: Compositional Graph Reasoning
+
+Table 10: Strict vs. lenient accuracy (%) for every evaluated configuration on the same 1,300 held-out instances (seen split for the two SFT rows so marked). Strict counts source-inclusion ambiguities as wrong; lenient accepts the documented ±1 / ±source corner cases. The method ordering is preserved under both scorings.                                                       
+
+> Method Strict Lenient Gap
+> Open models (direct)
+> Qwen2.5-1.5B 21.3 25.8 +4 .5Qwen3.5-2B 27.8 33.0 +5 .2Qwen3-4B 33.2 39.5 +6 .3Qwen3.5-9B 37.8 43.3 +5 .5
+> Frontier API
+> GPT-4.1 (direct) 46.1 52.4 +6 .3GPT-4.1-mini (direct) 43.9 49.2 +5 .3Claude Sonnet 4 (direct) 79.1 81.7 +2 .6Gemini 2.5 Flash (direct) 85.9 87.4 +1 .5GPT-4.1 (CoT) 84.6 86.2 +1 .5GPT-4.1-mini (CoT) 84.5 85.8 +1 .2Claude Sonnet 4 (CoT) 82.0 83.6 +1 .6Gemini 2.5 Flash (CoT) 80.4 81.3 +0 .9o3 (direct) 91.5 92.8 +1 .3
+> Program synthesis (Qwen3-4B + LoRA)
+> Python+NetworkX SFT (held-out) 92.6 92.6 +0 .0Ein SFT (held-out) 94.0 94.3 +0 .3Python+NetworkX SFT (seen) 96.0 96.1 +0 .1Ein SFT (seen) 97.9 98.0 +0 .1
+
+Step 1: Sample the structural triple (n, ρ, d ). We draw n uniformly from {4, . . . , 10 },
+
+ρ uniformly from [0 .1, 0.5], and d ∈ { 1, 2, 3} (the size-scaling study of §4.2 extends n to 20 on a dedicated sweep). Category sampling is stratified so each of the 26 categories is represented an equal number of times in the released 1,300-instance set. 
+
+Step 2: Generate the graph topology. Conditioned on ( n, ρ ), edges are drawn from Bernoulli( ρ) over all n(n − 1) ordered pairs (directed) or all  n
+
+> 2
+
+ unordered pairs (undirected). For kinship categories, the topology is constrained to a DAG with a fixed maximum out-degree; for triangle categories, a small number of triangles is planted to make the answer non-trivial. 
+
+Step 3: Compute the reference answer. The Ein program associated with the category is generated by a deterministic template that consumes the topology and any category-specific metadata (e.g., the source node, the minimum-degree threshold). The program is then executed by the Ein runtime, and its output is captured as the reference answer. As an independent cross-check, the same topology is also passed through a separately written Python+NetworkX implementation of each category; the two implementations agree on every released instance (the 1,300 evaluation split and the 1,300 held-out split), which guards against template errors in either one. 
+
+> 27 Goria
+
+Table 11: Per-method decomposition of held-out responses (1,300 instances). Columns are mutually exclusive and sum to 100% up to rounding. “Lenient-only” counts responses correct under lenient but not strict scoring.                                                             
+
+> Method Strict Lenient-only Wrong Format err. No ans.
+> GPT-4.1 (direct) 46.1 6.3 43.1 4.5 0.0 GPT-4.1 (CoT) 84.6 1.6 10.7 2.5 0.6 GPT-4.1-mini (direct) 43.9 5.3 44.6 6.2 0.0 GPT-4.1-mini (CoT) 84.5 1.3 10.5 3.3 0.4 Claude Sonnet 4 (direct) 79.1 2.6 14.6 3.7 0.0 Claude Sonnet 4 (CoT) 82.0 1.6 12.2 4.2 0.0 Gemini 2.5 Flash (direct) 85.9 1.5 7.2 3.5 1.9 Gemini 2.5 Flash (CoT) 80.4 0.7 6.6 2.8 9.5 o3 (direct) 91.5 1.3 5.3 1.9 0.0 Python+NetworkX SFT (held-out) 92.6 0.0 4.9 0.2 2.3 Ein SFT (held-out) 94.0 0.3 4.9 0.4 0.4
+
+Step 4: Apply surface variation. Conditioned on ssurf , the generator picks (a) a node-label pool (letters, names, server ids, animals), (b) a domain frame from 16 verticals, (c) one of five presentation styles, and (d) an edge-listing order. The combined surface space exceeds 10 15 realisations of a single underlying topology. 
+
+Step 5: Verbalise the question. The question template for the category is filled with surface tokens, the edges are spelled out according to the chosen presentation style, and any metadata anchors (source nodes, threshold values) are substituted. The result is the natural-language string shown to the model; the model never sees the topology, the Ein program, or the reference answer. Identical sstr but different ssurf yields instances with the same reference answer but no shared surface tokens. Identical ssurf but different sstr yields surface-identical instances with different answers. This decomposition is what makes the seen-vs-held-out gap a meaningful memorisation signal: an evaluator can always generate a held-out batch that shares zero surface tokens with the model’s training data. 
+
+Appendix L. Qualitative Examples 
+
+We present examples illustrating the three structured failure families ( §4.4) and the Ein program-synthesis alternative. 
+
+L.1 Direction confusion (multi query) 
+
+GPT-4.1 CoT on a 6-node graph. The question asks for the out-degree and reachability of node “bear”. The model correctly identifies the edges but confuses in-degree with out-degree:                    
+
+> Edges: bear →robin, seal →bear, kiwi →bear, kiwi →newt, seal →kiwi, zebu →kiwi [...] Out-degree of bear: bear has edges to robin. But also seal →bear, kiwi
+> →bear. So degree = 2.
+> 28
+
+ClosureBench: Compositional Graph Reasoning 
+
+{"answer": [true, 2] }
+
+Expected: {reachable: true, degree: 1 }. The out-degree of “bear” is 1 ( →robin), not 2. The model counted one incoming edge ( ←seal) as outgoing. 
+
+L.2 Depth truncation (kinship complex) 
+
+GPT-4.1 CoT, 7-person family. The question asks how many people are in Uma’s lineage. The model finds the correct root but stops too early: 
+
+Bob is a parent of Eve. Sam is a child of Eve. Eve is a parent of Tina. Bob is a child of Nina. Frank is a child of Nina. Root ancestor of Uma: tracing up... Nina → Bob → Eve. Nina is the root. Lineage: Nina, Bob, Eve, Frank = 4 
+
+{"answer": 4}
+
+Expected: 7 (Nina, Bob, Frank, Eve, Sam, Tina, Uma). The model found the root (Nina) and her direct children (Bob, Frank) and grandchild (Eve), but missed Eve’s children (Sam, Tina) and Uma herself. 
+
+L.3 Accumulation drift (mixed domain) 
+
+GPT-4.1 CoT on an 8-node graph. The task requires computing the average out-degree of an SCC. The model identifies the SCC correctly but miscounts one member’s edges: 
+
+SCC containing srv-21: {srv-03, srv-17, srv-19, srv-20, srv-21, srv-23, srv-27 }
+
+Out-degrees: srv-03=1, srv-17=2, srv-19=2, srv-20=5, srv-21=3, srv-23=1, srv-27=3 Wait, let me recount srv-20... srv-20 routes to srv-03, srv-17, srv-19, srv-21, srv-23. That’s 5. Average = (1+2+2+5+3+1+3)/7 = 17/7 = 2.43 
+
+{"answer": 2.43 }
+
+Expected: 2.62 ( ≈18.33/7). The model miscounted one edge for srv-27 (actual out-degree 4, not 3), shifting the average. 
+
+L.4 Ein program success: multi query (L3) 
+
+The same multi query task that frontier CoT gets wrong. Ein SFT emits a 6-line program:                 
+
+> // multi_query A=edges ([[0 ,1] ,[1 ,2] ,[3 ,2] ,[3 ,8] ,[4 ,0] ,[4 ,7] ,[5 ,1] ,[5 ,4] ,[6 ,0] ,[6 ,5] ,[8 ,4] ,[8 ,6]]) TC =tc ( A ) Reachable =select ( TC , 0 , 2) Degree =select ( sum (A , 1) , 0 , 0) : print Reachable : print Degree
+
+Output: {reachable: 1.0, degree: 1.0 }. Correct. The program encodes edges as an explicit matrix once, then tc computes reachability and sum(A,1) computes out-degrees—both deterministically. No direction confusion is possible because the matrix representation is unambiguous. 
+
+29 Goria 
+
+L.5 Ein failure: correct formula, wrong edges 
+
+triangle count (L1, 9-node graph). The formula is correct but the model misreads edges from the NL description:             
+
+> A=edges ([[0 ,1] ,[0 ,3] ,[0 ,5] ,[0 ,6] ,[1 ,0] ,[1 ,2] ,[1 ,3] ,[1 ,8] , [2 ,1] ,[2 ,5] ,[2 ,6] ,[2 ,7] ,[3 ,0] ,[3 ,1] ,[3 ,4] ,...]) A2 [i , k ] =A [i , j ] A [j , k ] A3 [i , j ] =A2 [i , k ] A [k , j ] Result =trace ( A3 ) /6.0
+
+Output: 2. Expected: 3. The trace( A3)/6 formula is correct. Two edges were dropped and one added—the same graph-parsing bottleneck, but isolated to the encoding step rather than pervading the entire reasoning chain. 
+
+30
