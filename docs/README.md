@@ -6,71 +6,47 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-08-25
-- 运行时间：2026-08-25 19:44:43 UTC
+- 最新运行日期：2026-08-26
+- 运行时间：2026-08-26 22:10:59 UTC
 - 运行状态：成功
-- 本次总论文数：17
-- 精读区：6
-- 速读区：11
+- 本次总论文数：9
+- 精读区：4
+- 速读区：5
 
 ### 今日简报（AI）
-今日17篇论文聚焦大模型推理与可解释性，其中6篇精读、11篇速读。最值得关注的是两项9.0分工作：LLM推理与记忆的自适应表征分析，以及思维链推理的机制可解释性。建议优先精读这两篇，再结合速读中的链式推理冗余剪枝与语义去噪方法拓展视角。
-- 详情：[/202608/25/README](/202608/25/README)
+今日聚焦9篇论文，精读重点探索LLM跨语言推理不变性与多模态智能体记忆归因机制。最值得关注：几何不变稀疏自编码器揭示推理几何结构，及Shapley归因增强多模态代理决策透明度。下一步建议深入可解释性方法与符号规划结合，验证跨语言通用性。
+- 详情：[/202608/26/README](/202608/26/README)
 
 ### 精读区论文标签
-1. [Beyond Fixed Directions: Adaptive Representation Analysis of Reasoning and Memorization in LLMs](/202608/25/2608.21919v1-beyond-fixed-directions-adaptive-representation-analysis-of-reasoning-and-memorization-in-llms)  
+1. [Discovering Cross-Language Reasoning Invariance in LLMs with Geometry-Invariant Sparse Autoencoders](/202608/26/2608.23809v1-discovering-cross-language-reasoning-invariance-in-llms-with-geometry-invariant-sparse-autoencoders)  
    标签：评分：9.0/10、query:ns-xai
-   evidence：分析大模型中推理与记忆的表征方向
-2. [Mechanistic Interpretability of Chain-of-Thought Reasoning via Sequential Activation Patching](/202608/25/2608.22332v1-mechanistic-interpretability-of-chain-of-thought-reasoning-via-sequential-activation-patching)  
-   标签：评分：9.0/10、query:ns-xai
-   evidence：使用顺序激活修补直接研究链式思维推理的内部机制，是LLM推理可解释性的核心方法
-3. [Weakly supervised concept Bottleneck Learning for Robust Two stage Object centric visual reasoning](/202608/25/2608.22584v1-weakly-supervised-concept-bottleneck-learning-for-robust-two-stage-object-centric-visual-reasoning)  
-   标签：评分：9.0/10、query:ns-xai
-   evidence：两阶段神经符号架构结合概念瓶颈学习实现可解释视觉推理
-4. [Beyond Factual Knowledge: Benchmarking and Learning Step-Level Procedural Rule Reasoning in Large Language Models](/202608/25/2608.22753v1-beyond-factual-knowledge-benchmarking-and-learning-step-level-procedural-rule-reasoning-in-large-language-models)  
-   标签：评分：9.0/10、query:ns-xai
-   evidence：通过 RuleWorld 基准和 DynaRule 框架实现大模型中的程序性规则推理，将外部规则与神经大模型结合
-5. [Compositional Chain-of-Relations for Faithful Knowledge Graph Question Answering with Large Language Models](/202608/25/2608.22762v1-compositional-chain-of-relations-for-faithful-knowledge-graph-question-answering-with-large-language-models)  
-   标签：评分：9.0/10、query:ns-xai
-   evidence：基于知识图谱的忠实多跳推理，符合大模型推理与可解释性需求。
-6. [From Natural Language Policies to Executable Obligations: A Verification Harness for Dependable In-Car LLM Agents](/202608/25/2608.23282v1-from-natural-language-policies-to-executable-obligations-a-verification-harness-for-dependable-in-car-llm-agents)  
-   标签：评分：9.0/10、query:ns-xai
-   evidence：将大语言模型作为提议者，编译自然语言策略为可执行规则并提供确定性验证引擎，构成可验证的神经符号循环
+   evidence：用稀疏自编码器发现大语言模型跨语言推理不变性，提升可解释性
+2. [Dual-Grained Agent Memory and Shapley Context Attribution for Multimodal Agentic Learner](/202608/26/2608.23268v1-dual-grained-agent-memory-and-shapley-context-attribution-for-multimodal-agentic-learner)  
+   标签：评分：8.0/10、query:ns-xai
+   evidence：结合双粒度记忆（含IF-THEN规则）与Shapley归因实现可解释的多模态大模型推理
+3. [Investigating Relational Reasoning in VLMs](/202608/26/2608.23518v1-investigating-relational-reasoning-in-vlms)  
+   标签：评分：8.0/10、query:ns-xai
+   evidence：探究视觉语言模型关系推理的真实性与语言捷径依赖
+4. [Constrained Entity Selection under Partial Knowledge for LLM-Based Knowledge Graph QA](/202608/26/2608.24824v1-constrained-entity-selection-under-partial-knowledge-for-llm-based-knowledge-graph-qa)  
+   标签：评分：8.0/10、query:ns-xai
+   evidence：将大语言模型候选生成与符号约束验证相结合用于知识图谱问答
 
 ### 速读区论文标签
-1. [No Judgment Without a Reason: Counterfactual Receipts for Versioned AI Evaluators](/202608/25/2608.20938v1-no-judgment-without-a-reason-counterfactual-receipts-for-versioned-ai-evaluators)  
-   标签：评分：8.0/10、query:ns-xai
-   evidence：通过事实依据、规范与权责的反事实凭证解释 AI 评估者的判断转变，直接面向推理可解释性
-2. [ChainPrune: Evaluating and Reducing Redundancy in Long Chain-of-Thought Reasoning](/202608/25/2608.21860v1-chainprune-evaluating-and-reducing-redundancy-in-long-chain-of-thought-reasoning)  
-   标签：评分：8.0/10、query:ns-xai
-   evidence：优化思维链结构以减少冗余，直接涉及大模型可解释推理技术。
-3. [Semantic Reasoning Denoising: Correcting Language Model Reasoning with Semantic Operators](/202608/25/2608.22090v1-semantic-reasoning-denoising-correcting-language-model-reasoning-with-semantic-operators)  
-   标签：评分：8.0/10、query:ns-xai
-   evidence：利用语义算子纠正大模型推理过程
-4. [Toward Effective and Reliable LLM Agents via Dynamic Ontology](/202608/25/2608.22974v1-toward-effective-and-reliable-llm-agents-via-dynamic-ontology)  
-   标签：评分：8.0/10、query:ns-xai
-   evidence：为可靠的大模型智能体推理动态构造符号本体
-5. [Grounding Isn't Knowing: Do VLMs Need Object Localization for Spatial Reasoning?](/202608/25/2608.23074v1-grounding-isnt-knowing-do-vlms-need-object-localization-for-spatial-reasoning)  
-   标签：评分：8.0/10、query:ns-xai
-   evidence：使用机制可解释性工具分析VLM空间推理机制
-6. [Cognitive Profiling of LRMs' Reasoning Traces Using Bloom's Taxonomy](/202608/25/2608.23205v1-cognitive-profiling-of-lrms-reasoning-traces-using-blooms-taxonomy)  
-   标签：评分：8.0/10、query:ns-xai
-   evidence：用布鲁姆分类法自动标注并大规模分析大推理模型思维链
-7. [Level-k Distinguishable Mechanisms for Evaluating Bounded Rationality in LLMs](/202608/25/2608.21296v1-level-k-distinguishable-mechanisms-for-evaluating-bounded-rationality-in-llms)  
+1. [SAFE-G: Structure-aware Faithful Evidence-guided Generation for Knowledge-based Visual Question Answering](/202608/26/2608.21796v1-safe-g-structure-aware-faithful-evidence-guided-generation-for-knowledge-based-visual-question-answering)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：通过思维链token和行为评估LLM策略推理深度，使用level-k可区分机制
-8. [Claim-Level Confidence Calibration for Reliable Decision Making with Large Language Models](/202608/25/2608.22483v1-claim-level-confidence-calibration-for-reliable-decision-making-with-large-language-models)  
+   evidence：面向知识型视觉问答的结构感知、忠实于证据的生成式推理框架
+2. [From Solver Feedback to Faithful Plans: Multi-Role Reinforcement Learning for Symbolic Planning](/202608/26/2608.21897v1-from-solver-feedback-to-faithful-plans-multi-role-reinforcement-learning-for-symbolic-planning)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：面向大型语言模型的声明级置信度校准，将响应分解为原子声明以支持可解释决策
-9. [GRIP: Grounded Reasoning via Information-Restricted Premises](/202608/25/2608.16776v1-grip-grounded-reasoning-via-information-restricted-premises)  
+   evidence：利用求解器反馈让大模型生成符号PDDL规划
+3. [Beyond Static Interpretability: Anticipating Post-SFT Mechanisms from Pre-SFT Parameters for Better Tuning](/202608/26/2608.24482v1-beyond-static-interpretability-anticipating-post-sft-mechanisms-from-pre-sft-parameters-for-better-tuning)  
+   标签：评分：7.0/10、query:ns-xai
+   evidence：用前瞻式机制可解释性定位关键参数，指导大模型微调优化
+4. [Syntactic Simplification of OWL Class Expressions](/202608/26/2608.18899v1-syntactic-simplification-of-owl-class-expressions)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：通过限制证据信息实现更可靠的推理
-10. [GRIP: Grounded Reasoning via Information-Restricted Premises](/202608/25/2608.16776v2-grip-grounded-reasoning-via-information-restricted-premises)  
+   evidence：化简OWL类表达式以提升可解释性，同时保持语义
+5. [Constraint-Guided Enterprise Data Mapping with Large Language Models](/202608/26/2608.24218v1-constraint-guided-enterprise-data-mapping-with-large-language-models)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：通过信息受限前提实现检索增强生成中的接地推理，提升大模型推理可靠性
-11. [Memory Augmentation Unlocks Efficient Chain-of-Thought Reasoning](/202608/25/2608.21265v1-memory-augmentation-unlocks-efficient-chain-of-thought-reasoning)  
-   标签：评分：6.0/10、query:ns-xai
-   evidence：通过记忆增强压缩实现高效思维链推理，与大型语言模型推理及可解释性相关
+   evidence：将LLM与符号约束和级联松弛结合，实现有效的数据映射
 
 
 <div class="dpr-home-promo-card">
