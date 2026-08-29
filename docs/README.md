@@ -7,40 +7,35 @@
 
 ## 每次日报
 - 最新运行日期：2026-08-29
-- 运行时间：2026-08-29 02:59:45 UTC
+- 运行时间：2026-08-29 21:24:43 UTC
 - 运行状态：成功
-- 本次总论文数：7
-- 精读区：1
-- 速读区：6
+- 本次总论文数：4
+- 精读区：2
+- 速读区：2
 
 ### 今日简报（AI）
-今日共读7篇论文，精读1篇、速读6篇，核心聚焦AI规划与可解释性及表格推理。最值得关注的是《Meta-Ctrl》提出的语法/语义解耦式规划生成（8.0分），以及针对XAI选择偏差的《Addressing the Selection Problem》（7.0分）。建议优先精读Meta-Ctrl，再结合PARTAB与GRAIN速读拓展图推理与表格理解视角。
+今日精读2篇、速读2篇，聚焦AI规划生成与图推理的前沿突破。
+
+最值得关注的是两篇8.0分工作：Meta-Ctrl解耦句法与语义约束实现可控计划生成，GRAIN用不变性奖励强化真实图推理中的命名与叙事迁移。
+
+建议优先精读Meta-Ctrl的约束解耦思路，对实际工程中的复杂任务规划有直接启发。
 - 详情：[/202608/29/README](/202608/29/README)
 
 ### 精读区论文标签
 1. [Meta-Ctrl: Guaranteed Plan Generation by Decoupling Syntactic and Semantic Constraints](/202608/29/2608.22149v2-meta-ctrl-guaranteed-plan-generation-by-decoupling-syntactic-and-semantic-constraints)  
    标签：评分：8.0/10、query:ns-xai
-   evidence：将语法与语义符号约束解耦并嵌入LLM解码，实现有保证的规划生成
+   evidence：通过符号约束约束解码实现有保证的规划生成
+2. [GRAIN: Bridging Name and Narrative Shifts in Real-World Graph Reasoning through Invariance-Rewarded Agentic RL](/202608/29/2608.27142v1-grain-bridging-name-and-narrative-shifts-in-real-world-graph-reasoning-through-invariance-rewarded-agentic-rl)  
+   标签：评分：8.0/10、query:ns-xai
+   evidence：将神经大模型与符号图工具结合以提升推理鲁棒性
 
 ### 速读区论文标签
-1. [Addressing the Selection Problem in Explainable AI](/202608/29/2608.22356v1-addressing-the-selection-problem-in-explainable-ai)  
-   标签：评分：7.0/10、query:ns-xai
-   evidence：直接面向选择合适的XAI技术，弥合用户不确定性与解释方法之间的鸿沟
+1. [Mitigating Reasoning-Induced Misalignment via Safety-Direction Penalty](/202608/29/2608.23497v1-mitigating-reasoning-induced-misalignment-via-safety-direction-penalty)  
+   标签：评分：6.0/10、query:ns-xai
+   evidence：对推理引发对齐偏离进行表示空间分析，并提出安全方向惩罚。
 2. [PARTAB: Partition-Aware Reasoning with Structured Evidence for Scalable Table Understanding](/202608/29/2608.24082v1-partab-partition-aware-reasoning-with-structured-evidence-for-scalable-table-understanding)  
-   标签：评分：7.0/10、query:ns-xai
-   evidence：在LLM与表格间构造结构化证据接口，通过层级选择实现可解释的表格推理
-3. [GRAIN: Bridging Name and Narrative Shifts in Real-World Graph Reasoning through Invariance-Rewarded Agentic RL](/202608/29/2608.27142v1-grain-bridging-name-and-narrative-shifts-in-real-world-graph-reasoning-through-invariance-rewarded-agentic-rl)  
-   标签：评分：7.0/10、query:ns-xai
-   evidence：将LLM语义解析与符号图工具执行及不变性奖励结合，提升图推理鲁棒性
-4. [Credal Large Language Models for Semantic Commitment under Uncertainty](/202608/29/2608.23244v1-credal-large-language-models-for-semantic-commitment-under-uncertainty)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：利用置信集与承诺分数揭示LLM预测中的不确定性，提升可靠性与可解释性
-5. [Memory Is Not Always Needed: Characterizing Conditional Memory in Scientific Reasoning](/202608/29/2608.23982v1-memory-is-not-always-needed-characterizing-conditional-memory-in-scientific-reasoning)  
-   标签：评分：6.0/10、query:ns-xai
-   evidence：刻画条件记忆在大型语言模型科学推理中何时有益或有害，提升检索使用的可解释性
-6. [C-Unseen: Weak Signal Detection in Dynamic Temporal Knowledge Graphs via LLM Reasoning](/202608/29/2608.26870v1-c-unseen-weak-signal-detection-in-dynamic-temporal-knowledge-graphs-via-llm-reasoning)  
-   标签：评分：6.0/10、query:ns-xai
-   evidence：将LLM推理与时序知识图子图结合，实现自可解释的弱信号检测
+   evidence：基于结构化证据的分区感知大模型推理；对可解释推理具有方法借鉴意义。
 
 
 <div class="dpr-home-promo-card">
