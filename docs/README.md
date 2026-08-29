@@ -6,53 +6,41 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-08-28
-- 运行时间：2026-08-28 02:55:48 UTC
+- 最新运行日期：2026-08-29
+- 运行时间：2026-08-29 02:59:45 UTC
 - 运行状态：成功
-- 本次总论文数：11
-- 精读区：6
-- 速读区：5
+- 本次总论文数：7
+- 精读区：1
+- 速读区：6
 
 ### 今日简报（AI）
-今日精读6篇、速读5篇，聚焦神经符号推理与形式化定理证明；最值得关注的是《Neuro-symbolic PRM》与《ProofEvolve》，均获9.0高分，分别用符号验证和演化方法提升科学推理与自动证明能力；建议普通读者优先从神经符号结合可解释推理的思路入手，后续可跟进规则场景推理与表格问答等扩展方向。
-- 详情：[/202608/28/README](/202608/28/README)
+今日共读7篇论文，精读1篇、速读6篇，核心聚焦AI规划与可解释性及表格推理。最值得关注的是《Meta-Ctrl》提出的语法/语义解耦式规划生成（8.0分），以及针对XAI选择偏差的《Addressing the Selection Problem》（7.0分）。建议优先精读Meta-Ctrl，再结合PARTAB与GRAIN速读拓展图推理与表格理解视角。
+- 详情：[/202608/29/README](/202608/29/README)
 
 ### 精读区论文标签
-1. [Neuro-symbolic PRM: Enhancing Scientific Reasoning via Structured Traces and Symbolic Verification](/202608/28/2608.26329v1-neuro-symbolic-prm-enhancing-scientific-reasoning-via-structured-traces-and-symbolic-verification)  
-   标签：评分：9.0/10、query:ns-xai
-   evidence：神经符号框架结合符号验证，实现大模型可解释科学推理
-2. [ProofEvolve: Neuro-Symbolic Evolution for Formal Automated Theorem Proving](/202608/28/2608.26334v1-proofevolve-neuro-symbolic-evolution-for-formal-automated-theorem-proving)  
-   标签：评分：9.0/10、query:ns-xai
-   evidence：神经符号框架结合显式形式化符号证明结构，直接匹配符号推理与神经网络结合的需求
-3. [Co-Evolving Structured Knowledge and Reasoning in Language Models](/202608/28/2608.26386v1-co-evolving-structured-knowledge-and-reasoning-in-language-models)  
-   标签：评分：9.0/10、query:ns-xai
-   evidence：结构化知识库构建与推理共同演化，是面向可解释问答推理的直接神经符号整合
-4. [SymbolLKG: Towards Verifiable Logical Reasoning via Logical Knowledge Graph and Symbolic Solvers](/202608/28/2608.26836v1-symbollkg-towards-verifiable-logical-reasoning-via-logical-knowledge-graph-and-symbolic-solvers)  
-   标签：评分：9.0/10、query:ns-xai
-   evidence：结合逻辑知识图谱与符号求解器的神经符号架构，实现可验证推理
-5. [Reflection Steering: Disentangling Reflection from Reasoning in Activation Space for Token-Efficient Inference](/202608/28/2608.25542v1-reflection-steering-disentangling-reflection-from-reasoning-in-activation-space-for-token-efficient-inference)  
+1. [Meta-Ctrl: Guaranteed Plan Generation by Decoupling Syntactic and Semantic Constraints](/202608/29/2608.22149v2-meta-ctrl-guaranteed-plan-generation-by-decoupling-syntactic-and-semantic-constraints)  
    标签：评分：8.0/10、query:ns-xai
-   evidence：解耦LLM反思相关激活与一般推理，直接面向大模型推理可解释性与效率
-6. [SPEAR: Distilling Domain-Adaptive Reasoning Skeletons via Sequential Symbolic Alignment in Reinforcement Learning](/202608/28/2608.26550v1-spear-distilling-domain-adaptive-reasoning-skeletons-via-sequential-symbolic-alignment-in-reinforcement-learning)  
-   标签：评分：8.0/10、query:ns-xai
-   evidence：从推理轨迹提炼符号里程碑作为过程奖励，用于RL蒸馏
+   evidence：将语法与语义符号约束解耦并嵌入LLM解码，实现有保证的规划生成
 
 ### 速读区论文标签
-1. [RuleWeaver: Benchmarking Rule-Centered Scenario Reasoning for Large Language Models](/202608/28/2608.26832v1-ruleweaver-benchmarking-rule-centered-scenario-reasoning-for-large-language-models)  
-   标签：评分：8.0/10、query:ns-xai
-   evidence：规则中心场景推理基准将IF-THEN符号规则注入大模型推理评测
-2. [SABET-QA: Temporal Knowledge Graph Question Answering](/202608/28/2608.20083v1-sabet-qa-temporal-knowledge-graph-question-answering)  
+1. [Addressing the Selection Problem in Explainable AI](/202608/29/2608.22356v1-addressing-the-selection-problem-in-explainable-ai)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：时间知识图谱问答使用迭代神经符号推理处理时间敏感事实
-3. [InsightSR: Refining Symbolic Regression Search Spaces via Parallel Semantic and Structural LLM Guidance](/202608/28/2608.25291v1-insightsr-refining-symbolic-regression-search-spaces-via-parallel-semantic-and-structural-llm-guidance)  
+   evidence：直接面向选择合适的XAI技术，弥合用户不确定性与解释方法之间的鸿沟
+2. [PARTAB: Partition-Aware Reasoning with Structured Evidence for Scalable Table Understanding](/202608/29/2608.24082v1-partab-partition-aware-reasoning-with-structured-evidence-for-scalable-table-understanding)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：LLM引导符号回归搜索空间优化，是神经符号结合的可解释表达式发现方法
-4. [From Atomic to Agentic: Towards Interpretable Evaluation of LLMs' Agentic Mathematical Capabilities](/202608/28/2608.26950v1-from-atomic-to-agentic-towards-interpretable-evaluation-of-llms-agentic-mathematical-capabilities)  
+   evidence：在LLM与表格间构造结构化证据接口，通过层级选择实现可解释的表格推理
+3. [GRAIN: Bridging Name and Narrative Shifts in Real-World Graph Reasoning through Invariance-Rewarded Agentic RL](/202608/29/2608.27142v1-grain-bridging-name-and-narrative-shifts-in-real-world-graph-reasoning-through-invariance-rewarded-agentic-rl)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：面向LLM智能体数学推理的过程级可解释评估基准
-5. [ICON Decomposition: Multivariate Concept-Level Explanations of Deep Representations for Model Auditing](/202608/28/2608.26083v1-icon-decomposition-multivariate-concept-level-explanations-of-deep-representations-for-model-auditing)  
+   evidence：将LLM语义解析与符号图工具执行及不变性奖励结合，提升图推理鲁棒性
+4. [Credal Large Language Models for Semantic Commitment under Uncertainty](/202608/29/2608.23244v1-credal-large-language-models-for-semantic-commitment-under-uncertainty)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：深度表示的概念级解释与模型审计，属于可解释性方法
+   evidence：利用置信集与承诺分数揭示LLM预测中的不确定性，提升可靠性与可解释性
+5. [Memory Is Not Always Needed: Characterizing Conditional Memory in Scientific Reasoning](/202608/29/2608.23982v1-memory-is-not-always-needed-characterizing-conditional-memory-in-scientific-reasoning)  
+   标签：评分：6.0/10、query:ns-xai
+   evidence：刻画条件记忆在大型语言模型科学推理中何时有益或有害，提升检索使用的可解释性
+6. [C-Unseen: Weak Signal Detection in Dynamic Temporal Knowledge Graphs via LLM Reasoning](/202608/29/2608.26870v1-c-unseen-weak-signal-detection-in-dynamic-temporal-knowledge-graphs-via-llm-reasoning)  
+   标签：评分：6.0/10、query:ns-xai
+   evidence：将LLM推理与时序知识图子图结合，实现自可解释的弱信号检测
 
 
 <div class="dpr-home-promo-card">
