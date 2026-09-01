@@ -1,0 +1,1239 @@
+Title: POLYFLOW: A Neuro-Symbolic Framework for Static Cross-Language Information Flow Analysis
+
+URL Source: https://arxiv.org/pdf/2608.29808v1
+
+Published Time: Tue, 01 Sep 2026 01:26:10 GMT
+
+Number of Pages: 22
+
+Markdown Content:
+# POLY FLOW : A Neuro-Symbolic Framework for Static Cross-Language Information Flow Analysis 
+
+Haoran Yang 
+
+Washington State University 
+
+Zhixuan Zhong 
+
+University at Buffalo, SUNY 
+
+Jiawei Guo 
+
+University at Buffalo, SUNY 
+
+Haipeng Cai 
+
+University at Buffalo, SUNY 
+
+Abstract —Modern software systems are commonly constructed in multiple, interacting programming languages. This construc-tion leads to additional, often stealthy vulnerabilities buried in complex information flow due to language interactions. Existing static analyzers are impeded by the heterogeneous semantics of different languages, whereas dynamic approaches suffer from the limited coverage of (available and/or generated) test inputs. In this paper, we develop P OLY FLOW , a neural-symbolic framework for statically reasoning about information flow across language boundaries, combining large language models (LLMs) and static analysis synergistically. Governed by the control-flow representation of a given multi-language sys-tem, P OLY FLOW leverages LLMs to identify implicit flow facts due to challenging language features, hence augmenting the base representation and then propagating data flow through the system. It tackles inherent barriers (e.g., token limit and hallucination) of LLMs by putting them under careful guidance (e.g., static-analysis-guided scoping, context management, and fact checking), along with a multi-LLM expert panel for ne-gotiated validation. Our experiments on real-world Python–C and Java–C systems show that P OLY FLOW is cost-effective and superior to various kinds of state-of-the-art baselines, revealing previously unknown cross-language vulnerabilities that are missed by all the baselines. 
+
+## 1. Introduction 
+
+Software systems today are mostly and increasingly 
+
+multilingual [22], [7], [48], [62], composed of code units in diverse programming languages that interact with each other to deliver seamless functionalities [53], [41], [54], [31], [61], [63]. This heterogeneous composition is well justified by combining the unique advantages of individual languages[3], [42]. For instance, highly impactful machine learning frameworks (e.g., PyTorch) and mobile systems (e.g., Android) are typical examples of multi-language soft-ware that couple a high-level host language (e.g., Python or Java) with performance-critical native C code via foreign-function interfaces [18], [35], [37]. However, the multilingual construction also results in greater complexity of multi-language systems, which leads to their statistical proneness [29], [48], [1], [25], [15] and practical exposure [8], [28] to increased security threats. In particular, the interaction between languages introduces 
+
+cross-language vulnerabilities as recently discovered [51], [32]: security flaws that arise from semantic mismatches, implicit assumptions and flows, or unsafe data exchange across language boundaries [20], [64]. For example, in Python-C systems, improper marshaling of data types due to dynamic typing in Python caused unsafe memory allocation hence corruption in C through a native function call [28]. These vulnerabilities are systemic yet stealthy, often evad-ing detection as existing analysis tools mostly operate in language-specific silos [17], [64]. Securing multi-language systems demands a holistic , cross-language analysis [28], [66], [8], [30], whose urgency is driven by the growing dominance of those systems [62], [43], [55], [36], [33]. In response, relevant approaches exist. Yet many of them [12], [13], [16], [40], [8], [44] actually tackle single-language bugs, where the “cross-language” terms, when present, refer to “supporting different languages”, not con-cerning scenarios where those languages co-exist and inter-act in one project [36], [35], [33], [48], [5], [68]. Among techniques that do address multilingual code, some only look at the design-level smells [1], [37] or are limited to API misuses [52], [18]. To really tackle cross-language bugs, a few dynamic approaches emerged [4], [58], [28], [21], [60]. However, they can only reveal bugs exercised by given test cases—which are particularly scarce in multi-language projects [32]. While this may be mitigated by generating more tests, existing solutions resort to much manual ef-fort [20] or fail due to the technique’s randomness [32]. Current static approaches bypass the coverage limita-tion, but they rely on language-specific semantic rules [66] or abstract summaries [26], [47]/specification [24] for na-tive code and/or language interoperability, hence requiring labor-intensive per-language engineering. Recent advances support static cross-language analysis [49], [67], whose potential for detecting cross-language bugs has yet to be demonstrated. More importantly, they require separate, ma-ture analysis infrastructure for each language, which is not always available (e.g., for Python). As showcased lately, 
+
+learning-based cross-language bug detection [64], [34] may potentially complement both static and dynamic approaches. Unfortunately, they struggle to generalize to new and unseen codebases, and their performance is highly dependent on the quality and quantity of training data, which (e.g., labeled buggy datasets [59]) are particularly lacking in the domain of multi-language software. Additionally, extant static, dy-1arXiv:2608.29808v1 [cs.CR] 30 Aug 2026 namic, and learning-based techniques are commonly limited in analyzing challenging language features (e.g., decorators in Python, as well as reflection in Java) hence missing highly stealthy cross-language bugs (e.g., those buried in implicit information flow). In this paper, we aim to statically analyze cross-language information flow while overcoming the limitations of extant approaches. Static information flow analysis is a fundamental technique for vulnerability discovery [45], [11], [23], [19], [46], [38], which formulates the detection of various kinds of vulnerabilities as a source-sink problem (with sources/sinks defined accordingly). It has been widely used in practice (e.g., underlying GitHub CodeQL [14] and Facebook Infer [6]) for single-language software . Yet, de-veloping a static information flow analysis across language boundaries is challenging. First ( Challenge-1 ), different languages define and han-dle constructs (e.g., type systems, memory management, and control flow) differently. These semantics disparities complicate the creation of a unified (especially static) anal-ysis framework capable of accurately interpreting and rea-soning about code across languages. Second ( Challenge-2 ), diverse language features (e.g., function pointers and inline assembly in C), especially dynamic code constructs (e.g., dynamic typing and reflection in Python, dynamic class loading in Java), can obscure the flow of information and make it difficult to analyze even single-language code at compile time. Dealing with such features in/across multiple languages is only harder. These intrinsic static-analysis challenges could be tack-led by large language models (LLMs), given their demon-strated potential for code understanding [9], [39] and rea-soning [27], [57], [38]. Yet ( Challenge-3 ), LLMs are not magic boxes—merely delegating a complex task like cross-language analysis to them may not help much. For one thing, their token/context-size limits make it infeasible to feed them with the entire system, especially as multi-language codebases tend to be larger than single-language ones. An-alyzing one function at a time alleviates this barrier, but the LLMs would not capture even interprocedural context, not to mention inter-language effects—both of which are essential for effective cross-language analysis. For another, LLMs may hallucinate, producing spurious results [27], [57]. Overcoming such challenges, we developed P OLY FLOW ,
+
+a repository/project-level static cross-language information flow analysis that synergistically combines traditional pro-gram analysis with foundation LLMs in a neural-symbolic framework. Given a multi-language system, we start with a lightweight cross-language interprocedural analysis, result-ing in an approximate (incomplete and imprecise) represen-tation of the whole system with only explicit control/data flow facts. Based on this representation, the static analysis works further as the system controller, invoking LLMs to analyze implicit flow facts, hence potentially augmenting the representation and propagating information between given sources and sinks through the system, so as to address 
+
+Challenge-1 .To identify and resolve the implicit flows, which are induced by respective language features, we elicit the LLMs’ relevant knowledge via few-shot in-context learning, while aiming to achieve analysis soundness via a fixed-point iter-ation of feature handling, hence addressing Challenge-2 .Importantly, the static analysis coordinates interproce-dural and inter-language contexts, which allows the LLMs to only provide complementary assistance (e.g., handling the challenging features) in a minimal scope (a function or a control-flow path) on demand. Moreover, we leverage multiple LLMs formed as a negotiation/arbitration compo-nent, called expert panel , to cross-validate results of every LLM query, while using static-analysis-produced facts to check those results. The careful guidance (adaptive scoping, context management, and fact checking) and negotiated-agreement-based validation procedure collectively address 
+
+Challenge-3 .For evaluation purposes, we implemented P OLY FLOW 
+
+for Python-C and Java-C systems given their high and lasting popularity (e.g., in the impactful AI/ML, mobile, and web software ecosystem) [29], [31], [62]. To rigorously validate P OLY FLOW , we curated xFlowBench , the first static cross-language analysis benchmark with ground-truth infor-mation flow facts with respect to different features of three languages. We then applied P OLY FLOW to 29 real-world multi-language systems of diverse scales and application domains, and compared it to various kinds of state-of-the-art (SOTA) baselines. Our extensive experiments reveal P OLY FLOW ’s promis-ing cost-effectiveness and scalability. On the microbench, POLY FLOW achieved 97.9% precision, 87.3% recall, and 91.8% F1. On the complex real-world systems, it achieved 76.8% precision and discovered 17 previously unknown, ex-ploitable cross-language vulnerabilities—none of which are found by any of the baselines. Ablation studies confirmed that each of its key design elements/components contributes significantly to its overall performance. P OLY FLOW also reasonably scales to large-scale systems, incurring 12.86 hours and 482.5 MB peak memory on average per project; In terms of LLM costs, P OLY FLOW only consumes on average 2.81-M tokens to analyze each multi-language system. POLY FLOW showcases a novel paradigm of neuro-symbolic approaches to code analysis. Instead of an LLM-based core invoking external (symbolic) tools, our frame-work is centered around a static analyzer , which judiciously (1) utilizes LLMs where they offer the most value while traditional analysis falls short, (2) decides when, where, and how to employ LLMs while supplying contexts on demand, and (3) integrates LLM outputs as intermediate results to the analysis, hence combining the strengths of both methods while overcoming each other’s shortcomings—the 
+
+key insight and takeaway of our work. The main contributions of this paper include:  
+
+> •
+
+POLY FLOW , a novel static analysis of multi-language software that holistically addresses cross-language infor-mation flow, including implicit ones and those induced by language features challenging to existing analyses ( §3). 2• An open-source implementation of P OLY FLOW working with real-world Python–C and Java–C systems across various scales and domains ( §4).  
+
+> •
+
+xFlowBench , an open multilingual static analysis bench-mark, which is the first such benchmark with ground-truth cross-language information flow facts as we know ( §5).  
+
+> •
+
+A comprehensive evaluation of P OLY FLOW on both the micro-benchmarks and real-world multi-language sys-tems, which demonstrates its promising merits in cross-language analysis effectiveness and vulnerability discov-ery superior to SOTA baselines ( §6). 
+
+## 2. Background and Motivation 
+
+We introduce concepts in cross-language code analysis, and motivate our work via an example and a broader study. 
+
+2.1. Multilingual Code Construction 
+
+Multi-language systems are software written in multiple computer languages that interact , where the program is referred to as multilingual code/program . The interactions typically rely on Foreign Function Interfaces (FFIs) , amechanism that enables code written in one (host) language to call functions written in another (guest) language. For example, Python provides FFIs for cross-language interfacing with C via modules like ctypes and C-extensions. In particular, such interfacing involves two main types of 
+
+cross-language functions : native functions and foreign func-tions. Native functions are implemented by developers in a guest language to be invoked in the host language code, while foreign functions are provided by the host language to facilitate interoperability with the guest language code. 
+
+2.2. Motivating Example 
+
+Different from those in a single-language program, vul-nerabilities in multilingual code may be rooted in vulnerable cross-language information flow [29], [51], where the infor-mation source lies in (the code written in) one language while the sink is located in another [28]. Apparently, the vulnerabilities will be missed if we only analyze one lan-guage component. Moreover, certain language features may lead a static analyzer to miss even the intra-language flow segments, hence breaking the entire cross-language flow. Consider the code snippet in Figure 1, which is from the Cvxopt project. When handling optimization re-quests, user-submitted data enters through a Python end-point registered via Flask’s @app.route decorator, a lan-guage feature that obscures control flow, where the in-put is collected without proper sanitization. This tainted data then crosses into C through a native module interface ( native module.validate() ). Within the C validation logic, a function pointer indirection ( void (*validator)(char*) ) dynamically dispatches the input to a printf -like sink, creating a format-string vulnerability exploitable through malicious payloads.          
+
+> # Python: @app.route decorator obscures control flow
+> @app.route('/process') # SOURCE (user input)
+> def process_data(): user_input = request.args.get('data') c_module.validate(user_input) # native call // C: Function pointer prevents control flow resolution
+> void (*validator)( char *); // Flow broken here
+> void validate( char * input) {
+> if (validator) validator(input); // SINK (format-string vuln)
+> }
+
+Figure 1: Code snippet adapted from the Cvxopt project. Table 1: Challenging language features, impact on analysis, and support by various analyzers ( : support, : no support, : partial/limited support, ✓: missing, -: no impact)                                                           
+
+> Lang. Feature Impact Static Analyzer Support POLY FLOW
+> Ent. Flow Joern CodeQL Infer SonarQube Clang Python  Decorators ✓✓N/A N/A First-Class Functions –✓N/A N/A Lambda Functions ✓✓N/A N/A Dynamic Typing –✓N/A N/A Reflection ✓✓N/A N/A Dynamic Imports ✓✓N/A N/A
+> Java  Reflection ✓✓N/A Lambda Expressions ✓✓N/A Dynamic Proxy ✓✓N/A Polymorphism –✓N/A Dynamic Class Loading ✓✓N/A
+> C
+> Function Pointers –✓
+> Conditional Compilation ✓✓
+> External Functions ✓✓
+> Inline Assembly ✓✓
+> Macro Function Calls ✓✓
+> Goto Statements –✓
+> Setjmp/Longjmp –✓
+> Recursive Functions ––
+
+Existing static analyzers may miss this critical flow: Python-focused tools may fail to recognize the decorator-registered route as an entry point, while C-focused analyz-ers stop tracking flow at the unresolved function pointer call. Moreover, without analyzing the cross-language flow from Python’s HTTP handler to C’s format-string sink, this multilingual code vulnerability will not be detected. 
+
+2.3. Motivating Study 
+
+In Figure 1, the challenging features (decorators and function pointers) obstruct intra-language analysis, hence breaking the flow across the language boundary. These features often cause implicit information flow, which may bear stealthy vulnerabilities. To understand this problem, we intend to systematically identify such language features that challenge static analysis. We took a three-pronged study methodology: (1) analysis of prominent open-source Python-C and Java-C projects on GitHub (including those in cross-language bug datasets [29], [59]), (2) review of developer discussions and official language documentation, and (3) empirical evaluation of popular static analysis tools. Via manual inspection, we track cross-language information flows to pinpoint critical locations and root causes of cross-language bugs in relation to specific Python, Java and C features that frequently hinder the static analyzers (e.g., by breaking control/data flow tracking). As summarized in Table 1, our study identified 8 C ,
+
+6 Python , and 5 Java features that are complex and chal-3Python code       
+
+> Other language code
+> multilingual
+> Program under analysis
+> POLY FLOW inputs
+> Ccode
+> CICFG construction
+> CICFG augmentation
+> 1.1
+> 1.2
+> Initial CICFG Augmented CICFG
+> Phase 1: Augmented Control Flow Analysis
+> Fixed-point iterative feature handling
+> Directed Taint Approximation
+> Instructed Taint Refinement
+> Phase 2: Feature-Oriented Data Flow Reasoning
+> 2.1
+> 2.2
+> Approximated taint flow Refined taint flow paths
+> Feature-specific few-shot prompting
+> LLM-based Expert Panel (negotiation + arbitration)
+> POLY FLOW inputs
+> Per-language sources/sinks
+
+……   
+
+> potential cross-language
+> vulnerabilities
+> POLY FLOW outputs
+> Automated source/sink identification
+> Java code
+
+Figure 2: Overview of P OLY FLOW , including its inputs, two main phases backed by an expert panel, and outputs. lenging to (hence potentially defeating) static analysis. For each feature, we record its impact on the analysis in terms of whether, without explicitly handling it, code entities (Ent. ) and flow facts ( Flow ) become missing in the analysis backbone—i.e., absent nodes and edges in the underlying control-flow representation. For example, Python reflection/-dynamic imports, Java reflection/dynamic class loading/-dynamic proxies, and C inline assembly can induce both missing nodes and missing edges, as these runtime/meta-programming behaviors are not fully supported by the ana-lyzers (with Clang being inapplicable to Java). As another example, Python first-class functions (and lambdas), Java polymorphic dispatch, and C function pointers primarily lead to missing edges by obscuring call targets and reacha-bility, causing downstream flow facts to be dropped. From a combinatorial perspective, even if a tool is capable of cross-language analysis, it will miss holistic cross-language flow even more often—i.e., whenever any unsupported feature appears in either language along a boundary (Python ↔Cor Java ↔C). Since control flow (reachability) is a prereq-uisite for data flow between two program entities, missing control-flow nodes/edges implies missing data flow (hence information flow) between them. Thus, to enable comprehensive static cross-language in-formation flow analysis, we aim to support all 19 features 
+
+in P OLY FLOW . For its traditional static analysis part, we set three requirements to maximize applicability: (1) it provides direct access to the analysis backbone representations (e.g., control/data-flow graphs), (2) it tolerates uncompilable or incomplete code, and (3) it is free to use at any scale. (1) is also crucial for flexible customization towards greater ca-pabilities. In practice, Clang is language-specific, and tools like CodeQL and Infer are build-driven, while SonarQube exposes only limited internal program representations to custom analyses. Only Joern meets our requirements while offering a uniform, queryable graph backbone for multi-language code. Accordingly, we build P OLY FLOW on Joern, which means we still need to explicitly handle the remaining 
+
+15 out of 19 features that are not currently supported. 
+
+## 3. Technique 
+
+We begin with an overview of P OLY FLOW and then detail its two key phases. These phases work in tandem to systematically uncover cross-language information flows in 
+
+the entire repository of a given multi-language project, in-cluding those induced by the challenging language features. 
+
+3.1. Approach Overview 
+
+As shown in Figure 2, P OLY FLOW accepts two main 
+
+inputs : the target multilingual program (project repository) and user-specified lists of information sources and sinks. Optionally, an LLM-based assisting component can be used to automatically extract sources/sinks from the project to replace or expand the lists. With these inputs, P OLY FLOW 
+
+works like a conventional static data flow analyzer at high level, starting with control flow analysis in Phase 1 , fol-lowed by data flow analysis in Phase 2 , both assisted by multiple LLMs collaborating via negotiation and arbitration (i.e., LLM-based Expert Panel ). Specifically, Phase 1 performs control flow analyses within and across the two languages, hence constructing the basic cross-language interprocedural control flow graph 
+
+(CICFG) in Step 1.1 . It then leverages the expert panel to augment the CICFG via a fixed-point iteration of handling the targeted language features in Step 1.2 . This augmen-tation enriches the graph with additional edges and nodes, resulting in the augmented CICFG . The goal of this phase is to lay the basis for data flow tracking in the next phase, which typically works on a control flow representation. The rationale is that via the augmentation CICFG may capture subtle control-flow behaviors—often missed in conventional analysis—–as completely as possible by leveraging the ca-pabilities of LLMs. Based on this augmented CICFG, Phase 2 aims to first narrow down the data flow analysis scope via directed taint approximation—approximating the taint flow with mere control flow starting from any source and exploring the CICFG as directed towards any sink (Step 2.1 ). The ra-tionale is that the resulting control-flow paths between the sources/sinks form a focused roadmap for the LLMs to reason about data flow as a much simplified task. Then, the approximation is refined through an instructed taint refinement step ( 2.2 ), by carefully instructing the expert panel to propagate data flow along the source-sink reach-able control-flow paths one function at a time. During the propagation, P OLY FLOW maintains accumulated tainted data and coordinates the interprocedural and inter-language context, while dealing with challenging language features 4(that induce implicit data flows) via feature-specific few-shot prompting the LLMs. The rationale is to minimize the LLMs’ task complexities hence reducing their hallucination and maximizing their accuracy. As a result, P OLY FLOW produces a consolidated list of cross-language taint flow paths that may present security risks to be confirmed, as the framework outputs .
+
+3.2. Automated Source/Sink Identification 
+
+Typically, a static information flow analysis takes user-specified sources/sinks hence using each source-sink pair as a query. While there may be sources/sinks (e.g., common/-standard language SDK APIs) to identify manually, it can be a daunting task for users to systematically do so for a given/arbitrary project, especially multi-language ones. Thus, to facilitate its practical use, P OLY FLOW comes with an assisting component to automatically extract sources/sinks from the given multilingual project repos-itory. This design is motivated by the observation that source/sink definitions are often language-specific and project-dependent, making manual specification both error-prone and non-scalable in cross-language settings. Leverag-ing the expert panel, it instructs the LLMs to achieve the task using two carefully designed prompt templates (as found in our artifact package). The source identification prompt guides the LLM to recognize functions or variables that introduce external or sensitive data into the system, such as user inputs, file reads, or network requests. The sink identification prompt directs the LLM to pinpoint function calls or other operations that can potentially leak data, such as logging, file/network writes. These prompts are structured to provide the LLM with sufficient context about the code-base, enabling it to make informed decisions by leveraging the LLM’s understanding of code semantics and common API patterns. Unlike recent tools designed for a single host language such as Java [38], our prompts avoid hard-coding vulnerability types, allowing the same mechanism to generalize across different host–native language pairs. 
+
+3.3. LLM-based Expert Panel (Common Module) 
+
+To enhance the robustness and cost-effectiveness of our analyses, we propose an expert panel method combining the strengths of non-reasoning (generative) and reasoning LLMs. Non-reasoning LLMs are computationally efficient but prone to instability and hallucination. Conversely, rea-soning LLMs provide greater stability and accuracy but at higher costs. Our expert panel employs cross-validation using two non-reasoning models for initial analysis. When disagree-ments arise, a reasoning model is then invoked as an arbiter. This combined approach capitalizes on the efficiency of non-reasoning models for most tasks, reserving the resource-intensive reasoning model for ambiguous or complex cases, thereby achieving an optimal balance between accuracy, sta-bility, and computational expense, which allows P OLY FLOW 
+
+to scale to large repositories with analysis stability. 
+
+3.4. Augmented Control-Flow Analysis (Phase 1) 
+
+POLY FLOW constructs and refines a CICFG that spans both languages. This graph provides the foundational struc-ture for identifying taint flows in multi-language programs. 
+
+3.4.1. CICFG Construction. The lack of a ready-made, whole-program static information-flow analysis tool for real-world cross-language systems motivates us to adapt existing infrastructure to our needs. We start from producing a cross-language, interprocedural control-flow graph for each analyzed project. Following established practices in ICFG construction [50], every node in the resulting CICFG cor-responds to a statement or operation in either language’s portions of the codebase, and directed edges indicate the potential transfer of control. By explicitly modeling inter-language call edges via FFIs, the CICFG establishes a uni-fied control-flow substrate on which subsequent language-agnostic data-flow reasoning can be performed. The construction proceeds by first extracting intraproce-dural CFGs for each function or method in the target source code files. Next, these per-method graphs are connected into an intra-language call graph, one for each language unit. We then identify cross-language call edges by examining how the two languages (e.g., Python and C) components interact, guided by FFI specifications (e.g., Python C APIs). For instance, if a C extension module provides a function accessible from Python, that interface call is represented in the graph as an inter-language edge. Finally, we merge the two intra-language call graphs, along with these cross-language edges, to form the CICFG. Each node is annotated with contextual information, such as associated function names and the source-code location (line no.), facilitating later traversal of the graph. 
+
+3.4.2. CICFG Augmentation. While the initial CICFG captures control-flow connections at the function and state-ment levels, cross-language programs commonly employ various features that can introduce implicit or hidden control flows. For example, Python’s decorator, reflection, and im-port mechanisms, along with C’s macros, function pointers, and conditional compilation, often cause static analyses to miss relevant control paths if these features are not explicitly accounted for. To address these complexities, P OLY FLOW 
+
+augments the CICFG in an iterative, feature-driven manner. This design is motivated by the observation that language features often interact and introduce control-flow effects transitively, making one-shot augmentation insufficient in cross-language settings. Initially, we scan the project for a range of language features using specialized handler functions; for example, we detect macros and function pointers in C source files, and decorators or dynamic imports in Python. When a handler discovers any such feature, it marks that file for further analysis and adds it to a global worklist. Features that are closely related—for example, macros and conditional compilation—trigger updates to each other’s state so that modifications to one construct can be properly reflected 5in another. The algorithm then proceeds in a fixed-point manner: if re-analysis of certain files detects new features or modifies existing ones, the corresponding handlers are re-invoked until no further updates are generated. The key rationale for this iterative nature of the algo-rithm lies in the dependencies between different features re-garding their impact on the static analysis. For instance, for the C language, if the feature handler for function pointers discovered and resolved a reflective functional callsite, the same handler needs to run further to discover additional such method-level control flow through that reflective callee. For another example, after the conditional compilation handler resolves a conditionally compiled code block, all feature handlers for the C language should be triggered to dis-cover and resolve any features in that code block. The iteration stops when no more change in control flow can be harvested—i.e., the CICFG augmentation process converges. 
+
+Algorithm 1: Fixed-point iterative feature handling                                                                                  
+
+> Input: A project directory path proj_path
+> Output: Analysis results of various features
+> 1all features ←c features + py features ;
+> 2feature related mapping ←get featuremapping() ;
+> 3startfile dict ←empty dictionary ;
+> 4worklist ←empty set ;
+> 5foreach feat in all_features do
+> 6startfile ←[] ;
+> 7analyzeFunc ←feature handler mapping[ feat ] ;
+> 8foreach file_path in WalkDirectory (proj_path )do
+> 9(startf, )←analyzeFunc( file_path ) ;
+> 10 startfile.extend(startf) ;
+> 11 startfile dict[ feat ] = startfile ;
+> 12 if startfile ̸=[] then
+> 13 worklist = worklist ∪feature related mapping[ feat ] ;
+> 14 while worklist not empty do
+> 15 feat ←worklist.pop() ;
+> 16 startfile ←startfile dict( feat ) ;
+> 17 analyzeFunc ←feature handler mapping[ feat ] ;
+> 18 is updated ←False ;
+> 19 foreach file_path in startfile do
+> 20 ( , updated) ←analyzeFunc( file_path ) ;
+> 21 if updated == True then
+> 22 is updated ←True ;
+> 23 if is updated then
+> 24 worklist = worklist ∪feature related mapping[ feat ] ;
+
+Specifically, in Algorithm 1, lines 1-2 define the union of 
+
+c_features and py_features as all_features ,and retrieve a feature_related_mapping that spec-ifies dependencies among features. Lines 3 and 4 initial-ize a dictionary for storing file lists ( startfile_dict )and an empty worklist for iterative processing. From lines 5-13, the algorithm iterates over each feature, in-vokes the corresponding handler on every file found in the project directory, and collects returned startfile 
+
+information. If startfile is non-empty, the algorithm merges related features into the worklist based on 
+
+feature_related_mapping . Lines 14-24 process fea-tures in the worklist . Each popped feature retrieves its file list ( startfile ) and runs the handler again. If any file is updated, the algorithm merges the dependent features into the worklist , ensuring that changes in one feature analysis can trigger re-analysis of related features until all dependencies are stable. By iterating through potentially interactive or mutually dependent language constructs, we ensure that the final CICFG does not omit control-flow edges that arise from dynamic or conditional behaviors. Nodes that might oth-erwise appear disconnected become properly linked, and call edges that are only valid under specific macros or function pointer assignments are accurately reflected. The end result is an augmented CICFG where language features that would typically frustrate purely static approaches are consistently incorporated, providing a robust foundation for our subsequent data-flow analysis. 
+
+Individual Feature Handling . For each of our targeted features, P OLY FLOW has a dedicated feature handler. In this handler, P OLY FLOW traverses all the feature presence units (FPUs) one at a time, which defines the minimal scope where the feature could be resolved. For most of the features targeted, an FPU is a function; yet for some features, it is a source file. When processing each FPU, P OLY FLOW 
+
+leverages the expert panel to first (1) detect the presence of the feature, followed by (2) identifying the missing nodes and/or edges (Table 1), and (3) when identified, it adds the nodes/edges to the CICFG accordingly. While for different features, the handling logic varies, the handler (including for additional features) always follows these three main steps. Table 2 summarizes the detection cue and CICFG aug-mentation pattern of the 18 feature handlers in P OLY FLOW 
+
+(the 19th feature, recursive functions, is supported natively by Joern, on which the base CICFG is built). Each row instantiates the common feature handling logic for one spe-cific language feature; per-feature pseudocode is provided in the subsequent sections. The “Prop?” column marks handlers that run an inner worklist to chase chain effects to convergence. We have provided the detailed algorithm and expla-nations for each feature handler in our artifact package. Appendix A, B, and C provide examples of such feature handling algorithms for Python, Java, and C, respectively. 
+
+3.5. Feature-Oriented Data Flow Reasoning (Phase 2) 
+
+Having constructed and augmented the CICFG, we next detect and refine taint flows that may traverse multiple language boundaries in the presence of complex language features. P OLY FLOW orchestrates this phase in two steps: directed taint approximation stage (§ 3.5.1) that enumerates candidate flows from sources to sinks, and instructed re-finement stage (§ 3.5.2) that uses feature knowledge and LLM-assisted context to prune or expand these flows as necessary. The final result is a set of potential vulnerabilities, each represented by a path from source to sink across the augmented control-flow graph. 
+
+3.5.1. Directed Taint Approximation. The first step of our data-flow reasoning phase applies a control-flow-reachability-based analysis on top of the augmented CICFG. 6Table 2: Per-feature instantiation of the common feature handling logic.                                                                                                                                
+
+> Feature (Lang.) Detection cue CICFG augmentation pattern Prop?
+> Function Pointers (C) function-pointer typed expr callsite →bound target entry →callsite YConditional Compilation (C) preprocessor #ifdef /#endif directive per-branch nodes + intra-/inter-branch edges NMacros to Function Calls (C) macro expanding into invocation expanded callsite →callee entry →callsite NInline Assembly (C) asm /__asm block asm-ref node + side-effect edges NGoto Statements (C) goto keyword and label label-jump intra-procedural edges NSetjmp/Longjmp (C) setjmp /longjmp calls longjmp-site →matching setjmp →continuation NDynamic Linking (C) dlopen /dlsym resolved-symbol →target entry →resolve-site NDecorators (Python) @decorator syntax above def callsite →wrapper entry →original-call resumption NFirst-Class Functions (Python) function passed as value or stored callsite →resolved target entry →callsite YLambda Expressions (Python) lambda keyword exec-site →lambda body →exec-site NDynamic Typing (Python) duck-typed call / getattr resolved-method entry →call-return NReflection (Python) getattr /importlib /__class__ resolved callsite →reflect target →callsite NDynamic Imports (Python) __import__ /importlib.import_module import-site →module entry NReflection (Java) Method.invoke /Class.forName callsite →resolved member →callsite NLambda Expressions (Java) -> lambda or method reference exec-site →lambda body →exec-site NDynamic Proxy (Java) Proxy.newProxyInstance proxy callsite →InvocationHandler.invoke →callsite NDynamic Class Loading (Java) Class.forName /ClassLoader.load loadsite →<clinit> →loadsite YPolymorphism (Java) virtual call site / instanceof virtual call →concrete impl entry →callsite Y
+
+We either use the user-specified source/sink lists or begin by collecting pairs of taint sources and sinks. For each such pair 〈src ,sink 〉, we slice the augmented CICFG to extract the subgraph of control-flow nodes lying on the possible paths from src to sink . This subgraph reflects an initial mapping of how data originating from src could propagate through both Python and C components until reaching sink .We then aggregate these paths at purely-control-flow level, a process that highlights the subsets of code relevant to each source-sink traversal. By operating on a control-flow-based approximation, we deliberately trade early pre-cision for scalability. This design ensures that expensive, feature-aware reasoning is only applied to source–sink pairs that are structurally feasible, which is crucial for analyz-ing large cross-language repositories practically. Once this reachability-based approximation is complete, it yields a set of candidate paths for each 〈src ,sink 〉 pair, awaiting further scrutiny in the next step. 
+
+3.5.2. Instructed Taint Refinement. After gathering all candidate paths, we refine them through a deeper inspection that leverages both static feature handlers and LLM-assisted analyses. For every subgraph derived from the source–sink pairs, we traverse its constituent functions one by one, carrying along a set of tainted variables (initially those introduced at the source). At each function, we invoke spe-cialized handlers designed to account for language-specific constructs, such as value transfer via pointer indirection in C. The rationale is to align the granularity of reasoning with the locality of language features, allowing LLM assistance to be tightly scoped and context-aware. These handlers systematically update the set of tainted variables, capturing implicit or indirect data flows that might be missed by purely syntactic analysis. Once the feature handlers finish, the expert panel confirms or extends the taint set. The prompt sent to the expert panel encapsulates the current function’s code snippet and any already tainted variables, asking for potential aliases, hidden references, or dynamic behaviors. The expert panel’s response may identify additional vari-ables as tainted, which are merged back into our working set of tainted data. In scenarios where a function passes tainted variables across language boundaries—for instance, when Python in-vokes a C extension function or when C calls back into Python—P OLY FLOW consults prior knowledge of cross-language APIs and the rules established in CICFG. If these variables reach a sink node, we record a fully realized taint flow spanning the entire path from source to sink. Once all subgraphs have been traversed, the system produces a consolidated view of verified vulnerabilities, each annotated with the final chain of tainted variables and functions that lead to an external output. By merging feature-driven in-sights with LLM guidance, we gain a precise and robust perspective on taint propagation—even in multi-language programs with advanced or unusual language constructs. As shown in Algorithm 2, POLY FLOW , for each 
+
+(src, sink ) pair in the input set S, first builds a subgraph (denoted subgraph ) that captures paths from src to sink in the CICFG, and then extracts all functions appearing in that subgraph (Lines 2–4). Initialize a set of tainted variables (taintedVars ) based on the source src , and retrieve a col-lection of feature handlers ( features ). These handlers can account for additional data-flow scenarios such as implicit flows or specific language constructs (Lines 5–6). For each function in the subgraph, iterate over every feature handler to identify and add new tainted variables ( newTaintedVars-FromFeature ) to the existing taintedVars (Lines 7–12). Use the code of the current function ( codeSnippet ) to query the expert panel. The expert panel response may introduce fur-ther tainted variables ( newTaintedFromLLM ). Merge these into taintedVars (Lines 13–17). Determine which tainted variables, if any, should be passed to the next function. If there is no next function ( nextFunc = NULL), end the loop for this subgraph. Otherwise, update taintedVars accordingly and continue (Lines 20–24). After analyzing all (src, sink) 
+
+pairs, return the resulting tainted variables. This final tainted 7Algorithm 2: Feature-oriented data flow reasoning                                                                                 
+
+> Input: A set of source/sink pairs S, a Control-Integrated Control Flow Graph CICF G
+> Output: Taint analysis results with updated tainted variables per function
+> 1Function LLMAnalysisWithFeatures( S, CICF G )
+> 2foreach (src, sink )∈Sdo
+> 3subgraph ←BuildSlice( CICF G, src, sink );
+> 4functionsInSubgraph ←
+> GetSubgraphFunctions( subgraph );
+> 5taintedVars ←set of variables initially tainted by src ;
+> 6features ←GetFeatureHandlers() ;
+> // features represents a set of feature handlers for implicit data flow, etc.
+> 7foreach currentF unc ∈f unctionsInSubgraph do
+> // (1) Update taintedVars using feature handlers
+> 8foreach f eature ∈f eatures do
+> 9newTaintedVarsFromFeature ←
+> AnalyzeFunctionWithFeature( feature,;
+> 10 currentFunc,;
+> 11 taintedVars );
+> 12 taintedVars ←taintedVars ∪
+> newTaintedVarsFromFeature;
+> // (2) Ask the LLM for additional taint information
+> 13 codeSnippet ←code of currentF unc from
+> subgraph ;
+> 14 promptCode ←”Given this function code and current tainted vars, list all tainted vars in this function:” + codeSnippet + ” Tainted vars:” + taintedVars;
+> 15 llmResTaint ←SendToLLM( promptCode );
+> 16 newTaintedFromLLM ←parse(llmResTaint) into a set of tainted variables;
+> 17 taintedVars ←taintedVars ∪newTaintedFromLLM;
+> // (3) Determine and pass tainted vars to the next function
+> 18 (nextFunc, passedTaintedVars) ←
+> GetNextFunctionAndArgs( currentFunc,;
+> 19 subgraph,;
+> 20 taintedVars );
+> 21 if nextFunc =NULL then
+> // No further propagation, end loop for this subgraph
+> 22 break
+> 23 else
+> 24 taintedVars ←passedTaintedVars;
+> 25 return taintedVars;
+
+variable set can then be used for further security analysis or vulnerability detection (Line 25). 
+
+Individual Feature Handling . Before initiating taint propagation, we explicitly handle language-specific features that might introduce implicit or indirect data flows. Certain advanced constructs inherent to Python and C—such as dynamic reflection, protocol implementations, and magic methods in Python, or unions, type punning, and volatile or atomic operations in C—can obfuscate or complicate data-flow analysis. Detecting these implicit flows early ensures improved accuracy and completeness in the subsequent taint analysis in our framework. To capture such implicit data flows, P OLY FLOW em-ploys an expert-driven approach leveraging LLM assistance. For each function within the augmented CICFG, we first invoke the expert panel to detect the presence of these com-plex language features. Given a function’s code snippet, the panel identifies whether it utilizes any implicit-flow-causing features. If any such features are detected, the expert panel further determines how these constructs implicitly propagate Table 3: Summary of xFlowBench 
+
+Lang. Feature #micro-benchs #data points #FNs #FPs #edges #nodes Python 
+
+Decorators 5 24 2 1 0First-Class Functions 4 9 1 0 0Lambda Functions 6 11 7 2 0Dynamic Typing 4 8 1 0 0Reflection 7 9 2 3 0Dynamic Imports 6 4 2 0 0
+
+> Java
+
+Reflection 7 14 3 1 0Lambda Expression 7 17 4 1 0Dynamic Proxy 7 12 2 0 0Polymorphism 7 16 3 0 0Dynamic Class Loading 6 10 2 1 0
+
+> C
+
+Function Pointers 5 20 2 0 0Conditional Compilation 4 4 2 0 0External Functions 5 4 2 3 0Inline Assembly 5 7 1 3 0Macro Function Calls 6 6 1 1 0Goto Statements 6 9 0 0 0Setjmp/Longjmp 5 8 0 0 0Recursive Functions 2 6 2 0 0
+
+Total 104 198 39 16 0
+
+tainted data. Specifically, the panel infers which additional variables might become tainted through the identified im-plicit flows, supplementing our initial tainted variable set. The results from this expert-assisted analysis are integrated into the initial taint sets for each function. By proactively addressing implicit flows at the outset of our analysis, we significantly enhance the precision and effectiveness of sub-sequent taint propagation steps. This structured handling of complex language features equips P OLY FLOW with a robust foundation for detecting vulnerabilities. 
+
+## 4. Implementation and Limitations 
+
+This section details the implementation of P OLY FLOW 
+
+and discusses its current limitations. 
+
+4.1. Implementation 
+
+POLY FLOW is implemented with a modular architecture for future enhancements and adaptability, whch allows for: 
+
+Broader Language Support. New language pairs can be incorporated by developing parsers to generate the initial control-flow structures and new language-specific “feature handlers”. The underlying analysis logic remains largely independent of specific language frontends. 
+
+Interchangeable LLM Components. The “Expert Panel” and other LLM interactions are accessed through an interface that can be adapted to different foundation models, allowing for upgrades or changes in LLM providers or types. 
+
+Alternative Static Analysis Infrastructure. While Jo-ern is currently used for initial intraprocedural CFG genera-tion, P OLY FLOW ’s subsequent CICFG construction and aug-mentation logic are self-contained. This permits the potential integration of alternative static analysis tools for the initial graph generation phase if with compatible input format. 84.2. Limitations 
+
+Reliance on LLM Efficacy. The accuracy of identi-fying challenging language features and reasoning about data flows is dependent on the capabilities of the integrated LLMs. While mitigations like the expert panel are in place, LLM-based analysis can be susceptible to inaccuracies or “hallucinations,” and the interpretability of LLM decisions can be challenging. 
+
+Dependence on Source/Sink Accuracy. The overall analysis is sensitive to the quality of the initial source and sink definitions, whether provided by users or identified via LLM-based methods. Inaccuracies here can impact the relevance and completeness of detected taint flows. 
+
+Multilingual Construction Focus. Our implementation of P OLY FLOW currently only supports Python-C and Java-C. Moreover, we currently focus on FFI as the interfacing mechanism between Python and C. Although FFI represents the dominant mechanism, information flow induced by non-FFI interfacing would not be captured by our tool. 
+
+## 5. xFlowBench : A Multilingual Microbench 
+
+For evaluating the precision and recall of a cross-language static analysis like P OLY FLOW , existing bench-marks often lack coverage for specific cross-language interactions or challenging features relevant to static analysis. Therefore, we created xFlowBench, a micro-benchmark suite tailored for evaluating static analysis across Python/Java-C boundaries. xFlowBench comprises 104 micro-benchmarks specifi-cally designed to test the handling of challenging language features in both Python/Java/C that can affect information flow analysis. As detailed in Table 3, each benchmark fo-cuses on one or more of these features, presenting scenarios where traditional static analysis might struggle. This suite allows for a systematic assessment of P OLY FLOW ’s ability to correctly identify and handle these complex constructs during its cross-language information flow analysis. 
+
+## 6. Evaluation 
+
+We evaluated the effectiveness of P OLY FLOW on both benchmarks and real-world Python-C and Java-C projects. Our evaluation aims to answer five research questions: 
+
+RQ1 How prevalent are targeted Python/Java/C features in real-world Python-C and Java-C projects? 
+
+RQ2 How effective is P OLY FLOW for static cross-language information flow analysis against SOTA baselines? 
+
+RQ3 Does each of its components contribute significantly to POLY FLOW ’s performance? 
+
+RQ4 How efficient is P OLY FLOW on real-world systems? 
+
+RQ5 Can P OLY FLOW find cross-language vulnerabilities? 
+
+Experimental Setup . In addition to xFlowBench, we also evaluated P OLY FLOW against 14 real-world Python-C projects and 15 Java-C projects. Table 4 shows the project size in thousands of lines of code (2nd column) and the percentage of code written in each language (3rd columns). Table 4: Real-world multilingual subjects                                                                                          
+
+> Benchmark LOC (k) Language #Stars #Forks Bounter(Bou) 3.5 Python: 50.9%, C: 48.2% 934 46 Ultrajson(Ult) 5.1 Python: 34.3%, C: 64.8% 4,474 373 Simplejson(Sim) 6.2 Python: 59.8%, C: 37.6% 1,702 351 Libsmbios(Lib) 8.3 Python: 30.4%, C: 64.2% 214 40 Japronto(Jap) 9.4 Python: 48.2%, C: 50.4% 8,561 569 Pycurl(Pyc) 14.6 Python: 54.8%, C: 40.7% 1,146 322 Msgpack(Msg) 15.1 Python: 48.7%, C: 50.1% 2,061 239 Bottleneck(Bot) 16.9 Python: 49.5%, C: 48.6% 1,161 114 Pygit2(Pyg) 17.0 Python: 44.6%, C: 57.4% 1,712 402 Aubio(Aub) 42.9 Python: 25.4%, C: 73.3% 3,624 409 Cvxopt(Cvx) 56.0 Python: 39.0%, C: 60.8% 1,028 213 PyTables(Pyt) 219.8 Python: 46.6%, C: 52.1% 1,360 281 Tink(Tin) 257.7 Python: 7.2%, C: 33.5% 13,565 1,183 Pyo 259.1 Python: 48.8%, C: 50.8% 1,407 145 ImBlockerFabric(ImB) 1.5 Java: 52.1%, C: 19.1% 87 8Android-gif-drawable(And) 8.2 Java: 38.6%, C: 31.6% 9653 1787 Termux-x11(Ter) 13.4 Java: 37.2%, C: 44.0% 3,425 480 Jep(Jep) 22.0 Java: 25.4%, C: 51.7% 1,471 162 Hin2n(Hin) 37.0 Java: 10.7%, C: 81.8% 640 133 Pi4j-v2(Pij) 38.6 Java: 81.4%, C: 4.5% 343 71 Junixsocket(Jun) 60.5 Java: 62.2%, C: 12.0% 472 116 PojavLauncher(Poj) 65.5 Java: 50.3%, C: 24.9% 8,665 1819 wolfssljni(Wol) 67.0 Java: 66.0%, C: 25.4% 68 40 Espeak-ng(Esp) 64.0 Java: 6.4%, C: 70.1% 6,099 1,183 Themis(The) 135.3 Java: 3.0%, C: 27.2% 1,947 156 Openjpeg(Ope) 188.4 Java: 1.1%, C: 86.2% 1,071 498 Turbovnc(Tur) 290.2 Java: 15.8%, C: 78.8% 966 156 Mdsplus(Mds) 669.7 Java: 36.4%, C: 32.1% 90 51 Lwjgl(Lwj) 1363.4 Java: 65.9%, C: 17.9% 5,249 680
+
+We conduct our experiments on a workstation equipped with an AMD Ryzen Threadripper 3970X CPU, an Nvidia GeForce RTX 3090 GPU, and 256GB of RAM. For static code analysis tasks, we utilize Joern version 4.0.216. In ex-periments involving the expert panel, we set the temperature parameter to 0 for LLMs. 
+
+Baseline . We chose xLoc [64] as a pure deep learning-based approach to the same problem. This comparison al-lows us to assess the benefits of our neuro-symbolic frame-work against an end-to-end learning solution. 
+
+Metrics and Procedure . For RQ1 (feature prevalence), we measure how targeted Python/Java/C features are dis-tributed in real-world Python-C/Java-C projects studied. For RQ2 (effectiveness measurement), we measure the precision of sources and sinks P OLY FLOW identified and the taint flow paths found correspondingly. For RQ3 (ablation study), we created several variants of POLY FLOW by selectively disabling key components. We compare these variants against the complete P OLY FLOW to quantify the contribution of each component. For RQ4 (performance evaluation), we measured run-time performance and resource consumption. Specifically, we tracked analysis time and peak memory usage. For RQ5 (real-world bug discovery), we conducted de-tailed qualitative analysis of selected bugs discovered by POLY FLOW and case studies. 9Table 5: Source/Sink precision and count by project                                                                                                                          
+
+> Aub Bot Bou Cvx Jap Lib Msg Pyc Pyg PyT Pyo Sim Tin Ult Avg Lwj Mds Pi4 Poj Tur The Esp Jun And ImB Jep Hin Ter Ope wol Avg Source Precision 72% 74% 79% 81% 88% 78% 80% 85% 82% 78% 90% 76% 73% 86% 80% 78% 82% 86% 81% 82% 93% 85% 72% 82% 92% 79% 84% 81% 80% 93% 83% Count 351 82 24 375 250 210 51 222 190 909 666 46 595 44 305 566 90 76 104 83 132 55 146 97 24 265 62 153 125 118 140 Sink Precision 71% 100% 100% 100% 100% 94% 100% 94% 85% 100% 97% 100% 100% 100% 95% 91% 90% 88% 100% 89% 100% 83% 94% 91% 100% 97% 100% 94% 93% 92% 93% Count 51 12 314 14 33 417 13 144 65 345 12 32 64 10 812 915 616 11 530 717 14 13 16
+
+Table 6: Effectiveness of P OLY FLOW versus xLoc                                                                                                                             
+
+> Aub Bot Bou Cvx Jap Lib Msg Pyc Pyg Pyo PyT Sim Tin Ult Lwj Mds Pi4 Poj Tur The Esp Jun And ImB Jep Hin Ter Ope wol Total POLY FLOW
+> #Paths 27 26 28 124 51 3441 0024 93 13 78 10 812 916 518 11 035 619 15 14 591 #TPs 27 22 28 121 31 3335 0024 65 12 54 767611 315 7026 315 12 10 454 Prec 100% 85% 100% 100% 88% 61% 100% 75% 85% --100% 70% 92% 69% 70% 75% 58% 67% 69% 60% 83% 64% -74% 50% 79% 80% 71% 76.8% xLoc ------------------------------
+
+6.1. RQ1: Feature Prevalence 
+
+To understand the landscape in which P OLY FLOW op-erates, we first investigated the prevalence of several tar-geted challenging Python/Java/C language features within our dataset projects in Table 4. The presence of these features was determined by utilizing P OLY FLOW ’s intrinsic feature detection capabilities, as detailed in Section 3.5.2. Table 7: Prevalence of targeted features in Python-C subjects                                                    
+
+> Project Python Features C Features Decorators First-Class Functions Reflection Function Pointers Conditional Compilation Macros Goto
+> Aub ✓✓✓✓
+> Bot ✓✓✓✓
+> Bou ✓✓✓
+> Cvx ✓✓✓
+> Jap ✓✓✓✓✓✓
+> Lib ✓✓✓✓
+> Pyc ✓✓✓✓
+> Pyg ✓✓
+> PyT ✓✓✓
+> Pyo ✓✓✓
+> Sim ✓✓✓✓
+> Tin ✓
+> Ult ✓
+> Total 21% 71% 7% 29% 79% 29% 64%
+
+Table 8: Prevalence of targeted features in Java-C subjects                                                                                             
+
+> Project Java Features C Features Reflection Lambda Expr. Dynamic Proxy Polymorphism Function Pointers Conditional Compilation Macro Goto
+> Lwj ✓✓✓✓✓✓✓
+> Mds ✓✓✓✓✓
+> Pi4 ✓✓✓✓
+> Poj ✓✓✓✓
+> Tur ✓✓✓✓✓✓✓
+> The ✓✓✓✓✓✓
+> Esp ✓✓✓✓✓✓
+> Jun ✓✓✓✓✓
+> And ✓✓✓✓✓
+> ImB ✓✓✓✓
+> Jep ✓✓✓✓✓✓✓✓
+> Hin ✓✓✓✓✓
+> Ter ✓✓✓✓✓✓✓
+> Ope ✓✓✓✓
+> wol ✓✓✓✓✓
+> Total (Java, n=15) 87% 40% 13% 100% 80% 80% 73% 47%
+
+Our analysis reveals that many of these targeted features are indeed utilized in practice, underscoring the need for analysis tools that can effectively handle them. Notably, a significant number of projects incorporate at least one, and often multiple, of these features, indicating that complex language constructs are not mere edge cases but are actively employed in real-world multilingual software development. Among the Python features analyzed, First-Class Func-tions were observed with high frequency, present in 10 out of the 14 projects. Decorators were also utilized in three projects ( japronto , pycurl , simplejson ), indicat-ing their adoption for modifying or extending behavior. In contrast, specific dynamic features like Reflection (found in 
+
+simplejson ) and Dynamic Imports (found in pyo ) were less common in this particular dataset, each appearing in only one project. Lambda Functions, as per our analysis focusing on the features presented in the results table, were not detected in any analyzed project. For the Java features in Java-C subjects, reflection is pervasive: Reflection appears in 87% of projects, indicat-ing that runtime type inspection and reflective invocation are routine in Java-native integration. Lambda expressions are also common (40%), often compiling into synthetic classes/methods and complicating call-graph recovery for callback-style code. Dynamic proxies, while less frequent (13%), add another layer of runtime indirection via invo-cation handlers. Polymorphism (i.e., dynamic dispatch on member methods) occurs in all projects, showing that native interaction is typically encapsulated within Object-Oriented APIs rather than standalone static entrypoints. Overall, Java-C systems frequently combine reflection, functional abstrac-tions, and proxy-based dispatch, motivating analyses that can conservatively model these dynamic behaviors for cross-language reasoning. For the C features in Python-C subjects, Conditional Compilation is prevalent, reflecting heavy reliance on platform- and build-dependent code paths. Setjmp/Longjmp is also common, while Function Pointers appear in 4 projects and Goto in 3, both introducing control-flow indirection. Macro-related constructs were not observed in this Python-C prevalence analysis. In contrast, Java-C subjects ex-hibit denser native-side complexity: Function Pointers and Conditional Compilation each appear in 80% of projects, Macro Calls in 73%, and Goto in 47%, suggesting that preprocessor-driven variation and indirect control flow are more typical in Java-C settings. In both Python-C and Java-C subjects, we observe that “hard” language feature usages are routine rather than ex-ceptional. Python-C projects frequently rely on first-class functions and non-trivial native control variability (e.g., con-10 ditional compilation and low-level control-flow constructs), while Java-C projects consistently embed native interaction inside object-oriented APIs and commonly introduce ad-ditional indirection via reflection and lambda-based call-backs. On the native side, Java-C subjects exhibit denser preprocessor- and indirection-heavy patterns (e.g., function pointers and macros), further complicating static cross-language analysis. 
+
+Feature-induced analysis challenges are common in real-world cross-language systems, motivating POLY FLOW 
+
+that can soundly model such constructs to avoid missed or spurious information flows. 
+
+6.2. RQ2: Effectiveness of P OLY FLOW 
+
+Expert Panel Accuracy. The expert panel is the core component responsible for interpreting complex language features that traditional static analyzers fail. To evaluate its performance, we assessed its ability to identify implicit control and data flows. The panel achieved a precision of 0.979, a recall of 0.873, and an F1-score of 0.918 based on xFlowBench. These results demonstrate the expert panel’s high reliability. 
+
+Source and Sink Identification. Table 5 reports per-project precision and volume of the identified sources/sinks for Python-C and Java-C subjects, respectively. For sources, precision is consistently moderate-to-high, averaging 80% in Python-C and 83% in Java-C, with substantial cross-project variation in counts (Avg. 305 sources/project for Python-C vs. 140 for Java-C). Larger projects naturally contribute more candidates (e.g., pytables : 909 sources; lwjgl : 566 sources), confirming that source identification dominates the workload in both settings. For sinks, precision is generally higher and more stable, while sink counts remain much smaller, indicating that security-relevant endpoints are rel-atively sparse compared to input-like sources. Overall, on most of the subject projects P OLY FLOW achieved high sink precision across both language pairs. More specifically, the results reveal three notable find-ings. First , sink identification is overall more reliable than source identification: sink precision averages 95% (Python– C) and 93% (Java–C), with most projects at or above 90%, whereas source precision averages 80% and 83% respec-tively. This asymmetry reflects the underlying task: sinks are syntactically narrow (a small set of dangerous APIs and write/log/exec sites), while sources span a much broader and more heterogeneous surface (user inputs, deserialized data, environment, IPC, file/network reads), inviting more borderline judgments. Second , sources outnumber sinks by roughly an order of magnitude in both settings (Python– C: 305 vs. 32 on average; Java–C: 140 vs. 16), confirming that source enumeration dominates the candidate workload and that downstream slicing must scale to many sources per sink rather than the reverse. Third , project-to-project variation in counts is indicated mainly by codebase size and API surface (e.g., pytables: 909 sources; lwjgl: 566), Table 9: Description of ablated versions          
+
+> Augmented Control Flow Feature-Oriented Data Flow Expert Panel (1) w/o FDF ✓✗✓
+> (2) w/o ACF ✗✓✓
+> (3) w/o EP ✓✓✗
+
+but precision is largely insensitive to scale — both source and sink precision stay within a tight band across small (bounter, imblockerfabric) and large projects — indicating that the LLM-based source/sink identifier does not collapse on bigger or more idiomatically diverse codebases. 
+
+Data Flow Path Detection. We evaluated P OLY FLOW 
+
+against xLoc, a state-of-the-art learning-based baseline, on the task of identifying valid, exploitable data-flow paths from sources to sinks. As shown in Table 6, P OLY FLOW 
+
+successfully identified 454 true positive cross-language data-flow paths across the evaluated projects, achieving an overall precision of 76.8%. It even achieved perfect 100% precision on five projects, including bounter and cvxopt .Most significantly, xLoc failed to detect any vulnerabil-ity path. This result highlights the importance of explicitly modeling the challenging language features that mediate cross-language source-to-sink flows. When these features are not captured, cross-language reachability remains incom-plete and the corresponding paths cannot be recovered. In contrast, P OLY FLOW ’s feature-aware augmentation recovers the missing cross-language control/data-flow facts before propagation, making these otherwise disconnected informa-tion flow paths visible. POLY FLOW is effective end-to-end for cross-language vulnerability detection: it reliably identifies sources/sinks and recovers accurate source-to-sink data-flow paths at scale across both Python-C and Java-C projects. 
+
+6.3. RQ3: Ablation Studies 
+
+We evaluate the impact of the Augmented Control Flow (ACF) analysis, which enriches the program’s graph representation to reveal hidden execution paths; the Feature-Oriented Data Flow (FDF) reasoning, which tracks data propagation with a focus on implicit flows; and the Expert Panel (EP) , which integrates LLMs for advanced reason-ing and refinement. We created three ablated versions of POLY FLOW by selectively disabling each component, as detailed in Table 9. By comparing the effectiveness of these versions against the full P OLY FLOW design (which found 272 true positives at 76.8% precision) in detecting cross-language vulnerabilities, we can quantify the contribution and importance of each component. The results in Table 10 reveal the distinct and synergistic roles of each component. Disabling the FDF analysis (Ab-lation 1) dramatically degrades precision. This demonstrates that FDF is not essential for reachability but is crucial for pruning infeasible paths by verifying actual data prop-agation, thereby eliminating a significant number of false alarms. Additionally, removing the ACF analysis (Ablation 2) severely impacts recall. The number of true positives 11 Table 10: Results of ablation studies                                                                                                                                                                                                                                                                                  
+
+> Project Ablation 1 Ablation 2 Ablation 3 #Paths #TPs Prec #Paths #TPs Prec #Paths #TPs Prec
+> Aub 37 27 73% 21 21 100% 21 21 100% Bot 62 22 35% 17 15 88% 19 16 84% Bou 66 28 42% 20 20 100% 26 20 77% Cvx 3133% 00-00-Jap 48 21 44% 11100% 13 13 100% Lib 102 31 30% 47 26 55% 48 26 54% Msg 11 327% 33100% 33100% Pyc 49 36% 4375% 4375% Pyg 83 35 42% 34 30 88% 39 34 87% Pyo 57 00% 00-00-PyT 49 00% 00-00-Sim 15 24 160% 22 22 100% 22 22 100% Tin 163 65 40% 81 58 72% 87 59 68% Ult 41 12 29% 10 10 100% 12 11 92% Lwj 195 54 28% 49 38 78% 66 45 68% Mds 24 729% 7686% 8563% Pi4 20 630% 6583% 7571% Poj 30 723% 8675% 9556% Tur 22 627% 6583% 8563% The 40 11 28% 11 982% 14 964% Esp 13 323% 22100% 4250% Jun 45 15 33% 14 12 86% 15 12 80% And 28 725% 7686% 8563% ImB 00-00-00-Jep 90 26 29% 25 19 76% 30 22 73% Hin 15 320% 22100% 4250% Ter 48 15 31% 15 12 80% 16 12 75% Ope 38 12 32% 11 982% 13 10 77% wol 35 10 29% 10 880% 12 867%
+> Total 1429 454 31.8% 433 348 80.4% 508 375 73.8%
+
+found drops by nearly 23%, as many valid cross-language execution paths are never discovered. Without ACF’s ability to resolve dynamic and implicit control flows (e.g., via function pointers or decorators), the foundational graph representation is incomplete, rendering entire classes of vulnerabilities invisible to the subsequent data-flow analysis. Finally, operating without the EP (Ablation 3) degrades both precision and recall. Compared to Ablation 2, precision drops from 80.4% to 73.8% and true positives increase only modestly (from 348 to 375 ), indicating that EP contributes in two complementary ways: it improves recall by correctly interpreting complex language features that the symbolic engine alone cannot resolve, and it improves precision by providing context-aware reasoning to validate or refute bor-derline taint flows that would otherwise be misclassified. 
+
+Each component of POLY FLOW is vital. ACF provides necessary foundational path coverage, FDF delivers the precision needed to make the results usable, and the EP provides the deep reasoning required to handle modern language complexities. 
+
+6.4. RQ4: Efficiency of P OLY FLOW 
+
+To comprehensively evaluate the runtime efficiency of POLY FLOW , we conducted experiments on 29 real-world benchmarks. Our evaluation focused on key performance metrics: total analysis time, LLM token consumption, and peak memory usage, contextualized by the lines of code (LOC) of each project. Table 11 provides a breakdown of resource consumption across P OLY FLOW ’s two main analysis phases. 1 if log_counting == 8:                         
+
+> 2self.cms = cmsc.CMS_Log8(width=self.width, depth=self.depth)
+> 1static int
+> 2CMS_VARIANT(_init)(CMS_TYPE *self, PyObject *args, PyObject *kwds){
+> 3static char *kwlist[] = {"width", "depth", NULL};
+> 4uint32_t w;
+> 5if (!PyArg_ParseTupleAndKeywords(args, kwds, "II", kwlist,
+> &w, &self->depth)) {
+> 6return -1; }
+> 7if (self->depth < 1 || self->depth > 32) {
+> 8char * msg = "Depth must be in the range 1-16";
+> 9PyErr_SetString(PyExc_ValueError, msg); }
+> 10 short int hash_length = -1;
+> 11 while (0 != w)
+> 12 hash_length++, w >>= 1;
+> 13 if (hash_length < 0)
+> 14 hash_length = 0;
+> 15 self->width = 1 << hash_length;
+> 16 self->hash_mask = self->width - 1;
+> 17 HyperLogLog_init(&self->hll, 16);
+> 18 self->table = (CMS_CELL_TYPE **) malloc(self->depth *
+> sizeof(CMS_CELL_TYPE *));
+> 19 int i;
+> 20 for (i = 0; i < self->depth; i++) {
+> 21 self->table[i] = (CMS_CELL_TYPE *) calloc(self->width,
+> sizeof(CMS_CELL_TYPE)); }
+> 22 return 0;}
+
+No sanitization for width 
+
+> Python to C
+
+C
+
+Python 
+
+Figure 3: A vulnerability case found in Python-C project. Table 11 shows that P OLY FLOW ’s runtime is dominated by the two LLM-centric steps: Phase 1 Step 2 (CICFG aug-mentation) and Phase 2 Step 2 (Instructed Taint Refinement). These steps account for most of the wall-clock time and nearly all token consumption, as they offload the reasoning over hard-to-model cross-language constructs (e.g., function pointers, JNI boundary semantics) to the expert panel. In contrast, the non-LLM steps (e.g., CICFG construction and taint approximation in Phase 1 Step 1, and the initial analysis stage in Phase 2 Step 1) are comparatively lightweight. Across Python-C subjects, P OLY FLOW ’s runtime cost averages 3.21h and 5.13h for two LLM steps (Phase 1 Step 2 and Phase 2 Step 2), consuming 3.13M and 0.54M tokens, respectively. For Java-C subjects, the same steps average 3.90h and 5.20h, with lower token usage (1.68M and 0.26M), indicating that time cost is driven primarily by LLM reasoning overhead rather than tokens alone. The per-query latency remains stable and practical in both groups (2.70s on Python-C vs. 2.50s on Java-C). Peak memory usage scales moderately and remains prac-tical for commodity workstations. The Python-C subjects peak at 380MB on average, with most projects well under 1GB and a single outlier ( pyo ) reaching ∼2GB. The Java-C subjects exhibit a higher average peak of 585MB, with 
+
+lwjgl3 as an outlier at 1672MB. Overall, these footprints demonstrate that P OLY FLOW ’s memory requirements are manageable in real-world cross-language analysis. POLY FLOW is efficient, with runtime and token cost dominated by the CICFG augmentation and instructed taint refinement, while per-query latency stays practical. Peak memory usage is moderate, indicating POLY FLOW 
+
+is scalable for real-world cross-language analysis. 
+
+6.5. RQ5: Real-world Bug Discovery 
+
+Table 12 summarizes the number of bugs detected per benchmark, along with the total count. Notably, one of the 12 Table 11: P OLY FLOW cost breakdown                                                                                                      
+
+> Aub Bot Bou Cvx Jap Lib Msg Pyc Pyg Pyo PyT Sim Tin Ult Average Lwj Mds Pi4 Poj Tur The Esp Jun And ImB Jep Hin Ter Ope wol Average Phase 1 Step 1 Time (h) 0.36 0.21 0.58 0.36 0.35 0.06 0.08 0.11 0.08 0.13 1.23 0.14 0.41 0.78 0.35 0.45 0.39 0.18 0.20 0.31 0.25 0.20 0.20 0.14 0.12 0.16 0.18 0.14 0.28 0.21 0.23
+> Step 2 Time (h) 3.63 1.82 0.67 4.13 2.58 1.13 0.62 3.37 2.42 11.26 7.19 0.99 4.78 0.31 3.21 10.51 5.37 2.76 3.46 4.54 4.34 2.97 3.77 2.05 0.99 4.16 2.62 2.80 4.56 3.60 3.90
+> Step 2 Tokens (M) 2.80 0.98 0.49 4.61 1.35 0.84 0.41 1.94 2.40 15.00 8.32 0.69 3.63 0.32 3.13 6.02 1.66 1.04 1.28 1.30 1.56 0.89 1.62 1.18 0.59 2.54 0.93 1.63 1.55 1.40 1.68
+> Phase 2 Step 1 Time (h) 4.60 2.56 0.44 4.15 1.48 1.32 6.13 0.50 1.11 8.10 3.63 6.88 6.17 7.87 3.93 10.51 5.37 2.76 3.46 4.54 4.34 2.97 3.77 2.05 0.99 4.16 2.62 2.80 4.56 3.60 3.90
+> Step 2 Time (h) 4.48 4.39 2.61 7.36 4.83 4.18 5.58 0.63 4.72 9.45 4.37 5.47 8.24 5.36 5.13 14.01 7.17 3.68 4.62 6.05 5.78 3.96 5.03 2.73 1.32 5.55 3.49 3.73 6.07 4.79 5.20
+> Step 2 Tokens (M) 0.12 0.15 0.15 0.90 0.12 0.24 0.11 0.33 0.28 2.10 2.20 0.14 0.62 0.09 0.54 0.90 0.18 0.16 0.21 0.17 0.25 0.13 0.26 0.20 0.11 0.45 0.14 0.28 0.24 0.22 0.26
+> Avg Time per Query (s) 2.50 3.18 1.62 5.70 2.66 1.85 1.85 1.81 1.84 4.23 2.20 1.87 4.86 1.68 2.70 4.11 2.80 2.25 2.42 2.63 2.61 2.29 2.51 2.04 1.62 2.63 2.21 2.26 2.66 2.45 2.50
+> Resource Memory Peak (MB) 274 209 167 338 213 183 183 230 224 2009 606 185 315 187 380 1672 857 408 483 654 594 422 526 359 236 601 388 444 632 502 585
+
+Table 12: Summary of real-world bug discovery           
+
+> Bounter Pygit2 Aubio Ultrajson Japronto Bitarray Cvxopt Lwjgl Jep Total #Bugs Found 21112413217
+
+reported issues has already been assigned a CVE identifier (CVE-2025-55562). Also, another bug has been confirmed by the maintainers and fixed via an upstream pull request 1.More specifically, Table 13 summarizes the full set of cross-language bugs identified in our study and standardizes them into a consistent reporting view. Each row corresponds to one bug and records sixfive fields: a unique Bug ID, a normalized Bug Type (e.g., NULL dereference, OOB read, heap overflow, resource exhaustion), a concise Bug Description, the affected Project, the assigned CVE identi-fier (if any), and the current Reporting Status. Status labels indicate the lifecycle stage of each finding: pending (not yet confirmed upstream or not yet resolved), confirmed (validated by developer or via CVE assignment), and fixed (patched by maintainers). We select one previously unknown bug discovered by POLY FLOW to conduct a detailed case study. Bounter is a Python-C library designed for high-speed, memory-bounded frequency counting in massive datasets. The vulnerability identified by P OLY FLOW exists in the C implementation of the Count-Min Sketch (CMS) initialization, specifically the CMS_VARIANT(_init) initializer in cbounter/cms_-common.c . Notably, this project uses a macro-generated variant scheme : the Python-visible constructor name (e.g., 
+
+CMS_Log8 at 1 ) and the underlying C initializer entry are not written with the same identifier in source code, because the concrete entry name is produced/aliased through macro expansion (e.g., a variant-specific *_init ). There-fore, without handling our C macro feature , the Python to C transition would appear disconnected (missing call edge). As shown in Figure 3, the user-provided width and depth parameters flow from Python into the Cinitialization function and are parsed using PyArg_-ParseTupleAndKeywords ( 2 ). Linking this Python-level constructor to the correct native initializer is non-trivial because the C entry is macro-generated/aliased (written as 
+
+CMS_VARIANT(_init) in the source). By resolving this macro-induced name mismatch, P OLY FLOW restores the missing cross-language call edge, after which the user-provided width and depth are parsed in the C initializer via PyArg_ParseTupleAndKeywords ( 2 ). The code sub-sequently sanitizes the depth parameter by enforcing a strict range check [1 , 32] ( 3 ), ensuring it does not exceed a 
+
+1. https://github.com/LedFx/aubio-ledfx/pull/22 1 public boolean eval(String str) throws JepException { 
+
+2 …
+
+3 if (!this.interactive || (this.evalLines == null 
+
+4 && compileString(this.tstate, str) == 1)) { 
+
+5 eval(this.tstate, str); 
+
+6 return true; 
+
+7 }
+
+8 if (this.evalLines == null){ 
+
+9 this.evalLines = new StringBuilder();} 
+
+10 else evalLines.append(LINE_SEP); 
+
+11 …
+
+12 evalLines.append(str); 
+
+13 return false;} 
+
+1 JNIEXPORT jint JNICALL Java_jep_Jep_compileString 
+
+2 (JNIEnv *env, jobject obj, jlong tstate, jstring jstr){ 
+
+3 …
+
+4 str = jstring2char(env, jstr); 
+
+5 ret = (jint) pyembed_compile_string(env, 
+
+(intptr_t)tstate, (char*)str); 
+
+6 …
+
+7 return ret;} 
+
+8
+
+9 int pyembed_compile_string(JNIEnv *env, 
+
+10 intptr_t _jepThread, char *str){ 
+
+11 …
+
+12 code = Py_CompileString(str, "<stdin>", Py_single_input); 
+
+13 if (code != NULL) { ret = 1;} 
+
+14 } else if (PyErr_ExceptionMatches(PyExc_SyntaxError)) { 
+
+15 PyErr_Clear(); 
+
+16 ret = 0;} 
+
+17 else { process_py_exception(env );}… 
+
+18 return ret;} 
+
+Java 
+
+C
+
+> Java to C
+> C to JavaSyntaxError is treated as incomplete input
+> C to Java
+
+Figure 4: A vulnerability case found in Java-C project small, fixed upper bound. However, the width parameter lacks equivalent sanitization. It is processed to calculate 
+
+self->width by rounding the input down to the nearest power of two ( 4 ), but no check prevents this value from becoming excessively large based on the input. The function then proceeds to allocate memory for each row of the CMS table within a loop ( 5 ). Inside this loop, the calloc function is invoked ( 6 ): self->table[i] = (CMS_CELL_TYPE *) calloc(self->width, sizeof(CMS_CELL_TYPE)); . From a static analysis perspective focusing on input validation, the lack of strict sanitization for the width parameter is critical. A very large user input for width can lead to a large self->width 
+
+value, causing the calloc at line 31 to request a potentially huge amount of memory. This significantly increases the risk of calloc failing and returning NULL. Crucially, the return value from calloc is assigned directly to 
+
+self->table[i] without any check for NULL. Should calloc fail due to large size requested (stemming from the insufficiently sanitized width), self->table[i] 
+
+becomes NULL. Thus, the vulnerability originates from the unsanitized width input leading to a potential calloc 
+
+failure whose result is used unsafely. 13 Table 13: Details on the real-world cross-language bugs found by P OLY FLOW in Python–C and Java–C systems, with assigned CVE identifiers and reporting status (the specific CVE numbers are obviated for ethical considerations) 
+
+Bug ID Bug Type Bug Description Project CVE Reporting Status 
+
+1 Crash / NULL dereference (DoS) Huge (but valid) CountMinSketch width/depth can make calloc() fail; the NULL table is later dereferenced (e.g., self->table[i][bucket] ), crashing the process. bounter — pending 2 Crash / NULL dereference (DoS) CMS_VARIANT(_init) allocates internal tables based on user width/depth; allo-cation failure under extreme parameters is not checked and later triggers NULL dereference. bounter ✓ confirmed 3 Heap out-of-bounds read (deserialization) HT_Basic.__setstate__ memcpy s attacker-controlled pickle bytearrays into 
+
+self->table , self->histo , and self->hll.registers without checking the source byte-length, so an undersized bytearray causes reads past the buffer. bounter — pending 4 Buffer overflow (type confusion in size output) pgit_odb_backend_read(*) passes size_t* into PyArg_-ParseTuple(...,"ny#"...) causing size corruption; the resulting length is used in alloc/copy ( ...data_alloc → memcpy ), enabling overflow. pygit2 ✓ confirmed 5 Buffer handling bug aubio_sampler_load copies a PATH_MAX -bounded URI via strncpy without guaranteeing NUL-termination, which can cause later string operations to read past the buffer. aubio ✓ confirmed 6 Out-of-bounds read (buffer over-read) In Buffer_EscapeStringValidated , the 4-byte UTF-8 path may memcpy a
+
+JSUTF32 when fewer than 4 bytes remain, reading past the input buffer. ultrajson ✓ confirmed 7 Resource exhaustion (DoS) Matcher_init derives buffer_len from user-influenced route compilation with-out bounds checks, then malloc(buffer_len) and memcpy can force excessive allocation (OOM/DoS). Japronto ✓ confirmed 8 Heap-based buffer overflow The HTTP “gather” logic allocates a fixed max buffer but copies unbounded request bodies/chunks; when len > GATHER_MAX_LEN , the copy overflows the heap buffer. Japronto ✓ fixed 9 Resource Exhaustion / Uncontrolled Memory Allocation Pickle-controlled nbits flows into bitarray_tolist , which calls PyList_-New(self->nbits) with no upper bound, enabling massive allocation (OOM/DoS). bitarray — pending 10 Resource Exhaustion / Uncontrolled Memory Allocation Pickle-controlled nbits flows into bitarray_unpack , which allocates 
+
+PyBytes_FromStringAndSize(NULL, self->nbits) without a cap, enabling one-shot huge allocation (OOM/DoS). bitarray — pending 11 Resource Exhaustion / Uncontrolled Memory Allocation ba2hex computes out_len = 2 * BYTES(nbits) from pickle-controlled 
+
+nbits and allocates output bytes without bounds, allowing GB-scale allocation (OOM/DoS). bitarray — pending 12 Resource exhaustion to01() allocates a temporary buffer of self->nbits bytes via PyMem_Malloc 
+
+and builds a Python string; with attacker-controlled nbits , this enables OOM/DoS. bitarray ✓ confirmed 13 Format-string vulnerability User input reaches validate(char*) and is dispatched via an indirect call 
+
+validator(input) ; if the callee is printf -like, attacker-controlled format strings can trigger a format-string bug. cvxopt — pending 14 Unsafe indirect call LWJGL JNI wrapper casts Java-controlled __functionAddress to a function pointer and invokes it without validation, enabling arbitrary native calls or crashes. LWJGL — pending 15 Arbitrary memory write LWJGL nputDouble casts Java-controlled ptrAddress to double* and writes through it without checks, enabling arbitrary write and memory corruption. LWJGL — pending 16 Unchecked length copy LWJGL nmemmove casts Java-provided addresses to pointers and calls 
+
+memmove(..., (size_t)count) with an untrusted count , enabling out-of-bounds read/write. LWJGL — pending 17 Stateful code injection / unexpected execution Jep interactive mode buffers non-compilable lines in evalLines ; a later flush concatenates and evaluates them, enabling cross-request injection if an instance is reused across trust boundaries. Jep — pending 18 Crash / NULL dereference Under OOM, GetStringUTFChars may return NULL; Jep forwards this pointer into pyembed_eval without a NULL check, causing a native crash. Jep — pending 
+
+POLY FLOW identified this vulnerability because it ex-plicitly handles the macro-induced hidden connectivity .Concretely, the Python-visible constructor (e.g., CMS_Log8 )and the native initializer are connected through macro ex-pansion rather than an explicit, name-consistent call/entry in the raw source. P OLY FLOW ’s macro handling (Macros Expanding to Function Calls) recovers these semantic edges by resolving macro-expanded targets and injecting the corre-sponding CICFG edges, thereby restoring reachability from 
+
+1 to the concrete C initializer. Once this hidden edge is restored, POLY FLOW ’s taint reasoning can propagate the user-controlled width across the language boundary to the allocation site ( 6 ), and then flag the unsafe pat-tern that a potentially failing calloc result is stored into 
+
+self->table[i] without a NULL check, enabling a later null-pointer dereference. For Java-C, we present a case where Java drives control flow and the native C layer returns a coarse-grained status that Java subsequently interprets, as shown in Figure 4. In eval(String str) (Java L1– L6), the caller-provided str is deemed ready only when compileString(this.tstate, str) == 1 ;otherwise, Java assumes the input is merely incom-plete and buffers it into the persistent evalLines 
+
+state (Java L8–L13). The critical accumulation point is evalLines.append(str) (Java L12), which is executed whenever compileString does not return 
+
+1. This case also hinges on resolving polymorphism-induced dispatch on the Java side: both eval and the 
+
+compileString(...) invocation are ordinary instance-method calls, whose concrete targets are decided under Java’s virtual dispatch semantics. To avoid losing the reach-ability from eval to the native boundary, POLY FLOW 
+
+applies Algorithm 5 to materialize the corresponding cal-l/return edges for feasible targets, ensuring the Java control decision remains connected to the JNI entry. The bug stems from a status-code semantic mis-match across the Java–C boundary. On the native side, 
+
+Java_jep_Jep_compileString forwards jstr to 
+
+pyembed_compile_string (C L1–L7, especially L4– L6). Inside pyembed_compile_string , multiple fail-ure modes are collapsed into the same return value ret = 0 (C L12–L17), notably after clearing an error and returning 0 for SyntaxError (C L14–L16). Since Java 14 interprets 0 uniformly as “not finished”, repeated invalid inputs are continuously appended rather than rejected, lead-ing to unbounded buffer growth (DoS) at Java L12; if the same Jep instance is reused across trust boundaries, the persistent evalLines state can also enable cross-call state poisoning that is later consumed when the buffer is flushed. POLY FLOW detects this bug by combining feature-aware Java reachability recovery with cross-language reasoning: the polymorphism feature handler augments CICFG with virtual-dispatch call edges so that the Java control decision at compileString(...) remains transitively connected to the JNI implementation and its return code. POLY FLOW discovered 17 previously unknown real-world bugs across 9 cross-language projects, including one assigned a CVE and another confirmed. POLY FLOW 
+
+recovers cross-language semantics that baseline analyses miss due to a lack of feature-aware reasoning. 
+
+## 7. Discussion 
+
+7.1. Why P OLY FLOW works 
+
+POLY FLOW ’s success rests on three design principles that address the core challenges of static cross-language information flow analysis. First, P OLY FLOW builds comprehensive CICFGs. Con-ventional static data-flow analyzers often fail to stitch flows across language boundaries when complex features obscure control flow. In our motivating example 1, an analyzer may not treat the @app.route decorator as a source and may stop at an unresolved function pointer, preventing it from linking tainted Python input to the C format-string bug. P OLY FLOW addresses this via a fixed-point iterative construction that incrementally enriches the CICFG until it captures the complete end-to-end control-flow path for reliable data-flow analysis. Second, P OLY FLOW uses an agentic LLM framework with the static analyzer as the controller. Instead of sending whole codebases to LLMs, the controller consults an LLM “expert panel” only for specific hard features that defeat traditional analysis, and mitigates hallucinations through multi-LLM negotiation and fact-checking. Finally, P OLY FLOW performs scalable two-phase refine-ment for data-flow reasoning. It first computes a fast taint over-approximation using control-flow reachability to isolate a small set of candidate paths, then applies LLM-driven taint refinement only to those paths, concentrating expensive semantic reasoning where it matters and keeping the analysis practical for real systems. 
+
+7.2. Where P OLY FLOW Falls Short and Why 
+
+Despite its effectiveness, P OLY FLOW makes trade-offs and depends heavily on its underlying components: the initial static analysis stack and the LLMs. Because it re-lies on Joern to generate the initial control-flow graphs, it inherits Joern’s parsing limitations and inaccuracies. More importantly, while LLMs provide the semantic reasoning to bridge language gaps, they are probabilistic and can be inaccurate, which in turn requires mitigation such as the Expert Panel. POLY FLOW ’s analytical depth also comes with perfor-mance costs. The same iterative feature handling and multi-stage, LLM-assisted taint refinement that enable discovery of subtle cross-language bugs make the analysis computa-tionally intensive, leading to long runtimes on very large systems and limiting suitability for some development work-flows. This is a deliberate rigor–speed trade-off. Finally, real-world use and extension remain challeng-ing. As with many static analyzers, P OLY FLOW reports potential flows that may require manual validation of ex-ploitability. Although modular by design, adding support for new language pairs is non-trivial and requires implement-ing specialized handlers and interaction rules for the new combination, demanding substantial domain expertise. 
+
+## 8. Limitations of Existing Techniques 
+
+Static analysis frameworks such as MultiQL [66] strug-gle with semantic gaps in cross-language interactions. In our experiments, MultiQL detected no cross-language vulnera-bilities in the benchmark projects, largely because it does not track data flows through Python object fields across the language boundary. This arises in common patterns: in 
+
+> Aubio
+
+, a C function is bound as a Python object method; MultiQL recognizes the object reference but cannot resolve the subsequent field access on the method call, so it misses the corresponding data-flow edge. As a result, it is ineffec-tive for many Python–C systems. Dynamic tools such as PolyCruise [28] and Poly-Fuzz [32] are limited by the execution paths they explore. Although they rediscovered the vulnerabilities they were designed to find, they found none of the new vulnerabilities uncovered by P OLY FLOW , since effectiveness depends on test coverage from specific test cases or fuzzing campaigns. For example, the bounter vulnerability (Section 6.4) is triggered only when a large input causes memory allocation failure; dynamic approaches are unlikely to hit it unless inputs are crafted to induce memory exhaustion, which is difficult to trigger reliably. Learning-based techniques such as xLoc [64] also found no vulnerabilities in target projects, reflecting their inability to generalize beyond bug patterns represented in training data. For the bounter case, a model would need training examples of cross-language parameter handling that leads to unchecked allocation failures; without such examples, the pattern is unlikely to be recognized. 
+
+## 9. Related Work 
+
+LLM-assisted/agent-based program analysis. Given their capabilities for code understanding and generating, LLMs have been used to assist with various program 15 analysis tasks, ranging from comprehending source/obfus-cated code [9] to detecting/classifying software vulnerabili-ties [39]. LLift [27] complements symbolic execution with LLMs for identifying use-before-initialization bugs in the Linux kernel, utilizing the LLMs to extract and solve path constraints that trigger the bugs. To recover names and types for local variables and user-defined data structures from stripped binaries, ReSym [57] fine-tunes two LLMs and combines them with Prolog-based reasoning, mimicking a manual reverse engineering process. Recently, IRIS [38] leverages LLMs to assist CodeQL with static taint analysis for Java projects, using LLMs to refine CodeQL’s taint specification and then to triage the taint paths reported by CodeQL via contextual analysis. Li et al. [34] construct a cross-language bug dataset spanning Python–C, Java-C, and Python-Java interaction mechanisms, and fine-tune CodeLMs to predict buggy vs. clean cross-language func-tions. AutoCodeRover [69] builds an agent by combining LLMs with code search to automatically solve GitHub is-sues, while SWE-Agent [65] and OpenHands [56] are agents serving a broader set of coding tasks such as code editing. 
+
+Static taint/information flow analysis. Language-level in-formation flow analysis, such as JFlow [45] for Java, realizes static flow checking by extending a given language, while application-level approaches like Pixy [23] for PhP detect taint-style vulnerabilities via data-flow analysis. Static taint analysis has also been enabled to detect sensitive user inputs in SUPOR [19] and privacy leaks in UIPicker [46], both for Android apps and leveraging FlowDroid [2]. Information flow control has also been achieved at the level of the hardware description language to verify hardware security mechanisms [11]. In contrast, we focus on static informa-tion flow analysis across different languages , versus these approaches addressing flows within language boundaries. 
+
+Cross-language code analysis. By adopting CodeQL to multi-language projects, MultiQL [66] achieves proof-of-concept static cross-language bug detection by extending CodeQL’s databases to include interoperation rules based on cross-language APIs. PowerPoly [21] translates mul-tilingual programs into a unified WebAssembly-based IR to eliminate language boundaries, and performs vulnera-bility detection via static analysis plus dynamic analyses. However, it relies on faithful source-to-Wasm translation, and the low-level Wasm IR may obscure language-specific semantics. AXA [49] obtains cross-language static anal-ysis results by orchestrating the interleaved execution of single-language analyses, propagating results between the two analyzers hence integrating their results. Similarly, JNIFER [67] interactively resolves native code to accom-plish cross-language pointer analysis, while CSS [24] re-fines the native code specification by incorporating caller sensitivity, both for Java-C code. A number of other static analysis approaches for multilingual programs exist, relying on handcrafted summaries/rules an/or heavy engineering, as summarized in [49]. Orthogonally, CrossLangFuzzer [10] generates cross-language test programs for JVM-based lan-guages and applies differential testing to expose compiler bugs across multiple JVM-language compilers. 
+
+## 10. Conclusion 
+
+With cross-language vulnerabilities burgeoning and con-tinuing to compromise the security of multi-language sys-tems, it is imperative to discover those defects before they are exploited. Yet existing defensive techniques suffer from various critical limitations that impede their practical adoption. We thus explore a neuro-symbolic approach to statically reasoning about information flow across language boundaries, hence developing P OLY FLOW , a static cross-language information flow analysis framework. By combin-ing the strengths of traditional static analysis and large-language-models (LLMs) while mitigating their respective weaknesses, P OLY FLOW overcomes semantics disparities and challenging language features within and across hetero-geneous languages. Compared to state-of-the-art solutions of various kinds against diverse real-world multi-language systems, P OLY FLOW demonstrated its merits in both cost-effectiveness and cross-language vulnerability discovery. POLY FLOW has been implemented to work with two impactful language combinations, Python-C and Java-C, which dominates machine learning and web/mobile software ecosystems, respectively, and remains extensible to support other language combinations. 
+
+## References                                  
+
+> [1] Mouna Abidi, Md Saidur Rahman, Moses Openja, and Foutse Khomh. Are multi-language design smells fault-prone? an empirical study. TOSEM , 30(3):1–56, 2021. [2] Steven Arzt, Siegfried Rasthofer, Christian Fritz, Eric Bodden, Alexandre Bartel, Jacques Klein, Yves Le Traon, Damien Octeau, and Patrick McDaniel. Flowdroid: Precise context, flow, field, object-sensitive and lifecycle-aware taint analysis for android apps. ACM sigplan notices , 49(6):259–269, 2014. [3] Sora Bae, Sungho Lee, and Sukyoung Ryu. Towards understanding and reasoning about Android interoperations. In ICSE , pages 223– 233, 2019. [4] Junyang Bai, Weiping Wang, Yan Qin, Shigeng Zhang, Jianxin Wang, and Yi Pan. Bridgetaint: a bi-directional dynamic taint tracking method for javascript bridges in Android hybrid applications. TIFS ,14(3):677–692, 2018. [5] Emery D Berger, Celeste Hollenbeck, Petr Maj, Olga Vitek, and Jan Vitek. On the impact of programming languages on code quality: A reproduction study. TOPLAS , 41(4):1–24, 2019. [6] Cristiano Calcagno and Dino Distefano. Infer: An automatic program verifier for memory safety of c programs. In NASA Formal Methods Symposium , pages 459–465, 2011. [7] Daniel P Delorey, Charles D Knutson, and Christophe Giraud-Carrier. Programming language trends in open source development: An eval-uation using data from all production phase sourceforge projects. In Second International Workshop on Public Data about Software Development (WoPDaSD’07) , pages 1–5, 2007. [8] Sung Ta Dinh, Haehyun Cho, Kyle Martin, Adam Oest, Kyle Zeng, Alexandros Kapravelos, Gail-Joon Ahn, Tiffany Bao, Ruoyu Wang, Adam Doup´ e, et al. Favocado: fuzzing the binding code of javascript engines using semantically correct test cases. In NDSS , 2021.
+
+16 [9] Chongzhou Fang, Ning Miao, Shaurya Srivastav, Jialin Liu, Ruoyu Zhang, Ruijie Fang, Ryan Tsang, Najmeh Nazari, Han Wang, Houman Homayoun, et al. Large language models for code analysis: Do {LLMs } really do their job? In USENIX Security , pages 829–846, 2024. [10] Qiong Feng, Xiaotian Ma, Ziyuan Feng, Marat Akhin, Wei Song, and Peng Liang. Finding compiler bugs through cross-language code generator and differential testing. Proceedings of the ACM on Programming Languages , 9(OOPSLA2):2843–2869, 2025. [11] Andrew Ferraiuolo, Rui Xu, Danfeng Zhang, Andrew C Myers, and G Edward Suh. Verification of a practical hardware security architecture through static information flow analysis. In ASPLOS ,pages 555–568, 2017. [12] Alessandro Fin, Franco Fummi, and Graziano Pravadelli. Amleto: A multi-language environment for functional test generation. In 
+
+Proceedings International Test Conference , pages 821–829, 2001. [13] Jos´ e Fragoso Santos, Petar Maksimovi´ c, Sacha- ´ Elie Ayoun, and Philippa Gardner. Gillian, part i: a multi-language platform for symbolic execution. In PLDI , pages 927–942, 2020. [14] GitHub. CodeQL. https://github.com/github/codeql, 2023. [15] Manel Grichi, Mouna Abidi, Fehmi Jaafar, Ellis E Eghan, and Bram Adams. On the impact of interlanguage dependencies in multilanguage systems empirical case study on Java native interface applications (jni). IEEE Transactions on Reliability , 70(1):428–440, 2020. [16] Alex Groce, Josie Holmes, Darko Marinov, August Shi, and Ling-ming Zhang. An extensible, regular-expression-based tool for multi-language mutant generation. In ICSE-Companion , pages 25–28, 2018. [17] Susan Horwitz, Ben Liblit, and Marina Polishchuk. Better Debugging via Output Tracing and Callstack-sensitive Slicing. TSE , 36(1):7–19, 2010. [18] Mingzhe Hu and Yu Zhang. An empirical study of the Python/C API on evolution and bug patterns. Journal of Software: Evolution and Process , 35(2):e2507:1–22, 2023. [19] Jianjun Huang, Zhichun Li, Xusheng Xiao, Zhenyu Wu, Kangjie Lu, Xiangyu Zhang, and Guofei Jiang. {SUPOR }: Precise and scalable sensitive user input detection for android apps. In USENIX Security ,pages 977–992, 2015. [20] Sungjae Hwang, Sungho Lee, Jihoon Kim, and Sukyoung Ryu. Just-gen: effective test generation for unspecified jni behaviors on jvms. In ICSE , pages 1708–1718, 2021. [21] Zhuochen Jiang and Baojian Hua. Powerpoly: Analyzing multilingual programs with the aid of webassembly. In International Conference on Information and Communications Security , pages 77–96. Springer, 2025. [22] Capers Jones. Software engineering best practices: lessons from successful projects in the top companies . McGraw-Hill Education, 2010. [23] Nenad Jovanovic, Christopher Kruegel, and Engin Kirda. Pixy: A static analysis tool for detecting web application vulnerabilities. In 
+
+S&P , pages 6–pp, 2006. [24] Shuangxiang Kan, Yuhao Gao, Zexin Zhong, and Yulei Sui. Cross-language taint analysis: Generating caller-sensitive native code spec-ification for java. TSE , 2024. [25] Pavneet Singh Kochhar, Dinusha Wijedasa, and David Lo. A large scale study of multiple programming languages and code quality. In 
+
+SANER , volume 1, pages 563–573, 2016. [26] Sungho Lee, Hyogun Lee, and Sukyoung Ryu. Broadening horizons of multilingual static analysis: Semantic summary extraction from c code for JNI program analysis. In ASE , pages 127–137, 2020. [27] Haonan Li, Yu Hao, Yizhuo Zhai, and Zhiyun Qian. Enhancing static analysis for practical bug detection: An llm-integrated approach. 
+
+OOPSLA , 8:474–499, 2024. [28] Wen Li, Ming Jiang, Xiapu Luo, and Haipeng Cai. PolyCruise: A cross-language dynamic information flow analysis. In USENIX Security , pages 2513–2530, 2022. [29] Wen Li, Li Li, and Haipeng Cai. On the vulnerability proneness of multilingual code. In FSE , page 847–859, 2022. [30] Wen Li, Li Li, and Haipeng Cai. PolyFax: A toolkit for character-izing multi-language software. In ACM Joint Meeting on European Software Engineering Conference and Symposium on the Foundations of Software Engineering (ESEC/FSE) , pages 1662–1666, 2022. [31] Wen Li, Austin Marino, Haoran Yang, Na Meng, Li Li, and Haipeng Cai. How are multilingual systems constructed: Characterizing language use and selection in open-source multilingual software. 
+
+TOSEM , 33(3):1–46, 2024. [32] Wen Li, Jinyang Ruan, Guangbei Yi, Long Cheng, Xiapu Luo, and Haipeng Cai. PolyFuzz: Holistic greybox fuzzing of multi-language systems. In USENIX Security , pages 1379–1396, 2023. [33] Zengyang Li, Jiabao Ji, Peng Liang, Ran Mo, and Hui Liu. An exploratory study on just-in-time multi-programming-language bug prediction. IST , 175(1):107524, 2024. [34] Zengyang Li, Yimeng Li, Binbin Huang, Peng Liang, Ran Mo, Hui Liu, and Yutao Ma. Fine-tuning code language models to detect cross-language bugs. arXiv preprint arXiv:2507.21954 , 2025. [35] Zengyang Li, Sicheng Wang, Wenshuo Wang, Peng Liang, Ran Mo, and Bing Li. Understanding bugs in multi-language deep learning frameworks. In ICPC , pages 328–338, 2023. [36] Zengyang Li, Wenshuo Wang, Sicheng Wang, Peng Liang, and Ran Mo. Understanding resolution of multi-language bugs: An empirical study on Apache projects. In ESEM , pages 1–11, 2023. [37] Zengyang Li, Xiaoyong Zhang, Wenshuo Wang, Peng Liang, Ran Mo, Jie Tan, and Hui Liu. Automated detection of inter-language design smells in multi-language deep learning frameworks. IST , 179:107656, 2025. [38] Ziyang Li, Saikat Dutta, and Mayur Naik. Iris: Llm-assisted static analysis for detecting security vulnerabilities. In ICLR , 2025. [39] Jie Lin and David Mohaisen. From large to mammoth: A comparative evaluation of large language models in vulnerability detection. In 
+
+NDSS , 2025. [40] Baozheng Liu, Chao Zhang, Guang Gong, Yishun Zeng, Haifeng Ruan, and Jianwei Zhuge. FANS: Fuzzing android native system services via automated interface analysis. In USENIX Security , pages 307–323, 2020. [41] Philip Mayer and Alexander Bauer. An empirical analysis of the uti-lization of multiple programming languages in open source projects. In International Conference on Evaluation and Assessment in Soft-ware Engineering , pages 1–10, 2015. [42] Philip Mayer, Michael Kirsch, and Minh Anh Le. On multi-language software development, cross-language links and accompanying tools: a survey of professional software developers. Journal of Software Engineering Research and Development , 5(1):1, 2017. [43] Leo A Meyerovich and Ariel S Rabkin. Empirical analysis of programming language adoption. In OOPSLA , pages 1–18, 2013. [44] Jonas M¨ oller, Felix Weißberg, Lukas Pirch, Thorsten Eisenhofer, and Konrad Rieck. Cross-language differential testing of json parsers. In 
+
+CCS , pages 1117–1127, 2024. [45] Andrew C Myers. Jflow: Practical mostly-static information flow control. In POPL , pages 228–241, 1999. [46] Yuhong Nan, Min Yang, Zhemin Yang, Shunfan Zhou, Guofei Gu, and XiaoFeng Wang. {UIPicker }:{User-Input } privacy identification in mobile applications. In USENIX Security , pages 993–1008, 2015. [47] Jihee Park, Sungho Lee, Jaemin Hong, and Sukyoung Ryu. Static analysis of jni programs via binary decompilation. TSE , 49(5):3089– 3105, 2023. 
+
+17 [48] Baishakhi Ray, Daryl Posnett, Vladimir Filkov, and Premkumar De-vanbu. A large scale study of programming languages and code quality in github. In FSE , pages 155–165, 2014. [49] Tobias Roth, Julius N¨ aumann, Dominik Helm, Sven Keidel, and Mira Mezini. Axa: Cross-language analysis through integration of single-language analyses. In ASE , pages 1195–1205, 2024. [50] Saurabh Sinha, Mary Jean Harrold, and Gregg Rothermel. Interpro-cedural control dependence. TOSEM , 10(2):209–254, 2001. [51] Cristian-Alexandru Staicu, Sazzadur Rahaman, ´Agnes Kiss, and Michael Backes. Bilingual problems: Studying the security risks incurred by native extensions in scripting languages. In USENIX Security , pages 6133–6150, 2023. [52] Nawrin Sultana, Justin Middleton, Jeffrey Overbey, and Munawar Hafiz. Understanding and fixing multiple language interoperability issues: the C/Fortran case. In ICSE , pages 772–783, 2016. [53] Federico Tomassetti and Marco Torchiano. An empirical assessment of polyglot-ism in GitHub. In EASE , pages 1–4, 2014. [54] Sergi Valverde and Ricard V Sol´ e. Punctuated equilibrium in the large-scale evolution of programming languages. Journal of The Royal Society Interface , 12(107):20150249, 2015. [55] Bogdan Vasilescu, Alexander Serebrenik, and Mark GJ van den Brand. The babel of software development: Linguistic diversity in open source. In International Conference on Social Informatics , pages 391–404, 2013. [56] Xingyao Wang, Boxuan Li, Yufan Song, Frank F Xu, Xiangru Tang, Mingchen Zhuge, Jiayi Pan, Yueqi Song, Bowen Li, Jaskirat Singh, et al. Openhands: An open platform for ai software developers as generalist agents. In ICLR , 2024. [57] Danning Xie, Zhuo Zhang, Nan Jiang, Xiangzhe Xu, Lin Tan, and Xiangyu Zhang. Resym: Harnessing llms to recover variable and data structure symbols from stripped binaries. In CCS , pages 4554–4568, 2024. [58] Lei Xue, Chenxiong Qian, Hao Zhou, Xiapu Luo, Yajin Zhou, Yuru Shao, and Alvin TS Chan. Ndroid: Toward tracking information flows across multiple android contexts. TIFS , 14(3):814–828, 2018. [59] Haoran Yang and Haipeng Cai. Dissecting real-world cross-language bugs. In FSE , pages 1–23, 2025. [60] Haoran Yang, Wen Li, and Haipeng Cai. Language-agnostic dynamic analysis of multilingual code: promises, pitfalls, and prospects. In 
+
+ACM Joint Meeting on European Software Engineering Conference and Symposium on the Foundations of Software Engineering (ES-EC/FSE) , pages 1621–1626, 2022. [61] Haoran Yang, Weile Lian, Shaowei Wang, and Haipeng Cai. De-mystifying issues, challenges, and solutions for multilingual software development. In IEEE/ACM International Conference on Software Engineering (ICSE) , pages 1840–1852, 2023. [62] Haoran Yang, Yu Nong, Shaowei Wang, and Haipeng Cai. Multi-language software development: issues, challenges, and solutions. 
+
+TSE , 50(03):512–533, 2024. [63] Haoran Yang, Yu Nong, Shaowei Wang, and Haipeng Cai. Multi-language software development: issues, challenges, and solutions. 
+
+TSE , 50(3):512–533, 2024. [64] Haoran Yang, Yu Nong, Tao Zhang, Xiapu Luo, and Haipeng Cai. Learning to detect and localize multilingual bugs. FSE , 1:2190–2213, 2024. [65] John Yang, Carlos Jimenez, Alexander Wettig, Kilian Lieret, Shunyu Yao, Karthik Narasimhan, and Ofir Press. Swe-agent: Agent-computer interfaces enable automated software engineering. Neu-ralIPS , 37:50528–50652, 2024. [66] Dongjun Youn, Sungho Lee, and Sukyoung Ryu. Declarative static analysis for multilingual programs using CodeQL. Software: Practice and Experience , 53(7):1472–1495, 2023. [67] Chenxi Zhang, Yufei Liang, Tian Tan, Chang Xu, Shuangxiang Kan, Yulei Sui, and Yue Li. Interactive cross-language pointer analysis for resolving native code in java programs. In ICSE , pages 612–612, 2025. [68] Jie Zhang, Feng Li, Dan Hao, Meng Wang, Hao Tang, Lu Zhang, and Mark Harman. A study of programming languages and their bug resolution characteristics. TSE , 2019. [69] Yuntong Zhang, Haifeng Ruan, Zhiyu Fan, and Abhik Roychoudhury. Autocoderover: Autonomous program improvement. In ISSTA , pages 1592–1604, 2024. 
+
+## Appendix A. C Feature Handling Algorithms 
+
+This section presents the representative C feature han-dler — Conditional Compilation — that augments a CICFG with additional interprocedural edges for a language con-struct whose execution targets are indirect, deferred, or runtime-resolved. The pseudocode algorithms for the re-maining six C feature handlers (Function Pointers, Dynamic Linking, Inline Assembly, Macros to Function Calls, Goto Statements, and Setjmp/Longjmp) follow the same template and are provided in our artifact package. 
+
+A.1. Conditional Compilation 
+
+Algorithm 3: Conditional Compilation Analysis (C feature)                                                   
+
+> Input: Set of files F
+> Output: Updated CICFG (nodes/edges for alternative preprocessor branches)
+> 1Function AnalyzeCondComp( F)
+> 2touched ←[]; is updated ←false;
+> 3foreach f ile ∈Fdo
+> 4res ←PanelQuery( ”Does this file contain conditional compilation directives? Output YES/NO only.” + fileContent(file) );
+> 5if res == ”NO” then
+> 6continue
+> 7touched.append(file);
+> 8stmts, edges ←PanelQuery( ”Enumerate statements guarded by preprocessor branches and the feasible control-flow edges across branches. Output stmts as
+> <(line, stmtT ext )>and edges as
+> <(srcLine, dstLine, tag )>.” + fileContent(file) );
+> 9foreach (line, s )∈stmts do
+> 10 UpdateCICFGNode( file, line, s,
+> {”feat”:”condcomp” });
+> 11 foreach (u, v, tag )∈edges do
+> 12 UpdateCICFGEdge( file, u, file, v,
+> {”feat”:”condcomp”,”branch”:tag });
+> 13 is updated ←true;
+> 14 return touched, is updated ;
+
+Description.. Conditional compilation materializes 
+
+configuration-dependent control-flow that a single prepro-cessed build cannot cover: each #ifdef , #ifndef , #if ,
+
+#else , #endif family selects a mutually exclusive code region, and statements that are syntactically present in the source may be excised — or, conversely, only become reach-able — under a particular build configuration. A standard CICFG built from a single preprocessed view therefore systematically loses statements and edges contributed by 18 alternative branches, which biases every downstream reach-ability/taint computation. Algorithm 3 repairs this in three steps. (1) Detection (line 4). For every input file, the expert panel is asked a YES/NO question on whether preprocessor branching is present; files without any directive are skipped to avoid spending LLM budget on regular C code. (2) Branch enumeration (line 8). On a positive file, the panel re-turns two structured lists: stmts — statements that exist only inside a particular branch, each tagged with its source line and text — and edges — feasible control-flow edges be-tween lines, each tagged with the branch it belongs to. The panel produces this view jointly across all branches, including ones that the active build configuration would have hidden. (3) CICFG augmentation (lines 9–11). Each branch-guarded statement is materialized as a CICFG node tagged "feat":"condcomp" , and each enumerated edge is materialized between the corresponding source/destina-tion lines, additionally tagged with its branch identifier so that later analyses can reason per configuration (intra-branch edges) or across configurations (inter-branch edges) on the same graph. The handler returns the list of touched files and a boolean signaling whether new edges were introduced, which feeds back into the controller’s worklist.                                         
+
+> 1#ifdef _MSC_VER // L1
+> 2#include <intrin.h> // L2 (only under MSVC)
+> 3#endif // L3
+> 4#include <arm_neon.h> // L4 (always included)
+> 56int main(int argc, char **argv) {// L6
+> 7/* ... */
+> 8#ifdef __aarch64__ // L8
+> 9/* AArch64-specific fast path */
+> 10 ret += (int)vgetq_lane_f64(vfmaq_f64(vd1, vd2, vd3), 0); // L10
+> 11 #endif // L11
+> 12 return ret; // L12
+> 13 }
+
+Listing 1: Conditional compilation yields multiple mutually-exclusive paths. On this example, the detection step (line 4) returns YES because two #ifdef directives are present (_-MSC_VER and __aarch64__ ). The branch-enumeration step (line 8) yields two branch-guarded statements — the 
+
+<intrin.h> include at L2 (gated by _MSC_VER ) and the AArch64 NEON computation at L10 (gated by __-aarch64__ ) — plus the corresponding intra-branch edges (e.g., L8 →L10 →L11 inside the AArch64 branch) and the inter-branch fall-through L11 →L12 that re-joins the un-conditional control flow. The augmentation step inserts L2 and L10 as new condcomp nodes (so neither statement is silently dropped under the “other” configuration) and adds the listed edges with their branch tags, so a downstream taint analysis traversing main can reach the NEON intrinsic regardless of which configuration the developer’s local build happens to select. 
+
+## Appendix B. Python Feature Handling Algorithms 
+
+This section presents the representative Python feature handler — First-Class Functions — that augments a CICFG with additional interprocedural edges for a language con-struct whose execution targets are indirect, deferred, or runtime-resolved. The pseudocode algorithms for the re-maining five Python feature handlers (Dynamic Typing, Decorators, Lambda Expressions, Reflection, and Dynamic Imports) follow the same template and are provided in our artifact package. 
+
+B.1. First-class functions 
+
+Description.. First-class functions enable higher-order control flow: a function value is passed into another function and invoked indirectly via a parameter, so the callee name is not syntactically present at the invocation site and a call graph that only resolves direct calls silently drops the entire higher-order edge. Algorithm 4 restores these edges in two stages. (1) Per-file extraction (AnalyzeFirstClassFunctions ). 
+
+The expert panel first answers a YES/NO probe on whether the file uses functions-as-values; on a positive answer, it returns every concrete passing site as a tuple 
+
+⟨passed func , receiver func , receiver param , call line ⟩,where passed_func is the user-defined function being passed as a value, receiver_func is the higher-order function it is passed into, and receiver_param is the formal parameter inside receiver_func that will receive it. (2) Higher-order resolution (ResolveHigherOrder-Flow ). For each passing site, the analysis enters the body of 
+
+receiver_func and asks the panel for two things: call -lines — every line at which receiver_param is invoked as a callable — and forward sites — every line at which 
+
+receiver_param is forwarded onward as an argument to a further function g via some formal parameter g_param .Each call line yields a new CICFG edge from that line to the entry of passed_func , annotated as first-class ;each forward site causes the analysis to recurse into g with 
+
+⟨passed func , g, g param ⟩, so a value that traverses several higher-order layers is still chased to its eventual invocation. A visited set guards against revisits in the presence sof mutual or cyclic forwarding, and the routine returns whether any new edge was added so the controller knows whether to re-run dependent feature handlers.         
+
+> 1def my_map(func, arg_list): #L1 receiver_func =my_map; receiver_param = func
+
+19 Algorithm 4: First-Class Functions Analysis - Python fea-ture 
+
+Input: Set of files F from a Python program, CICFG 
+
+Output: Updated CICFG  
+
+> 1
+
+Function AnalyzeFirstClassFunctions( F) 
+
+> 2
+
+start file ← [ ];  
+
+> 3
+
+is updated ← false;  
+
+> 4
+
+foreach file in F do  
+
+> 5
+
+flag ← SendToLLM( ”Given the following Python file, determine whether it uses first-class functions (functions passed as values, e.g., as arguments or returned). ” ”Output ’YES’ or ’NO’ only. No explanation. ” + file content ); 
+
+> 6
+
+if flag == ”NO” then  
+
+> 7
+
+continue ; 
+
+> 8
+
+start file.append(file);  
+
+> 9
+
+resp ← SendToLLM( ”List all sites in this file where a user-defined function is passed as an argument to another user-defined function. ” ”For each site output a tuple ¡passed func, receiver func, receiver param, call line¿. ” ”Here receiver param is the formal parameter of receiver func that receives passed func at that call site. ” ”If none, output ’NO’. No explanation. ” + file content ); 
+
+> 10
+
+if resp == ”NO” then  
+
+> 11
+
+continue ; 
+
+> 12
+
+foreach (passed func, receiver func, receiver param, call line) in resp do  
+
+> 13
+
+visited ← set();  
+
+> 14
+
+is updated ←
+
+ResolveHigherOrderFlow( passed func, receiver func, receiver param, visited ) or is updated;  
+
+> 15
+
+return start file, is updated ; 
+
+> 16
+
+Function ResolveHigherOrderFlow( passed func, receiver func, receiver param, visited ) 
+
+> 17
+
+if (passed func, receiver func, receiver param) in visited then  
+
+> 18
+
+return false ; 
+
+> 19
+
+visited.add((passed func, receiver func, receiver param));  
+
+> 20
+
+receiver file, receiver entry ← retrieve the file name and entry line number of receiver func from CICFG;  
+
+> 21
+
+code ← retrieve the body of receiver func from CICFG;  
+
+> 22
+
+res ← SendToLLM( ”Within the following function body, analyze the parameter ’” + receiver param + ”’. ” ”Output two lists: ” ”(1) call lines = all line numbers where ’” + receiver param + ”’ is invoked as a callable (e.g., ” + receiver param + ”(...)); ” ”(2) forward sites = all sites where ’” + receiver param + ”’ is forwarded as an argument to some function g; output each as ¡g, g param¿ ” ”where g param is the formal parameter of g receiving it. ” ”If neither exists, output ’NO’. No explanation. ” + function body ); 
+
+> 23
+
+if res == ”NO” then  
+
+> 24
+
+return false ; 
+
+> 25
+
+updated ← false;  
+
+> 26
+
+if res.call lines is not empty then  
+
+> 27
+
+target file, target entry ← retrieve the file name and entry line number of passed func from CICFG;  
+
+> 28
+
+foreach ln in res.call lines do  
+
+> 29
+
+annotation ← { ”first-class”: receiver param + ”-¿” + passed func }; 
+
+> 30
+
+UpdateCICFGEdge( receiver file, ln, target file, target entry, annotation ); 
+
+> 31
+
+updated ← true;  
+
+> 32
+
+if res.forward sites is not empty then  
+
+> 33
+
+foreach (g, g param) in res.forward sites do  
+
+> 34
+
+updated ←
+
+ResolveHigherOrderFlow( passed func, g, g param, visited ) or updated;  
+
+> 35
+
+return updated ; 
+
+> 2
+
+result = [] # L2  
+
+> 3
+
+for i in arg_list: # L3  
+
+> 4
+
+result.append(func(i)) # L4 invocation of receiver_param -> call_line  
+
+> 5
+
+return result # L5  
+
+> 67
+
+def square(x): # L7 passed_func = square  
+
+> 8
+
+return x * x # L8  
+
+> 910
+
+# passing square without '()' does not execute it; it can be executed later inside my_map()  
+
+> 11
+
+squares = my_map(square, [1, 2, 3, 4, 5]) #L11 passing site 
+
+Listing 2: Higher-order function: passing a function as a value (simplified). On this example, the per-file extraction yields a single passing-site tuple ⟨square , my_map , func , L11 ⟩. The higher-order resolution then enters my_map ’s body and the panel identifies call_lines ={L4 } (because func 
+
+is invoked as func(i) at L4) and forward_sites =∅
+
+(func is not passed onward). The handler therefore inserts a single CICFG edge from L4 of my_map to the entry of square , annotated {"first-class": "func->square" }, making the higher-order call 
+
+func(i) → square explicit for downstream reachability and taint analyses. Had square been forwarded through one or more wrapper layers before reaching its invocation, the recursive ResolveHigher- OrderFlow call would have followed it through each layer until a call_line 
+
+was found. 
+
+## Appendix C. Java Feature Handling Algorithms 
+
+This section presents the representative Java feature han-dler — Polymorphism (i.e., polymorphic virtual dispatch on member methods) — that augments a CICFG with additional interprocedural edges for a language construct whose execu-tion targets are indirect, deferred, or runtime-resolved. The pseudocode algorithms for the remaining four Java feature handlers (Reflection, Lambda Expressions, Dynamic Prox-ies, and Dynamic Class Loading) follow the same template and are provided in our artifact package. 
+
+C.1. Polymorphism 
+
+Description.. Java polymorphic method calls on an interface-typed or base-class-typed receiver (i.e., 
+
+invokeinterface /invokevirtual bytecodes) are resolved at runtime against the receiver’s dynamic type, not its declared static type. A purely syntactic call graph that links a callsite only to the method declared on the static type therefore systematically misses every concrete override, 20 Algorithm 5: Polymorphism Analysis – Java feature 
+
+Input: set of Java methods F ; class table C; (optional) points-to map PT ; CICFG keyed by (file, line) 
+
+Output: (start methods, is updated) and CICFG augmented with polymorphism-induced call/return edges  
+
+> 1
+
+Function AnalyzePolymorphism( F, C, PT ) 
+
+> 2
+
+start methods ← [];  
+
+> 3
+
+is updated ← false;  
+
+> 4
+
+foreach m ∈ F do  
+
+> 5
+
+code ← RetrieveFunctionBody( m); 
+
+> 6
+
+if DetectVirtualCalls( code ) == false then  
+
+> 7
+
+continue  
+
+> 8
+
+start methods.append( m);  
+
+> 9
+
+calls ← ExtractVirtualCalls( code ); 
+
+> 10
+
+foreach c ∈ calls do 
+
+// c schema: {call_line, recv_expr, recv_var, static_recv_type, method_name, param_types, ret_type } 
+
+> 11
+
+caller file ← FilenameFromCICFG( m); 
+
+> 12
+
+sig ← ResolveMethodSig( c.method name, c.param types, c.ret type );
+
+// Step 1: obtain candidate dynamic receiver types  
+
+> 13
+
+T0 ← c.static recv type;  
+
+> 14
+
+Cand ← {} ; 
+
+> 15
+
+if PT is available then  
+
+> 16
+
+Cand ← PointsToTypes( PT , m, c.recv var ); 
+
+> 17
+
+if Cand is empty then 
+
+// Conservative CHA fallback: all subtypes of the static receiver type  
+
+> 18
+
+Cand ← CHA( C, T0 );
+
+// Optional refinement: use local allocation/guards to prune Cand  
+
+> 19
+
+Cand’ ← RefineTypesLLM( code, c, Cand ); 
+
+> 20
+
+if Cand’ not empty then  
+
+> 21
+
+Cand ← Cand’  
+
+> 22
+
+;
+
+// Step 2: resolve overriding target methods for each candidate type  
+
+> 23
+
+Targets ← {} ; 
+
+> 24
+
+foreach T ∈ Cand do 
+
+// Resolve the concrete implementation: prefer override, else inherit  
+
+> 25
+
+t ← ResolveImpl( C, T , sig ); 
+
+> 26
+
+if t̸ = NULL then  
+
+> 27
+
+Targets.add( t)
+
+// Step 3: add CICFG call/return edges for all possible targets  
+
+> 28
+
+foreach t ∈ Targets do  
+
+> 29
+
+callee file ← FilenameFromCICFG( t); 
+
+> 30
+
+entry ← EntryLine( t); 
+
+> 31
+
+ret ← ReturnLine( t); 
+
+> 32
+
+UpdateCICFGEdge( caller file, c.call line, callee file, entry, {¨poly¨ :¨ virtual ¨, ¨ recv¨ :T0, ¨ sig¨ :sig }); 
+
+> 33
+
+UpdateCICFGEdge( callee file, ret, caller file, c.call line, {¨poly¨ :¨ virtual ¨, ¨ recv¨ :T0, ¨ sig¨ :sig }); 
+
+> 34
+
+is updated ← true;  
+
+> 35
+
+return start methods, is updated ; 
+
+> 36
+
+Function DetectVirtualCalls( code ) 
+
+> 37
+
+ans ← SendToLLM( detect polymorphic dispatch sites (interface/base-typed receiver call); return JSON {result }); 
+
+> 38
+
+return (ans.result == ”YES”) ; 
+
+> 39
+
+Function ExtractVirtualCalls( code ) 
+
+> 40
+
+ans ← SendToLLM( extract virtual call records with receiver/type/signature and call lines; return JSON {result, calls[] }); 
+
+> 41
+
+if ans.result == ”YES” then  
+
+> 42
+
+return ans.calls  
+
+> 43
+
+else  
+
+> 44
+
+return [ ]  
+
+> 45
+
+Function RefineTypesLLM( code, c, Cand ) 
+
+> 46
+
+ans ← SendToLLM( prune Cand using local evidence (alloc sites, instanceof checks, guards); return {result, pruned types[] }); 
+
+> 47
+
+if ans.result == ”YES” then  
+
+> 48
+
+return set(ans.pruned types)  
+
+> 49
+
+else  
+
+> 50
+
+return [ ]  
+
+> 51
+
+Function ResolveImpl( C, T , sig )// Return the most specific implementation of sig for dynamic type T if exists  
+
+> 52
+
+if Overrides( C, T , sig ) ! = NULL then  
+
+> 53
+
+return Overrides( C, T , sig )// Otherwise, walk supertypes until a declaration is found  
+
+> 54
+
+return firstDeclInSuperChain( C, T , sig );
+
+21 breaking cross-procedural reachability and dropping data-flow paths that traverse the dispatched body. Algorithm 5 reconstructs these dispatched edges in three steps. (1) Virtual-callsite extraction (DetectVirtualCalls / ExtractVirtualCalls). For every method m ∈ F ,the expert panel first answers a YES/NO probe on whether m contains a polymorphic dispatch site, and on a positive answer it returns one record per callsite, schema ¡ call_line , recv_expr , recv_var ,
+
+static_recv_type , method_name , param_types ,
+
+ret_type ¿. The signature sig is then derived from 
+
+(method_name, param_types, ret_type) so it can be looked up uniformly inside the class table C.
+
+(2) Candidate dynamic-type set. The handler tries to bound the dynamic type of recv_var as tightly as soundness allows: if a points-to map PT is available, it queries PointsToTypes( PT , m, recv_var) ;otherwise it falls back to Class Hierarchy Analysis, taking every subtype of static_recv_type from C as acandidate. The candidate set may then be pruned by 
+
+RefineTypesLLM , which inspects local evidence (e.g., 
+
+new T(...) allocations and instanceof guards) to drop infeasible types, but only when this strictly shrinks the set — never enlarges it. (3) Per-target edge insertion (ResolveImpl + UpdateCICFGEdge ). 
+
+For each candidate type T , ResolveImpl walks the override chain (Overrides( C, T, sig) , falling back to the first declaration in T ’s super-chain) to identify the concrete implementation that runtime virtual dispatch would actually pick; the handler then inserts a paired 
+
+call edge (callsite line → callee entry) and return 
+
+edge (callee return → callsite line), both annotated 
+
+{"poly":"virtual","recv":T0,"sig":sig }.The is_updated flag and start_methods list propagate to the controller so that this handler — which is propagation-marked (Y) — can be re-run after dependent feature handlers (e.g., reflective allocation) widen the candidate set.                                                                         
+
+> 1package demo;
+> 23interface Sink {void write(String s); } // L3
+> 45final class FileSink implements Sink {
+> 6public void write(String s) {System.out. println("F:"+s); }// L6
+> 7}
+> 89final class NetSink implements Sink {
+> 10 public void write(String s) {System.out. println("N:"+s); }// L10
+> 11 }
+> 12 13 public final class PolyDemo {
+> 14 static Sink choose(boolean flag) {// L14
+> 15 return flag ?new FileSink() :new NetSink(); // L15
+> 16 }
+> 17 18 static void run(boolean flag, String data) {// L18
+> 19 Sink sink =choose(flag); // L19 (sink: static type Sink)
+> 20 sink.write(data); // L20 (virtual dispatch callsite)
+> 21 }
+> 22 }
+
+Listing 3: Polymorphism example aligned with Algorithm 5. On this example, step (1) returns one virtual-callsite record for run , with call_line=L20 ,
+
+recv_var=sink , static_recv_type=Sink , and signature write(String):void . Step (2) yields the candidate set {FileSink , NetSink } — either because points-to evidence flows the two allocations on L15 forward through choose ’s return into sink , or, in the absence of points-to information, because CHA enumerates every subtype of Sink . The optional RefineTypesLLM prune leaves the set unchanged here (no instanceof guard rules either type out). Step (3) then resolves each candidate to its concrete override — FileSink.write(String) 
+
+(entry/return at L6) and NetSink. write(String) 
+
+(entry/return at L10) — and inserts two paired call/return edges from L20 to each entry/return, both annotated 
+
+{"poly": "virtual", "recv": "Sink", "sig": "write(String):void" }. Downstream taint analysis traversing run can now reach both println 
+
+sites at L6 and L10 from data , instead of stopping at the unresolved Sink.write declaration on L3. 22

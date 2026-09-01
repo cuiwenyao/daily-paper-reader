@@ -1,0 +1,490 @@
+Title: HSRM: Hidden-State Reward Models for Test-Time Verification
+
+URL Source: https://arxiv.org/pdf/2608.30841v1
+
+Published Time: Tue, 01 Sep 2026 02:45:58 GMT
+
+Number of Pages: 16
+
+Markdown Content:
+# HSRM: Hidden-State Reward Models for Test-Time Verification 
+
+Xianzhi Li, Xiaodan Zhu 
+
+Department of Electrical and Computer Engineering & Ingenuity Labs Research Institute Queen’s University {li.xianzhi, xiaodan.zhu}@queensu.ca 
+
+Abstract 
+
+Large language models can often generate plau-sible mathematical reasoning traces, but reli-ably identifying the correct solution among multiple candidates remains a key challenge. Existing test-time reasoning pipelines typically rely on text-based verifiers that re-read each generated solution, making verification an ex-pensive component of inference. Prior work has shown, however, that LLMs often encode correctness-related signals in their internal rep-resentations, including awareness of when their own answers are likely to be wrong. Build-ing on this observation, we introduce HSRM, a lightweight hidden-state reward model that ver-ifies candidate solutions by directly reading the generator’s internal representations rather than re-processing its text. HSRM extracts hidden states from a frozen generator at reasoning-step boundaries and uses a small Transformer en-coder to rank candidates. It is trained from self-generated trajectories with outcome labels, re-quiring neither human-written process supervi-sion nor a large pretrained verifier. Across four mathematical reasoning benchmarks, HSRM matches or outperforms a 55M-parameter text-only energy verifier in 15 of 16 generator– dataset settings while using only about 2M parameters, providing an efficient alternative to text-only verification by reusing representa-tions already computed during generation 1.
+
+1 Introduction 
+
+Large language models (LLMs) have made sub-stantial progress on deductive reasoning, yet in-dividual generated solutions often remain unreli-able. A common way to improve reliability is to spend more computation at test time: sample mul-tiple candidate solutions, score them, and return the most promising one. This strategy has become a standard mechanism for converting additional  
+
+> 1Code is available at https://github.com/JXL884/ HSRM .
+
+inference compute into higher reasoning accuracy (Brown et al., 2024; Snell et al., 2025). Its effective-ness, however, depends heavily on the quality and cost of the verifier used to select among candidates. Most existing verifiers are text-based. Since the GSM8K verifier of Cobbe et al. (2021), reward models for reasoning have typically been trained to read a generated solution as text and assign either an outcome-level score or process-level scores over intermediate reasoning steps (Uesato et al., 2022; Lightman et al., 2023; Wang et al., 2024). Recent process reward models are often large language models themselves (Yang et al., 2024; Zhang et al., 2025b; Zheng et al., 2025). As a result, verification can become a major part of the total inference cost: after the generator has already produced each can-didate solution, a separate model must process the same solution again in order to judge it. This text-only design leaves open a natural ques-tion. During generation, the model has already computed rich internal representations that may contain evidence about whether the solution is correct. Prior work suggests that such informa-tion is often present in model internals: language models can encode signals about whether their own answers are likely to be correct (Kadavath et al., 2022), and hidden representations have been used to detect truthfulness, factuality, and correctness-related properties (Azaria and Mitchell, 2023; Burns et al., 2024; Li et al., 2023; Zou et al., 2023; Marks and Tegmark, 2023; Orgad et al., 2025; Zhang et al., 2025a). These findings sug-gest that a verifier may not need to infer solution quality only from emitted text. Instead, verification could directly read the internal states produced dur-ing decoding. This motivates our central question: can hidden states from the generator itself support efficient verification for mathematical reasoning? We introduce HSRM , a Hidden-State Reward 
+
+Model for test-time verification. HSRM reads hid-den states from a frozen generator at reasoning-step arXiv:2608.30841v1 [cs.AI] 31 Aug 2026 boundaries and assigns a scalar score to each can-didate solution. It is implemented as a small Trans-former encoder with 2M parameters and is trained on hidden states from the generator’s own sampled trajectories. This training data is collected by the same test-time sampling process used for best-of-
+
+N reasoning: given problems in a target domain, we sample multiple candidate solutions, label their final answer correctness, and train the verifier to rank correct candidates above incorrect ones. Thus, HSRM does not rely on a pre-existing verifier cor-pus or human-written process supervision. Instead, it can be adapted to a new domain whenever can-didate solutions can be sampled and outcome la-bels can be obtained. Unlike text-based verifiers, HSRM does not need to re-encode generated so-lutions with a separate large language model; it reuses representations that are already produced during decoding, making verification substantially lighter. Our main contributions are: • We propose HSRM, a lightweight hidden-state reward model for best-of-N reasoning that scores candidate solutions using a frozen gen-erator hidden states at reasoning-step bound-aries and can be trained from candidate trajec-tories sampled by the generator itself. • We evaluate HSRM across a variety of mathe-matical reasoning benchmarks with different generator scales, showing that it matches or outperforms a 55M-parameter text-only ver-ifier on 15 of 16 generator–dataset settings while using only about 2M parameters. • We provide ablations over verifier capacity, layer depth, and input modality, showing that the hidden-state advantage comes primarily from the input representation rather than from increased model size. 
+
+2 Related Work 
+
+Text-based verifiers for test-time reasoning. 
+
+Scaling test-time compute has become a standard strategy for improving LLM reasoning. Methods typically sample multiple candidate solutions and select or aggregate among them (Wang et al., 2023; Brown et al., 2024; Snell et al., 2025; Wu et al., 2025). In best-of-N reasoning, the verifier is cen-tral: final performance depends on its ability to rank candidate solutions. Most existing verifiers operate on generated text. Early outcome reward models rerank complete solutions using final-answer super-vision (Cobbe et al., 2021), while process reward models supervise intermediate reasoning steps (Ue-sato et al., 2022; Lightman et al., 2023; Wang et al., 2024). Recent PRMs for mathematical reasoning are often large language models themselves (Yang et al., 2024; Zhang et al., 2025b; Zheng et al., 2025), making verification a substantial component of in-ference cost. Smaller text-based verifiers such as EORM (Jiang et al., 2025) reduce this cost by train-ing compact energy models over chain-of-thought text, but they still require each candidate solution to be re-encoded as text. HSRM differs by using the generator’s hidden states directly, avoiding a separate text re-encoding pass. 
+
+Correctness signals in model internals. Our work is motivated by evidence that language mod-els encode information about their own knowledge and correctness in internal representations. Prior work has shown that models can exhibit signals of whether their answers are likely to be correct (Kadavath et al., 2022), and that hidden activations can support the detection of truthfulness, factuality, and related properties (Azaria and Mitchell, 2023; Burns et al., 2024; Li et al., 2023; Zou et al., 2023; Marks and Tegmark, 2023). More recent work fur-ther suggests that such correctness-related signals can be localized to specific positions or internal fea-tures in long-form generations (Orgad et al., 2025; Zhang et al., 2025a). These studies indicate that hidden states may contain information that text-only verifiers must infer indirectly from emitted tokens. HSRM builds on this perspective by using hidden states not only for diagnosis or probing, but as the primary input to a learned verifier. 
+
+Hidden-state verifiers. Several recent and con-current works also explore hidden states for rea-soning verification. Some methods use probes or activation features to detect errors, support early ex-iting, or perform training-free verification (Zhang et al., 2025a; Liang et al., 2025; Piotrowski et al., 2025). SWIFT/ELHSR (Guo et al., 2025) ap-plies a lightweight reward head to token-level hid-den states for best-of-N selection. Concurrently, ReProbe (Ni et al., 2026) trains lightweight Trans-former probes over token-level internal features and aggregates them within each reasoning step to provide step-level verification for test-time search. HSRM is complementary but differs in its verifica-tion, where it extracts hidden states at step bound-aries instead of token-level. Figure 1: Overview of the HSRM architecture. During decoding, a frozen LLM produces generated tokens 
+
+Ts,n together with their last-layer hidden states Hs,n . HSRM with 2M parameters extracts the hidden states at reasoning-step boundaries to form a compact step-level sequence [S]. Text-based verifiers instead take the sampled tokens, re-tokenize and re-embed them, and run a forward pass over the full sequence [S × n] through a much larger model. HSRM reuses representations already computed during generation, avoiding this re-encoding step. 
+
+3 Our Method 
+
+HSRM is a lightweight hidden-state verifier for best-of-N reasoning. Given a prompt x, afrozen generator pθ samples N candidate solutions 
+
+{yi}Ni=1 . Instead of re-encoding each candidate as text, HSRM reads per step hidden states produced by the generator during decoding and assigns a scalar score to each candidate. BoN selection then returns the candidate with the highest HSRM score. 
+
+3.1 Step-Boundary Hidden-State Extraction 
+
+Let y = ( y1, . . . , y T ) be a candidate solution gener-ated for prompt x. During decoding, the generator produces hidden states {hℓt }Tt=1 , where hℓt ∈ Rdgen 
+
+is the residual-stream representation at token po-sition t and layer ℓ. Rather than using all token-level hidden states, we extract representations only at reasoning-step boundaries. We present input-modalities ablations in Section 6.2. We segment each generated solution using the step stop delimiter, including [ " \n\n ", " .\n ", ":\n ", " \n ", " .\n\n ", " :\n\n "], which commonly separate reasoning steps in chain-of-thought out-puts. Let t1 < t 2 < · · · < t S ≤ T denote the token positions immediately before these step boundaries, including the final generated token. We collect 
+
+Hℓ(y) = 
+
+h
+
+hℓt1 ; hℓt2 ; . . . ; hℓtS
+
+i
+
+∈ RS×dgen . (1) Unless otherwise stated, we use the final gener-ator layer ℓ = L. In Section 6.1 and 6.2, we addi-tionally study how performance varies across lay-ers. Step-boundary extraction substantially reduces the verifier input length: instead of processing ev-ery generated token, HSRM processes only the sequence of reasoning-step representations. Since these hidden states are already computed during generation, HSRM does not require any additional generator forward passes. 
+
+3.2 The HSRM Architecture 
+
+Given a step-level hidden-state sequence H ∈
+
+RS×dgen , HSRM maps it to a scalar candidate score through three stages: a per-step linear projection, a Transformer encoder over reasoning steps, and a mean-pooled linear readout. First, each generator hidden state is projected into the verifier hidden width: 
+
+z(0)  
+
+> s
+
+= Win hℓts + bin . (2) where Win ∈ Rdmodel ×dgen . The resulting sequence 
+
+Z(0) = ( z(0) 1 , . . . , z (0)  
+
+> S
+
+) is then passed through a small Transformer encoder: 
+
+Z = TransformerEncoder( Z(0) ), (3) where Z = ( z1, . . . , z S ).To obtain a candidate-level representation, HSRM mean-pools the encoded step representa-tions over the unpadded step positions and applies layer normalization: 
+
+z = LN 1
+
+S
+
+> S
+
+X
+
+> s=1
+
+zs
+
+!
+
+. (4) Finally, a single linear readout maps the pooled representation to a scalar verifier score: 
+
+fϕ(x, y ) = w⊤z + b. (5) Our default HSRM uses a 2-layer Transformer encoder with hidden width dmodel = 256 , 4 atten-tion heads, feed-forward width 4dmodel , resulting in roughly 2M parameters depending on the gener-ator hidden size. We also evaluate larger variants in Appendix E to separate the effect of verifier ca-pacity from the effect of reading hidden states. 
+
+3.3 Training Objective 
+
+HSRM is trained to rank correct candidates above incorrect ones within the same problem. For each training problem, let {(yi, c i)}Ni=1 denote the sam-pled candidates and their binary correctness labels, where ci ∈ { 0, 1}. Let P = {i : c_i = 1 },
+
+N = {j : c_j = 0 } be the sets of correct and incorrect candidates, respectively. Because many candidates for the same problem can be correct, es-pecially for larger generators, the objective should not impose an arbitrary ordering among correct so-lutions. We therefore use a tie-safe ranking loss that only requires correct candidates to score higher than incorrect candidates. We empirically compare this objective against pointwise BCE and ListMLE in Section E: 
+
+Lrank = 1
+
+|P||N | 
+
+X
+
+> i∈P
+
+X
+
+> j∈N
+
+log 
+
+
+
+1 + e−(si−sj )
+
+.
+
+(6) where si = fϕ(x, y i). This objective encourages every correct candidate to outrank incorrect candi-dates, while treating all correct candidates as ties with respect to one another. Problems with |P| = 0 
+
+or |N | = 0 provide no within-problem ranking signal and are omitted from the training loss. In practice, we train HSRM on cached hidden-state tensors. The generator is run once to produce candidate solutions and their step-boundary hidden states. HSRM is then optimized on these cached representations without further generator calls. 
+
+3.4 Inference 
+
+At inference time, the generator samples N can-didate solutions for each problem and caches the same step-boundary hidden states used during train-ing. HSRM scores the N candidates in a batched verifier forward pass, and BoN selection returns the highest-scoring candidate: 
+
+ˆy = yarg max i fϕ(x,y i). (7) Because HSRM operates over step-level hidden states that are already produced during generation, it avoids the additional generator or verifier-side text re-encoding required by text-based verifiers. Its added inference cost is therefore limited to a small forward pass over the extracted step repre-sentations. We provide detailed efficiency analysis in Section 6.3. 
+
+4 Experimental Setup 
+
+4.1 Generators and Datasets 
+
+We evaluate HSRM using Qwen3 generators (Yang et al., 2025) at four scales: 1.7B, 4B, 8B, and 14B. Our main experiments use all generators in non-thinking mode and keep them frozen through-out training and evaluation; only HSRM and the learned verifier baselines are trained. We addi-tionally evaluate Qwen3 in thinking mode in Sec-tion 6.6 to study how explicit deliberation affects hidden-state extraction. We consider four mathematical reasoning bench-marks: GSM8K (Cobbe et al., 2021), MATH-500 (Hendrycks et al., 2021), AIME (Art of Problem Solving Community, 2025), and OlympiadBench (He et al., 2024). For each dataset, we construct a verifier training pool by sampling 64 candidate solutions per training problem. At evaluation time, we report best-of-8 selection on a disjoint eval-uation split. Exact split indices are provided in Appendix A. 
+
+4.2 Candidate Labeling 
+
+Each candidate solution is assigned a binary cor-rectness label. We first extract the final answer us-ing dataset-specific rules and compare it against the ground truth after normalizing common formatting differences and equivalent symbolic expressions. Ambiguous cases are resolved using an LLM judge that is given the ground-truth answer as context. Unless otherwise stated, all reported results use these post-processed correctness labels. Detailed relabeling statistics are provided in Appendix B. 
+
+4.3 Baselines 
+
+We compare HSRM against three classes of base-lines. First, we compare against text-based reward models. Our main text-only baseline is EORM (Jiang et al., 2025), an energy-based verifier that reads the full chain-of-thought text and scores can-didates with a Transformer encoder trained using a Bradley–Terry ranking objective. We use EORM 55M as the primary text-only comparison. Second, we compare against Qwen2.5-Math-PRM-7B (Zhang et al., 2025b), a 7B off-the-shelf process reward model trained with MATH-style process supervision. We treat this model as a strong external PRM baseline rather than a capacity-matched comparison. Lastly, we evaluate non-learned generator-internal scoring heuristics, including single-pass generation and oracle pass@ N . We also report sim-ple baselines like cumulative log-probability, mean log-probability, negative mean entropy, negative varentropy, response length, number of reasoning steps, and longest response in Table 8. These base-lines test whether simple confidence, uncertainty, or length-based signals are sufficient for best-of-N
+
+selection. 
+
+4.4 Training and Evaluation 
+
+Unless otherwise stated, HSRM uses a 2-layer Transformer encoder with hidden width 256, 4 at-tention heads, dropout 0.1, and final-layer step-boundary hidden states. More training details can be found in Appendix C. All learned verifiers are trained with five random seeds, using a problem-level validation split for early stopping. HSRM is trained on cached hidden-state tensors: after the candidate pools and step-boundary hidden states are generated once, verifier training requires no additional generator calls. Our primary metric is verifier-best accuracy at 
+
+N = 8 . For each problem, the verifier selects the highest-scoring candidate among eight sampled so-lutions, and the prediction is counted as correct if the selected candidate has the correct final answer. We also report within-problem AUROC, computed by comparing verifier scores against binary correct-ness labels within each candidate pool and then averaging over problems for which AUROC is de-fined. Oracle pass@ N is reported as the upper bound imposed by the sampled candidate pool. In-distribution results are reported as mean ±
+
+standard deviation over five seeds. For zero-shot transfer, we train the verifier on a source dataset and evaluate it directly on a target dataset, without any target-domain verifier training. 
+
+5 Results 
+
+5.1 Main Results 
+
+We first evaluate whether HSRM can serve as an effective verifier for best-of-N selection across gen-erator scales and benchmark difficulty. Figure 2 reports best-of-8 accuracy for Qwen3 generators from 1.7B to 14B parameters on GSM8K, MATH-500, AIME, and OlympiadBench. We compare HSRM with EORM, a 55M-parameter text-only energy verifier, as well as single-pass generation, oracle pass@8, and Qwen2.5-Math-PRM-7B. On GSM8K, HSRM outperforms EORM at ev-ery generator scale and nearly matches Qwen2.5-Math-PRM-7B, despite using only about 2M pa-rameters instead of a billion-parameter text-based verifier. As the generator scale increases, HSRM also approaches the oracle curve, indicating that GSM8K is close to saturated in the best-of-8 set-ting: correct candidates are often present, and HSRM can identify them nearly as effectively as a much larger domain-trained PRM. This suggests that generator hidden states contain useful infor-mation for distinguishing correct from incorrect candidates, especially before the generator satu-rates the task. The benefits extend to harder benchmarks. On MATH-500, AIME, and OlympiadBench, HSRM generally remains above EORM while improving with generator scale. Qwen2.5-Math-PRM-7B re-tains an advantage on these more challenging math-ematical benchmarks, especially AIME, which is expected given its much larger scale and domain-specific training. Nevertheless, HSRM closes a substantial portion of the gap while avoiding the cost of re-encoding candidate solutions as text. Overall, Figure 2 supports our main claim: com-pact hidden-state verification can outperform a sub-stantially larger text-only verifier across generator scales and benchmark difficulty, and can match a large domain-trained PRM on GSM8K. HSRM is most attractive when verifier efficiency is impor-tant, while large domain-matched PRMs remain stronger on the hardest benchmarks. 
+
+6 Ablations 
+
+6.1 Generator Layer 
+
+HSRM uses hidden states from the frozen gener-ator as its input, so an important design question is which generator layer should be used for verifi-cation. Prior work on contextual representations suggests that useful information is often distributed across layers rather than concentrated only in the final layer: different layers encode different linguis-tic and semantic abstractions, and intermediate or near-final layers can sometimes provide more trans-ferable features than the final representation (Peters 1.7 4 8 14 80.0 82.5 85.0 87.5 90.0 92.5 95.0 97.5          
+
+> Best-of-8 Accuracy (%)
+> GSM8K
+> 1.7 4814 65 70 75 80 85
+> MATH-500
+> 1.7 4814 510 15 20 25 30 35 40
+> AIME
+> 1.7 4814 35 40 45 50 55 60 65
+> OlympiadBench
+> HSRM 2M (ours) EORM 55M Qwen2.5-Math-PRM-7B Oracle Single pass (baseline)
+> Generator size (B params)
+
+Figure 2: Best-of-8 verifier accuracy as generator size increases. HSRM improves over the 55M-parameter text-only EORM baseline across most generator–dataset settings while using only about 2M parameters. The oracle curve shows the pass@8 upper bound, and the single-pass curve shows the accuracy without verifier-based selection. Results are reported as mean ± standard deviation over five seeds. 4 8 12 17 24 27              
+
+> Layer
+> 82.0 82.5 83.0 83.5 84.0 84.5 85.0 85.5 86.0
+> Accuracy (%)
+> Qwen3-1.7B
+> 4918 27 32 35
+> Layer
+> 91.0 91.5 92.0 92.5 93.0 93.5
+> Qwen3-4B
+> 4918 27 32 35
+> Layer
+> 93.25 93.50 93.75 94.00 94.25 94.50 94.75 95.00
+> Qwen3-8B
+> 510 20 30 36 39
+> Layer
+> 95.0 95.2 95.4 95.6 95.8 96.0 96.2 Qwen3-14B
+> 0.525 0.550 0.575 0.600 0.625 0.650 0.675 0.700
+> 0.500 0.525 0.550 0.575 0.600 0.625 0.650 0.675
+> 0.56 0.58 0.60 0.62 0.64 0.66 0.68
+> 0.56 0.58 0.60 0.62 0.64 0.66 0.68
+> AUROC
+
+Figure 3: Layer ablation for HSRM on GSM8K. We vary the generator layer used for step-boundary hidden-state extraction and report both best-of-8 accuracy and within-problem AUROC. Correctness information is present across many layers, but the strongest performance generally occurs in the upper portion of the generator. Results are reported as mean ± standard deviation over three seeds. 
+
+et al., 2018; Liu et al., 2019; Skean et al., 2025). This is especially relevant for hidden-state verifi-cation, since the final layer is also the layer most directly shaped for next-token prediction, whereas earlier upper layers may retain richer information about the reasoning trajectory. We therefore evaluate HSRM while varying the generator layer used for step-boundary hidden-state extraction. Figure 3 reports both best-of-8 accu-racy and within-problem AUROC on GSM8K for Qwen3 models from 1.7B to 14B parameters. The results show that correctness information is present across a broad range of layers, with the strongest performance generally appearing in the upper por-tion of the generator. The final layer is competitive, but it is not always the unique optimum. In several settings, nearby upper layers match or exceed the final layer, suggesting that verification-relevant in-formation is distributed across multiple high-level representations. We use the final layer as the default in the main experiments because it is simple, consistently com-petitive, and avoids tuning a layer choice separately for each generator–dataset pair. At the same time, the layer ablation motivates multi-layer hidden-state inputs. In Section 6.2, we therefore also test a top-4-layer variant that concatenates the final four generator layers; this setting gives the strongest overall ranking performance, supporting the view that hidden-state verification benefits from combin-ing information across multiple upper layers rather than relying exclusively on a single final represen-tation. 
+
+6.2 Input Modality 
+
+Table 1 studies which input signal is most useful for HSRM. The text-only verifier performs substan-tially worse than all hidden-state variants, reach-ing only 82 .23% best-of-8 accuracy and 0.519 
+
+within-problem AUROC. In contrast, even the sim-plest hidden-state verifier, which reads only the final step representation from the last generator layer, achieves 86 .11% accuracy and 0.691 AU-ROC. This gap suggests that the improvement does not come merely from the verifier architecture, but from the hidden-state representation itself. Using the full sequence of step-boundary rep-resentations further improves ranking quality, and concatenating the top four generator layers gives the best overall result, reaching 86 .86% accuracy and 0.724 AUROC. This supports the conclusion Input modality Verifier input Generator layers Input dim. dmodel Params Bo8 Acc. Within-AUROC Hidden state Last hidden state Last layer 2048 256 2.12M 86 .11 ± 0.35 0.691 ± 0.005 
+
+Hidden state Step hidden state Last layer 2048 256 2.12M 86 .32 ± 1.08 0.714 ± 0.018 
+
+Hidden state Last hidden state Top-4 layers 8192 256 3.69M 86 .28 ± 0.88 0.715 ± 0.015 
+
+Hidden state Step hidden state Top-4 layers 8192 256 3.69M 86 .86 ± 0.74 0.724 ± 0.009 
+
+Text only Raw solution text – – – 2.56M 82 .23 ± 0.29 0.519 ± 0.009 
+
+Hybrid Text + hidden states Top-4 layers 8192 256 4.77M 86 .23 ± 0.60 0.707 ± 0.021 
+
+Table 1: Input-modality ablation on GSM8K using Qwen3-1.7B in non-thinking mode. Hidden-state verifiers read step-boundary representations, extracted from the token immediately before each step stop delimiter. Last-layer models use a 2048-dimensional input, while top-4-layer models concatenate layers −1, −2, −3, −4, giving an 8192-dimensional input. The text-only baseline encodes the raw solution text with a from-scratch encoder, and the hybrid model fuses text and hidden-state inputs. 
+
+from the layer ablation: correctness information is not confined to the final hidden state, but is dis-tributed both across the reasoning trajectory and across multiple upper layers of the generator. The AUROC gains are especially important because best-of-N selection depends on ranking correct and incorrect candidates within the same problem. Interestingly, the hybrid text-plus-hidden model does not improve over the hidden-only model de-spite using more parameters. This indicates that the generator’s internal representations already pro-vide a strong verification signal, and adding raw text features can introduce extra complexity with-out improving selection performance. 
+
+6.3 Efficiency Analysis 
+
+In best-of-N reasoning, verifier cost scales directly with the number of sampled candidates, making per-candidate efficiency central to test-time com-pute. Figure 4 compares HSRM with text-based verifiers, plotting best-of-N accuracy against esti-mated verification FLOPs per candidate. HSRM lies on the upper-left efficiency frontier across gen-erator scales. This gain comes with a substantial cost advantage: HSRM uses about 3500 × fewer pa-rameters than the 7B PRM and roughly five orders of magnitude fewer verification FLOPs per candi-date, since it reads cached hidden states rather than re-encoding each solution with a large text model. This difference is especially important in best-of-N
+
+settings, where the same verifier must be applied re-peatedly to many sampled candidates. By moving verification from full-sequence text re-encoding to a compact step-level hidden-state reader, HSRM makes additional test-time samples more afford-able. These results show that HSRM improves not only parameter efficiency, but also the accuracy– cost frontier for test-time verification. 10 7 10 8 10 9 10 10 10 11 10 12 10 13    
+
+> Verification cost (FLOPs per candidate, log) cheaper
+> 0.80 0.82 0.84 0.86 0.88 0.90 0.92 0.94 0.96
+> GSM8K Best-of-N accuracy  better
+> 1.7B 4B 8B 14B 1.7B 4B 8B 14B 1.7B 4B 8B 14B
+> HRSM 2M ours
+> EORM-55M Qwen2.5-Math-PRM-7B
+
+Figure 4: Verification efficiency frontier on GSM8K. Best-of-N accuracy versus estimated verification FLOPs per candidate (log scale) for HSRM, EORM-55M, and Qwen2.5-Math-PRM-7B across four genera-tor scales. HSRM lies on the upper-left frontier, match-ing the 7B PRM at the larger generator scales at roughly five orders of magnitude lower verification cost. 
+
+6.4 Training Data 
+
+We next study how HSRM scales with the size of the verifier training pool. Figure 5 varies the number of training problems K for a Qwen3-1.7B generator, with evaluation problems kept disjoint from the training pool. HSRM generally improves as K increases. On GSM8K, increasing K from 25 to 500 raises best-of-8 accuracy from 83.4 to 86.2 and within-problem AUROC from 0.612 to 0.716. MATH-500 shows the same overall direc-tion, with accuracy increasing from 75.5 to 77.8 and AUROC from 0.528 to 0.596 as K grows from 10 to 125, although the curve is noisier due to the harder and more heterogeneous problem distribu-tion. Since best-of-N reasoning relies on a ver-ifier to select among sampled candidates, these gains indicate that additional verifier data mainly strengthens the ranking signal. At the same time, the curve shows that small training pools already provide useful gains over single-pass generation, 10 25 50 75 100 125                    
+
+> 72 74 76 78 80 BoN accuracy (%)
+> MATH-500
+> 75.5 77.8
+> HSRM single pass (73.6) 10 25 50 75 100 125
+> 0.50 0.52 0.54 0.56 0.58 0.60 0.62 0.64 within-problem AUROC
+> MATH-500
+> 0.528 0.596
+> 25 50 100 200 300 500
+> Training-pool size K(problems) 78 80 82 84 86 88 BoN accuracy (%)
+> GSM8K
+> 83.4 86.2
+> HSRM single pass (79.8) 25 50 100 200 300 500
+> Training-pool size K(problems) 0.50 0.55 0.60 0.65 0.70 0.75 within-problem AUROC
+> GSM8K
+> 0.612 0.716
+
+Figure 5: Scaling with verifier training-pool size K for HSRM on Qwen3-1.7B. We vary the number of train-ing problems used to train the verifier and evaluate on a disjoint test split for both MATH-500 and GSM8K. Left: best-of-8 accuracy. Right: within-problem AU-ROC. HSRM improves with more training data on both datasets, with especially consistent gains on GSM8K. Shaded regions show mean ± standard deviation over five seeds. 
+
+while larger pools offer better ranking quality at the cost of more data collection and labeling. Thus, the choice of K is application-dependent: one can use a small pool for a cheap verifier adaptation, or increase K when higher ranking accuracy is worth the additional supervision cost. 
+
+6.5 Zero-Shot Transfer 
+
+We test whether HSRM learns source-specific dataset patterns or more general verification sig-nals. We train verifiers only on GSM8K or MATH-500 and evaluate them directly on OlympiadBench, without any target-domain training. Figure 6 re-ports best-of-8 accuracy across Qwen3 generator scales. HSRM transfers well under this distribution shift. When trained on GSM8K, HSRM outperforms EORM 55M at every generator scale and remains close to Qwen2.5-Math-PRM-7B, despite being much smaller. The same pattern holds when train-ing on MATH-500: HSRM again improves over the text-only verifier across all scales and tracks the large PRM baseline closely. This suggests that the hidden-state ranking signal learned by HSRM is not tied only to the source dataset, but captures reusable features of reasoning quality. Therefore, transfer studies provide evidence that generator hidden states encode verification-relevant signals that can transfer across mathematical reasoning do-mains, even without target-domain verifier training. 1.7B 4B 8B 14B Generator (Qwen3)             
+
+> 30 35 40 45 50 55 60 65 70 75
+> Best-of-8 Accuracy (%)
+> 42.2 52.7 51.8 53.4
+> OlympiadBench trained on GSM8K
+> 1.7B 4B 8B 14B Generator (Qwen3)
+> 30 35 40 45 50 55 60 65 70 75
+> 40.5 50.9 53.6 54.6
+> OlympiadBench trained on MATH-500
+> EORM 55M HSRM 2M Qwen2.5-Math-PRM-7B Single pass Oracle
+
+Figure 6: Zero-shot transfer to OlympiadBench. Ver-ifiers are trained only on GSM8K (left) or MATH-500 (right), and evaluated directly on OlympiadBench without target-domain tuning. HSRM consistently out-performs the text-only EORM 55M baseline and re-mains close to Qwen2.5-Math-PRM-7B across genera-tor scales. Dotted lines show single-pass accuracy and dashed lines show oracle pass@8. Results are mean ±
+
+standard deviation over five seeds. 
+
+The remaining gap is primarily to the ora-cle rather than between learned verifiers. On OlympiadBench, oracle pass@8 is much higher than the selected accuracy for all methods, mean-ing that many candidate pools contain a correct solution that the verifier does not select. At the same time, the gap between HSRM and Qwen2.5-Math-PRM-7B is relatively small compared with the oracle headroom. Thus, zero-shot transfer per-formance appears limited less by the choice be-tween small hidden-state and large text-based veri-fiers, and more by the difficulty of generating and reliably selecting correct candidates on Olympiad-Bench. 
+
+6.6 Thinking-Mode Generators 
+
+Our main experiments use Qwen3 in non-thinking mode, where the generated reasoning trace and fi-nal answer form a single sequence. We additionally study HSRM with Qwen3’s thinking mode, which introduces an explicit internal deliberation phase before the final answer. This setting raises a new extraction question: should the verifier read hidden states throughout the full reasoning trace, or only from the post-deliberation answer segment? We compare two variants on MATH-500 using Qwen3-1.7B and Qwen3-4B. Full-trace extraction applies the same step-boundary reader across the entire generated sequence, including the thinking trace. Answer-only extraction instead retains only representations after the </think> boundary. For reference, we also report the corresponding non-thinking generator with answer-only extraction. Table 2 shows two complementary effects. First, Generator Mode Input Acc Within-AUROC Qwen3-1.7B Non-thinking answer-only 67 .14 ± 0.81 0.631 ± 0.025                                    
+
+> Thinking full-trace 82 .00 ±0.82 0.669 ±0.027
+> Thinking answer-only 83 .67 ±0.94 0.736 ±0.034
+> Qwen3-4B Non-thinking answer-only 77 .62 ±0.49 0.657 ±0.010
+> Thinking full-trace 86 .33 ±1.70 0.672 ±0.044
+> Thinking answer-only 87 .00 ±0.00 0.884 ±0.023
+
+Table 2: Thinking-mode extraction ablation on MATH-500. For thinking-mode generators, full-trace uses step-boundary hidden states from both the deliberation trace and final answer, whereas answer-only retains representations after the </think> boundary. Restricting extraction to the post-deliberation answer improves within-problem ranking quality at both model scales. 
+
+enabling thinking substantially improves best-of-8 performance over the corresponding non-thinking generators. More importantly for HSRM, however, using the entire thinking trace is not the strongest way to read these models. Restricting HSRM to post-deliberation representations improves within-problem AUROC from 0.669 to 0.736 for Qwen3-1.7B and from 0.672 to 0.884 for Qwen3-4B. This result suggests that verification-relevant information is not equally stable throughout an explicit deliberation trace. During thinking, the model may temporarily represent an incorrect hy-pothesis, uncertainty, or a detected error before subsequently revising its reasoning. A hidden state at such a step can therefore reflect the local sta-tus of an intermediate trajectory rather than the correctness of the final answer. Representations af-ter the </think> boundary are produced after this self-correction process and are consequently more predictive of final-answer correctness. 
+
+6.7 Cross-Family Generalization 
+
+The main experiments above use Qwen3 genera-tors. To test whether HSRM relies on properties specific to the Qwen model family, we addition-ally evaluate it on candidate solutions generated by three Llama models: Llama-3.2-1B, Llama-3.2-3B, and Llama-3.1-8B (Grattafiori et al., 2024). We consider both GSM8K and MATH-500 and train an HSRM and matched EORM verifier on candidate pools generated by each model. Table 3 shows that the advantage of hidden-state verification extends beyond the Qwen fam-ily. HSRM outperforms the matched text-based EORM verifier in all six Llama generator–dataset settings. On GSM8K, the improvement ranges from 3.1 to 8.1 percentage points, while on MATH-500 it ranges from 3.6 to 4.5 points. These cross-family results provide evidence                       
+
+> Dataset Generator HSRM EORM Oracle GSM8K Llama-3.2-1B 48.4 40.3 72.2 Llama-3.2-3B 81.1 75.1 93.0 Llama-3.1-8B 88.3 85.2 96.0 MATH-500 Llama-3.2-1B 30.1 26.5 61.4 Llama-3.2-3B 47.9 43.4 76.3 Llama-3.1-8B 56.8 52.3 87.1
+
+Table 3: Best-of-8 accuracy (%) with Llama-family gen-erators. HSRM consistently outperforms the matched text-based EORM verifier across both datasets and all three generator scales. Oracle denotes pass@8 accuracy of the sampled candidate pool. 
+
+that the verification signal exploited by HSRM is not tied to a particular generator architecture or pretraining recipe. Despite differences between Qwen3 and Llama models, a small verifier operat-ing directly on their internal representations con-sistently provides stronger candidate ranking than re-encoding the generated reasoning text with the matched EORM baseline. 
+
+7 Conclusion 
+
+We presented HSRM, a lightweight hidden-state verifier for test-time mathematical reasoning. In-stead of re-encoding candidate solutions with a separate text-based reward model, HSRM ranks candidates using hidden states already produced by a frozen generator during decoding. Across four benchmarks and both Qwen and Llama generators, HSRM consistently matches or outperforms a sub-stantially larger text-only energy verifier while us-ing only about 2M parameters. Our ablation studies further show that verification-relevant information is distributed across upper generator layers, and that HSRM offers a favorable trade-off between training data and test-time efficiency. Together, HSRM offers a low-cost complement to existing verifier-based test-time reasoning pipelines. Limitations 
+
+Our study focuses on mathematical reasoning. This controlled setting allows us to isolate the veri-fication signal present in the generator’s hidden states, but future work should evaluate whether the same approach extends to other domains and a broader range of model architectures. While our experiments include both Qwen and Llama gener-ators and evaluate Qwen3 in thinking mode, the thinking-mode study is limited to two model scales on MATH-500, and broader evaluation of explicit deliberation remains an important direction. 
+
+References 
+
+Art of Problem Solving Community. 2025. AIME prob-lems and solutions. AoPS Wiki. Amos Azaria and Tom Mitchell. 2023. The internal state of an LLM knows when it’s lying. In Find-ings of the Association for Computational Linguistics: EMNLP 2023 , pages 967–976, Singapore. Associa-tion for Computational Linguistics. Bradley Brown, Jordan Juravsky, Ryan Ehrlich, Ronald Clark, Quoc V. Le, Christopher Ré, and Azalia Mirho-seini. 2024. Large language monkeys: Scaling in-ference compute with repeated sampling. Preprint ,arXiv:2407.21787. Collin Burns, Haotian Ye, Dan Klein, and Jacob Steinhardt. 2024. Discovering latent knowledge in language models without supervision. Preprint ,arXiv:2212.03827. Karl Cobbe, Vineet Kosaraju, Mohammad Bavarian, Mark Chen, Heewoo Jun, Lukasz Kaiser, Matthias Plappert, Jerry Tworek, Jacob Hilton, Reiichiro Nakano, Christopher Hesse, and John Schulman. 2021. Training verifiers to solve math word prob-lems. Preprint , arXiv:2110.14168. Aaron Grattafiori, Abhimanyu Dubey, Abhinav Jauhri, Abhinav Pandey, Abhishek Kadian, Ahmad Al-Dahle, Aiesha Letman, Akhil Mathur, and etc. 2024. The llama 3 herd of models. Preprint ,arXiv:2407.21783. Jizhou Guo, Zhaomin Wu, Hanchen Yang, and Philip S. Yu. 2025. Mining intrinsic rewards from LLM hid-den states for efficient best-of-N sampling. arXiv preprint arXiv:2505.12225 . Accepted by KDD 2026 Research Track. Chaoqun He, Renjie Luo, Yuzhuo Bai, Shengding Hu, Zhen Leng Thai, Junhao Shen, Jinyi Hu, Xu Han, Yu-jie Huang, Yuxiang Zhang, Jie Liu, Lei Qi, Zhiyuan Liu, and Maosong Sun. 2024. Olympiadbench: A challenging benchmark for promoting agi with olympiad-level bilingual multimodal scientific prob-lems. In Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics .Dan Hendrycks, Collin Burns, Saurav Kadavath, Akul Arora, Steven Basart, Eric Tang, Dawn Song, and Jacob Steinhardt. 2021. Measuring mathematical problem solving with the math dataset. Preprint ,arXiv:2103.03874. Eric Hanchen Jiang, Haozheng Luo, Shengyuan Pang, Xiaomin Li, Zhenting Qi, Hengli Li, Cheng-Fu Yang, Zongyu Lin, Xinfeng Li, Hao Xu, Kai-Wei Chang, and Ying Nian Wu. 2025. Learning to rank chain-of-thought: An energy-based approach with outcome supervision. arXiv preprint arXiv:2505.14999 .Saurav Kadavath, Tom Conerly, Amanda Askell, Tom Henighan, Dawn Drain, Ethan Perez, Nicholas Schiefer, Zac Hatfield-Dodds, Nova DasSarma, Eli Tran-Johnson, Scott Johnston, Sheer El-Showk, Andy Jones, Nelson Elhage, Tristan Hume, Anna Chen, Yuntao Bai, Sam Bowman, Stanislav Fort, and 17 others. 2022. Language models (mostly) know what they know. Preprint , arXiv:2207.05221. Kenneth Li, Oam Patel, Fernanda Viégas, Hanspeter Pfister, and Martin Wattenberg. 2023. Inference-time intervention: Eliciting truthful answers from a language model. Advances in neural information processing systems , 36:41451–41530. Zhenwen Liang, Ruosen Li, Yujun Zhou, Linfeng Song, and 1 others. 2025. CLUE: Non-parametric verifi-cation from experience via hidden-state clustering. 
+
+arXiv preprint arXiv:2510.01591 .Hunter Lightman, Vineet Kosaraju, Yura Burda, Harri Edwards, Bowen Baker, Teddy Lee, Jan Leike, John Schulman, Ilya Sutskever, and Karl Cobbe. 2023. Let’s verify step by step. Preprint ,arXiv:2305.20050. Nelson F. Liu, Matt Gardner, Yonatan Belinkov, Matthew E. Peters, and Noah A. Smith. 2019. Lin-guistic knowledge and transferability of contextual representations. In Proceedings of the 2019 Confer-ence of the North American Chapter of the Associ-ation for Computational Linguistics: Human Lan-guage Technologies, Volume 1 (Long and Short Pa-pers) , pages 1073–1094, Minneapolis, Minnesota. Association for Computational Linguistics. Samuel Marks and Max Tegmark. 2023. The geometry of truth: Emergent linear structure in large language model representations of true/false datasets. arXiv preprint arXiv:2310.06824 .Jingwei Ni, Ekaterina Fadeeva, Tianyi Wu, Mubashara Akhtar, Jiaheng Zhang, Elliott Ash, Markus Leippold, Timothy Baldwin, See-Kiong Ng, Artem Shelmanov, and Mrinmaya Sachan. 2026. Reprobe: Efficient test-time scaling of multi-step reasoning by probing internal states of large language models. Preprint ,arXiv:2511.06209. Hadas Orgad, Michael Toker, Zorik Gekhman, Roi Re-ichart, Idan Szpektor, Hadas Kotek, and Yonatan Belinkov. 2025. Llms know more than they show: On the intrinsic representation of llm hallucinations. In International Conference on Learning Representa-tions , volume 2025, pages 66880–66913. Matthew E. Peters, Mark Neumann, Mohit Iyyer, Matt Gardner, Christopher Clark, Kenton Lee, and Luke Zettlemoyer. 2018. Deep contextualized word repre-sentations. In Proceedings of the 2018 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Tech-nologies, Volume 1 (Long Papers) , pages 2227–2237, New Orleans, Louisiana. Association for Computa-tional Linguistics. Bartosz Piotrowski, Witold Drzewakowski, Konrad Staniszewski, and Piotr Miło´ s. 2025. Lightweight la-tent verifiers for efficient meta-generation strategies. 
+
+arXiv preprint arXiv:2504.16760 .Oscar Skean, Md Rifat Arefin, Dan Zhao, Niket Patel, Jalal Naghiyev, Yann LeCun, and Ravid Shwartz-Ziv. 2025. Layer by layer: Uncovering hid-den representations in language models. Preprint ,arXiv:2502.02013. Charlie Snell, Jaehoon Lee, Kelvin Xu, and Aviral Ku-mar. 2025. Scaling llm test-time compute optimally can be more effective than scaling parameters for reasoning. In International Conference on Learning Representations , volume 2025, pages 10131–10165. Jonathan Uesato, Nate Kushman, Ramana Kumar, Fran-cis Song, Noah Siegel, Lisa Wang, Antonia Creswell, Geoffrey Irving, and Irina Higgins. 2022. Solving math word problems with process- and outcome-based feedback. Preprint , arXiv:2211.14275. Peiyi Wang, Lei Li, Zhihong Shao, Runxin Xu, Damai Dai, Yifei Li, Deli Chen, Yu Wu, and Zhifang Sui. 2024. Math-shepherd: Verify and reinforce LLMs step-by-step without human annotations. In Proceed-ings of the 62nd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Pa-pers) , pages 9426–9439, Bangkok, Thailand. Associ-ation for Computational Linguistics. Xuezhi Wang, Jason Wei, Dale Schuurmans, Quoc V. Le, Ed H. Chi, Sharan Narang, Aakanksha Chowd-hery, and Denny Zhou. 2023. Self-consistency im-proves chain of thought reasoning in language mod-els. In International Conference on Learning Repre-sentations (ICLR) .Yangzhen Wu, Zhiqing Sun, Shanda Li, Sean Welleck, and Yiming Yang. 2025. Inference scaling laws: An empirical analysis of compute-optimal inference for problem-solving with language models. Preprint ,arXiv:2408.00724. An Yang, Beichen Zhang, Binyuan Hui, Bofei Gao, Bowen Yu, Chengpeng Li, Dayiheng Liu, Jianhong Tu, Jingren Zhou, Junyang Lin, and 1 others. 2024. Qwen2.5-Math technical report: Toward mathemat-ical expert model via self-improvement. arXiv preprint arXiv:2409.12122 .An Yang and 1 others. 2025. Qwen3 technical report. 
+
+arXiv preprint arXiv:2505.09388 .Anqi Zhang, Yulin Chen, Jane Pan, Chen Zhao, Au-rojit Panda, Jinyang Li, and He He. 2025a. Rea-soning models know when they’re right: Probing hidden states for self-verification. arXiv preprint arXiv:2504.05419 .Zhenru Zhang, Chujie Zheng, Yangzhen Wu, Beichen Zhang, Runji Lin, Bowen Yu, Dayiheng Liu, Jin-gren Zhou, and Junyang Lin. 2025b. The lessons of developing process reward models in mathematical reasoning. In Findings of the Association for Compu-tational Linguistics: ACL 2025 , pages 10495–10516, Vienna, Austria. Association for Computational Lin-guistics. Chujie Zheng, Zhenru Zhang, Beichen Zhang, Runji Lin, Keming Lu, Bowen Yu, Dayiheng Liu, Jin-gren Zhou, and Junyang Lin. 2025. Processbench: Identifying process errors in mathematical reasoning. 
+
+Preprint , arXiv:2412.06559. Andy Zou, Long Phan, Sarah Chen, James Campbell, Phillip Guo, Richard Ren, Alexander Pan, Xuwang Yin, Mantas Mazeika, Ann-Kathrin Dombrowski, and 1 others. 2023. Representation engineering: A top-down approach to ai transparency. arXiv preprint arXiv:2310.01405 .A Dataset Details and Split Indices 
+
+Table 5 reports the problem-index ranges and can-didate counts used throughout the paper. All train-ing and evaluation splits are disjoint at the prob-lem level. For each training problem, we sam-ple N =64 candidate solutions; for each evaluation problem, we use N =8 candidates for best-of-N
+
+selection. All Qwen3 generators are run in non-thinking mode with float16 , temperature 0.7, and top-p 0.9. Across all datasets and splits, the post-processed candidate corpus contains approximately 
+
+255 K sampled solutions (Appendix B). 
+
+B Candidate Labeling and Relabeling Statistics 
+
+Each sampled candidate solution is assigned a bi-nary final-answer correctness label before verifier training and evaluation. We use a two-stage label-ing procedure designed to preserve high-precision symbolic matches while recovering correct answers that are missed by simple extraction rules. In the first stage, we apply a deterministic regex/symbolic labeler. The labeler extracts a can-didate’s final answer using a cascade of answer patterns, including boxed answers, phrases such as “the answer is”, more generic answer statements, and, as a fallback, the last numeric expression in the solution. The extracted answer is then com-pared with the ground-truth answer after normal-izing common formatting differences. Numeric answers are compared with a small tolerance, and symbolic answers are checked with mathematical equivalence tools when possible; otherwise, nor-malized string matching is used. If this stage ex-tracts an answer and verifies it as equivalent to the ground truth, the candidate is marked correct and the label is locked in. The second stage handles candidates not re-solved as correct by the deterministic labeler. This includes cases where answer extraction fails, where the extracted span is incomplete, or where the an-swer contains formats that are difficult to verify with simple rules, such as fractions, square roots, embedded units, symbolic expressions, or multiple plausible final-answer spans. These unresolved or provisionally incorrect candidates are batched and passed to an LLM judge, which receives the prob-lem, the candidate solution, and the ground-truth answer. The judge determines whether the candi-date’s final answer is mathematically equivalent to the ground truth, allowing us to recover correct solutions that would otherwise be counted as false negatives by the regex/symbolic labeler. This relabeling stage has a non-negligible effect on the final supervision. Over approximately 255 Ksampled candidate solutions, the LLM-judge stage changed 7,788 labels in total. It corrected 7,650 
+
+candidates from incorrect to correct and 138 can-didates from correct to incorrect, yielding a net increase of 7,512 correct labels. Thus, about 3.1% 
+
+of candidate labels were changed by the judge, with most changes recovering correct answers that the deterministic labeler failed to recognize. This asymmetry is expected: strict regex and symbolic checks are high precision but can miss semantically correct answers written in non-canonical forms. All reported training and evaluation results use the post-relabel correctness labels. This ensures that HSRM is trained and evaluated against a more complete notion of final-answer correctness, rather than against artifacts of a particular answer-extraction rule. 
+
+C Architecture and Hyperparameter Details 
+
+Parameter counts. Table 4 gives the parame-ter count of the default HSRM verifier for each generator scale. The only component whose size depends on the generator is the input projection 
+
+Win ∈ Rdmodel ×dgen . The step-level Transformer encoder and final score head are shared across gen-erator scales.               
+
+> Table 4: HSRM parameter counts by generator. The default verifier uses dmodel =256 , two Transformer lay-ers, four attention heads, and dropout 0.1.
+> Generator dgen Params Qwen3-1.7B 2048 2.12M Qwen3-4B 2560 2.25M Qwen3-8B 4096 2.65M Qwen3-14B 5120 ∼3.4M
+
+Training hyperparameters. Table 6 summarizes the verifier training recipe. Unless otherwise stated, we use the same hyperparameters across datasets and generator scales. 
+
+Baseline configurations. We compare HSRM with text-based learned verifiers and non-learned generator-side scorers. For EORM, we repro-duce a Transformer energy model over chain-of-thought text trained with a Bradley–Terry pairwise Table 5: Dataset splits and candidate counts. “Source” denotes the underlying benchmark split. MATH-500 uses the first 150 problems for verifier training and the remaining 350 problems as the strict holdout used for headline results.                                               
+
+> Dataset Source split Train idx. (n,N)Eval idx. (n,N)GSM8K test ( 1319 )[0 ,499] (500 ,64 )[500 ,1318] (819 ,8)MATH-500 test ( 500 )[0 ,149] (150 ,64 )[150 ,499] (350 ,8)AIME aimo-val ( 90 )[0 ,19] (20 ,64 )[20 ,89] (70 ,8)OlympiadBench OE_TO_maths_en_COMP (673 )[0 ,149] (150 ,64 )[150 ,672] (523 ,8)
+
+Table 6: HSRM training hyperparameters.                          
+
+> Hyperparameter Value Optimizer AdamW Learning rate 1×10 −4
+> Problem batch size 8
+> Gradient steps 1000
+> Validation split 0.20 problem-level validation split, seed 42
+> Dropout 0.1
+> Loss tie-safe pairwise ranking loss (Eq. 6) Generator layer final layer, cached in float16
+> Seeds {42 ,123 ,456 ,789 ,1024 }for 5-seed runs; {42 ,123 ,456 }for 3-seed ablations Hardware L40S and H100 GPUs
+
+loss and a cosine-warmup schedule. We evalu-ate a small EORM variant with 2.6M parameters (d=256 , L=1 , h=2 ) and the primary EORM base-line with 53 .4M parameters ( d=768 , L=2 , h=4 ). We also evaluate Qwen2.5-Math-PRM-7B as an off-the-shelf PRM baseline; this model is not re-trained on our sampled candidates. For Qwen2.5-Math-PRM-7B, the main results use the last-step PRM score as the candidate-level score, matching the outcome-level target used to train HSRM. 
+
+Non-learned scorer definitions. For each can-didate, let ℓt = log pθ(yt | y<t ) be the token log-probability, Ht the token entropy, T the response length in tokens, and S the number of reasoning-step delimiters. We define the non-learned candi-date scores as follows. 
+
+scum -lp =
+
+> T
+
+X
+
+> t=1
+
+ℓt. (8) 
+
+smean -lp = 1
+
+T
+
+> T
+
+X
+
+> t=1
+
+ℓt. (9) 
+
+sneg -ent = − 1
+
+T
+
+> T
+
+X
+
+> t=1
+
+Ht. (10) 
+
+sneg -varent = − Var t(Ht). (11) In Table 8, we report the best scorer separately for each cell. This is an optimistic envelope for cheap heuristics; a single fixed scorer would gener-ally perform worse. 
+
+D Extended Results 
+
+N -scaling. Table 7 varies the evaluation pool size N ∈ { 8, 16 , 32 , 64 } while keeping the verifier fixed. Increasing N gives only small additional gains after N =16 , suggesting that the sampled pools are already close to their oracle ceiling in many cells. The MATH-500 rows use an earlier split and are included only to show the trend. 
+
+Table 7: N -scaling of HSRM verifier-best accuracy 
+
+(%). ∆ is the change from N =8 to N =64 .                                              
+
+> Data Gen 816 32 64 ∆
+> GSM8K 1.7B 84.8 84.3 84.4 85.6 +0 .8
+> 4B 91.5 92.6 93.1 92.6 +1 .1
+> 8B 93.8 94.4 94.7 95.0 +1 .2
+> 14B 95.6 95.5 95.9 95.8 +0 .2
+> MATH-500 1.7B 75.3 76.1 75.0 76.5 +1 .2
+> 4B 86.0 86.3 86.2 86.8 +0 .8
+> 8B 85.3 85.8 85.3 86.0 +0 .7
+> 14B 87.9 87.8 87.6 87.9 0.0
+
+Cheap scorers. Table 8 compares HSRM against an optimistic envelope of non-learned heuristics, where the best cheap scorer is selected separately for each dataset–generator cell. This is a deliber-ately strong baseline: in a real deployment, one would usually need to choose a single heuristic in advance, whereas this table gives the heuristic Table 8: Best cheap scorer vs. HSRM (best-of-8 accuracy, %). ∆ is HSRM minus the best cheap scorer. The cheap scorer is selected separately for each dataset–generator cell, so this table is an optimistic comparison for non-learned heuristics.                                                                                                
+
+> Dataset Gen Best cheap scorer Cheap / HSRM ∆
+> GSM8K 1.7B neg_varentropy 83.2 / 85.6 +2 .4
+> 4B shortest 92.2 / 92.6 +0 .4
+> 8B cumulative_logprob 94.3 / 95.0 +0 .7
+> 14B neg_varentropy 95.4 / 95.8 +0 .4
+> MATH-500 1.7B cumulative_logprob 76.4 / 77.3 +0 .9
+> 4B neg_mean_entropy 86.2 / 85.8 −0.4
+> 8B neg_varentropy 86.8 / 87.0 +0 .2
+> 14B shortest 87.6 / 87.8 +0 .2
+> AIME 1.7B neg_mean_entropy 7.4 / 9.1 +1 .7
+> 4B shortest 18.6 / 18.6 0.0
+> 8B cumulative_logprob 19.3 / 17.7 −1.6
+> 14B cumulative_logprob 21.7 / 21.7 0.0
+> OlympiadBench 1.7B cumulative_logprob 40.0 / 41.6 +1 .6
+> 4B cumulative_logprob 49.2 / 50.1 +0 .9
+> 8B cumulative_logprob 51.4 / 53.0 +1 .6
+> 14B fewest_steps 52.5 / 53.1 +0 .6
+> Dataset Loss Bo8 Acc. Within-AUROC GSM8K Bradley–Terry (Eq. (6)) 85.93 ±0.56 0.718 ±0.007
+> ListMLE 84.59 ±1.41 0.694 ±0.027 BCE 83.91 ±0.45 0.687 ±0.006 MATH-500 Bradley–Terry (Eq. (6)) 66.91 ±0.89 0.620 ±0.014
+> ListMLE 66.69 ±1.40 0.614 ±0.016 BCE 66.57 ±2.15 0.587 ±0.017
+
+Table 9: Training-objective ablation on Qwen3-1.7B candidate pools. All runs use the same HSRM architecture; only the training objective differs. The proposed tie-safe Bradley–Terry objective achieves the best best-of-8 selection accuracy and within-problem AUROC on both datasets. 
+
+family oracle access to the best choice for each setting. Even under this favorable comparison, HSRM outperforms the best cheap scorer in 12 of 16 settings, ties in 2, and underperforms in only 2. The gains are most consistent on GSM8K and OlympiadBench, where HSRM improves over the best heuristic at every generator scale. This sug-gests that the hidden-state verifier is capturing infor-mation beyond surface-level confidence, entropy, or length effects. The pattern of selected cheap scorers is also in-formative. No single heuristic dominates across datasets or generator scales: cumulative log-probability is often strongest on OlympiadBench, entropy-based scores are competitive in some GSM8K and MATH-500 settings, and length-based heuristics occasionally work well on saturated or low-signal cells. This instability indicates that cheap scorers mainly exploit dataset- and generator-specific artifacts rather than a robust verification signal. In contrast, HSRM uses the same learned hidden-state scoring mechanism across all settings. The exceptions are concentrated on AIME and a few saturated MATH-500 cells. On AIME, all methods operate in a low-accuracy regime with small absolute differences, so simple confi-dence heuristics can sometimes match or exceed HSRM. On saturated MATH-500 settings, the can-didate pool often contains strong solutions and the marginal benefit of learned reranking becomes smaller. Overall, the comparison shows that HSRM is not merely learning a proxy for log-probability, entropy, or response length. Rather, it provides a more robust ranking signal, while cheap heuristics remain useful stress-test baselines in regimes where confidence or length is already highly correlated with correctness. 
+
+E Extended Ablations 
+
+Training Objective HSRM is trained for best-of-N selection, so its objective should align with the inference-time requirement of ranking candi-Table 10: Encoder ablation (accuracy ± standard deviation / AUROC ± standard deviation, 5 seeds). DeepSet mean-pools per-step MLP features; Transformer d=128 is a narrower Transformer encoder; Transformer d=256 is the default HSRM encoder.                                                                               
+
+> Dataset Gen DeepSet ( d=128 , 0.40M) Transformer ( d=128 , 0.67M) Transformer ( d=256 , 2.12M) GSM8K 1.7B 85 .76 ±0.57 /0.670 ±0.010 85 .42 ±0.58 /0.662 ±0.019 85 .64 ±0.18 /0.670 ±0.011
+> 4B 92 .31 ±0.20 /0.615 ±0.015 92 .50 ±0.47 /0.629 ±0.009 92 .55 ±0.46 /0.638 ±0.013
+> 8B 94 .77 ±0.47 /0.635 ±0.038 94 .65 ±0.34 /0.645 ±0.024 94 .99 ±0.22 /0.682 ±0.029
+> 14B 95 .85 ±0.22 /0.652 ±0.034 95 .80 ±0.17 /0.641 ±0.027 95 .82 ±0.25 /0.649 ±0.019
+> MATH-500 1.7B 74 .75 ±1.15 /0.591 ±0.015 75 .75 ±1.27 /0.568 ±0.012 76 .45 ±0.68 /0.597 ±0.012
+> 4B 86 .50 ±0.27 /0.586 ±0.016 86 .55 ±0.89 /0.576 ±0.017 85 .80 ±0.78 /0.560 ±0.015
+> 8B 86 .55 ±0.62 /0.595 ±0.021 86 .55 ±0.43 /0.595 ±0.020 85 .95 ±1.22 /0.577 ±0.039
+> 14B 87 .90 ±0.46 /0.568 ±0.021 89 .10 ±1.12 /0.571 ±0.034 87 .90 ±0.78 /0.537 ±0.022
+
+Table 11: Verifier cost comparison. “Weights” denotes approximate float16 weight memory. S is the number of extracted reasoning-step representations and T is the number of generated text tokens.                      
+
+> Verifier Params Weights (fp16) Verifier input Extra generator passes
+> HSRM (ours) 2.1–3.4M ∼4–7MB S≤100 hidden states 0
+> EORM 55M 53.4M ∼107MB Ttext tokens text re-encoding Qwen2.5-Math-PRM-7B ∼7.6B ∼15GB Ttext tokens generator-scale re-encoding
+
+dates within the same problem . This motivates the tie-safe Bradley–Terry objective in Eq. (6), which encourages correct candidates to score higher than incorrect ones without imposing an arbitrary order-ing among candidates that share the same binary label. To test whether this design choice matters in practice, we compare HSRM trained with three objectives: the proposed Bradley–Terry ranking loss, pointwise binary cross-entropy (BCE), and ListMLE. For a fair comparison, all variants use the same HSRM architecture and are trained on the same Qwen3-1.7B candidate pools; only the loss function is changed. Table 9 reports results on GSM8K and MATH-500. The results favor the pairwise ranking objective. On GSM8K, Bradley–Terry reaches 85 .93% best-of-8 accuracy and 0.718 within-problem AUROC, outperforming both ListMLE and BCE. The same pattern holds on MATH-500, where Bradley–Terry again gives the strongest ranking performance. The gains over BCE indicate that treating each can-didate independently as a pointwise correctness-classification problem is less well matched to the best-of-N selection setting. The comparison with ListMLE is also informative. While ListMLE is a ranking objective, it requires a complete ordering of the candidate list. In our setting, however, multi-ple candidates for the same problem can be correct, especially for stronger generators. Imposing a full ordering therefore introduces unnecessary ranking pressure among candidates with the same label. The stronger performance of Bradley–Terry sug-gests that this tie-safe formulation is better aligned with the structure of best-of-N reasoning, where the key requirement is to rank correct candidates above incorrect ones within each problem rather than to totally order the entire candidate pool. 
+
+Encoder architecture. Table 10 compares three encoder bodies while keeping the input signal, loss, learning rate, number of training steps, batch size, and validation split fixed. Overall, the choice of encoder has a relatively small effect compared with the choice of input representation. DeepSet, the narrower Transformer, and the default d=256 
+
+Transformer all achieve comparable accuracy, and no architecture dominates across every dataset– generator pair. This suggests that much of the verification signal is already present in the step-boundary hidden states, rather than being created by a high-capacity encoder. The differences are nevertheless informative. On GSM8K, the Transformer encoders generally im-prove within-problem AUROC as generator scale increases, with the d=256 Transformer giving the strongest ranking quality for the 4B and 8B gen-erators. On MATH-500, however, the pattern is less consistent: DeepSet or the narrower Trans-former can match or exceed the wider Transformer in several cells. This suggests that increasing en-coder capacity is not always beneficial, especially when the verifier supervision is noisier or the can-didate ranking problem is more heterogeneous. We therefore use the d=256 Transformer as the default HSRM encoder because it is consistently competitive, matches the architecture used in the main experiments, and provides a strong accuracy– AUROC trade-off, while the ablation shows that HSRM’s gains are not simply due to using a larger encoder. 
+
+F Verifier Cost and Efficiency 
+
+HSRM’s efficiency advantage is structural: it reads hidden states that are already produced during gen-eration. Therefore, after the candidates have been sampled, HSRM requires no additional generator forward passes. In contrast, text-based verifiers must re-encode each generated solution as text with a separate network. Table 11 summarizes the re-sulting parameter, memory, and input-length differ-ences. For HSRM, the verifier processes at most S ≤
+
+100 step vectors with a small 2-layer Transformer encoder. Its dominant operation is the input projec-tion, which costs O(Sd model dgen ), followed by a small Transformer cost in dmodel =256 . Text-based verifiers instead process the full response length 
+
+T and must run a separate encoder over emitted text. For Qwen2.5-Math-PRM-7B, this means re-reading each candidate with a billion-parameter model, making verification comparable to an addi-tional large-model pass over the full solution.
