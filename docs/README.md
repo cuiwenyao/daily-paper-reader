@@ -6,41 +6,36 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-09-02
-- 运行时间：2026-09-02 23:04:37 UTC
+- 最新运行日期：2026-09-03
+- 运行时间：2026-09-03 21:54:58 UTC
 - 运行状态：成功
-- 本次总论文数：7
-- 精读区：3
-- 速读区：4
+- 本次总论文数：4
+- 精读区：1
+- 速读区：3
 
 ### 今日简报（AI）
-今日精读聚焦自监督电路发现与神经符号回归，均获9分高分，为7篇推荐中最值得关注的方向；速读中多模态几何与概念分离等主题可作拓展了解。建议优先翻阅两篇高分论文，提炼其方法核心，再按兴趣速览其余四篇以保持宏观视野。
-- 详情：[/202609/02/README](/202609/02/README)
+今日共读4篇论文，精读1篇、速读3篇，主题集中于神经符号方法与推理。
+
+最值得关注的是《NeuSOGA》（9.0分），它从观察中学习符号化数学抽象，是实现可解释AI的关键一步；另可参考神经符号视角下推理与后门攻击的对抗分析（7.0分）。
+
+建议普通读者优先从NeuSOGA入手，理解“观察→符号表示”的建模思路，再逐步接触推理鲁棒性话题。
+- 详情：[/202609/03/README](/202609/03/README)
 
 ### 精读区论文标签
-1. [S^3martCirc: Self-supervised Smart Circuit Discovery](/202609/02/2609.00755v1-s3martcirc-self-supervised-smart-circuit-discovery)  
+1. [Neuro-Symbolic Geometric Abstraction (NeuSOGA): From Observations to Symbolic Mathematical Representations](/202609/03/2609.01408v2-neuro-symbolic-geometric-abstraction-neusoga-from-observations-to-symbolic-mathematical-representations)  
    标签：评分：9.0/10、query:ns-xai
-   evidence：面向大语言模型的机械可解释性回路发现，直接服务于大模型可解释推理
-2. [Neural Symbollic Regression Using Deep Learning and Sparse Modelling](/202609/02/2609.01102v1-neural-symbollic-regression-using-deep-learning-and-sparse-modelling)  
-   标签：评分：9.0/10、query:ns-xai
-   evidence：神经网络预条件器结合稀疏符号回归，发现可解释数学表达式
-3. [Neuro-Symbolic Geometric Abstraction (NeuSOGA): From Observations to Symbolic Mathematical Representations](/202609/02/2609.01408v1-neuro-symbolic-geometric-abstraction-neusoga-from-observations-to-symbolic-mathematical-representations)  
-   标签：评分：9.0/10、query:ns-xai
-   evidence：用神经网络从观测中生成显式符号数学表征，直接服务可解释推理
+   evidence：神经符号框架从几何观测渐进生成可解释的符号数学表示，直接体现神经符号集成
 
 ### 速读区论文标签
-1. [Learning Where Outcomes Change:Credit-Addressable Reasoning for Multimodal Geometry](/202609/02/2608.30457v1-learning-where-outcomes-changecredit-addressable-reasoning-for-multimodal-geometry)  
+1. [Does Reasoning Mitigate Backdoor Attacks? A Neuro-Symbolic Perspective](/202609/03/2609.00464v1-does-reasoning-mitigate-backdoor-attacks-a-neuro-symbolic-perspective)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：用可执行代码将视觉关系符号化并与视觉大模型结合，实现可定位决策步骤的多步推理。
-2. [Do General NLP Embeddings Capture Ontological Reasoning?](/202609/02/2609.00177v1-do-general-nlp-embeddings-capture-ontological-reasoning)  
+   evidence：融合亚符号感知与符号推理的神经符号范式，面向更透明可解释的AI系统
+2. [Induction and Inquiry via Probabilistic Reasoning over Language and Code](/202609/03/2609.01815v1-induction-and-inquiry-via-probabilistic-reasoning-over-language-and-code)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：构造大规模逻辑敏感三元组评测神经嵌入的本体语义捕获能力，是神经符号结合的基础性问题
-3. [Are You Thinking What I am Thinking? : Examining Conceptual Separation in Neural Architectures](/202609/02/2609.00764v1-are-you-thinking-what-i-am-thinking--examining-conceptual-separation-in-neural-architectures)  
-   标签：评分：7.0/10、query:ns-xai
-   evidence：对CNN和LLM表征中概念分离进行几何与分布分析
-4. [REER-PT: Reverse-Engineered Reasoning for Perplexity-Guided Pre-training Data Augmentation](/202609/02/2608.30627v1-reer-pt-reverse-engineered-reasoning-for-perplexity-guided-pre-training-data-augmentation)  
+   evidence：结合自然语言与代码的符号心智程序，利用LLM引导的贝叶斯推断进行归纳
+3. [SPEAR: Distilling Domain-Adaptive Reasoning Skeletons via Sequential Symbolic Alignment in Reinforcement Learning](/202609/03/2608.26550v2-spear-distilling-domain-adaptive-reasoning-skeletons-via-sequential-symbolic-alignment-in-reinforcement-learning)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：在预训练数据中插入显式推理注释，使中间推理可见
+   evidence：把推理轨迹投影为符号里程碑，以符号化过程评估指导大模型推理蒸馏
 
 
 <div class="dpr-home-promo-card">
