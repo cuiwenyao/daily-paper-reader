@@ -6,36 +6,29 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-09-03
-- 运行时间：2026-09-03 21:54:58 UTC
+- 最新运行日期：2026-09-04
+- 运行时间：2026-09-04 22:26:01 UTC
 - 运行状态：成功
-- 本次总论文数：4
-- 精读区：1
-- 速读区：3
+- 本次总论文数：2
+- 精读区：0
+- 速读区：2
 
 ### 今日简报（AI）
-今日共读4篇论文，精读1篇、速读3篇，主题集中于神经符号方法与推理。
-
-最值得关注的是《NeuSOGA》（9.0分），它从观察中学习符号化数学抽象，是实现可解释AI的关键一步；另可参考神经符号视角下推理与后门攻击的对抗分析（7.0分）。
-
-建议普通读者优先从NeuSOGA入手，理解“观察→符号表示”的建模思路，再逐步接触推理鲁棒性话题。
-- 详情：[/202609/03/README](/202609/03/README)
+今日速读2篇论文，无精读，重点关注神经符号形式化与上下文学习中的逻辑对齐方向。  
+较值得关注的是《NeuroSTAR》（7.0分），探索自动化器引导的神经符号规格形式化；《SALA》（6.0分）则研究语义感知逻辑对齐以增强复杂推理。  
+若时间有限，建议先读NeuroSTAR的方法设计，后续可追踪其在规格验证任务上的扩展实验。
+- 详情：[/202609/04/README](/202609/04/README)
 
 ### 精读区论文标签
-1. [Neuro-Symbolic Geometric Abstraction (NeuSOGA): From Observations to Symbolic Mathematical Representations](/202609/03/2609.01408v2-neuro-symbolic-geometric-abstraction-neusoga-from-observations-to-symbolic-mathematical-representations)  
-   标签：评分：9.0/10、query:ns-xai
-   evidence：神经符号框架从几何观测渐进生成可解释的符号数学表示，直接体现神经符号集成
+- 本次无精读推荐。
 
 ### 速读区论文标签
-1. [Does Reasoning Mitigate Backdoor Attacks? A Neuro-Symbolic Perspective](/202609/03/2609.00464v1-does-reasoning-mitigate-backdoor-attacks-a-neuro-symbolic-perspective)  
+1. [NeuroSTAR: Automata-guided Neuro-symbolic Specification Formalization](/202609/04/2609.03161v1-neurostar-automata-guided-neuro-symbolic-specification-formalization)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：融合亚符号感知与符号推理的神经符号范式，面向更透明可解释的AI系统
-2. [Induction and Inquiry via Probabilistic Reasoning over Language and Code](/202609/03/2609.01815v1-induction-and-inquiry-via-probabilistic-reasoning-over-language-and-code)  
-   标签：评分：7.0/10、query:ns-xai
-   evidence：结合自然语言与代码的符号心智程序，利用LLM引导的贝叶斯推断进行归纳
-3. [SPEAR: Distilling Domain-Adaptive Reasoning Skeletons via Sequential Symbolic Alignment in Reinforcement Learning](/202609/03/2608.26550v2-spear-distilling-domain-adaptive-reasoning-skeletons-via-sequential-symbolic-alignment-in-reinforcement-learning)  
+   evidence：自动机引导的神经符号形式化方法，服务可解释推理
+2. [SALA: Semantic-Aware Logical Alignment for Complex Reasoning in In-Context Learning](/202609/04/2609.02336v1-sala-semantic-aware-logical-alignment-for-complex-reasoning-in-in-context-learning)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：把推理轨迹投影为符号里程碑，以符号化过程评估指导大模型推理蒸馏
+   evidence：基于语义感知逻辑对齐来匹配复杂推理过程，揭示大模型上下文学习中的推理结构。
 
 
 <div class="dpr-home-promo-card">
