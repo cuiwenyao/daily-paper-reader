@@ -1,0 +1,3810 @@
+Wrong Prediction, Right Answer: Recovering Evidence from Collapsed
+LLM Sequence Scores
+Qiyao Yan1,2 and Chenpeng Wang3 and Liangming Pan1,3,4†
+1State Key Laboratory of Multimedia Information Processing, Peking University
+2School of Computer Science, Peking University
+3YiXin-AILab, YIXIN, Beijing, China
+4Beijing Academy of Artificial Intelligence, Beijing, China
+yqy.1@foxmail.com, liangmingpan@pku.edu.cn
+Abstract
+When a large language model fails a reasoning
+task, it is often assumed to lack the underly-
+ing capability. However, this conflates a gen-
+uine absence of reasoning with a late-stage out-
+put bottleneck. We observe a consistent read-
+out gap across diverse reasoning benchmarks:
+hidden-state probes successfully decode cor-
+rect answers even when native sequence scor-
+ing completely collapses due to structural bi-
+ases. To test whether instance-specific logic
+survives this collapse, we introduce a diagnos-
+tic protocol using a minimal, target-label-free
+additive correction. Fitting just two parame-
+ters on as few as 25 unlabeled examples recov-
+ers 9–34 accuracy points for Qwen3.5 models,
+transferring successfully to OLMo-2-1B and
+Llama-3.1-8B. Crucially, these recovered de-
+cisions persist on hard instances unresolved
+by simple lexical overlap and significantly ex-
+ceed count-preserving permutation baselines.
+Our results definitively show that many appar-
+ent zero-shot reasoning deficits are merely ex-
+pression failures masking intact internal logic,
+urging a narrower interpretation of benchmark
+evaluations.
+1
+Introduction
+As large language models (LLMs) continue to ad-
+vance (OpenAI et al., 2024; Grattafiori et al., 2024;
+Anthropic Team, 2024), standard evaluation relies
+on a straightforward assumption: if a model pre-
+dicts the wrong final answer, it lacks the underlying
+reasoning capability. However, this view mixes up
+two fundamentally distinct mechanisms: a model’s
+internal understanding and its outward expression.
+A model might successfully figure out the correct
+answer behind the scenes, yet fail to express it
+through its final generated token. Therefore, look-
+ing only at the final output observed by an evaluator
+can be highly misleading.
+†Corresponding Author.
+This disconnect between internal knowledge and
+outward expression has been revealed by a series of
+studies. Investigations into model internals (often
+using hidden-state probes) demonstrate that LLMs
+actually compute the correct reasoning steps and
+answers deep inside their layers, well before reach-
+ing the final output stage (Alain and Bengio, 2018;
+Belrose et al., 2025; Burns et al., 2023; Bao et al.,
+2025; Servedio et al., 2025; Maiya et al., 2025; Sun
+et al., 2025; Yuchi et al., 2026). The problem typi-
+cally occurs at the very end of the process. When
+the model translates its internal representations into
+actual vocabulary words, various structural biases
+kick in. For example, the model might have a built-
+in preference for frequent labels like unknown or
+be thrown off by the phrasing of the prompt (Zhao
+et al., 2021; Holtzman et al., 2021; Xia et al., 2025;
+Li et al., 2025a; Huang et al., 2026). As a result, the
+specific correct answer for a given question gets
+overwritten by these general biases, causing the
+final prediction to collapse into what looks like a
+random guess.
+Existing works try to tackle this gap from two
+different directions, but both fall short in crucial
+ways. On one hand, while hidden-state probes
+prove that the model can represent the answer, they
+act as flexible external observers; they do not prove
+that the model’s native generation process actu-
+ally uses this information (Hewitt and Liang, 2019;
+Voita and Titov, 2020; Pimentel et al., 2020; Be-
+linkov, 2022). On the other hand, output calibra-
+tion methods attempt to fix the final predictions by
+mathematically rebalancing the output probabili-
+ties to mitigate biases (Zhao et al., 2021; Holtzman
+et al., 2021; Sanz-Guerrero and von der Wense,
+2025; Li et al., 2025b; Wang and Liu, 2025; Xiao
+et al., 2025; Nakkiran et al., 2025). While these
+techniques improve overall accuracy, this aggregate
+success can be highly deceptive. Simply shifting
+the global distribution of answers (such as forcing
+the model to output true and false at equal rates)
+arXiv:2608.31068v1  [cs.AI]  31 Aug 2026
+
+
+does not guarantee that the model’s underlying log-
+ical reasoning for individual questions was actually
+fixed or utilized.
+To address this ambiguity, we introduce a com-
+prehensive diagnostic protocol to systematically
+trace exactly where the model’s reasoning signal
+gets lost. We first compare the model’s hidden-
+state probes, single-token logits, and full genera-
+tive sequence scores to pinpoint the exact stage
+of the prediction collapse. Once we isolate this
+late-stage scoring bottleneck, we test whether the
+model’s native sequence scores still hide correct,
+example-specific logic. We do this by applying a
+minimal, target-label-free additive correction to the
+raw scores. Because this intervention is mathemat-
+ically restricted—merely shifting the global deci-
+sion boundaries using only two parameters without
+accessing any ground-truth labels—it cannot teach
+the model new reasoning skills or alter how it inter-
+nally ranks candidate answers for a specific prompt.
+Therefore, if the model’s accuracy dramatically
+recovers after this minor adjustment, it provides
+definitive proof that the correct logical alignment
+was preserved in the native outputs all along, and
+the apparent failure was merely a late-stage scoring
+distortion.
+We implement this protocol across a deliber-
+ate progression of reasoning tasks, starting from
+controlled symbolic deduction to natural-language
+benchmarks like ProofWriter, ANLI, and FOLIO.
+These tasks provide clear ground truths and bal-
+anced labels, making them ideal for isolating logi-
+cal deduction from general text generation. Testing
+on the Qwen3.5 model family (Qwen Team, 2026),
+we find a consistent gap: probes easily decode
+the correct answer, while normal output scoring
+fails completely. However, by applying our simple
+two-parameter correction using as few as 25 unla-
+beled examples, we recover 9–34 accuracy points.
+Importantly, this recovery holds up against strict
+stress tests, proving it relies on genuine seman-
+tic reasoning rather than shallow word-matching
+shortcuts. The effect also transfers successfully to
+OLMo-2-1B (OLMo et al., 2025) and Llama-3.1-8B
+(Grattafiori et al., 2024).
+2
+Related Work
+Probing versus output scoring.
+Research into
+model internal representations often relies on lin-
+ear probes trained on frozen hidden states. These
+studies show that models encode substantial task-
+relevant information—including truth directions,
+factuality, arithmetic steps, and chain-of-thought
+answer formation—well before the final output to-
+ken (Alain and Bengio, 2018; nostalgebraist, 2020;
+Belrose et al., 2025; Bao et al., 2025; Servedio
+et al., 2025; Maiya et al., 2025; Sun et al., 2025;
+Yuchi et al., 2026; Kudo et al., 2026). Probe accu-
+racy, however, bypasses the model’s own candidate-
+answer scoring and can arise from statistical fea-
+tures that the model’s native prediction path ignores
+(Hewitt and Liang, 2019; Voita and Titov, 2020;
+Pimentel et al., 2020; Belinkov, 2022). Probes are
+flexible external observers: their success demon-
+strates theoretical capacity, not practical utilization.
+As Burns et al. (2023) show, models can represent
+the correct answer internally while still outputting
+the wrong token. The challenge, then, is to identify
+what blocks the correct answer from reaching the
+output.
+Softmax bottlenecks and unembedding misalign-
+ment.
+One explanation for this obstruction lies in
+the geometry of the language modeling head. The
+softmax bottleneck (Yang et al., 2017) shows that
+the final linear projection and softmax constrain
+the expressiveness of the output layer: even when
+a complex reasoning manifold exists in the final
+hidden state, mapping it into the vocabulary space
+through a single static linear transformation (the
+unembedding matrix) can distort it. Post-training
+can amplify these biases: instruction tuning and
+reinforcement learning from human feedback shift
+the baseline probabilities of structural tokens (Xiao
+et al., 2025), which can push native scoring toward
+safe or frequent labels (e.g., unknown or neutral)
+irrespective of the context vector.
+Output bias and per-example recovery.
+Lan-
+guage model predictions over fixed choices are sus-
+ceptible to systematic distortions, including label
+frequency (Zhao et al., 2021), surface-form compe-
+tition (Holtzman et al., 2021), and prompt wording
+(Xia et al., 2025; Li et al., 2025a; Huang et al.,
+2026). While post-hoc corrections—such as verbal
+normalization and diagonal scaling (Wang and Liu,
+2025; Sanz-Guerrero and von der Wense, 2025;
+Xiao et al., 2025; Li et al., 2025b; Nakkiran et al.,
+2025)—can mitigate these biases, their success is
+measured almost exclusively by aggregate accu-
+racy or expected calibration error. These metrics
+are limited as diagnostic tools because they cannot
+distinguish a correction that fixes individual reason-
+ing paths from one that only reshapes the global
+
+
+Question:
+All cats are animals.
+Some animals are pets.
+Premise:
+Some cats are pets.
+Candidates:
+True
+False
+Unknown
+T
+F
+U
+LLM
+0
+0.2
+0.4
+0.6
+Sequence log-probabilities at
+answer token
+TRUE
+FALSE
+Unknown
+❌Wrong Answer
+💡Qwen3.5-2B/4B/9B all collapse to
+about 0.333 on controlled-logic OOD
+Linear
+Probe
+0
+0.5
+1
+Sequence log-probabilities at
+answer token
+TRUE
+FALSE
+Unknown
+✅Right Answer
+💡The model internally
+knows the answer, but
+is unable to express it
+Additive
+correction
+(per label)
+s!(x)
+% = s!(x) + b!
+b"#$%
+b&'()%
+b*+,+-.+
+F
+✅Corrected!
+Figure 1: Diagnosing collapsed candidate-answer scores. Raw candidate-answer string scores can select the
+wrong label even when a linear probe decodes the gold label from a hidden state. We apply a prior-conditioned
+additive offset (sy(x) 7→sy(x) + by) as a diagnostic intervention; held-out rescue and permutation controls test
+whether the correction exposes example-specific structure.
+label distribution. We therefore pair additive off-
+sets with per-example gain counts and label-count
+permutation baselines, which verify that corrected
+decisions resolve the right individual instances.
+Logical-reasoning benchmarks as testbeds.
+Controlled deduction tasks (Clark et al., 2020;
+Saparov and He, 2023) and natural-language bench-
+marks such as ProofWriter (Tafjord et al., 2021),
+FOLIO (Han et al., 2024), and ANLI (Nie et al.,
+2020) provide known ground truth, balanced la-
+bels, and controllable proof depth, making them
+well suited for auditing individual components of a
+prediction pipeline. Instead of treating these bench-
+marks as leaderboards where a wrong answer is
+equated with an absence of reasoning capacity, we
+use their structural controls to disentangle represen-
+tation failures from scoring bottlenecks.
+3
+Method
+To localize where a final-answer error originates,
+we use a three-stage diagnostic pipeline (Figure 1):
+(i) establish whether the answer is encoded in hid-
+den states; (ii) test whether the frozen output layer
+exposes this information; and (iii) apply a minimal,
+prior-conditioned additive correction without target
+labels, verifying any recovery at the per-example
+level. No training objective is added to the model
+itself; every component operates on frozen outputs.
+Task and full candidate-answer string score.
+Each example consists of a prompt x and
+a
+label
+y
+drawn
+from
+a
+fixed
+set
+(e.g.,
+{true,false,unknown}). The prompt ends with a
+literal answer slot, Answer: <answer>. We evalu-
+ate candidates by scoring fixed continuations, such
+as true</answer>.
+The full candidate-answer
+string score is the sum of teacher-forced log-
+probabilities over this complete continuation:
+sy(x) =
+|ay|
+X
+t=1
+log pθ(ay,t | x, r, ay,<t),
+where r is the prompt suffix and ay is the fixed
+string. The raw prediction is arg maxy sy(x). This
+step adds no auxiliary task heads or parameters,
+so the scores reflect native zero-shot behavior.
+Probe training.
+All probes are multinomial logis-
+tic regressions fitted on frozen hidden states from
+in-domain examples and evaluated on disjoint held-
+out splits; no gradient reaches the model. Train-
+ing sizes, seeds, and padding follow the format-
+matched protocol listed in Appendix B (e.g., 2,000
+training rows and three fixed seeds for the repaired
+4B runs); training-size sensitivity appears in Ap-
+pendix D.
+Mathematical formulation of the scoring gap.
+To separate linearly decodable information from
+native output representations, we use position-
+matched readouts.
+Let ha(x)
+∈
+Rd be the
+hidden state immediately following the Answer:
+<answer> tag, before any label token is generated.
+At this position, the same-position label logits
+are computed via the frozen unembedding matrix
+
+
+W ∈RV ×d and bias vector b ∈RV . For a candi-
+date token y, the native score is determined by the
+pre-trained geometry alone: zy = ha(x)⊤wy + by.
+If the structural bias by is large, or if the norm ∥wy∥
+favors a specific vocabulary subset, the prediction
+collapses regardless of the logic encoded in ha(x).
+An answer-slot probe, by contrast, fits an in-
+dependent separating hyperplane θy via logistic
+regression, outside the vocabulary-projection con-
+straints. Probing at this shared state ha(x) avoids
+cascading effects from generated tokens and iso-
+lates the context vector available to the model at
+the decision point; a prompt-end probe applies
+the same readout to the final state of the original
+prompt, before the answer tag is appended.
+Prior-conditioned offset correction.
+Building
+on established additive calibration techniques
+(Zhao et al., 2021), we use a low-capacity deci-
+sion offset as our diagnostic intervention to coun-
+teract the by dominance described above. Given an
+unlabeled in-domain score set Did, the corrected
+prediction is:
+ˆyc(x) = arg max
+y
+sy(x) + cy.
+We fix one reference offset to zero (a uniform shift
+preserves the argmax), leaving two free parameters
+for three labels. Given a target label prior π and the
+induced prediction fraction qc(y; Did), we choose
+the offsets by deterministic grid search to minimize
+the squared difference:
+c⋆= arg min
+c
+X
+y
+(qc(y; Did) −πy)2 .
+This formulation is deliberately constrained: with
+only two degrees of freedom for the entire dataset,
+the intervention cannot learn a new reasoning-task
+mapping. Because the offsets are global, they can-
+not alter within-label rankings; the correction acts
+only as a threshold shift.
+To make this concrete, consider a Qwen3.5-9B
+lexical-OOD example (gold label true) whose raw
+scores collapse to unknown. Offsets fitted on an
+unlabeled ID set rebalance the candidates so that
+the correct one wins:
+Candidate continuation
+Raw score
+Offset
+Corrected score
+false</answer>
+−6.18
++1.55
+−4.63
+true</answer>
+−5.89
++3.25
+−2.64
+unknown</answer>
+−3.49
+0.00
+−3.49
+Evaluation protocol and controls.
+The offset-fit
+set is always disjoint from the evaluation set. We
+consider a recovery valid only if it yields positive
+per-example gains and survives three controls:
+1. TF-IDF-missed slice: Language models can
+exploit spurious correlations—such as shallow
+word overlap between premise and hypothesis—
+to score well without reasoning (the “Clever
+Hans” effect). Restricting evaluation to exam-
+ples that a bag-of-words classifier fails on re-
+moves instances solvable by surface matching
+alone.
+2. Label-count permutation baselines: Accuracy
+is inflated if a correction only matches the true
+label distribution of a balanced dataset. We ran-
+domly permute the corrected predictions while
+preserving their label multiset; the resulting per-
+mutation gap quantifies per-example alignment
+beyond label counts.
+3. Deterministic subsampling: Fitting offsets on
+very small subsets (25 to 500 examples) tests
+whether the correction extracts a pre-existing
+threshold shift, ruling out data-intensive relearn-
+ing of a task mapping.
+4
+Experiments
+4.1
+Setup and design rationale
+Our evaluation scales the complexity of the rea-
+soning environment in four steps. We begin with
+controlled logic, which isolates multi-hop deduc-
+tive rules and strips away world knowledge to test
+pure algorithmic syntax. ProofWriter embeds the
+same style of logic in natural language, adding lin-
+guistic variance. ANLI tests whether the findings
+survive human-written adversarial noise, and FO-
+LIO probes zero-shot transfer to formal first-order
+logic. This progression ensures that an observed
+scoring collapse is not an artifact of a single lin-
+guistic domain.
+All four tasks are cast into the same forced-
+choice format with a literal answer slot.
+For
+controlled logic, the ID fit split and each OOD
+split contain 1,000 examples, generated with fixed
+scripts and seeds and balanced over the three la-
+bels; distractor rules are label-balanced, so shallow
+matching does not solve the task. For ProofWriter,
+offsets are fitted on 1,000 in-domain score rows and
+evaluated on a disjoint 1,000-example OOD split.
+ANLI uses R1 as the in-domain fit split and the ad-
+versarial R2 as the held-out split. FOLIO serves as
+a sparsity diagnostic: offsets are fitted on the 203
+validation examples and evaluated on 1,001 pre-
+pared training examples. Full construction details
+appear in Appendix B.
+Our design holds the model family fixed, so that
+
+
+comparisons across scoring methods are not con-
+founded by architectural differences: the central
+evaluation covers a protocol-matched, post-trained
+Qwen3.5-2B/4B/9B sweep, while cross-family
+models (OLMo-2-1B (OLMo et al., 2025), Llama-
+3.1-8B (Grattafiori et al., 2024), and Pythia (Bider-
+man et al., 2023)) are tested only on ProofWriter,
+where they probe the generalization boundary. Ap-
+pendix B records the protocol details and model
+revisions.
+4.2
+Readout gap: string scoring fails while
+answer-slot evidence remains
+To isolate candidate-answer likelihood as the fail-
+ing step, we first test whether task-relevant evi-
+dence survives in hidden states when sequence
+scoring collapses. If the answer is absent, probes
+should fail alongside native scoring.
+Table 1 confirms this divergence.
+For post-
+trained Qwen3.5-2B, answer-slot probe accuracies
+reach 0.918 (in-domain) and 0.661 (lexical OOD),
+while the full candidate-answer string score stays
+at chance (0.333) on every split. The gap widens
+for Qwen3.5-9B, whose answer-slot probes reach
+0.972 (ID) and 0.830 (lexical OOD) against the
+same collapsed string scores. The same-position
+label logits lag well behind the probes, confirming
+that the hidden state encodes the correct answer
+even where the frozen output matrix does not ex-
+pose it.
+The mismatch is thus geometric rather than rep-
+resentational: the answer is decodable from the
+hidden state, but the pre-trained unembedding ge-
+ometry is not aligned with the direction that en-
+codes it. Wrong sequence predictions therefore
+cannot be read as an absence of reasoning.
+Nor is the divergence a post-training artifact.
+Table 11 repeats the comparison on the Qwen3.5
+Base checkpoints, which never underwent instruc-
+tion tuning: Qwen3.5-4B-Base answer-slot probes
+reach 0.968 (ID) and 0.751 (lexical OOD) while
+the string score stays at chance. The base rows
+also localize the loss more finely. For Qwen3.5-9B-
+Base, same-position label logits reach 0.627 (ID)
+and 0.607 (lexical OOD), yet the full string score
+remains at 0.374/0.361: even where the vocabulary
+head partially exposes the answer at the decision
+position, accumulating log-probability over the
+candidate string destroys the margin again. The bot-
+tleneck therefore sits in sequence-level aggregation
+as much as in the unembedding geometry.
+Three further audits bound alternative accounts
+(Appendix D). First, the readout gap is statisti-
+cally solid: on Qwen3.5-9B the answer-slot probe
+exceeds the string score by +0.488 (95% CI
+[+0.452, +0.523], paired p < .001), and the same-
+position label logits exceed the string score by
++0.237 [+0.180, +0.293], so information is lost
+at the vocabulary projection and again at sequence
+aggregation. Second, probes fitted to randomized
+labels stay at chance (0.304–0.341), so probe suc-
+cess reflects answer-related structure rather than
+arbitrary decodability. Third, the collapse is invari-
+ant to scoring convention: mean-normalized scores
+reproduce the summed-score collapse exactly (e.g.,
+Qwen3.5-9B predicts unknown for 99.9% of lexical-
+OOD examples under both), ruling out length nor-
+malization as the cause.
+4.3
+Label-bias correction recovers
+per-example evidence
+A pure label-frequency bias distorts the output
+distribution while leaving example-level rankings
+intact. We test whether sequence scoring suffers
+from this specific bottleneck by applying the
+two-parameter offset correction and tracking
+per-example macro-F1: if native scoring retains
+task-relevant structure, the correction should
+produce positive paired gains, not merely a
+balanced histogram.
+Table 2 and Figure 2 confirm this prediction.
+Fitting offsets on 1,000 unlabeled ID score rows
+raises Qwen3.5-4B/9B on the synthetic lexical split
+from chance to 0.570 and 0.602, respectively, and
+to 0.653/0.678 on ProofWriter.
+Every configu-
+ration in Table 2 reaches statistical significance
+(p ≤0.035). Even on the adversarial ANLI task,
+Qwen3.5-4B improves from 0.478 to 0.571.
+The parallel gain in macro-F1 shows that the
+correction is not defaulting to a single frequent
+class.
+Before correction, Qwen3.5-9B predicts
+unknown for 999 of 1,000 lexical-OOD examples;
+after the thresholds are rebalanced—without a
+single target label—the relative score differences
+reorder the candidates correctly. Raw sequence
+scores thus retain per-example logic even when the
+argmax is dominated by label-level offsets.
+4.4
+Sample efficiency
+If the offset correction addresses a low-dimensional
+threshold bias rather than learning a new task map-
+ping, it should need very few examples to fit.
+Appendix Table 20 reports offset fits with as few
+as 25 unlabeled examples. Across all 30 random
+
+
+Model
+Split
+Prompt-end probe
+Answer-slot probe
+Same-position label logits
+First-label-token score
+Full string score
+Qwen3.5-2B
+id
+0.908
+0.918
+0.333
+0.333
+0.333
+Qwen3.5-2B
+depth
+0.580
+0.583
+0.333
+0.333
+0.333
+Qwen3.5-2B
+lexical
+0.516
+0.661
+0.333
+0.333
+0.333
+Qwen3.5-4B
+id
+0.951
+0.962
+0.575
+0.572
+0.333
+Qwen3.5-4B
+depth
+0.761
+0.858
+0.521
+0.515
+0.333
+Qwen3.5-4B
+lexical
+0.644
+0.774
+0.561
+0.552
+0.333
+Qwen3.5-9B
+id
+0.975
+0.972
+0.573
+0.572
+0.333
+Qwen3.5-9B
+depth
+0.799
+0.821
+0.480
+0.478
+0.333
+Qwen3.5-9B
+lexical
+0.611
+0.830
+0.574
+0.568
+0.333
+Table 1: Position-matched post-trained Qwen3.5 scoring comparison. The prompt-end probe reads the final
+state of the original prompt; the answer-slot probe reads the state after literal Answer: <answer> and before any
+label; same-position label logits apply the frozen output matrix at that exact state; and the full candidate-answer
+string score sums teacher-forced log-probabilities over the fixed continuation. All columns use the same 1,000
+examples per split. The repaired 4B probe values use the format-matched 2,000-example probe training run (three
+fixed seeds).
+Task
+Model
+N
+Raw
+Cal.
+Paired Gain
+Macro-F1
+p
+synthetic lexical
+Qwen3.5-2B
+1000
+0.333
+0.381
+272-224=+48
+0.371
+p = 0.035
+Qwen3.5-4B
+1000
+0.333
+0.570
+351-114=+237
+0.572
+p < .001
+Qwen3.5-9B
+1000
+0.333
+0.602
+371-102=+269
+0.591
+p < .001
+ProofWriter
+Qwen3.5-4B
+1000
+0.333
+0.653
+478-158=+320
+0.650
+p < .001
+Qwen3.5-9B
+1000
+0.334
+0.678
+474-130=+344
+0.678
+p < .001
+ANLI R2
+Qwen3.5-4B
+1000
+0.478
+0.571
+149-56=+93
+0.573
+p < .001
+FOLIO diagnostic
+Qwen3.5-4B
+1001
+0.335
+0.565
+407-176=+231
+0.553
+p < .001
+Qwen3.5-9B
+1001
+0.348
+0.638
+437-146=+291
+0.632
+p < .001
+Table 2: Sequence scores preserve answer evidence after label-bias correction. Additive per-label offsets are
+fit on unlabeled in-domain score distributions and frozen before held-out evaluation. Per-example gain reports
+examples the corrected rule gets right that the raw rule gets wrong, minus the reverse.
+subsamples at the 25-example budget, Qwen3.5-
+2B/4B/9B show positive accuracy gains on the syn-
+thetic lexical split; on ProofWriter, the 25-example
+fit yields improvements of +0.216 and +0.277 for
+Qwen3.5-4B/9B. Moving from 25 to 1,000 fit exam-
+ples changes held-out accuracy by at most 0.022 on
+any task. This rapid saturation is consistent with fit-
+ting only two bias parameters: the representations
+are already separable, merely shifted relative to the
+output geometry, and the correction recenters them
+without retraining.
+Table 3 exposes the two budget endpoints be-
+hind this result. Recovery is already positive at
+25 examples for every collapsed Qwen3.5 row, re-
+mains positive in all 30 subsamples, and changes
+only modestly by the full budget. The near-ceiling
+ANLI-9B row is the informative exception: ad-
+ditional unlabeled data cannot create headroom
+when the raw score is already strong. The complete
+sweep appears in the appendix.
+4.5
+Shortcut and label-count controls
+To rule out lexical shortcuts and label-distribution
+matching as explanations, we stress-test the cor-
+rected decisions against two controls.
+As described in Section 3, we first isolate
+examples that a bag-of-words (TF-IDF) clas-
+sifier fails on, removing instances solvable by
+premise–hypothesis overlap. On these ProofWriter
+TF-IDF-missed subsets, the 25-example correction
+maintains Qwen3.5-4B/9B accuracies of 0.622 and
+0.643. Second, we ask whether the gains reflect
+a favorable label histogram by comparing them
+with count-preserving permutation baselines: on
+balanced evaluation sets, a purely distributional
+fix would hover at chance (1/3). The corrected
+Qwen3.5-4B/9B predictions instead produce per-
+mutation gaps of +0.287 and +0.305, indicating
+that the accuracy reflects per-example alignment.
+Table 5 aggregates these controls; neither the
+collapse nor the recovery is explained away by
+surface heuristics.
+Two further audits bound the roles of the prior
+and the prompt surface. Perturbing the target prior
+
+
+Task
+Model
+Raw
+25 ID
+1000 ID
+Pos@25
+Synthetic lexical
+Qwen3.5-4B
+.333
+.549±.026
+.570
+30/30
+Synthetic lexical
+Qwen3.5-9B
+.333
+.580±.024
+.602
+30/30
+ProofWriter
+Qwen3.5-4B
+.333
+.641±.023
+.644
+30/30
+ProofWriter
+Qwen3.5-9B
+.334
+.675±.018
+.677
+30/30
+ANLI R2
+Qwen3.5-4B
+.445
+.559±.023
+.574
+30/30
+ANLI R2
+Qwen3.5-9B
+.638
+.620±.019
+.638
+6/30
+Table 3: Selected sample-efficiency results. Offsets are fit on unlabeled in-domain score rows and evaluated on
+a disjoint held-out split. The 25-ID column reports mean calibrated accuracy over 30 deterministic subsamples
+(standard deviation shown); 1000-ID is the full-budget result; “Pos@25” counts subsamples with a positive gain.
+Complete rows and intermediate budgets appear in Appendix 20.
+0.3
+0.4
+0.5
+0.6
+0.7
+Accuracy
++0.05
++0.24
++0.27
++0.32
++0.34
++0.09
++0.23
++0.29
+A. Target-unlabeled prior correction recovers native sequence evidence
+Chance
+Raw sequence
+Prior-corrected
+Synthetic
+Qwen3.5-2B
+Synthetic
+Qwen3.5-4B
+Synthetic
+Qwen3.5-9B
+ProofWriter
+Qwen3.5-4B
+ProofWriter
+Qwen3.5-9B
+ANLI R2
+Qwen3.5-4B
+FOLIO
+Qwen3.5-4B
+FOLIO
+Qwen3.5-9B
+0
+100
+200
+300
+Net rescues
+B. Paired calibrated-only correct minus raw-only correct
+Figure 2: Cross-task recovery from collapsed se-
+quence scoring. (A) Raw sequence accuracy (gray)
+versus corrected accuracy (blue); dashed line is chance
+(1/3). (B) Paired net gain, defined as corrected-only cor-
+rect minus raw-only correct. Bars use 1,000 unlabeled
+ID score rows for Synthetic, ProofWriter, and ANLI,
+and 203 validation rows for FOLIO; every bar is evalu-
+ated on a disjoint held-out split. The 25-example result
+belongs only to the separate sample-efficiency analysis.
+around the uniform operating point leaves worst-
+case gains positive for Qwen3.5-4B/9B on syn-
+thetic lexical (+0.193/+0.242) and ProofWriter
+(+0.281/+0.294), whereas Pythia-12B degrades
+to −0.021 (Tables 19 and 29). The collapse is also
+not tied to the answer surface: holding the verbaliz-
+ers to equal token counts leaves Qwen3.5-9B string
+scoring at chance, and across 20 prompt/verbalizer
+variants the collapse persists in 87–96% of config-
+urations (Appendix C). Finally, regenerating the
+evaluation splits with three independent generator
+seeds leaves the Qwen3.5-9B recovery intact (mini-
+mum ∆+0.230; observed-minus-null gap +0.252;
+Table 23), so the effect is a model property rather
+than a dataset artifact.
+The detailed TF-IDF-missed results in Table 4
+make the strongest control concrete.
+On the
+hard ProofWriter slice, the 25-example correction
+reaches 0.622/0.643 for Qwen3.5-4B/9B, while the
+observed-minus-null gaps are +0.287/+0.305 at
+the full budget. These margins remain well above
+the count-preserving null even after removing ex-
+amples that a bag-of-words classifier can solve.
+0.0
+0.1
+0.2
+0.3
+0.4
+0.5
+0.6
+0.7
+Accuracy / null gap
+Synth. Qwen3.5-4B
+Synth. Qwen3.5-9B
+ProofW. Qwen3.5-4B
+ProofW. Qwen3.5-9B
+ANLI R2 Qwen3.5-4B
+ProofW. Pythia-410M
+A. BOW-wrong and count-preserving nulls
+Null gap
+BOW-wrong acc.
+0.1
+0.2
+0.3
+0.4
+0.5
+0.6
+0.7
+0.8
+0.9
+Accuracy
+All OOD
+BOW-wrong
+BOW d>=1
+BOW d>=2
+B. ProofWriter hard slices
+Null mean
+Seq. baseline
+Source ens.
+Figure 3: Shortcut and label-count controls for TF-
+IDF-missed examples.
+(A) Bars: calibrated accu-
+racy on examples a TF-IDF classifier misses; red dots:
+gap above label-count permutation nulls.
+Qwen3.5
+rows exceed both chance and nulls; Pythia does not.
+(B) ProofWriter hard slices: source ensemble (green)
+exceeds the sequence baseline (gray) and null means
+(red) across depth strata.
+4.6
+Complementarity with source-task
+transfer
+Finally, if corrected sequence scores capture
+genuine target-domain evidence, they should
+complement
+representations
+learned
+through
+cross-task transfer: fine-tuned adapters rewrite
+reasoning pathways, while native sequence scores
+rely on pre-trained routing that may preserve
+complementary structure.
+We test this on ProofWriter with a source-task
+ensemble (Qwen3.5-4B, Qwen3.5-9B, and Llama-
+3.1-8B adapters) fixed before seeing any target la-
+bels. The source-only ensemble achieves 0.700
+accuracy on ProofWriter OOD. Fusing the target-
+domain corrected sequence scores—still without
+target labels—raises the hybrid ensemble to 0.720,
+a paired net gain of 20 examples over the base-
+
+
+Task
+Model
+NTFIDF-miss
+Raw
+25 ID
+1000 ID
+Null gap (full)
+Synthetic lexical
+Qwen3.5-4B
+645
+.468
+.558±.018
+.569
++.187
+Synthetic lexical
+Qwen3.5-9B
+645
+.468
+.581±.030
+.594
++.212
+ProofWriter
+Qwen3.5-4B
+576
+.366
+.622±.024
+.622
++.287
+ProofWriter
+Qwen3.5-9B
+576
+.366
+.643±.024
+.651
++.305
+ANLI R2
+Qwen3.5-4B
+660
+.377
+.557±.038
+.583
++.226
+Table 4: Selected TF-IDF-missed recovery results. Evaluation rows are restricted to instances missed by a
+bag-of-words classifier. The 25-ID and 1000-ID columns report calibrated accuracy for offsets fit with the indicated
+unlabeled budgets; “Null gap (full)” is the full-budget observed-minus-count-preserving-permutation gap. Complete
+model and slice rows appear in Appendix 26.
+Control
+Alternative
+explanation
+Main outcome
+TF-IDF-missed
+examples
+Lexical shortcuts.
+Qwen3.5-4B/9B stay positive on
+synthetic and ProofWriter hard
+examples; Qwen3.5-4B also on
+ANLI R2.
+Label-count
+permutation
+baselines
+Label-distribution
+matching only.
+Main Qwen3.5 rows exceed
+their permutation baselines;
+multiseed Qwen3.5-9B
+lexical-OOD gap is +0.205.
+Prior
+perturbations
+Sensitive to the
+assumed prior.
+Worst-case gains remain
+positive on synthetic
+(+0.193/ + 0.242) and
+ProofWriter
+(+0.281/ + 0.294).
+25-example fits
+Requires large
+calibration set.
+Collapsed rows recover from 25
+unlabeled examples on synthetic,
+ProofWriter, and ANLI R2.
+Surface/model
+scope
+Answer-string artifact
+or universal effect.
+20 prompt/verbalizer variants
+and equal-token ABC preserve
+collapse; Pythia and high-raw
+Qwen3.5 rows delimit scope.
+Table 5: Control summary. Corrected decisions are
+checked against lexical filters, label-count permutation
+baselines, prior perturbations, small-sample fits, surface
+changes, and model-scope controls.
+Model
+Raw Corrected
+∆Permutation test
+OLMo-2-1B
+.362
+.566
++.204
+p < .001
+Llama-3.1-8B .333
+.477
++.144
+p < .001
+Pythia-410M
+.328
+.353
++.025
+p = .103
+Pythia-12B
+.343
+.335 −.008
+p = .462
+Table 6: Cross-family ProofWriter comparison. Off-
+sets are fitted on 1,000 unlabeled ID score rows and
+frozen for a disjoint 1,000-example OOD split. The
+OLMo and Llama gains exceed count-preserving permu-
+tation nulls; the two Pythia changes are not statistically
+reliable and serve as scope boundaries.
+line. The margin is modest and we do not attach
+a significance claim to it, but the direction is con-
+sistent across the hard-slice audits: on the TF-IDF-
+missed slice the hybrid improves from 0.682 to
+0.707, and on the deepest proof strata (≥2 hops)
+from 0.483 to 0.557 (Appendix F). This suggests
+that, once the scoring bottleneck is removed, na-
+tive sequence scores carry additive evidence that
+source-task transfer alone does not capture.
+4.7
+Boundary conditions: when recovery fails
+The correction is not expected to help universally,
+and its failures are informative. Three boundary
+cases recur across our tables. First, near-ceiling
+rows: the high-baseline Qwen3.5-9B ANLI con-
+figuration (raw accuracy 0.638) leaves little re-
+coverable structure, and the offset yields no gain
+(∆= 0.000 at the 1,000-example fit, positive in
+only 6 of 30 subsampled 25-example fits). Sec-
+ond, models without a collapsed ranking: Pythia-
+410M and Pythia-12B show no reliable recovery on
+ProofWriter (p = .103 and p = .462; Table 6); no
+hidden ranking is exposed for the offset to rescue.
+Third, prior misspecification: worst-case prior per-
+turbations shrink the gains but keep them positive
+on the synthetic and ProofWriter splits (Table 5),
+so a wrong prior degrades the correction gradu-
+ally rather than inverting it. These cases sharpen
+the scope of our claim: the correction recovers
+per-example evidence only when probes indicate
+that the answer is encoded and raw predictions are
+collapsed or strongly biased, rather than merely
+inaccurate.
+5
+Discussion
+The conjunctive nature of evidence.
+Evaluating
+reasoning capacity through raw likelihood scoring
+underestimates a model’s internal representations,
+but this evidence must be read conjunctively. High
+probe accuracy alone shows that an answer is lin-
+early decodable from hidden states, not that the
+model’s native scoring uses it; conversely, positive
+per-example gains from calibration are meaning-
+ful only if they exceed the label-count permutation
+baseline. Under this reading, the Pythia check-
+points fail the permutation-null test and the high-
+baseline Qwen3.5-9B ANLI row shows no recov-
+erable gain, so we treat the offset as a descriptive
+diagnostic for collapsed distributions rather than a
+universal causal fix for models that lack the reason-
+ing skill.
+Mechanistic origins of the scoring collapse.
+The additive decomposition sy(x) = ˜sy(x) + βy is
+effective because task-relevant variation survives
+in the relative score differences, even when a large
+label-dependent offset dominates the raw argmax;
+
+
+altering no within-label ranking, the two-parameter
+correction cannot “teach” new reasoning paths—it
+removes a shared threshold shift so that existing
+logic can surface. Why does the native output ma-
+trix fail to expose this structure? The Base-model
+results (Table 11) show that the collapse precedes
+instruction tuning; the bias plausibly originates in
+pretraining frequency priors over structural tokens,
+which instruction tuning and safety alignment then
+amplify toward neutral or uncertainty markers (e.g.,
+unknown). The task-relevant signal then behaves as
+a small perturbation ˜sy(x) on top of a much larger
+structural bias βy.
+Why recovery is partial.
+The correction closes
+only part of the probe–sequence gap:
+on the
+controlled-logic lexical-OOD split,
+corrected
+accuracy reaches 0.57–0.60 where answer-slot
+probes reach 0.77–0.83. This is expected under the
+additive account: the fitted offsets remove only the
+shared label-level component βy and cannot repair
+per-example distortions such as surface-form
+competition between candidate strings (Holtzman
+et al., 2021) or context-dependent misalignment
+of the unembedding geometry. The residual gap
+bounds what a global, target-label-free correction
+can expose and marks per-example scoring
+distortions as the next diagnostic target.
+Connections to chain-of-thought prompting.
+The scoring bottleneck we identify offers a mech-
+anistic motivation for chain-of-thought (CoT)
+prompting (Wei et al., 2022): mapping a multi-
+hop deduction into a single classification token
+concentrates the representational burden on one un-
+embedding step, where we observe the collapse,
+while CoT distributes the deduction across interme-
+diate tokens and hidden states. The connection is
+speculative, but it predicts that the collapse should
+shrink as evaluation moves from single-token to
+free-form answers.
+Implications for evaluation practice.
+These re-
+sults argue for a change in how zero-shot failures
+are interpreted. Before concluding that a model
+lacks a reasoning capability because its accuracy is
+near chance, it is worth inspecting the prediction
+histogram: if the predictions collapse onto a single
+label, a lightweight, target-label-free offset fitted
+on a small unlabeled set can reveal whether the
+capability is absent or only masked by output-layer
+artifacts. Leaderboard rankings may currently pe-
+nalize some models not for poor reasoning but for
+poor default calibration.
+6
+Conclusion
+Our results show that a wrong prediction need not
+mean that the underlying answer evidence is ab-
+sent. Across controlled logic, ProofWriter, ANLI,
+and FOLIO, a low-capacity, target-label-free offset
+exposes held-out, example-specific structure and
+recovers accuracy for the larger Qwen3.5 models,
+with transfer to OLMo and Llama. These gains per-
+sist on TF-IDF-missed examples and exceed count-
+preserving permutation baselines, while Pythia and
+near-ceiling configurations delineate clear limits.
+Together, the findings argue that benchmark er-
+rors should be diagnosed across both internal rep-
+resentations and answer scoring before they are
+attributed to missing reasoning capability.
+Limitations
+The supplied label prior in our diagnostic is an ex-
+plicit assumption. Because every evaluation split
+in this paper is label-balanced, the correction is
+tested within the regime its prior describes. Our re-
+sults therefore show that collapsed scores retain per-
+example evidence under a known operating regime,
+but they do not prescribe a solution for deployments
+where the true label distribution is imbalanced or
+unknown. Identifying both the prior and the off-
+sets from the same unlabeled score matrix without
+additional supervision remains an open challenge.
+Second, our method is an observational diagnos-
+tic, not a causal circuit analysis. Probes, same-
+position label logits, and corrected scores trian-
+gulate where representation and scoring diverge,
+but they do not isolate the neural circuits responsi-
+ble for the bottleneck. A positive permutation gap
+confirms example-specific alignment beyond label
+counts, yet it is not proof of human-like semantic
+processing. Our lexical, metadata, and matched
+counterfactual controls reduce shortcut explana-
+tions but cannot eliminate them.
+Finally, the full position-matched chain centers
+on the protocol-matched Qwen3.5 sweep. While
+the transfer results on OLMo and Llama are promis-
+ing, the negative results on Pythia show that the
+phenomenon is not universal across architectures.
+Extending the framework beyond forced-choice
+tasks to open-ended generation would require defin-
+ing robust candidate-answer strings and matched
+permutation controls, which falls outside the scope
+of this work.
+
+
+Ethics Statement
+This is an interpretability and evaluation study
+using synthetic data, public benchmarks, and
+open-weight model checkpoints (Qwen3.5, Pythia,
+OLMo, and Llama). All artifacts are used within
+their respective licenses for research evaluation.
+The study does not collect personal data or intro-
+duce a deployed decision system. The primary
+ethical risk is one of overclaiming: demonstrating
+that corrected scores recover accuracy could be
+misconstrued as proof that a model reasons safely
+or faithfully internally. To mitigate this, we re-
+port scope controls, shortcut audits, and explicit
+boundaries, and frame the correction as diagnostic
+evidence rather than a reliability guarantee.
+Acknowledgements
+This work was supported in part by the Beijing Ma-
+jor Science and Technology Project under Contract
+No. Z251100008125054. This work was supported
+by the Beijing Academy of Artificial Intelligence
+(BAAI). This work was supported by Yixin Group
+Limited. We gratefully acknowledge their provi-
+sion of the essential computing resources required
+for our experiments.
+References
+Guillaume Alain and Yoshua Bengio. 2018. Under-
+standing intermediate layers using linear classifier
+probes. Preprint, arXiv:1610.01644.
+Anthropic Team. 2024. The claude 3 model family:
+Opus, sonnet, haiku. Anthropic Technical Report.
+Yuntai Bao, Xuhong Zhang, Tianyu Du, Xinkui Zhao,
+Zhengwen Feng, Hao Peng, and Jianwei Yin. 2025.
+Probing the geometry of truth: Consistency and gen-
+eralization of truth directions in LLMs across logical
+transformations and question answering tasks. In
+Findings of the Association for Computational Lin-
+guistics: ACL 2025, pages 682–700, Vienna, Austria.
+Association for Computational Linguistics.
+Yonatan Belinkov. 2022. Probing classifiers: Promises,
+shortcomings, and advances. Computational Linguis-
+tics, 48(1):207–219.
+Nora Belrose, Igor Ostrovsky, Lev McKinney, Zach Fur-
+man, Logan Smith, Danny Halawi, Stella Biderman,
+and Jacob Steinhardt. 2025. Eliciting latent predic-
+tions from transformers with the tuned lens. Preprint,
+arXiv:2303.08112.
+Stella Biderman, Hailey Schoelkopf, Quentin Gregory
+Anthony, Herbie Bradley, Kyle O’Brien, Eric Hal-
+lahan, Mohammad Aflah Khan, Shivanshu Purohit,
+Usvsn Sai Prashanth, Edward Raff, Aviya Skowron,
+Lintang Sutawika, and Oskar Van Der Wal. 2023.
+Pythia: A suite for analyzing large language models
+across training and scaling. In Proceedings of the
+40th International Conference on Machine Learning,
+volume 202 of Proceedings of Machine Learning
+Research, pages 2397–2430. PMLR.
+Collin Burns, Haotian Ye, Dan Klein, and Jacob Stein-
+hardt. 2023. Discovering latent knowledge in lan-
+guage models without supervision. In The Eleventh
+International Conference on Learning Representa-
+tions, ICLR 2023, Kigali, Rwanda, May 1-5, 2023.
+OpenReview.net.
+Peter Clark, Oyvind Tafjord, and Kyle Richardson. 2020.
+Transformers as soft reasoners over language. CoRR,
+abs/2002.05867.
+Aaron Grattafiori, Abhimanyu Dubey, Abhinav Jauhri,
+Abhinav Pandey, Abhishek Kadian, Ahmad Al-
+Dahle, Aiesha Letman, Akhil Mathur, Alan Schel-
+ten, Alex Vaughan, Amy Yang, Angela Fan, Anirudh
+Goyal, Anthony Hartshorn, Aobo Yang, Archi Mi-
+tra, Archie Sravankumar, Artem Korenev, Arthur
+Hinsvark, and 542 others. 2024. The llama 3 herd of
+models. Preprint, arXiv:2407.21783.
+Simeng Han, Hailey Schoelkopf, Yilun Zhao, Zhent-
+ing Qi, Martin Riddell, Wenfei Zhou, James Coady,
+David Peng, Yujie Qiao, Luke Benson, Lucy Sun,
+Alexander Wardle-Solano, Hannah Szabó, Ekaterina
+Zubova, Matthew Burtell, Jonathan Fan, Yixin Liu,
+Brian Wong, Malcolm Sailor, and 16 others. 2024.
+FOLIO: Natural language reasoning with first-order
+logic. In Proceedings of the 2024 Conference on
+Empirical Methods in Natural Language Processing,
+pages 22017–22031, Miami, Florida, USA. Associa-
+tion for Computational Linguistics.
+John Hewitt and Percy Liang. 2019. Designing and in-
+terpreting probes with control tasks. In Proceedings
+of the 2019 Conference on Empirical Methods in Nat-
+ural Language Processing and the 9th International
+Joint Conference on Natural Language Processing
+(EMNLP-IJCNLP), pages 2733–2743, Hong Kong,
+China. Association for Computational Linguistics.
+Ari Holtzman, Peter West, Vered Shwartz, Yejin Choi,
+and Luke Zettlemoyer. 2021.
+Surface form com-
+petition: Why the highest probability answer isn’t
+always right. In Proceedings of the 2021 Conference
+on Empirical Methods in Natural Language Process-
+ing, pages 7038–7051, Online and Punta Cana, Do-
+minican Republic. Association for Computational
+Linguistics.
+Jerry Huang, Peng Lu, Qiuhao Zeng, Yusuke Iwasawa,
+Yutaka Matsuo, Sarath Chandar, Edison Marrese-
+Taylor, and Irene Li. 2026. Investigating the multilin-
+gual calibration effects of language model instruction
+tuning. In Proceedings of the 19th Conference of the
+European Chapter of the Association for Computa-
+tional Linguistics (Volume 2: Short Papers), pages 1–
+59, Rabat, Morocco. Association for Computational
+Linguistics.
+
+
+Keito Kudo, Yoichi Aoki, Tatsuki Kuribayashi, Shusaku
+Sone, Masaya Taniguchi, Ana Brassard, Keisuke Sak-
+aguchi, and Kentaro Inui. 2026. LLMs faithfully and
+iteratively compute answers during CoT: A system-
+atic analysis with multi-step arithmetics. In Find-
+ings of the Association for Computational Linguis-
+tics: EACL 2026, pages 1114–1153, Rabat, Morocco.
+Association for Computational Linguistics.
+Chengzu Li, Han Zhou, Goran Glavaš, Anna Korho-
+nen, and Ivan Vuli´c. 2025a. Large language models
+are miscalibrated in-context learners. In Findings of
+the Association for Computational Linguistics: ACL
+2025, pages 11575–11596, Vienna, Austria. Associa-
+tion for Computational Linguistics.
+Haitao Li, Junjie Chen, Qingyao Ai, Zhumin Chu, Yujia
+Zhou, Qian Dong, and Yiqun Liu. 2025b. CalibraE-
+val: Calibrating prediction distribution to mitigate
+selection bias in LLMs-as-judges. In Proceedings
+of the 63rd Annual Meeting of the Association for
+Computational Linguistics (Volume 1: Long Papers),
+pages 16537–16552, Vienna, Austria. Association
+for Computational Linguistics.
+Sharan Maiya, Yinhong Liu, Ramit Debnath, and Anna
+Korhonen. 2025. Improving preference extraction in
+LLMs by identifying latent knowledge through clas-
+sifying probes. In Proceedings of the 63rd Annual
+Meeting of the Association for Computational Lin-
+guistics (Volume 1: Long Papers), pages 9061–9081,
+Vienna, Austria. Association for Computational Lin-
+guistics.
+Preetum Nakkiran, Arwen Bradley, Adam Golinski,
+Eugène Ndiaye, Michael Kirchhof, and Sinead
+Williamson. 2025. Trained on tokens, calibrated on
+concepts: The emergence of semantic calibration in
+llms. CoRR, abs/2511.04869.
+Yixin Nie, Adina Williams, Emily Dinan, Mohit Bansal,
+Jason Weston, and Douwe Kiela. 2020. Adversarial
+NLI: A new benchmark for natural language under-
+standing. In Proceedings of the 58th Annual Meet-
+ing of the Association for Computational Linguistics,
+pages 4885–4901, Online. Association for Computa-
+tional Linguistics.
+nostalgebraist. 2020. Interpreting GPT: The logit lens.
+LessWrong.
+Team OLMo, Pete Walsh, Luca Soldaini, Dirk Groen-
+eveld, Kyle Lo, Shane Arora, Akshita Bhagia, Yuling
+Gu, Shengyi Huang, Matt Jordan, Nathan Lambert,
+Dustin Schwenk, Oyvind Tafjord, Taira Anderson,
+David Atkinson, Faeze Brahman, Christopher Clark,
+Pradeep Dasigi, Nouha Dziri, and 24 others. 2025. 2
+olmo 2 furious. Preprint, arXiv:2501.00656.
+OpenAI, Josh Achiam, Steven Adler, Sandhini Agarwal,
+Lama Ahmad, Ilge Akkaya, Florencia Leoni Ale-
+man, Diogo Almeida, Janko Altenschmidt, Sam Alt-
+man, Shyamal Anadkat, Red Avila, Igor Babuschkin,
+Suchir Balaji, Valerie Balcom, Paul Baltescu, Haim-
+ing Bao, Mohammad Bavarian, Jeff Belgum, and
+262 others. 2024. Gpt-4 technical report. Preprint,
+arXiv:2303.08774.
+Tiago Pimentel, Josef Valvoda, Rowan Hall Maudslay,
+Ran Zmigrod, Adina Williams, and Ryan Cotterell.
+2020. Information-theoretic probing for linguistic
+structure. In Proceedings of the 58th Annual Meet-
+ing of the Association for Computational Linguistics,
+pages 4609–4622, Online. Association for Computa-
+tional Linguistics.
+Qwen Team. 2026. Qwen3.5: Towards native multi-
+modal agents. Official model card and open-weight
+checkpoints: https://huggingface.co/Qwen/Qwen3.5-
+9B.
+Mario Sanz-Guerrero and Katharina von der Wense.
+2025. Mitigating label length bias in large language
+models. In Proceedings of the 14th International
+Joint Conference on Natural Language Processing
+and the 4th Conference of the Asia-Pacific Chapter of
+the Association for Computational Linguistics, pages
+1404–1420, Mumbai, India. The Asian Federation of
+Natural Language Processing and The Association
+for Computational Linguistics.
+Abulhair Saparov and He He. 2023. Language models
+are greedy reasoners: A systematic formal analysis
+of chain-of-thought. In The Eleventh International
+Conference on Learning Representations, ICLR 2023,
+Kigali, Rwanda, May 1-5, 2023. OpenReview.net.
+Giovanni Servedio, Alessandro De Bellis, Dario
+Di Palma, Vito Walter Anelli, and Tommaso Di Noia.
+2025. Are the hidden states hiding something? test-
+ing the limits of factuality-encoding capabilities in
+LLMs. In Proceedings of the 63rd Annual Meet-
+ing of the Association for Computational Linguistics
+(Volume 1: Long Papers), pages 6089–6104, Vienna,
+Austria. Association for Computational Linguistics.
+Yucheng Sun, Alessandro Stolfo, and Mrinmaya Sachan.
+2025. Probing for arithmetic errors in language mod-
+els. In Proceedings of the 2025 Conference on Em-
+pirical Methods in Natural Language Processing,
+pages 8111–8128, Suzhou, China. Association for
+Computational Linguistics.
+Oyvind Tafjord, Bhavana Dalvi, and Peter Clark. 2021.
+ProofWriter: Generating implications, proofs, and
+abductive statements over natural language. In Find-
+ings of the Association for Computational Linguis-
+tics: ACL-IJCNLP 2021, pages 3621–3634, Online.
+Association for Computational Linguistics.
+Elena Voita and Ivan Titov. 2020. Information-theoretic
+probing with minimum description length. In Pro-
+ceedings of the 2020 Conference on Empirical Meth-
+ods in Natural Language Processing (EMNLP),
+pages 183–196, Online. Association for Computa-
+tional Linguistics.
+Xiaoyue Wang and Xin Liu. 2025. Beyond generation:
+Leveraging LLM creativity to overcome label bias
+in classification. In Findings of the Association for
+
+
+Computational Linguistics: ACL 2025, pages 25500–
+25506, Vienna, Austria. Association for Computa-
+tional Linguistics.
+Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten
+Bosma, brian ichter, Fei Xia, Ed Chi, Quoc V Le,
+and Denny Zhou. 2022. Chain-of-thought prompt-
+ing elicits reasoning in large language models. In
+Advances in Neural Information Processing Systems,
+volume 35, pages 24824–24837. Curran Associates,
+Inc.
+Yuxi Xia, Pedro Henrique Luz De Araujo, Klim Za-
+porojets, and Benjamin Roth. 2025. Influences on
+LLM calibration: A study of response agreement,
+loss functions, and prompt styles. In Proceedings
+of the 63rd Annual Meeting of the Association for
+Computational Linguistics (Volume 1: Long Papers),
+pages 3740–3761, Vienna, Austria. Association for
+Computational Linguistics.
+Jiancong Xiao, Bojian Hou, Zhanliang Wang, Ruochen
+Jin, Qi Long, Weijie J. Su, and Li Shen. 2025. Restor-
+ing calibration for aligned large language models:
+A calibration-aware fine-tuning approach. In Forty-
+second International Conference on Machine Learn-
+ing, ICML 2025, Vancouver, BC, Canada, July 13-19,
+2025, Proceedings of Machine Learning Research.
+PMLR / OpenReview.net.
+Zhilin Yang, Zihang Dai, Ruslan Salakhutdinov, and
+William W. Cohen. 2017. Breaking the softmax bot-
+tleneck: A high-rank RNN language model. CoRR,
+abs/1711.03953.
+Fengting Yuchi, Li Du, and Jason Eisner. 2026. LLMs
+know more about numbers than they can say. In
+Proceedings of the 19th Conference of the European
+Chapter of the Association for Computational Lin-
+guistics (Volume 2: Short Papers), pages 659–673,
+Rabat, Morocco. Association for Computational Lin-
+guistics.
+Zihao Zhao, Eric Wallace, Shi Feng, Dan Klein, and
+Sameer Singh. 2021. Calibrate before use: Improv-
+ing few-shot performance of language models. In
+Proceedings of the 38th International Conference
+on Machine Learning, ICML 2021, 18-24 July 2021,
+Virtual Event, Proceedings of Machine Learning Re-
+search, pages 12697–12706. PMLR.
+A
+Appendix Overview
+The appendix remains in the same ACL two-
+column layout as the main text. It first records
+data construction, model revisions, score compu-
+tation, offset fitting, and uncertainty procedures;
+it then reports surface and verbalizer controls, ex-
+panded readout audits, controlled-logic robustness
+checks, ProofWriter transfer experiments, and the
+ANLI/FOLIO diagnostics. Within each block, read
+the raw scores first, then the label-free correction,
+and finally the TF-IDF-missed, permutation, prior-
+sensitivity, and model-family controls that delimit
+the interpretation.
+B
+Data, Models, and Reproducibility
+This section details the experimental configura-
+tions, split sizes, score computations, uncertainty
+procedures, and checkpoint revisions. All principal
+held-out evaluations use at least 1,000 examples,
+except for the explicitly labeled FOLIO diagnos-
+tic. Controlled logic, ProofWriter, ANLI, and FO-
+LIO use fixed three-way label sets and a uniform
+prior for the diagnostic offset fit; the FOLIO fit
+uses 203 validation examples and evaluates on a
+separate 1,001-example prepared split. Controlled-
+logic data is generated deterministically with fixed
+scripts and seeds, and every evaluation split is kept
+disjoint from the unlabeled fit set.
+Compute budget.
+The broader artifact suite from
+which this paper draws required roughly 400 H100
+GPU-hours; the present paper uses a selected sub-
+set of those results. Models range from 410M to
+12B parameters. Once scores are cached, each
+offset fit is a deterministic two-dimensional grid
+search and adds negligible cost.
+Offset fitting mechanics.
+In our codebase, the
+additive prior offsets are identified via a determin-
+istic two-dimensional search. By fixing one label
+offset to zero, we rank the candidate parameter
+pairs by their fit to the prior, preferring lower col-
+lapse and smaller norm. Bootstrap intervals, paired
+statistical tests, sampled-ID repeats, and TF-IDF
+baselines govern the uncertainty and robustness
+reporting, following the pipeline: compute score
+→fit offsets label-free →freeze →evaluate on
+held-out.
+Format-matched
+reruns.
+The
+Qwen3.5-4B
+answer-slot table relies on the pinned revision
+documented in the experiment manifest: formatted
+prompts end precisely with the literal Answer:
+<answer> suffix, with 2,000 probe-training rows
+across three 1,000-example held-out splits (seeds
+42/123/456), left padding, and truncation at a
+maximum length of 1,024. Earlier values were
+excluded due to misaligned no_format_prompt
+flags between training and evaluation.
+The
+ProofWriter Pythia reruns similarly use pinned
+revisions, with 1,000 ID and 1,000 OOD rows per
+checkpoint. Complete provenance is recorded in
+
+
+Model
+Status
+Revision
+Trust RC
+Qwen3.5-0.8B
+post-trained
+2fc06364
+True
+Qwen3.5-2B
+post-trained
+15852e8c
+True
+Qwen3.5-4B
+post-trained
+851bf6e8
+True
+Qwen3.5-9B
+post-trained
+c2022362
+True
+Qwen3.5-0.8B-Base
+base-pretrained
+dc7cdfe2
+True
+Qwen3.5-2B-Base
+base-pretrained
+b1485b2f
+True
+Qwen3.5-4B-Base
+base-pretrained
+1001bb4d
+True
+Qwen3.5-9B-Base
+base-pretrained
+68c46c4b
+True
+Pythia-160M
+base-pretrained
+582159a2
+False
+Pythia-410M
+base-pretrained
+c4fc8d58
+False
+Pythia-1B
+base-pretrained
+7199d8fc
+False
+Pythia-1.4B
+base-pretrained
+554d9c1b
+False
+Pythia-2.8B
+base-pretrained
+7d977fed
+False
+Pythia-6.9B
+base-pretrained
+372b1c08
+False
+Pythia-12B
+base-pretrained
+39c1bd94
+False
+Table 7: Model manifest. Pinned checkpoint revi-
+sions and trust status for the principal Qwen3.5, Pythia,
+OLMo, and Llama comparisons.
+the manifest and revision-summary CSVs supplied
+with the submission artifacts.
+Controlled-logic dataset.
+Our controlled-logic
+benchmark is a balanced three-way deductive task
+(true/false/unknown).
+Each example contains
+shuffled logical facts and rules populated with
+nonce terms (e.g., dax, wug, mip). Distractors are
+label-balanced: every target label is accompanied
+by two positive-property and two negative-property
+rules targeting the query, so that solving the task
+requires multi-hop reasoning rather than shallow
+lexical matching.
+Example (depth-2, label true).
+Facts and rules: Ivo is a marn. Every marn is
+a pavo. Every joto is bright. No wug is bright.
+Every pavo is a joto. Every joto is fragile. No dax
+is bright. Every sarn is bright.
+Question: Is Ivo bright?
+Answer: true
+(chain: marn →pavo →joto →
+bright)
+Generalization is evaluated across the following
+axes:
+• ID test (1,000 examples): Same depth distri-
+bution (1–2 hops) and template style as the fit
+set.
+• Depth OOD (1,000):
+Extended reasoning
+chains (3–5 hops) using identical templates.
+• Lexical OOD (1,000): Identical depth (1–2)
+with aggressively paraphrased templates (e.g.,
+“All {src} things are {dst} things”).
+• Stress/counterfactual: Alternative generator
+seeds and counterfactual rule inversions to check
+structural robustness.
+These splits share a universal nonce vocabulary
+and entity set; only depth, template syntax, and
+generator seeds vary.
+Feature group
+ID
+Depth
+Lexical
+Stress
+Full text
+0.640
+0.550
+0.381
+0.345
+Query only
+0.353
+0.347
+0.326
+0.333
+Facts only
+0.631
+0.564
+0.389
+0.326
+Prop-redacted
+0.674
+0.682
+0.422
+0.336
+Template only
+0.673
+0.604
+0.368
+0.330
+Metadata no polarity
+0.352
+0.333
+0.352
+0.320
+Metadata all
+1.000
+1.000
+1.000
+1.000
+Table 8: Surface leakage audit. TF-IDF and metadata
+baselines test whether controlled-logic prompts reveal
+labels through shallow features; the resulting controls
+motivate TF-IDF-missed and permutation checks.
+Model
+Plain Seq.
+ABC Seq.
+ABC Options Seq.
+Pythia-410M
+0.332 (+0.208)
+0.333 (+0.207)
+0.344 (+0.196)
+Pythia-12B
+0.331 (+0.307)
+0.333 (+0.305)
+0.329 (+0.309)
+Qwen3.5-0.8B
+0.322 (+0.224)
+0.333 (+0.213)
+0.334 (+0.212)
+Qwen3.5-9B
+0.355 (+0.482)
+0.333 (+0.504)
+0.496 (+0.341)
+Table 9: Equal-token verbalizer audit. Holding verbal-
+izer token length constant, the sequence-score collapse
+persists, ruling out answer-length artifacts.
+C
+Surface and Verbalizer Controls
+Before analyzing sequence-score recovery, we first
+check what shallow information the prompts might
+leak. The surface-leakage table tests whether the
+controlled-logic prompts can be solved by meta-
+data or template structure alone. The strength of
+certain metadata baselines motivates our reliance
+on TF-IDF-missed slices and permutation nulls as
+the primary evidence controls.
+The prompt and verbalizer controls then verify
+that the initial collapse is not an artifact of answer-
+string length or prompt wording. The collapse per-
+sists across these variants, which indicates that the
+correction targets an output-layer bottleneck rather
+than a formatting artifact.
+D
+Expanded Readout Audit
+This section expands on the readout gap diagnos-
+tics of §4.2; the position-matched Qwen3.5 Base
+comparison appears below (Table 11). Table 12
+further shows that even when the best native read-
+out position is selected, answer-slot probes remain
+well above the best label-logit directions.
+Tables 14 and 15 bound what the probes can
+tell us. Random-label fits establish a baseline for
+spurious decodability, so that probe success can be
+read as answer-related structure rather than arbi-
+trary side-feature memorization.
+Finally, Tables 16 and 17 complete the probe
+audit: the first quantifies the readout gap with boot-
+strap intervals and paired tests, and the second
+measures how probe accuracy depends on labeled
+training-set size.
+
+
+Model
+Variants
+Slot Mean
+Slot Max
+Seq. Mean
+Seq. Max
+Seq. Collapse
+Pythia-410M
+20
+0.336
+0.366
+0.339
+0.354
+0.764
+Pythia-12B
+20
+0.333
+0.342
+0.335
+0.380
+0.895
+Qwen3.5-0.8B
+20
+0.335
+0.351
+0.332
+0.336
+0.962
+Qwen3.5-9B
+20
+0.402
+0.567
+0.383
+0.563
+0.886
+Qwen3.5-0.8B-Base
+20
+0.341
+0.380
+0.339
+0.373
+0.964
+Qwen3.5-9B-Base
+20
+0.448
+0.594
+0.392
+0.551
+0.873
+Table 10: Prompt and verbalizer robustness.
+The collapse and its label-free recovery persist across 20
+prompt/verbalizer variants, rather than depending on one surface template.
+Model
+Split
+Prompt-end probe
+Answer-slot probe
+Same-position label logits
+First-label-token score
+Full string score
+Qwen3.5-0.8B-Base
+id
+0.855
+0.866
+0.333
+0.333
+0.333
+Qwen3.5-0.8B-Base
+depth
+0.603
+0.655
+0.333
+0.333
+0.333
+Qwen3.5-0.8B-Base
+lexical
+0.607
+0.655
+0.333
+0.333
+0.333
+Qwen3.5-2B-Base
+id
+0.915
+0.933
+0.333
+0.333
+0.333
+Qwen3.5-2B-Base
+depth
+0.679
+0.640
+0.333
+0.333
+0.333
+Qwen3.5-2B-Base
+lexical
+0.559
+0.653
+0.333
+0.333
+0.333
+Qwen3.5-4B-Base
+id
+0.958
+0.968
+0.366
+0.372
+0.336
+Qwen3.5-4B-Base
+depth
+0.741
+0.860
+0.339
+0.340
+0.333
+Qwen3.5-4B-Base
+lexical
+0.626
+0.751
+0.347
+0.349
+0.333
+Qwen3.5-9B-Base
+id
+0.968
+0.975
+0.627
+0.617
+0.374
+Qwen3.5-9B-Base
+depth
+0.791
+0.853
+0.548
+0.538
+0.336
+Qwen3.5-9B-Base
+lexical
+0.610
+0.873
+0.607
+0.604
+0.361
+Table 11: Position-matched Qwen3.5 Base scoring. Base checkpoints show the same probe–scoring divergence;
+even partially informative label logits collapse again when scores are aggregated over the full candidate string.
+Model
+Slot Probe
+Best WU
+Seq.
+∆Peak
+∆Final
+Qwen3.5-0.8B-Base
+0.639
+0.334
+0.333
++0.305
++0.321
+Qwen3.5-2B-Base
+0.691
+0.357
+0.333
++0.334
++0.296
+Qwen3.5-4B-Base
+0.846
+0.515
+0.333
++0.331
++0.236
+Qwen3.5-9B-Base
+0.910
+0.607
+0.361
++0.303
++0.266
+Table 12: Qwen3.5 Base native-readout synthesis. Se-
+lecting the best native readout position narrows the gap
+only slightly; answer-slot probes remain well ahead,
+leaving sequence scoring as the weakest link.
+Model
+Sum Acc
+Sum majority
+Mean Acc
+Mean majority
+Pythia-2.8B
+0.329
+true (0.947)
+0.329
+true (0.947)
+Pythia-12B
+0.334
+true (0.852)
+0.334
+true (0.852)
+Qwen3.5-0.8B
+0.333
+unknown (1.000)
+0.333
+unknown (1.000)
+Qwen3.5-0.8B-Base
+0.333
+unknown (1.000)
+0.333
+unknown (1.000)
+Qwen3.5-9B
+0.333
+unknown (0.999)
+0.333
+unknown (0.999)
+Qwen3.5-9B-Base
+0.361
+unknown (0.972)
+0.361
+unknown (0.972)
+Table 13: Sequence scoring sensitivity. Mean normal-
+ization (versus sum) leaves the candidate-score collapse
+unchanged, ruling out sequence-length normalization
+as an explanation.
+Model
+Answer
+Random
+Depth
+Query
+TF-IDF-easy
+Pythia-410M
+0.564 (+0.230)
+0.341 (+0.007)
+0.739 (+0.229)
+0.726 (+0.592)
+0.380 (-0.239)
+Pythia-12B
+0.618 (+0.284)
+0.338 (+0.004)
+0.687 (+0.177)
+0.723 (+0.589)
+0.497 (-0.122)
+Qwen3.5-0.8B
+0.600 (+0.266)
+0.304 (-0.030)
+0.752 (+0.242)
+0.626 (+0.492)
+0.538 (-0.081)
+Qwen3.5-9B
+0.651 (+0.317)
+0.315 (-0.019)
+0.639 (+0.129)
+0.882 (+0.748)
+0.548 (-0.071)
+Table 14: Probe selectivity controls. Randomized and
+auxiliary targets bound the answer-related signal that
+can be decoded by the probes.
+Model
+Layer
+Cosine
+Canon.→CF
+CF→Lex.
+Agree Lex.
+Pythia-410M
+peak
+0.177
+0.458
+0.386
+0.178
+final
+0.065
+0.348
+0.343
+0.343
+Qwen3.5-0.8B
+peak
+0.040
+0.465
+0.508
+0.694
+final
+0.316
+0.358
+0.388
+0.456
+Table 15: Probe direction stability. Transferring an-
+swer directions across splits measures probe variance
+under distribution shift and bounds their use as diagnos-
+tic upper limits.
+E
+Controlled-Logic Parallel Results and
+Label-Bias Details
+This section extends §4.3 and §4.5 across seeds,
+alternate score normalizations, and TF-IDF-missed
+subsets. The Pythia-2.8B/12B checkpoints serve as
+boundary controls throughout. Across multiple in-
+25
+100
+1000
+Unlabeled ID scores
+0.30
+0.35
+0.40
+0.45
+0.50
+0.55
+0.60
+0.65
+0.70
+Calibrated accuracy
+Synthetic lexical
+Qwen3.5-2B
+Qwen3.5-4B
+Qwen3.5-9B
+25
+100
+1000
+Unlabeled ID scores
+ProofWriter
+25
+100
+1000
+Unlabeled ID scores
+ANLI R2
+Two-parameter prior correction is already informative from small unlabeled-ID samples
+Figure 4: Offset sample efficiency. Calibrated accuracy
+as the unlabeled ID fit budget grows (log scale; error
+bars show seed variance). The larger Qwen3.5 check-
+points are already above chance at 25 examples; the
+near-ceiling ANLI-9B row is a scope control.
+dependent generators, the Qwen3.5 models recover
+consistently, arguing against explanations based on
+score-normalization artifacts.
+Normalization and permutation nulls.
+We ver-
+ify that the findings are not artifacts of length
+normalization or label-distribution matching. Ta-
+ble 21 replicates the phenomenon with mean-
+normalized scores, and Table 22 evaluates against
+count-preserving permutation baselines, supporting
+the claim of instance-specific alignment.
+
+
+Model
+Probe–WU
+Probe–Seq.
+Vocab–Seq.
+Pythia-410M
++0.121 [+0.083, +0.160]; p < .001
++0.121 [+0.083, +0.160]; p < .001
++0.000 [+0.000, +0.000]; p = 1.000
+Pythia-12B
++0.137 [+0.091, +0.183]; p < .001
++0.132 [+0.086, +0.177]; p < .001
+-0.004 [-0.025, +0.016]; p = 0.769
+Qwen3.5-0.8B
++0.325 [+0.291, +0.358]; p < .001
++0.325 [+0.291, +0.358]; p < .001
++0.000 [+0.000, +0.000]; p = 1.000
+Qwen3.5-9B
++0.247 [+0.207, +0.288]; p < .001
++0.488 [+0.452, +0.523]; p < .001
++0.237 [+0.180, +0.293]; p < .001
+Qwen3.5-0.8B-Base
++0.322 [+0.281, +0.363]; p < .001
++0.322 [+0.281, +0.363]; p < .001
++0.000 [+0.000, +0.000]; p = 1.000
+Qwen3.5-9B-Base
++0.266 [+0.234, +0.299]; p < .001
++0.512 [+0.475, +0.550]; p < .001
++0.243 [+0.194, +0.292]; p < .001
+Table 16: Probe/readout gap significance. Bootstrap intervals and paired statistical tests quantify the gaps between
+linear probes, native readouts, and full-string scoring.
+Dataset
+Model
+100
+250
+500
+1000
+2000
+Synth.
+Pythia-410M
+0.434 (+0.063)
+0.489 (+0.065)
+0.474 (+0.036)
+0.545 (+0.112)
+0.552 (+0.102)
+Pythia-12B
+0.486 (+0.079)
+0.532 (+0.119)
+0.594 (+0.177)
+0.636 (+0.207)
+0.644 (+0.193)
+Qwen3.5-0.8B
+0.480 (+0.039)
+0.500 (-0.028)
+0.499 (-0.044)
+0.523 (-0.103)
+0.530 (-0.109)
+Qwen3.5-9B
+0.732 (+0.030)
+0.836 (+0.059)
+0.852 (+0.058)
+0.910 (+0.060)
+0.929 (+0.058)
+ProofW.
+Pythia-410M
+0.465 (+0.114)
+0.525 (+0.158)
+0.558 (+0.174)
+0.556 (+0.151)
+0.587 (+0.164)
+Pythia-12B
+0.502 (+0.098)
+0.575 (+0.152)
+0.611 (+0.154)
+0.638 (+0.134)
+0.652 (+0.126)
+Qwen3.5-0.8B
+0.610 (+0.065)
+0.633 (+0.023)
+0.675 (+0.052)
+0.680 (+0.030)
+0.698 (+0.047)
+Qwen3.5-9B
+0.748 (-0.003)
+0.774 (+0.015)
+0.791 (+0.014)
+0.787 (+0.007)
+0.799 (+0.015)
+Table 17: Probe training-size sensitivity. We measure how probe accuracy scales with training-set size; the probes
+behave as stable diagnostic upper bounds whose properties are cross-checked by the zero-shot sequence tests.
+Model
+Split
+Raw Acc.
+Cal. Acc. [95% CI]
+∆[95% CI]
+Cal. Macro-F1
+Cal. Collapse
+Pythia-2.8B
+lexical
+0.329
+0.317 [0.288, 0.346]
+-0.012 [-0.050, +0.026]
+0.312
+0.391
+Pythia-12B
+lexical
+0.334
+0.338 [0.309, 0.368]
++0.004 [-0.036, +0.044]
+0.325
+0.539
+Qwen3.5-0.8B
+lexical
+0.333
+0.369 [0.338, 0.399]
++0.036 [+0.000, +0.071]
+0.357
+0.489
+Qwen3.5-2B
+lexical
+0.333
+0.381 [0.351, 0.412]
++0.048 [+0.004, +0.092]
+0.371
+0.548
+Qwen3.5-4B
+lexical
+0.333
+0.570 [0.539, 0.601]
++0.237 [+0.197, +0.276]
+0.572
+0.453
+Qwen3.5-9B
+lexical
+0.333
+0.602 [0.571, 0.633]
++0.269 [+0.229, +0.310]
+0.591
+0.462
+Qwen3.5-9B
+stress
+0.333
+0.467 [0.436, 0.498]
++0.134 [+0.098, +0.170]
+0.422
+0.557
+Qwen3.5-9B
+counterfactual
+0.333
+0.515 [0.484, 0.546]
++0.182 [+0.142, +0.222]
+0.479
+0.485
+Qwen3.5-0.8B-Base
+lexical
+0.333
+0.417 [0.386, 0.447]
++0.084 [+0.047, +0.120]
+0.407
+0.483
+Qwen3.5-9B-Base
+lexical
+0.361
+0.586 [0.556, 0.617]
++0.225 [+0.189, +0.261]
+0.566
+0.558
+Table 18: Controlled-logic label-bias correction. Offsets fit on unlabeled ID scores recover held-out accuracy and
+macro-F1 for larger Qwen3.5 checkpoints, while Pythia rows mark the boundary.
+Model
+Subset
+N
+Raw Acc.
+Worst Acc.
+Median Acc.
+Worst ∆
+Worst Macro-F1
+Pythia-410M
+all
+1000
+0.334
+0.316
+0.325
+-0.018
+0.312
+Pythia-12B
+all
+1000
+0.334
+0.316
+0.333
+-0.018
+0.288
+Qwen3.5-0.8B
+all
+1000
+0.333
+0.369
+0.373
++0.036
+0.346
+Qwen3.5-0.8B
+TF-IDF-missed
+645
+0.468
+0.397
+0.408
+-0.071
+0.365
+Qwen3.5-4B
+all
+1000
+0.333
+0.526
+0.570
++0.193
+0.529
+Qwen3.5-4B
+TF-IDF-missed
+645
+0.468
+0.544
+0.564
++0.076
+0.535
+Qwen3.5-9B
+all
+1000
+0.333
+0.575
+0.594
++0.242
+0.547
+Qwen3.5-9B
+TF-IDF-missed
+645
+0.468
+0.538
+0.589
++0.070
+0.516
+Qwen3.5-9B-Base
+all
+1000
+0.361
+0.541
+0.572
++0.180
+0.494
+Qwen3.5-9B-Base
+TF-IDF-missed
+645
+0.482
+0.516
+0.592
++0.034
+0.481
+Table 19: Controlled-logic prior sensitivity. We perturb the target prior to stress-test the offset fit. Positive margins
+persist for Qwen3.5, indicating that the recovery relies on internal rankings rather than a precisely tuned prior.
+Task
+Model
+Raw Acc.
+25 ID
+100 ID
+1000 ID
+Pos@25
+Macro-F1@25
+Synthetic lexical
+Qwen3.5-2B
+0.333
+0.379±0.009 (+0.030)
+0.379±0.005 (+0.036)
+0.381±0.000 (+0.048)
+30/30
+0.363
+Synthetic lexical
+Qwen3.5-4B
+0.333
+0.549±0.026 (+0.142)
+0.568±0.012 (+0.195)
+0.570±0.000 (+0.237)
+30/30
+0.546
+Synthetic lexical
+Qwen3.5-9B
+0.333
+0.580±0.024 (+0.180)
+0.598±0.007 (+0.248)
+0.602±0.000 (+0.269)
+30/30
+0.571
+ProofWriter
+Qwen3.5-4B
+0.333
+0.641±0.023 (+0.216)
+0.651±0.017 (+0.289)
+0.644±0.000 (+0.311)
+30/30
+0.638
+ProofWriter
+Qwen3.5-9B
+0.334
+0.675±0.018 (+0.277)
+0.681±0.011 (+0.314)
+0.677±0.000 (+0.343)
+30/30
+0.674
+ANLI R2
+Qwen3.5-2B
+0.389
+0.423±0.012 (+0.001)
+0.428±0.007 (+0.020)
+0.434±0.000 (+0.045)
+30/30
+0.418
+ANLI R2
+Qwen3.5-4B
+0.445
+0.559±0.023 (+0.054)
+0.564±0.012 (+0.083)
+0.574±0.000 (+0.129)
+30/30
+0.554
+ANLI R2
+Qwen3.5-9B
+0.638
+0.620±0.019 (-0.068)
+0.632±0.007 (-0.021)
+0.638±0.000 (+0.000)
+6/30
+0.615
+Table 20: Offset sample efficiency. Held-out recovery is already positive with 25 unlabeled fit examples and
+saturates quickly, as expected for a two-parameter threshold shift.
+
+
+Model
+Full Cal. / ∆
+TF-IDF Cal. / ∆
+TF-IDF Null Gap
+Worst Full ∆
+Worst TF-IDF ∆
+Pythia-410M
+0.329 / -0.005
+0.319 / +0.098
+-0.019 (p = 0.8580)
+-0.012
++0.070
+Pythia-12B
+0.340 / +0.006
+0.287 / +0.073
+-0.029 (p = 0.9653)
+-0.019
++0.056
+Qwen3.5-0.8B
+0.375 / +0.042
+0.431 / -0.037
++0.038 (p = 0.0155)
++0.039
+-0.078
+Qwen3.5-4B
+0.577 / +0.244
+0.580 / +0.112
++0.204 (p = 0.0001)
++0.173
++0.047
+Qwen3.5-9B
+0.608 / +0.275
+0.600 / +0.132
++0.235 (p = 0.0001)
++0.225
++0.048
+Qwen3.5-9B-Base
+0.591 / +0.230
+0.605 / +0.122
++0.224 (p = 0.0001)
++0.174
++0.026
+Table 21: Mean-normalized controlled-logic robustness. The collapse and the recovery persist under mean-
+normalized candidate scores, ruling out token-length artifacts.
+Model
+Split
+Cal. Acc.
+Null Acc. [95%]
+Sum Obs.-Null
+Mean Obs.-Null
+Cal. Macro-F1
+pperm
+Qwen3.5-4B
+stress
+0.452
+0.333 [0.308, 0.358]
++0.119
++0.103
+0.401
+0.0001
+Qwen3.5-4B
+counterfactual
+0.504
+0.333 [0.306, 0.361]
++0.171
++0.156
+0.484
+0.0001
+Qwen3.5-9B
+stress
+0.467
+0.333 [0.307, 0.359]
++0.134
++0.136
+0.422
+0.0001
+Qwen3.5-9B
+counterfactual
+0.515
+0.333 [0.306, 0.361]
++0.182
++0.179
+0.479
+0.0001
+Table 22: Controlled-logic shift/permutation null. Corrected predictions are compared against random permuta-
+tions that share the same label counts. A positive gap indicates per-example recovery beyond histogram matching.
+Model
+Score
+Seeds
+Raw Acc.
+Cal. Acc.
+Min ∆
+Obs.-Null
+Macro-F1
+Pythia-410M
+Sum
+3
+0.334±0.000
+0.336±0.006
+-0.004
++0.003
+0.333
+Pythia-12B
+Sum
+3
+0.332±0.005
+0.313±0.023
+-0.045
+-0.021
+0.303
+Qwen3.5-0.8B
+Sum
+3
+0.333±0.000
+0.377±0.020
++0.016
++0.044
+0.370
+Qwen3.5-9B
+Sum
+3
+0.333±0.000
+0.585±0.016
++0.230
++0.252
+0.580
+Qwen3.5-9B
+Mean
+3
+0.333±0.000
+0.586±0.019
++0.228
++0.253
+0.582
+Table 23: Independent synthetic-seed label-bias correction. Regenerating the evaluation splits with new lexical-
+OOD seeds shows that the offset recovery in Qwen3.5-9B is a model property, not a dataset artifact.
+Model
+Score
+N
+Raw Acc.
+Worst Acc.
+Median Acc.
+Worst ∆
+Worst Macro-F1
+Pythia-410M
+Sum
+637±16
+0.200
+0.317
+0.348
++0.106
+0.306
+Pythia-12B
+Sum
+637±16
+0.206
+0.281
+0.300
++0.067
+0.262
+Qwen3.5-0.8B
+Sum
+637±16
+0.468
+0.362
+0.384
+-0.116
+0.334
+Qwen3.5-9B
+Sum
+637±16
+0.468
+0.529
+0.571
++0.047
+0.501
+Qwen3.5-9B
+Mean
+637±16
+0.468
+0.524
+0.568
++0.048
+0.503
+Table 24: Independent synthetic-seed TF-IDF-missed sensitivity. For each seed, we recompute the TF-IDF-
+missed subsets; the positive margins persist, ruling out lexical-shortcut explanations.
+Model
+Score
+N
+Worst Acc.
+Null Acc.
+Obs.-Null
+Macro-F1
+pperm
+Pythia-410M
+Sum
+637±16
+0.317
+0.327
+-0.010
+0.307
+0.8848
+Pythia-12B
+Sum
+637±16
+0.281
+0.317
+-0.036
+0.268
+0.9999
+Qwen3.5-0.8B
+Sum
+637±16
+0.362
+0.349
++0.013
+0.334
+0.9272
+Qwen3.5-9B
+Sum
+637±16
+0.529
+0.343
++0.186
+0.506
+0.0001
+Qwen3.5-9B
+Mean
+637±16
+0.524
+0.330
++0.194
+0.512
+0.0001
+Table 25: Independent synthetic-seed TF-IDF-missed nulls. Seed-specific predictions must clear their label-count
+permutation baselines on TF-IDF-missed slices; this is the strictest combined control in our protocol.
+TF-IDF-missed slices summary.
+By removing
+instances that bag-of-words heuristics solve, these
+tables create an adversarial evaluation regime.
+Beating the permutation baseline on these slices is
+our strongest evidence that the prior-conditioned
+offset recovers example-level structure.
+F
+ProofWriter Sequence Scores and
+Source-Task Evidence
+This section carries the synthetic methodology over
+to the natural-language deduction of ProofWriter.
+The first set of tables checks that the offset correc-
+tion is not a byproduct of sequence length (mean-
+normalization check) or minor prior mismatch;
+the later tables assess the synergy between target-
+
+
+Task
+Model
+NTFIDF-miss
+Raw
+25 ID
+100 ID
+1000 ID
+NullGap@25
+Pos@25
+Synthetic lexical
+Pythia-410M
+645
+0.222
+0.321±0.028 (+0.036)
+0.327±0.012 (+0.068)
+0.332±0.000 (+0.110)
+-0.018 (-0.034)
+30/30
+Synthetic lexical
+Qwen3.5-4B
+645
+0.468
+0.558±0.018 (+0.020)
+0.563±0.010 (+0.062)
+0.569±0.000 (+0.101)
++0.187 (+0.161)
+30/30
+Synthetic lexical
+Qwen3.5-9B
+645
+0.468
+0.581±0.030 (+0.031)
+0.587±0.018 (+0.067)
+0.594±0.000 (+0.126)
++0.212 (+0.167)
+30/30
+ProofWriter
+Pythia-410M
+576
+0.321
+0.384±0.009 (+0.042)
+0.382±0.006 (+0.052)
+0.384±0.000 (+0.062)
++0.052 (+0.030)
+30/30
+ProofWriter
+Qwen3.5-4B
+576
+0.366
+0.622±0.024 (+0.205)
+0.619±0.018 (+0.212)
+0.622±0.000 (+0.255)
++0.287 (+0.238)
+30/30
+ProofWriter
+Qwen3.5-9B
+576
+0.366
+0.643±0.024 (+0.217)
+0.647±0.017 (+0.227)
+0.651±0.000 (+0.285)
++0.305 (+0.253)
+30/30
+ANLI R2
+Pythia-410M
+660
+0.283
+0.307±0.022 (-0.005)
+0.309±0.013 (-0.002)
+0.309±0.000 (+0.026)
+-0.014 (-0.026)
+23/30
+ANLI R2
+Qwen3.5-4B
+660
+0.377
+0.557±0.038 (+0.095)
+0.580±0.018 (+0.162)
+0.583±0.000 (+0.206)
++0.226 (+0.169)
+30/30
+Table 26: TF-IDF-missed and label-count controls. Offset corrections evaluated only on instances the TF-IDF
+baseline misses. The observed-minus-null gap isolates example-level structure from lexical cues.
+Model
+Score
+N
+Raw Acc.
+Cal. Acc.
+Min ∆
+Obs.-Null
+Macro-F1
+Pythia-410M
+Sum
+637±16
+0.200
+0.349±0.014
++0.133
+-0.000
+0.327
+Pythia-12B
+Sum
+637±16
+0.206
+0.302±0.022
++0.086
+-0.034
+0.283
+Qwen3.5-0.8B
+Sum
+637±16
+0.468
+0.386±0.033
+-0.104
++0.033
+0.361
+Qwen3.5-9B
+Sum
+637±16
+0.468
+0.574±0.025
++0.086
++0.205
+0.570
+Qwen3.5-9B
+Mean
+637±16
+0.468
+0.579±0.023
++0.093
++0.208
+0.575
+Table 27: Independent synthetic-seed TF-IDF-missed check. The shortcut-controlled recovery generalizes across
+generator seeds (52, 62, and 72).
+domain sequence scores and fine-tuned source
+adapters.
+As on the synthetic tasks, any recovery on
+ProofWriter must also clear the label-count per-
+mutation null: shuffling the corrected predictions
+while preserving the label histogram tests whether
+the gains are example-specific.
+Further ablations isolate the components behind
+the hybrid gain, mapping weight sensitivity and
+stability under small data budgets.
+G
+ANLI and FOLIO Diagnostics
+To map the generalization boundaries of the scoring
+bottleneck, we extend the protocol to adversarial
+NLI (ANLI) and first-order logic in natural lan-
+guage (FOLIO). ANLI removes the rigid template
+structure of the synthetic tasks, while FOLIO tests
+the diagnostic under a sparse fit set (203 examples).
+ANLI context.
+ANLI is adversarial and far
+less homogeneous than controlled logic. Persis-
+tence here—under permutation baselines and small-
+budget fits—indicates that the offset correction ex-
+tends to less templated natural-language inference.
+FOLIO context.
+FOLIO is the most constrained
+diagnostic: offsets are fitted on 203 validation ex-
+amples and evaluated on 1,001 prepared training
+examples.
+Model
+Cal. Acc.
+Null Acc. [95%]
+Obs.-Null
+Cal. Macro-F1
+pperm
+Qwen3.5-2B
+0.472
+0.337 [0.308, 0.366]
++0.135
+0.461
+0.0001
+Qwen3.5-4B
+0.565
+0.340 [0.311, 0.369]
++0.226
+0.553
+0.0001
+Qwen3.5-9B
+0.638
+0.337 [0.308, 0.366]
++0.301
+0.632
+0.0001
+Table 43: FOLIO diagnostic label-count permuta-
+tion. The 203-example fit clears label-histogram per-
+mutation nulls.
+Model
+Raw Acc.
+Worst Acc.
+Median Acc.
+Worst ∆
+Min Macro-F1
+Qwen3.5-2B
+0.324
+0.419
+0.457
++0.095
+0.421
+Qwen3.5-4B
+0.335
+0.536
+0.563
++0.202
+0.534
+Qwen3.5-9B
+0.348
+0.607
+0.637
++0.260
+0.608
+Table 44: FOLIO diagnostic prior sensitivity. Local
+shifts in the target prior do not break the recovery from
+the sparse validation fit.
+Model
+N
+Raw Acc.
+Cal. Acc.
+Obs.-Null
+Macro-F1
+Qwen3.5-2B
+614
+0.316
+0.471
++0.137 (p = 0.0001)
+0.472
+Qwen3.5-4B
+614
+0.324
+0.550
++0.218 (p = 0.0001)
+0.552
+Qwen3.5-9B
+614
+0.337
+0.624
++0.282 (p = 0.0001)
+0.618
+Table 45: FOLIO diagnostic TF-IDF-missed check.
+The limited-data diagnostic retains per-example gains
+on TF-IDF-missed slices of the first-order logic task.
+H
+Auxiliary Evidence and Scope Controls
+This final section marks the experimental bound-
+aries. The auxiliary ablations and intervention tests
+localize candidate mechanisms, while prompt grids
+record surface sensitivity. Large adapter sweeps
+map the engineering search space; the main text
+reports only selected label-free summaries. Full-
+split sequence-score recovery remains the primary
+evidence, with per-example gains and permutation
+nulls separating it from prompt or label-prior ef-
+fects.
+Read in order—setup controls, readout audits,
+permutation checks, and scope controls—the ap-
+pendix defines the boundary conditions of the
+output-scoring bottleneck.
+The auxiliary ablations are diagnostic rather than
+additional claims about benchmark performance.
+Component patching and prompt grids identify
+which parts of the scoring path are sensitive to
+surface form, while the label-free sequence-score
+
+
+Audit
+N
+Raw Acc.
+Cal./Min Acc.
+∆/ Obs.-Null
+Macro-F1
+Mean sequence, OOD
+1000
+0.333
+0.653 [0.623, 0.682]
++0.320 [+0.274, +0.366]
+0.650
+Prediction-count null
+1000
+0.333
+0.653
++0.320 (p = 0.0001)
+0.650
+TF-IDF-missed stratum
+576
+0.366
+0.627
++0.294 (p = 0.0001)
+0.627
+±0.10 prior sensitivity
+1000
+0.333
+0.611 / 0.651
++0.278 worst
+0.594 min
+Table 28: ProofWriter sequence-score mean robust-
+ness. The offset correction on mean-normalized scores
+replicates the recovery observed on the synthetic tasks.
+Model
+Raw Acc.
+Min Acc.
+Median Acc.
+Min Macro-F1
+Worst ∆Raw
+Qwen3.5-0.8B
+0.333
+0.406
+0.415
+0.395
++0.073
+Qwen3.5-2B
+0.333
+0.508
+0.544
+0.488
++0.175
+Qwen3.5-4B
+0.333
+0.614
+0.644
+0.602
++0.281
+Qwen3.5-9B
+0.334
+0.628
+0.678
+0.628
++0.294
+OLMo-2-1B
+0.362
+0.533
+0.561
+0.528
++0.171
+Llama-3.1-8B
+0.333
+0.458
+0.475
+0.454
++0.125
+Pythia-410M
+0.328
+0.337
+0.351
+0.332
++0.009
+Pythia-12B
+0.343
+0.322
+0.335
+0.322
+-0.021
+Table 29: ProofWriter label-bias sensitivity. Prior
+perturbations define the range in which the Qwen3.5
+models retain positive gains.
+Model
+Cal. Acc.
+Null Acc. [95%]
+Obs.-Null
+Cal. Macro-F1
+pperm
+Qwen3.5-0.8B
+0.415
+0.333 [0.305, 0.362]
++0.082
+0.415
+0.0001
+Qwen3.5-2B
+0.559
+0.334 [0.305, 0.363]
++0.225
+0.556
+0.0001
+Qwen3.5-4B
+0.644
+0.333 [0.304, 0.363]
++0.311
+0.645
+0.0001
+Qwen3.5-9B
+0.677
+0.333 [0.304, 0.363]
++0.344
+0.677
+0.0001
+OLMo-2-1B
+0.566
+0.333 [0.305, 0.363]
++0.233
+0.563
+0.0001
+Llama-3.1-8B
+0.477
+0.333 [0.304, 0.363]
++0.144
+0.481
+0.0001
+Pythia-410M
+0.353
+0.334 [0.305, 0.363]
++0.019
+0.353
+0.1032
+Pythia-12B
+0.335
+0.333 [0.305, 0.363]
++0.002
+0.335
+0.4625
+Table 30: ProofWriter label-count permutation. The corrected accuracy exceeds what a label-matched random
+permutation achieves.
+Fusion
+Full Acc.
+∆Src
+TF-IDF Acc.
+D≥2 Acc.
+MinR
+Paired Gain
+Null Gap
+Source only
+0.700
++0.000
+0.682
+0.483
+0.613
+0
++0.367
+Source + all LM scores
+0.720
++0.020
+0.707
+0.557
+0.625
+20
++0.387
+Source + OLMo-2-1B
+0.725
++0.025
+0.720
+0.577
+0.619
+25
++0.392
+Source + Qwen3.5-9B
+0.705
++0.005
+0.674
+0.450
+0.628
+5
++0.372
+Source + Qwen3.5-4B
+0.687
+-0.013
+0.670
+0.463
+0.607
+-13
++0.354
+Source + Llama-3.1-8B
+0.682
+-0.018
+0.661
+0.490
+0.553
+-18
++0.349
+Source + Qwen3.5-2B
+0.686
+-0.014
+0.670
+0.497
+0.598
+-14
++0.353
+Source + Qwen3.5-0.8B
+0.686
+-0.014
+0.658
+0.450
+0.601
+-14
++0.353
+Source + Pythia-12B
+0.694
+-0.006
+0.686
+0.523
+0.616
+-6
++0.361
+Source + Pythia-410M
+0.691
+-0.009
+0.696
+0.550
+0.586
+-9
++0.358
+Table 31: ProofWriter source-transfer plus sequence-score hybrid. Source adapters are frozen before any target
+labels are seen. Fusing them with the target sequence scores yields additive gains.
+tables evaluate the complete held-out split. The
+adapter sweeps serve a complementary purpose:
+they show how much of the target-domain signal
+is already present in a transferred representation
+before native scores are added.
+The model-family controls are equally important
+for interpretation. Positive permutation gaps for the
+larger Qwen3.5, OLMo, and Llama configurations
+coexist with null or negative gaps for the Pythia
+checkpoints and with near-ceiling rows where no
+headroom remains. Taken together, these boundary
+cases rule out a universal calibration effect and
+support the narrower conclusion that a global offset
+can expose example-specific evidence only when
+the raw ranking is collapsed but the underlying
+representations remain informative.
+
+
+Slice
+N
+Depth
+Seq. Acc.
+Cal. Acc.
+∆Seq.
+MinR
+Null Gap
+All OOD
+1000
+0–5
+0.333
+0.700
++0.367
+0.613
++0.367
+TF-IDF-missed
+576
+0–5
+0.366
+0.682
++0.316
+0.616
++0.347
+TF-IDF depth 0
+290
+0
+0.459
+0.855
++0.397
+0.737
++0.517
+TF-IDF depth >=1
+286
+1–5
+0.273
+0.507
++0.234
+0.410
++0.177
+TF-IDF depth >=2
+149
+2–5
+0.168
+0.483
++0.315
+0.400
++0.158
+Table 32: ProofWriter hard-slice audit for the source-task ensemble. The sequence-augmented hybrid exceeds
+the frozen baseline and the permutation nulls across deeper proof strata and TF-IDF-missed variants.
+LM-score set
+nm
+Full Acc.
+∆Src
+TF-IDF Acc.
+D≥2 Acc.
+D≥2 ∆
+Paired Gain
+D≥2 Null Gap
+Source only
+0
+0.700
++0.000
+0.682
+0.483
++0.000
+0
++0.158
+All LM scores
+8
+0.720
++0.020
+0.707
+0.557
++0.074
+20
++0.226
+Drop Pythia family
+6
+0.702
++0.002
+0.675
+0.503
++0.020
+2
++0.182
+Drop Qwen family
+4
+0.694
+-0.006
+0.700
+0.591
++0.107
+-6
++0.259
+Drop OLMo family
+7
+0.700
++0.000
+0.689
+0.510
++0.027
+0
++0.187
+Drop Llama family
+7
+0.711
++0.011
+0.691
+0.537
++0.054
+11
++0.206
+Drop Pythia-410M
+7
+0.717
++0.017
+0.689
+0.510
++0.027
+17
++0.195
+Drop Pythia-12B
+7
+0.712
++0.012
+0.688
+0.537
++0.054
+12
++0.206
+Drop Qwen3.5-0.8B
+7
+0.720
++0.020
+0.710
+0.577
++0.094
+20
++0.248
+Drop Qwen3.5-2B
+7
+0.708
++0.008
+0.693
+0.544
++0.060
+8
++0.209
+Drop Qwen3.5-4B
+7
+0.714
++0.014
+0.701
+0.557
++0.074
+14
++0.222
+Drop Qwen3.5-9B
+7
+0.715
++0.015
+0.698
+0.557
++0.074
+15
++0.227
+Drop OLMo-2-1B
+7
+0.700
++0.000
+0.689
+0.510
++0.027
+0
++0.187
+Drop Llama-3.1-8B
+7
+0.711
++0.011
+0.691
+0.537
++0.054
+11
++0.206
+Table 33: ProofWriter source/sequence-score hybrid ablation. Omitting individual sequence-score families
+shows that the hybrid gain draws on complementary evidence rather than a single architecture.
+wLM
+Full Acc.
+∆Src
+TF-IDF Acc.
+D≥2 Acc.
+MinR
+Paired Gain
+Null Gap
+0
+0.700
++0.000
+0.682
+0.483
+0.613
+0
++0.367
+0.25
+0.713
++0.013
+0.698
+0.530
+0.622
+13
++0.380
+0.5
+0.711
++0.011
+0.698
+0.544
+0.619
+11
++0.378
+0.75
+0.718
++0.018
+0.705
+0.564
+0.625
+18
++0.385
+1
+0.720
++0.020
+0.707
+0.557
+0.625
+20
++0.387
+1.5
+0.716
++0.016
+0.700
+0.557
+0.610
+16
++0.383
+2
+0.719
++0.019
+0.701
+0.557
+0.613
+19
++0.386
+3
+0.720
++0.020
+0.703
+0.570
+0.604
+20
++0.387
+Table 34: ProofWriter source/sequence-score weight sensitivity. Varying the sequence-score fusion weights
+shows a wide plateau of improvement; the complementarity does not depend on fragile tuning.
+ID rows
+Repeats
+Full Acc.
+Worst Full
+TF-IDF Acc.
+Worst TF-IDF
+D≥2 Acc.
+Max Coll.
+25
+30
+0.698±0.018
+0.659
+0.679±0.020
+0.639
+0.535±0.048
+0.489
+50
+30
+0.701±0.016
+0.663
+0.681±0.017
+0.637
+0.548±0.050
+0.556
+100
+30
+0.705±0.013
+0.679
+0.687±0.014
+0.660
+0.542±0.037
+0.421
+250
+30
+0.714±0.007
+0.697
+0.698±0.009
+0.672
+0.553±0.026
+0.409
+500
+30
+0.717±0.004
+0.706
+0.702±0.004
+0.693
+0.557±0.012
+0.374
+1000
+1
+0.720±0.000
+0.720
+0.707±0.000
+0.707
+0.557±0.000
+0.344
+Table 35: ProofWriter source/sequence-score sample efficiency. Fits with small unlabeled budgets remain stable
+across hard slices, mirroring the sample efficiency seen on the synthetic tasks.
+Radius
+Priors
+Full Worst
+TF-IDF Worst
+D≥2 Worst
+Full ∆Src
+D≥2 ∆Src
+D≥2 Null Gap
+0.025
+7
+0.705
+0.689
+0.537
++0.005
++0.054
++0.208
+0.050
+19
+0.690
+0.672
+0.483
+-0.010
++0.000
++0.157
+0.100
+61
+0.666
+0.648
+0.430
+-0.034
+-0.054
++0.142
+Table 36: ProofWriter source/sequence-score prior sensitivity. The operating range of the label-free hybrid
+ensemble under prior perturbations.
+
+
+Members
+OOD Acc./F1
+OOD MinR
+TF-IDF Acc./F1
+TF-IDF MinR
+TF-IDF Coll.
+TF-IDF Null Gap
+Qwen4
+0.665/0.665
+0.595
+0.635/0.637
+0.578
+0.352
++0.301
+Qwen9
+0.695/0.695
+0.625
+0.661/0.664
+0.578
+0.345
++0.327
+Llama
+0.472/0.473
+0.393
+0.476/0.476
+0.403
+0.358
++0.142
+Qwen4+Qwen9
+0.688/0.687
+0.595
+0.653/0.655
+0.569
+0.340
++0.319
+Qwen4+Llama
+0.658/0.657
+0.556
+0.656/0.659
+0.583
+0.354
++0.321
+Qwen9+Llama
+0.676/0.675
+0.568
+0.674/0.675
+0.578
+0.335
++0.340
+Qwen4+Qwen9+Llama
+0.700/0.700
+0.613
+0.682/0.685
+0.616
+0.361
++0.347
+Table 37: ProofWriter source-ensemble member ablation. Multiple member subsets independently retain positive
+target gains, so the ensemble’s contribution is not carried by a single member.
+ID N
+Full Acc.
+TF-IDF Acc.
+Full ∆Adapt.
+TF-IDF ∆Adapt.
+Full std
+TF-IDF std
+25
+0.585
+0.593
++0.003
++0.028
+0.018
+0.044
+50
+0.589
+0.603
++0.007
++0.037
+0.018
+0.029
+100
+0.582
+0.587
+-0.000
++0.022
+0.017
+0.028
+250
+0.588
+0.591
++0.006
++0.025
+0.012
+0.016
+500
+0.587
+0.590
++0.005
++0.025
+0.007
+0.010
+1000
+0.588
+0.591
++0.006
++0.026
+0.000
+0.000
+Table 38: ANLI sequence-score/adapter hybrid sample efficiency. Evaluated on R2/OOD, the hybrid remains
+stable at very small fitting budgets.
+Radius
+Priors
+Full Worst
+TF-IDF Worst
+Full ∆Adapt.
+TF-IDF ∆Adapt.
+TF-IDF Null Gap
+0.025
+7
+0.571
+0.570
+-0.011
++0.005
++0.224
+0.050
+19
+0.565
+0.558
+-0.017
+-0.008
++0.221
+0.100
+61
+0.549
+0.508
+-0.033
+-0.058
++0.204
+Table 39: ANLI sequence-score/adapter hybrid prior sensitivity. The TF-IDF-missed gaps persist under prior
+perturbations, so the gains are not an artifact of a tuned class prior.
+Model
+Cal. Acc.
+Null Acc. [95%]
+Obs.-Null
+Cal. Macro-F1
+pperm
+Pythia-410M
+0.333
+0.333 [0.305, 0.362]
+-0.000
+0.333
+0.5138
+Qwen3.5-0.8B
+0.381
+0.333 [0.305, 0.362]
++0.048
+0.378
+0.0017
+Pythia-1.4B
+0.334
+0.333 [0.304, 0.362]
++0.001
+0.333
+0.4947
+Qwen3.5-4B
+0.571
+0.333 [0.305, 0.362]
++0.238
+0.573
+0.0001
+Table 40: ANLI sequence-score label-count permutation. The positive Qwen3.5 recovery gap exceeds matched
+label-count permutations.
+Model
+Fit N
+Eval N
+Raw Acc.
+Cal. Acc. [95% CI]
+∆[95% CI]
+Macro-F1
+Qwen3.5-2B
+203
+1001
+0.324
+0.472 [0.441, 0.503]
++0.148 [+0.102, +0.194]
+0.461
+Qwen3.5-4B
+203
+1001
+0.335
+0.565 [0.534, 0.597]
++0.231 [+0.186, +0.276]
+0.553
+Qwen3.5-9B
+203
+1001
+0.348
+0.638 [0.608, 0.668]
++0.291 [+0.247, +0.335]
+0.632
+Table 41: FOLIO diagnostic label-bias correction. This configuration is a transfer diagnostic under data sparsity,
+testing the offset correction outside standard benchmark splits.
+Model
+Raw Acc.
+25 ID
+50 ID
+100 ID
+203 ID
+Pos@25
+Qwen3.5-2B
+0.324
+0.454±0.018 (+0.082)
+0.453±0.013 (+0.095)
+0.458±0.010 (+0.119)
+0.472±0.000 (+0.148)
+30/30
+Qwen3.5-4B
+0.335
+0.557±0.014 (+0.185)
+0.558±0.011 (+0.202)
+0.566±0.007 (+0.219)
+0.565±0.000 (+0.231)
+30/30
+Qwen3.5-9B
+0.348
+0.625±0.026 (+0.204)
+0.632±0.015 (+0.256)
+0.638±0.009 (+0.266)
+0.638±0.000 (+0.291)
+30/30
+Table 42: FOLIO diagnostic sample efficiency. Within the 203-example fit set, the Qwen3.5 models retain positive
+gains at fractional subsamples.
