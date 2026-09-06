@@ -6,29 +6,29 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-09-05
-- 运行时间：2026-09-05 21:14:49 UTC
+- 最新运行日期：2026-09-06
+- 运行时间：2026-09-06 21:28:25 UTC
 - 运行状态：成功
 - 本次总论文数：3
 - 精读区：1
 - 速读区：2
 
 ### 今日简报（AI）
-今日精读1篇、速读2篇，聚焦AI威胁推理与LLM评测可靠性。最值得关注的是高分论文《NeuroGraph》，提出图驱动神经符号框架用于先进制造的可解释威胁推理；另两篇则探讨LLM序列分数证据恢复与数学解题基准重写。建议普通读者优先关注可解释AI在工业安全场景的应用，并结合LLM评测修正留意模型真实能力。
-- 详情：[/202609/05/README](/202609/05/README)
+今日精读1篇、速读2篇，聚焦LLM能力边界与效率优化，主题覆盖多语言数学检测、浅层决策树与关系嵌入。最值得关注的是《More Capable, Less Faithful》：LLM在多语言数学可解性检测中“更强大却更不忠实”，高能力伴随可靠性下降，精读分数8.0/10。若时间有限，建议优先阅读该文结论，其余两篇偏向工具型改进，可作扩展参考。
+- 详情：[/202609/06/README](/202609/06/README)
 
 ### 精读区论文标签
-1. [NeuroGraph: An AI Graph-Driven Neuro-Symbolic Framework for Explainable Threat Reasoning in Advanced Manufacturing](/202609/05/2609.00604v1-neurograph-an-ai-graph-driven-neuro-symbolic-framework-for-explainable-threat-reasoning-in-advanced-manufacturing)  
-   标签：评分：9.0/10、query:ns-xai
-   evidence：基于图的神经符号框架，结合本体符号查询与可解释的多跳威胁推理
+1. [More Capable, Less Faithful: A Multilingual Analysis of Mathematical (Un)Solvability Detection in LLMs](/202609/06/2608.30463v1-more-capable-less-faithful-a-multilingual-analysis-of-mathematical-unsolvability-detection-in-llms)  
+   标签：评分：8.0/10、query:ns-xai
+   evidence：多语言数学可解性基准与内部探针分析，研究LLM数学推理忠实性和可解释性。
 
 ### 速读区论文标签
-1. [Wrong Prediction, Right Answer: Recovering Evidence from Collapsed LLM Sequence Scores](/202609/05/2608.31068v1-wrong-prediction-right-answer-recovering-evidence-from-collapsed-llm-sequence-scores)  
-   标签：评分：7.0/10、query:ns-xai
-   evidence：通过隐藏状态探针发现即使序列评分崩溃，正确推理证据仍保留于模型内部，面向LLM推理诊断
-2. [RePro: Proof-Verified Benchmark Rewriting for Reliable Evaluation of LLM Mathematical Problem Solving](/202609/05/2609.00062v1-repro-proof-verified-benchmark-rewriting-for-reliable-evaluation-of-llm-mathematical-problem-solving)  
+1. [Adaptive Multi-Branching for Shallow Decision Tree Induction](/202609/06/2608.29262v1-adaptive-multi-branching-for-shallow-decision-tree-induction)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：将神经自动定理证明器与Lean符号证明结合用于基准改写；是神经符号方法但非面向可解释推理
+   evidence：端到端多分支神经决策树并转换为可解释的确定性浅层树
+2. [Can LLMs Use Relational Transformer Embeddings?](/202609/06/2609.00457v1-can-llms-use-relational-transformer-embeddings)  
+   标签：评分：6.0/10、query:ns-xai
+   evidence：将关系编码器输出的结构化嵌入注入大模型以协同推理，体现符号化结构加神经网络的结合
 
 
 <div class="dpr-home-promo-card">
