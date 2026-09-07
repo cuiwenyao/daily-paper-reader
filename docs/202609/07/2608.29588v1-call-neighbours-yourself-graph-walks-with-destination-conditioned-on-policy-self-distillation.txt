@@ -1,0 +1,712 @@
+Title: Call Neighbours Yourself: Graph Walks with Destination-Conditioned On-Policy Self-Distillation
+
+URL Source: https://arxiv.org/pdf/2608.29588v1
+
+Published Time: Tue, 01 Sep 2026 01:27:23 GMT
+
+Number of Pages: 19
+
+Markdown Content:
+# Call Neighbours Yourself: Graph Walks with Destination-Conditioned On-Policy Self-Distillation 
+
+Yilun Liu, Boyu Luo, Yanran Tang, Ruihong Qiu and Zi Huang 
+
+School of Electrical Engineering and Computer Science The University of Queensland Brisbane, Queensland, Australia 
+
+{yilun.liu, boyu.luo, yanran.tang, r.qiu, helen.huang}@uq.edu.au 
+
+Abstract 
+
+Reasoning over text-attributed graphs (TAGs) requires large language models (LLMs) to com-bine a node’s text with evidence distributed across its neighbourhood. Existing methods fix the set of accessible neighbours before genera-tion, forcing reasoning to operate over a static context and preventing the model from acquir-ing missing evidence during inference. We ar-gue that neighbour selection should itself be part of the reasoning process. To this end, we propose Call Neighbours Yourself (CNY), a framework that enables LLMs to proactively ex-plore graph neighbourhoods through topology-constrained graph-walk actions. Instead of rea-soning over a pre-selected neighbour set, CNY exposes lightweight neighbour previews and learns when to expand candidate neighbours for additional evidence. To address the delayed-credit challenge of neighbour exploration, we introduce destination-conditioned on-policy self-distillation, which retrospectively evalu-ates a selected neighbour after its content is revealed and converts the resulting change in action preference into an action-level training signal. Experiments on standard TAG reason-ing benchmarks under a unified raw-text setting show that CNY consistently outperforms fixed-context post-training baselines. Furthermore, the learned exploration policy transfers to un-seen graphs and to a graph-level task not en-countered during training. Code is available at 
+
+https://github.com/superallen13/CNY .
+
+1 Introduction 
+
+Citation networks, hyperlink graphs, and product co-purchase networks are text-attributed graphs (TAGs), where each node contains free-form text and is connected to other text-bearing nodes (Wu et al., 2025a; Tang et al., 2024b,c, 2026a; Wang et al., 2025a; Tang et al., 2026b). Reasoning over TAGs therefore requires a model to use not only the target node’s own text, but also evidence from its graph neighbourhood (He et al., 2024a; Li et al.,  
+
+> 210 66 69 72
+> Walk RAG Full
+
+★     
+
+> tokens (K) accuracy
+> (a) Selection trade-off 1024
+> 1113
+> 1
+> 2
+> walk [1024]
+> walk [1113]
+> [1024]
+> [1113] answer c(b) Active walk
+
+Figure 1: CNY at a glance. (a) On WikiCS targets whose full neighbourhood fits in a 32 K context, a frozen Qwen2.5-32B that selects neighbours during generation (Walk ) outperforms a retrieval-augmented generation pipeline ( RAG ) that embeds the target’s text, retrieves its top-10 neighbours and concatenates them as context, at 6.3× fewer tokens. (b) CNY learns this selection as a graph-walk action, replacing the fixed pre-selected neighbour context of prior work. 
+
+2024a). Existing large language models (LLMs)-based TAG methods usually turn this requirement into a prompt construction problem: a subset of neighbouring texts is selected before generation and then provided as fixed context (Tang et al., 2024a; Chen et al., 2024b; Kong et al., 2025), which is adopted by recent post-training methods, such as Graph-R1 (Wu et al., 2025b) and TRN-R1-Zero (Liu et al., 2026). Although they optimise how the LLM reasons over the provided context, neigh-bour acquisition itself remains decoupled from rea-soning: the LLM cannot adapt its evidence gather-ing to what it discovers as it reasons. This static-context assumption becomes prob-lematic on dense TAGs. Neighbourhoods often exceed practical context limits: on WikiCS the full one-hop neighbourhood already exceeds a 32 K-token window for 40 .3% of the 2,340 test targets, forcing systems to read only a subset. Yet which neighbours are selected largely determines predic-tion quality, since relevant evidence is easily buried among irrelevant nodes or overlooked when placed mid-context (Liu et al., 2024b; Hsieh et al., 2024; arXiv:2608.29588v1 [cs.AI] 30 Aug 2026 Bai et al., 2024). Once a subset is fixed before generation, the LLM cannot recover if decisive evi-dence lies elsewhere. This paper argues that neighbour selection should be part of the reasoning process itself. In-stead of passively consuming a fixed neighbour set, an LLM should first observe lightweight previews of candidate neighbours, such as a title, a short summary, or a fixed-length text prefix, and then de-cide which neighbours deserve deeper inspection. This interleaves reasoning and neighbour acquisi-tion rather than separating them as in retrieval-then-generate pipelines. As in Figure 1, our motiva-tion study supports this view: on WikiCS targets whose full neighbourhoods fit in context (so neither method is forced to truncate), a frozen Qwen2.5-32B-Instruct model that selects neighbours during generation outperforms a RAG pipeline that se-lects neighbours by embedding similarity, using the same backbone and identical neighbour previews, while using substantially fewer tokens. However, training an LLM to walk well is non-trivial: the usefulness of a walk can only be judged after its destination is revealed and folded into subsequent reasoning, so an outcome-only RL objective has no direct signal to credit individual walks. This paper proposes Call Neighbours Yourself (CNY), which trains the LLM to issue a <walk> 
+
+action mid-generation to read a specific neigh-bour, replacing the pre-selected neighbour set with evidence the LLM acquires step by step. Pro-cess reward models (Lightman et al., 2024; Wang et al., 2024) would normally supply the missing per-walk credit, but they require step labels that graph walks do not provide. CNY therefore in-troduces destination-conditioned On-Policy Self-
+
+Distillation (OPSD): once a walk reveals its desti-nation, the same base LLM re-scores its own walk action, and the resulting probability shift is used as per-action credit, with no step labels, no external judge, and no extra rollouts. Our contributions are summarised as follows: • We identify static neighbour selection as a key limitation of LLM-based reasoning on dense TAGs and formulate neighbour inspection as an adaptive evidence-acquisition problem. • We propose CNY, a proactive neighbour ex-ploration framework that enables LLMs to se-lect and expand neighbours during generation through graph-walk actions. • We introduce a destination-conditioned on-policy self-distillation strategy that assigns action-level credit to neighbour-selection de-cisions without step-level annotations. • Extensive experiments across citation, hy-perlink, co-purchase and knowledge-graph benchmarks demonstrate that CNY surpasses fixed-context baselines. 
+
+2 Related Work 
+
+Related work spans three threads. Existing 
+
+LLM-based reasoning on text-attributed graphs 
+
+(TAGs) mainly encodes node text and graph struc-ture through graph-aware prompting, adapters, or reinforcement learning over fixed neighbourhood contexts selected by non-learned heuristics (Li et al., 2024a; He et al., 2024a; Tang et al., 2024a; Chen et al., 2024b; Kong et al., 2025; Chen et al., 2024a; Wang et al., 2025c; Wu et al., 2025b; Liu et al., 2026). In parallel, agentic retrieval systems 
+
+interleave reasoning with external search by issuing free-form queries to semantic retrievers over un-structured document corpora (Asai et al., 2024; Li et al., 2025; Jin et al., 2025; Song et al., 2025; Chen et al., 2025). In contrast, CNY constrains its actions to the graph topology rather than an open query space, and a walk observes the destination node’s own text rather than a retrieval approximation. Fi-nally, sparse-reward reasoning optimisation has been studied through process reward models requir-ing step-level supervision (Lightman et al., 2024; Wang et al., 2024) and on-policy self-distillation methods using outcome-privileged teachers (Shen-feld et al., 2026; Hübotter et al., 2026; Zhao et al., 2026; Wang et al., 2026b). In contrast, CNY formu-lates neighbour selection itself as a learnable graph walk and introduces destination-conditioned OPSD to provide action-level supervision from revealed neighbour destinations without labelled interme-diate trajectories. Full discussion is provided in Appendix A. 
+
+3 Problem Definition 
+
+A text-attributed graph (TAG) is a tuple G =
+
+{A, X, Y} , where A ∈ { 0, 1}|V|×|V| is the ad-jacency matrix over node set V, X = {xv}v∈V 
+
+assigns each node a textual description xv, and 
+
+Y is a finite label set with class descriptions 
+
+{desc( y)}y∈Y . Given a target node v0 ∈ V , the task is to predict its label ˆy ∈ Y from evidence distributed across its graph neighbourhood. (a)  Graph walk trajectory 
+
+> the LLM walks the graph, picking neighbours
+
+(b)  OPSD walk-action credit       
+
+> does the recap ō make the LLM ʼs own pick more likely?
+> 1024
+> 1113
+> 1
+> 2
+> user
+> graph env <thinking>…</thinking>
+> <walk> 1024 </walk>
+> graph env <thinking>…</thinking>
+> <walk> 1113 </walk> <thinking>…</thinking>
+> <answer> c</answer>
+> <walk> X</walk>
+> env
+> recap
+> the LLM scores its own pick twice
+> ō is the walk ʼs own recap: no extra rollouts, no step labels
+> student
+> blind 50%
+> teacher
+> with ō 72%
+> ≈−0.36
+> the same per-step credit applies at every t
+> reward R( τ)
+> format · answer · action
+> GRPO group-relative OPSD advantage
+> to PPO
+> LLM graph env & observation OPSD advantage
+
+Figure 2: CNY graph walk trajectories and OPSD credit. (A) The LLM emits a <thinking> span and a 
+
+<walk> X</walk> action; the environment returns destination text and expands the frontier. The credit applies only to the node-ID tokens of successful walks. (B) OPSD replays the walk under πθ as a destination-blind student and a recap-conditioned teacher; their per-token reverse KL shifts the GRPO advantage at walk tokens (red box). 
+
+The model cannot assume access to the entire neighbourhood, so it must make a prediction under a limited reading budget where only a subset of the neighbourhood evidence is observed. Selecting that subset well governs the prediction: reading un-informative neighbours, or burying the decisive one among many, degrades the answer, and on dense graphs such as WikiCS the full one-hop text ex-ceeds a 32K-token window for 40.3% of evaluation nodes. The challenge is thus to identify and utilise the most informative evidence for prediction. 
+
+4 Method: Call Neighbours Yourself 
+
+CNY formulates the neighbourhood evidence ac-quisition procedure as a sequential decision pro-cess trained with reinforcement learning (Figure 2). The LLM actively acquires evidence by walking the graph rather than simply reasoning over a fixed neighbour set (§4.1); a trajectory-level re-ward scores both prediction correctness and interac-tion validity (§4.2); the model is optimised against that reward (§4.3); and destination-conditioned on-policy self-distillation (OPSD) retrospectively eval-uates each walk decision after observing the des-tination it retrieved, converting the resulting hind-sight signal into token-level credit (§4.4). 
+
+4.1 Interactive Graph Environment 
+
+CNY treats graph reasoning as an interactive envi-ronment in which evidence is acquired on demand rather than provided as a fixed neighbourhood con-text. Initially, the LLM observes the ego-node text 
+
+xv0 , the label descriptions, and a short preview for each neighbour in the initial frontier. A neigh-bour’s full text remains hidden until it is explicitly selected. At reasoning step k, generation continues from the current context, 
+
+sk = ( q0, h k−1, Fk−1), (1) where q0 is the initial prompt, hk−1 records pre-viously revealed node contents and generated rea-soning traces, and Fk−1 is the frontier containing nodes currently available for inspection. Executing <walk> on node X reveals its full text 
+
+xX and expands the frontier with previously unseen neighbours: 
+
+Fk = ( Fk−1 \ { X}) ∪ (N (X) \ V read ), (2) where Vread denotes nodes whose full text has al-ready been revealed. Consequently, every newly available node must be adjacent to a previously inspected node, forcing evidence acquisition to fol-low graph connectivity rather than access arbitrary nodes. 4.2 Reward 
+
+Sparse correctness rewards are ineffective for graph-walk learning because most trajectories are initially incorrect. Under GRPO, a group contain-ing only incorrect trajectories yields zero advan-tage for every sample and therefore no learning signal (§4.3). To provide learning signal before correct reasoning emerges, trajectories that satisfy desirable intermediate properties receive non-zero rewards. The reward prioritises (i) correct prediction c, (ii) valid action formatting f , (iii) successful evidence acquisition s (at least one frontier node is revealed), and (iv) answer completion e (a valid <answer> is emitted): 
+
+R(τ ) = 
+
+
+
+1.0 c=1 , f =1 ,
+
+0.6 c=1 , f =0 ,
+
+0.3 c=0 , f =1 , s =1 ,
+
+0.2 c=0 , f =1 , s =0 ,
+
+0.1 c=0 , f =0 , e =1 ,
+
+0.0 otherwise. (3) The values are chosen only to realise the order-ing 1.0 > 0.6 > 0.3 > 0.2 > 0.1 > 0, correspond-ing to a lexicographic preference over desirable behaviours rather than calibrated utility estimates. (ablated in §5.5, Table 6) The reward remains un-changed in the β=0 ablation (§5.5), ensuring that gains attributed to OPSD are not explained by re-ward shaping. 
+
+4.3 Reinforcement Learning Optimisation 
+
+Each graph walk induces a trajectory τ , and the policy πθ is trained to maximise the expected tra-jectory reward 
+
+max  
+
+> θ
+
+Eτ ∼πθ
+
+R(τ ). (4) CNY adopts GRPO (Shao et al., 2024) and its Dr. GRPO implementation (Liu et al., 2025c), us-ing asymmetric clipping and no KL-to-reference penalty. For each target node v0, a group of N
+
+trajectories {τi}Ni=1 is sampled and scored by Eq. 3. Rewards are standardised within the group to ob-tain the trajectory-level advantage 
+
+ˆAτi = R(τi) − μR
+
+σR
+
+, (5) where μR and σR denote the group mean and stan-dard deviation. Vanilla GRPO broadcasts the same advantage 
+
+ˆAτi to every token in trajectory τi and optimises the resulting PPO-style objective (Schulman et al., 2017). As discussed next, this uniform credit as-signment is poorly matched to graph-walk trajec-tories because only a small subset of tokens de-termines which neighbours are explored. OPSD addresses this mismatch by re-pricing the trajectory advantage at walk decisions. 
+
+4.4 Destination-Conditioned On-Policy Self-Distillation (OPSD) 
+
+GRPO assigns the same trajectory advantage to all tokens, yet the quality of a walk decision becomes observable only after the destination node is re-vealed. OPSD converts this hindsight information into a local credit signal for neighbour selection while remaining fully on-policy. After a walk on node X reveals observation o,we construct a bounded-length destination recap 
+
+¯o = φ(o), |¯o| ≤ L, (6) where φ(·) compresses the revealed destination content into a topic-level textual description while excluding node identifiers, class labels, and explicit walk recommendations. The recap serves as a com-pact representation of what was discovered at the destination and is generated by the same policy πθ
+
+(Fig. 6). The realised walk action is then evaluated twice by πθ: once using the original context ( student )and once with [Destination: ¯o] inserted im-mediately before the walk span ( teacher ). For a node-ID token yt in <walk> X</walk> , the result-ing hindsight credit is 
+
+δt ≜ log πtea  
+
+> t
+
+− log πstu  
+
+> t
+
+, (7) where πstu  
+
+> t
+
+and πtea  
+
+> t
+
+denote the probabilities as-signed to the realised token under the two condi-tioning contexts. A positive δt indicates that, after observing what was actually found at the desti-nation, the model becomes more confident in the neighbour it previously selected. OPSD augments the GRPO advantage only on walk-destination tokens: 
+
+˜At =
+
+( ˆAτ + βδ t, t ∈ walk action tokens ,
+
+ˆAτ , otherwise , (8) where δt is detached from θ and β controls the strength of the hindsight signal. Destination infor-mation provides an additive per-action credit on top of the trajectory-level advantage, applied only to the node-ID tokens of a successful walk; the outcome reward remains the sole supervision for all other tokens. Reasoning tokens therefore remain supervised solely by the trajectory-level reward, avoiding the degradation of reasoning traces reported for self-distillation methods (Kim et al., 2026). App. B shows that δt is the gradient of a per-token reverse-KL self-distillation objective (Hübotter et al., 2026; Zhao et al., 2026), making Eq. (8) the gradient of the corresponding combined objective. Unlike prior self-distillation methods, the teacher condi-tions on the destination revealed by the realised walk itself rather than on a gold answer or external supervision. 
+
+4.5 Training 
+
+For a target node v0, each training step samples a group of N rollouts from the current policy (§4.1) and scores them with the trajectory reward R(τ )
+
+(§4.2). GRPO converts the group rewards into trajectory-level advantages ˆAτ (§4.3), which OPSD further refines on walk-destination tokens to obtain 
+
+˜At (§4.4). The policy is optimised with the PPO-style clipped objective 
+
+J (θ) = Eτ
+
+h 1
+
+|τ |
+
+X
+
+> t
+
+min  ρt ˜At, ¯ρt ˜At
+
+i
+
+, (9) where ρt = πθ(yt|s<t )/π θold (yt|s<t ) is the impor-tance ratio and ¯ρt = clip( ρt, 1−ϵlo , 1+ ϵhi ) applies the asymmetric clipping of Dr. GRPO (§4.3). Training uses the multi-task mixture described in §5.1. The complete procedure is summarised in Algorithm 2 (App. C). 
+
+5 Experiments 
+
+5.1 Setup Datasets. CNY is trained on a multi-task mixture of eight text-attributed graphs spanning citation, e-commerce, hyperlink and knowledge-graph do-mains: seven for node classification (Liu et al., 2023, 2025b,a; Jiang et al., 2026a,b; Wang et al., 2026a) and one (WN18RR) for relation classifica-tion. Following the zero-shot protocol of Graph-R1 (Wu et al., 2025b), a single checkpoint is then evaluated without per-task fine-tuning on five held-out graphs spanning node-, edge- and graph-level tasks, including the citation graphs Cora (Sen et al., 2008) and WikiCS (Mernyei and Cangea, 2020) and the co-purchase graph ogbn-products (Hu et al., 2020); graph-level reasoning is held out from train-ing, so the graph-level evaluation (Expla-Graph) probes cross-task transfer, as does the open-ended KGQA evaluation of §5.4. The suite is inherited unchanged from the GOFA-aligned benchmark of Graph-R1 and TRN-R1-Zero (Kong et al., 2025; Liu et al., 2026); per-dataset statistics are in App. D. All scores are accuracy under greedy decoding (temperature 0). Each neighbour preview is a deter-ministic prefix of the node’s raw text truncated to a per-dataset token budget, with no summarisation model or metadata involved (App. F.1). 
+
+Baselines. Baselines span three families: general-purpose LLMs, graph foundation models, and RL-post-trained reasoners (Graph-R1 and TRN-R1-Zero (Liu et al., 2026)), listed in full in App. D.1. The two reasoners and CNY are evaluated on iden-tical raw node text, so the gap reflects the learned walk rather than the inputs. 
+
+Models. Main results use Qwen2.5-14B-Instruct (Yang et al., 2024) as the CNY backbone, matched in scale to the strongest reasoning baseline (Graph-R1, a DeepSeek-R1 (Guo et al., 2025)-distilled Qwen2.5-14B) so the lead cannot be attributed to a larger backbone; TRN-R1-Zero is evaluated at its released 7B scale. Hyperparameters and hardware are listed in App. E. CNY uses OPSD with β=0 .03 held fixed across all datasets; the β=0 GRPO ablation (same reward, Eq. 3) is studied in §5.5. The base-model study (§5.6) trains CNY from five backbones spanning two families and four scales (Llama-3.2-3B (Llama Team, 2024) and Qwen 4B–14B). 
+
+5.2 Main Results 
+
+Held-out zero-shot accuracy is reported in Table 1, evaluating CNY on two transfer axes: to unseen graphs of a trained task family, and to a task family never seen during training. CNY attains the high-est accuracy on every setting in Table 1, leading the strongest prior reasoner, Graph-R1, on ev-ery task family. The prior reasoners answer an oversized neighbourhood by fixing the context be-fore generation, through summarisation or random sampling, whereas CNY walks to the neighbours Node-level Edge-level Graph-level Task Cora WikiCS Products FB15K237 Expla-Graph 7-way 2-way 10-way 5-way 10-way 5-way 10-way Llama2-7B 47.92 73.45 40.10 58.77 58.71 64.33 48.32 57.76 Mistral-7B 60.54 88.39 63.63 71.90 70.16 74.94 62.48 68.77 OFA (7B) 28.65 56.92 21.20 35.15 30.43 39.31 – 51.36 UniGraph (7B) 69.53 89.74 43.45 60.23 66.07 75.73 – –LLaGA (7B) 51.85 62.73 – – 34.15 39.72 – –GOFA-T (7B) 70.81 85.73 71.17 80.93 79.33 87.13 73.59 79.49 GOFA-F (7B) 69.41 87.52 68.84 80.52 80.03 88.34 80.69 71.34 TRN-R1-Zero (7B) 72.59 85.93 73.63 78.25 81.10 88.00 74.70 85.92 Graph-R1 (14B) 68.15 89.08 73.25 79.62 85.72 91.78 75.17 89.71 CNY (7B) 75.37 89.63 74.32 81.20 86.00 90.30 76.41 88.45 CNY (14B) 73.70 91.48 76.75 85.51 87.30 91.87 82.13 92.60          
+
+> Table 1: Zero-shot accuracy (%, ↑). LLM and graph-foundation rows are from Graph-R1 (Wu et al., 2025b); Graph-R1 is re-evaluated under the protocol of §5.1. Bold : best; underline: second-best. CNY’s lead over the runner-up reasoner is significant at p≤0.05 (paired t-test on per-instance correctness, Bonferroni-corrected).
+
+it needs during reasoning. The two axes are exam-ined in turn. 
+
+Cross-dataset transfer (seen task types). On the four datasets whose task family is represented in training, CNY leads every graph foundation model and reasoning baseline, and the size of the lead tracks how much the prediction depends on selecting the right neighbours. On the dense Wi-kiCS graph CNY reaches 76 .8 at 10 ways and 
+
+85 .5 at 5 ways, ahead of the second-best 73 .6 and 
+
+80 .9, whereas on the sparse Cora graph, whose full neighbourhood already fits in the prompt, the margin narrows to 73 .7 against 72 .6. On Products CNY reaches 87 .3 against 85 .7, and on the relation-classification graph FB15K237, where a single de-cisive neighbour settles the label, 82 .1 against 80 .7.This ordering matches the premise of §4: a learned reading LLM helps most when the neighbourhood is large and selecting the right evidence matters most. 
+
+Cross-task transfer (unseen task types). Expla-Graph is the graph-level cross-task evaluation, a binary stance judgement over a per-instance com-monsense explanation graph, a task family absent from training. Its concepts form a walkable neigh-bourhood, so the same multi-step walk template applies: CNY is shown only the seed concepts and must walk to reveal the rest, whereas the rea-soning baselines (Graph-R1, TRN-R1-Zero) re-ceive the full explanation graph in context. Despite this information handicap, and without any graph-level reasoning during training, CNY attains the strongest stance accuracy ( 92 .60 against 89 .71 for Graph-R1 and 85 .92 for TRN-R1-Zero, Table 1). 
+
+The learned walk LLM therefore transfers to a graph-level task it never saw during training. 5.3 Effectiveness of Walking 
+
+Does the gain come from adaptive neighbour selec-tion, or simply from putting more text in context? We compare the frozen CNY-14B model against itself with the walk disabled, under three controls on the full held-out splits. 
+
+Matched text budget. Each node is answered either directly from one 1-hop neighbour’s full text, or by walking to selected neighbours at the same text budget. Walking raises accuracy on every dataset (Table 2), so the gain comes from reading selectively rather than from more content in con-text. 
+
+Matched inference compute. Under a compara-ble inference token budget on WikiCS, one greedy walk ( 77 .0 at 2,341 tokens per node) outperforms both self-consistency over four samples ( 74 .5) and best-of-4 reranking ( 74 .4, each at 2,899 tokens). Additional test-time compute therefore does not ex-plain the walk’s margin, nor does preview exposure, since showing every neighbour’s preview while for-bidding the walk (preview+direct) improves the direct baseline only modestly (App. F.2). Dataset Walks Nodes Direct Walk ∆
+
+WikiCS 1 walk 78% 75.7 81.6 +5 .9
+
+≥2 walks 22% 54.2 58.7 +4 .5
+
+Cora 1 walk 70% 75.0 82.4 +7 .4
+
+≥2 walks 30% 42.1 54.9 +12 .8
+
+Products 1 walk 92% 86.5 91.1 +4 .7
+
+≥2 walks 8% 42.3 48.0 +5 .7
+
+Table 2: Walking improves accuracy across datasets. 
+
+Frozen CNY-14B at a matched text budget ( 1.1–1.3
+
+neighbours per node). Direct : one 1-hop neighbour’s full text; Walk : walk to selected neighbours; rows split by walk count, Nodes is the bucket share. Setup and controls in §5.3. 
+
+Degree-preserving rewire. If the model were doing only semantic retrieval over neighbour text, randomising the graph while keeping every node’s degree fixed should leave accuracy unchanged. On WikiCS we apply random edge swaps, pre-serving degrees but destroying topology, with texts and labels untouched. Walk accuracy col-lapses on WikiCS ( 76 .6 → 73 .0, matching the pre-view+direct baseline at 73 .4) while walks-per-node rises ( 1.24 → 2.01 ), consistent with recognising that each step now returns less useful evidence. The walk also lands on same-class neighbours well above the homophily rate ( 63 .4% → 74 .0% on Wi-kiCS, 76 .6% → 84 .0% on Cora), yet rarely on the most embedding-similar preview ( 22% of picks, mean similarity rank 4.0 against 1.0 for a retriever). 
+
+Selective reading over real graph structure, not preview exposure or the act of walking itself, is what makes the walk LLM useful. 5.4 Generalisation to Multi-Hop KGQA 
+
+Realised walk depth saturates near 1.2 walks per node on the classification benchmarks, leaving open whether the policy generalises to tasks de-manding deeper exploration. On the multi-hop KGQA benchmark WebQSP (Yih et al., 2016) (all 
+
+1,628 test questions, substring Hits@ 1 protocol of G-Retriever (He et al., 2024b)), the frozen CNY-14B walks each question’s Freebase subgraph with no question-answering training. Walking reaches 
+
+58 .4 against 38 .5 for answering from the identical previews ( +19 .9), and neither the question alone (44 .0, parametric memory) nor the full 1-hop neigh-bourhood concatenated in context ( 49 .0) closes the gap (Table 3). The policy also walks deeper un-prompted, at 2.31 walks per question. The learned      
+
+> Settings Hits@ 1
+> CNY-14B, walk ( Tmax =5 )58 .4
+> CNY-14B, full 1-hop context 49 .0
+> CNY-14B, question only (no graph) 44 .0
+> CNY-14B, direct from previews 38 .5
+
+Table 3: Zero-shot multi-hop KGQA on WebQSP. 
+
+One frozen checkpoint, no question-answering training; all variants share subgraphs, prompts and scoring.      
+
+> CNY GRPO ( β=0 )
+> 0350 700 68 70 72
+> Training step Cross-domain acc. (%)
+> (a) Evaluation accuracy
+> 0350 700
+> −0.100.20.4
+> Training step Reverse-KL credit
+> (b) Walk-action credit
+
+Figure 3: Effectiveness of OPSD (CNY-7B). (a) Held-out accuracy (mean of WikiCS and Cora) over training for β=0 .03 vs. the β=0 GRPO ablation. (b) OPSD walk-action reverse-KL signal −δt on walk-action to-kens; band: 1st– 99 th percentile, line: mean. 
+
+walk policy scales its exploration to the demands of the task and transfers zero-shot to multi-hop question answering. 5.5 Effectiveness of OPSD 
+
+This experiment isolates the contribution of the OPSD credit from outcome-only reward. The same backbone (CNY-7B) is trained twice on the multi-task mixture with identical reward (Eq. 3) and roll-outs, differing only in whether the OPSD term is on ( β=0 .03 ) or off ( β=0 , the GRPO ablation), and held-out accuracy is tracked against training reward throughout. The β-sweep below is reported on Qwen3-4B-Instruct-2507, since each row requires a separate training run. 
+
+OPSD improves cross-domain transfer. Fig-ure 3(a) tracks held-out accuracy (mean of WikiCS and Cora) over training for CNY and the GRPO ab-lation ( β=0 ). Both reach the same training reward, yet CNY attains a markedly higher cross-domain accuracy. Matched training reward alongside a sep-arated evaluation accuracy places the contribution of OPSD in generalisation rather than in a closer fit to the training mixture. OPSD coefficient β                
+
+> Dataset 0(GRPO) 0.005 0.01 0.02 0.03
+> WikiCS 69 .572 .773 .074 .275 .1
+> Cora 58 .560 .062 .562 .065 .5
+
+Table 4: β-sweep, held-out accuracy (Qwen3-4B-Instruct-2507). β=0 is the GRPO ablation. Bold : best per row.                
+
+> Frozen checkpoint mean |δ|frac δ> 0mean |βδ |
+> Qwen3-4B (sweep) 0.45 79% 0.013
+> Qwen2.5-7B 0.56 77% 0.017
+> Qwen2.5-14B (main) 0.91 89% 0.027
+
+Table 5: The OPSD signal across backbone scales ,in nats over the <walk> id tokens (Cora, N =536 per backbone). The credit strengthens with capacity while 
+
+β=0 .03 keeps its per-token magnitude well below re-ward scale. 
+
+The OPSD credit is a structured, bidirectional signal. Figure 3(b) shows the per-token reverse KL KL rev  
+
+> t
+
+= −δt on the walk-action tokens through training. The signal spans both teacher-favoured selections (below zero, where the re-cap makes the action more likely) and teacher-disfavoured ones (above zero), confirming a gen-uine walk-action credit rather than a constant offset. Its 1st-99 th percentile spread widens as training proceeds, indicating that the credit sharpens its dis-crimination between strong and weak selections rather than washing out. Across 7,228 training recaps, 0.0% contain node identifiers or walk rec-ommendations, and only 0.03% (two benign cases) touch the start node’s classification. The mean re-cap length is 32 words, below the 50 -token cap (App. D.6). 
+
+The improvement scales with OPSD strength. 
+
+On a smaller Qwen3-4B-Instruct-2507 backbone, sweeping β from 0 (GRPO) up to the headline 0.03 improves held-out accuracy on both datasets (Ta-ble 4): WikiCS rises monotonically from 69 .5 to 
+
+75 .1 (+5 .6), and Cora follows the same upward trend from 58 .5 to 65 .5 (+7 .0). This single coef-ficient also transfers. Measured on frozen check-points (Table 5), the recap raises the taken walk’s probability on 77 –89% of walk actions at every scale, and although the signal strength grows with backbone capacity, β=0 .03 keeps the per-token nudge well below reward scale. 
+
+The reward tiers are not the source. Table 6 ablates the graded reward of Eq. 3 at identical data                        
+
+> Full Rescaled Removed WikiCS 79 .2±1.279 .2±0.8–Cora 61 .9±1.362 .9±1.4–Walk attempts/rollout 2.32.02.3→13 .7
+> Budget-exhaust. 0% 0.4% 0.4→75%
+> Answer rate 100% 98% 99 .6→25%
+
+Table 6: Component-wise reward ablation (Qwen3-4B, n=200 held-out, matched data and rollouts). Tiers: 
+
+1.0/0.6/0.3/0.2/0.1 (Full, Eq. 3), order-preserving 
+
+1.0/0.5/0.25 /0.15 /0.05 (Rescaled), 1.0/0.6/0/0/0.1
+
+(Removed, zeroing the two walk tiers for incorrect tra-jectories). Accuracy is unavailable once the policy stops answering.   
+
+> Llama-3.2 3B Qwen3 4B Qwen2.5 7B Qwen2.5 14B Qwen3 14B
+> 40 60 80
+> Accuracy (%)
+> WikiCS (Base) WikiCS (CNY) Cora (Base) Cora (CNY)
+
+Figure 4: CNY improves accuracy across base models. 
+
+Zero-shot base (hollow) vs. CNY best checkpoint (filled) for five backbones on WikiCS (maroon) and Cora (blue). Accuracy is on the evaluation subset tracked during training, so values differ slightly from Table 1. 
+
+and rollouts. Rescaling every tier value reproduces both datasets, while zeroing the two intermediate walk tiers collapses rollout behaviour, so tier order-ing matters and the specific values do not. 
+
+Together these place the OPSD gain in gen-eralisation rather than in reward shaping or a fragile coefficient choice. 5.6 Impact of Different LLM Backbones 
+
+To assess the generality of CNY across LLMs, the method is trained from five base models spanning two families and four scales (Llama-3.2-3B and Qwen 4B–14B), with reward, OPSD coefficient and training mixture held fixed. Held-out accuracy on the evaluation subset tracked during training is reported in Fig. 4. On both evaluation datasets the accuracy of every backbone improves after CNY training, the largest gain falling to the weakest base and the improve-ment shrinking as the backbone strengthens. The improvement is therefore a property of CNY rather than of any single backbone or dataset. Per-step phase (s) GRPO ( β=0 ) CNY+OPSD Rollout 8.8 20 .0
+
+Log probabilities 14 .1 17 .6
+
+Actor train (fwd/bwd) 48 .3 55 .3
+
+Total step wall 87 .7 108 .9
+
+Compute (PFLOP/step) 12 .0 14 .8
+
+Table 7: Training-time cost. Median per-step wall time and compute for a matched 7B pair on identical data and hardware, with and without OPSD. 
+
+5.7 Computation Cost 
+
+CNY’s only algorithmic overhead beyond GRPO is one teacher log-probability forward per success-ful <walk> . Because this forward operates on a bounded-length recap rather than retrieved neigh-bour text (App. D.6), its cost is independent of the graph context size. On a matched Qwen2.5-7B setup, OPSD increases log-probability time from 
+
+14 .1 to 17 .6 s/step and aggregate compute from 
+
+12 .0 to 14 .8 PFLOP (+24%; Table 7). The remain-ing wall-clock overhead comes from the longer trajectories induced by learned walking. At inference, per-node cost depends only on the neighbourhood the walk exposes and the step bud-get. Cost therefore scales with the explored local context, not the global graph size. 
+
+5.8 Case Study 
+
+A representative WikiCS case illustrates how walk-ing can resolve a direct misclassification. For the target node with ground-truth label Distributed Computing Architecture , the frozen CNY-14B model predicts Computer Architecture even when given two complete 1-hop neighbours. With walking enabled, the model selects the definitional 
+
+cloud_computing article rather than the less dis-criminative rackspace company page, leading to the correct prediction. Across the WikiCS anal-ysis set, walking corrects 290 direct errors while introducing 91 new errors.       
+
+> No walk →Computer Architecture (incorrect)
+> <thinking> The target article discusses Quanta Cloud Technology (QCT), which provides data center hardware and cloud solutions ... the most fitting category would be related to the physical and architectural aspects of computing systems, which aligns with Computer Architecture. </thinking>
+> <answer> 3</answer>
+> Walk →Distributed Computing Architecture (cor-rect)
+> <thinking>The target article is about Quanta Cloud Technology (QCT), which deals with cloud solutions ... I need to walk to node 4194 to understand more about cloud computing and confirm the category.</thinking>
+> <walk> 4194 </walk> <information> [#4194 cloud_computing] cloud computing on-demand availability computer system resources especially data storage computing power ... large clouds predominant today often functions distributed multiple locations central servers ... clouds may limited single organization enterprise clouds available many organizations public cloud ... cloud computing relies sharing resources achieve coherence economies scale ... [1-hop neighbours elided] </information> <thinking>This confirms the context is related to cloud computing, which falls under Distributed Computing Architecture. </thinking>
+> <answer> 7</answer>
+
+The introduced errors fall into three failure modes based on all 282 flips pooled across three walk-evaluation seeds: adjacent-class interfer-ence (53.5%), where a semantically adjacent neigh-bour dominates the reasoning; misleading empha-sis (39.4%), where a same-class neighbour fore-grounds an off-class facet; and reasoning drift 
+
+(6.7%), where the final prediction matches neither the target nor any visited neighbour. Over 92% thus arise from plausible but insufficiently discrim-inative evidence rather than search failure, and no case exhausts the walk budget (App. F.3). 
+
+6 Conclusion 
+
+This paper introduces CNY, a reinforcement learn-ing framework that treats neighbour acquisition as graph-walk actions and supervises them via destination-conditioned on-policy self-distillation (OPSD), which derives action-level credit from re-vealed destinations without annotated trajectories, external judges, or additional rollouts. Across mul-tiple TAG benchmarks, CNY consistently improves reasoning performance and transfers to unseen do-mains, suggesting that effective graph reasoning depends not only on interpreting evidence but also on acquiring it adaptively during reasoning. Limitations 
+
+CNY trains walk selection rather than the back-bone’s underlying world knowledge, so final accu-racy is bounded by what the base model already encodes and training the walk LLM cannot in-ject domain facts the backbone never saw. The base-model study (§5.6) reflects this, with held-out accuracy tracking backbone scale and the gain from walking shrinking as the backbone strength-ens. Tasks that hinge on knowledge absent from the base model are unlikely to be reached without a stronger or further pre-trained backbone. Evaluation uses the GOFA-aligned zero-shot benchmark inherited from Graph-R1 and TRN-R1-Zero, which keeps every comparison directly aligned with prior work but does not cover large-scale, heterogeneous or temporal graphs. The cross-task generalisation evidence further rests on one graph-level task (Expla-Graph) and one open-ended question-answering task (WebQSP), so broader graph families and task types are left to future work. The backbone study spans the Llama and Qwen families up to 14B, leaving other model families uncharacterised. 
+
+Acknowledgments 
+
+This research has been supported by Australian Re-search Council Discovery Projects (CE200100025, DP230101196 and DE250100919). 
+
+References 
+
+Akari Asai, Zeqiu Wu, Yizhong Wang, Avirup Sil, and Hannaneh Hajishirzi. 2024. Self-RAG: Learning to retrieve, generate, and critique through self-reflection. In ICLR .Yushi Bai, Xin Lv, Jiajie Zhang, Hongchang Lyu, Jiankai Tang, Zhidian Huang, Zhengxiao Du, Xiao Liu, Aohan Zeng, Lei Hou, Yuxiao Dong, Jie Tang, and Juanzi Li. 2024. LongBench: A bilingual, multi-task benchmark for long context understanding. In 
+
+ACL .Mingyang Chen, Linzhuang Sun, Tianpeng Li, Haoze Sun, Yijie Zhou, Chenzheng Zhu, Haofen Wang, Jeff Z. Pan, Wen Zhang, Huajun Chen, Fan Yang, Zenan Zhou, and Weipeng Chen. 2025. ReSearch: Learning to reason with search for LLMs via rein-forcement learning. In NeurIPS .Nuo Chen, Yuhan Li, Jianheng Tang, and Jia Li. 2024a. GraphWiz: An instruction-following language model for graph computational problems. In KDD .Runjin Chen, Tong Zhao, Ajay Kumar Jaiswal, Neil Shah, and Zhangyang Wang. 2024b. LLaGA: Large language and graph assistant. In ICML .Daya Guo, Dejian Yang, Haowei Zhang, Junxiao Song, Peiyi Wang, Qihao Zhu, Runxin Xu, Ruoyu Zhang, Shirong Ma, Xiao Bi, and 1 others. 2025. DeepSeek-R1 incentivizes reasoning in LLMs through reinforce-ment learning. Nature , 645(8081):633–638. Xiaoxin He, Xavier Bresson, Thomas Laurent, Adam Perold, Yann LeCun, and Bryan Hooi. 2024a. Har-nessing explanations: LLM-to-LM interpreter for en-hanced text-attributed graph representation learning. In ICLR .Xiaoxin He, Yijun Tian, Yifei Sun, Nitesh V. Chawla, Thomas Laurent, Yann LeCun, Xavier Bresson, and Bryan Hooi. 2024b. G-Retriever: Retrieval-augmented generation for textual graph understand-ing and question answering. In NeurIPS .Yufei He, Yuan Sui, Xiaoxin He, and Bryan Hooi. 2025. UniGraph: Learning a unified cross-domain founda-tion model for text-attributed graphs. In KDD .Cheng-Ping Hsieh, Simeng Sun, Samuel Kriman, Shan-tanu Acharya, Dima Rekesh, Fei Jia, Yang Zhang, and Boris Ginsburg. 2024. RULER: What’s the real context size of your long-context language models? In COLM .Weihua Hu, Matthias Fey, Marinka Zitnik, Yuxiao Dong, Hongyu Ren, Bowen Liu, Michele Catasta, and Jure Leskovec. 2020. Open graph benchmark: Datasets for machine learning on graphs. In NeurIPS .Jonas Hübotter, Frederike Lübeck, Lejs Behric, An-ton Baumann, Marco Bagatella, Daniel Marta, Ido Hakimi, Idan Shenfeld, Thomas Kleine Buening, Car-los Guestrin, and Andreas Krause. 2026. Reinforce-ment learning via self-distillation. In ICML .Albert Q. Jiang, Alexandre Sablayrolles, Arthur Men-sch, Chris Bamford, Devendra Singh Chaplot, Diego de Las Casas, Florian Bressand, Gianna Lengyel, Guillaume Lample, Lucile Saulnier, Lélio Re-nard Lavaud, Marie-Anne Lachaux, Pierre Stock, Teven Le Scao, Thibaut Lavril, Thomas Wang, Timo-thée Lacroix, and William El Sayed. 2023. Mistral 7B. CoRR , abs/2310.06825. Yan Jiang, Ruihong Qiu, and Zi Huang. 2026a. Does ho-mophily help in robust test-time node classification? In WSDM .Yan Jiang, Ruihong Qiu, and Zi Huang. 2026b. Gfmate: Empowering graph foundation models with test-time prompt tuning. CoRR , abs/2605.14809. Bowen Jin, Hansi Zeng, Zhenrui Yue, Jinsung Yoon, Sercan Arik, Dong Wang, Hamed Zamani, and Jiawei Han. 2025. Search-R1: Training LLMs to reason and leverage search engines with reinforcement learning. In COLM .Jeonghye Kim, Xufang Luo, Minbeom Kim, Sangmook Lee, Dohyung Kim, Jiwon Jeon, Dongsheng Li, and Yuqing Yang. 2026. Why does self-distillation (some-times) degrade the reasoning capability of LLMs? 
+
+CoRR , abs/2603.24472. Lecheng Kong, Jiarui Feng, Hao Liu, Chengsong Huang, Jiaxin Huang, Yixin Chen, and Muhan Zhang. 2025. GOFA: A generative one-for-all model for joint graph language modeling. In ICLR .Xiaoxi Li, Guanting Dong, Jiajie Jin, Yuyao Zhang, Yujia Zhou, Yutao Zhu, Peitian Zhang, and Zhicheng Dou. 2025. Search-o1: Agentic search-enhanced large reasoning models. In EMNLP .Yuhan Li, Peisong Wang, Zhixun Li, Jeffrey Xu Yu, and Jia Li. 2024a. ZeroG: Investigating cross-dataset zero-shot transferability in graphs. In KDD .Yuhan Li, Peisong Wang, Xiao Zhu, Aochuan Chen, Haiyun Jiang, Deng Cai, Wai Kin Victor Chan, and Jia Li. 2024b. GLBench: A comprehensive bench-mark for graph with large language models. In 
+
+NeurIPS .Hunter Lightman, Vineet Kosaraju, Yuri Burda, Harri-son Edwards, Bowen Baker, Teddy Lee, Jan Leike, John Schulman, Ilya Sutskever, and Karl Cobbe. 2024. Let’s verify step by step. In ICLR .Hao Liu, Jiarui Feng, Lecheng Kong, Ningyue Liang, Dacheng Tao, Yixin Chen, and Muhan Zhang. 2024a. One for all: Towards training one graph model for all classification tasks. In ICLR .Nelson F. Liu, Kevin Lin, John Hewitt, Ashwin Paran-jape, Michele Bevilacqua, Fabio Petroni, and Percy Liang. 2024b. Lost in the middle: How language models use long contexts. TACL .Yilun Liu, Ruihong Qiu, and Zi Huang. 2023. CaT: balanced continual graph learning with graph con-densation. In ICDM .Yilun Liu, Ruihong Qiu, and Zi Huang. 2025a. GCon-denser: benchmarking graph condensation. In 
+
+CIKM .Yilun Liu, Ruihong Qiu, and Zi Huang. 2026. TRN-R1-Zero: Text-rich network reasoning via LLMs with reinforcement learning only. In ACL .Yilun Liu, Ruihong Qiu, Yanran Tang, Hongzhi Yin, and Zi Huang. 2025b. PUMA: efficient continual graph learning for node classification with graph con-densation. TKDE .Zichen Liu, Changyu Chen, Wenjun Li, Penghui Qi, Tianyu Pang, Chao Du, Wee Sun Lee, and Min Lin. 2025c. Understanding r1-zero-like training: A criti-cal perspective. CoRR , abs/2503.20783. Llama Team. 2024. The Llama 3 herd of models. CoRR ,abs/2407.21783. Péter Mernyei and Catalina Cangea. 2020. Wiki-CS: A wikipedia-based benchmark for graph neural net-works. CoRR , abs/2007.02901. John Schulman, Filip Wolski, Prafulla Dhariwal, Alec Radford, and Oleg Klimov. 2017. Proximal policy optimization algorithms. CoRR , abs/1707.06347. Prithviraj Sen, Galileo Namata, Mustafa Bilgic, Lise Getoor, Brian Gallagher, and Tina Eliassi-Rad. 2008. Collective classification in network data. AI Maga-zine , 29(3):93–106. Zhihong Shao, Peiyi Wang, Qihao Zhu, Runxin Xu, Junxiao Song, Mingchuan Zhang, Y. K. Li, Y. Wu, and Daya Guo. 2024. DeepSeekMath: Pushing the limits of mathematical reasoning in open language models. CoRR , abs/2402.03300. Idan Shenfeld, Mehul Damani, Jonas Hübotter, and Pulkit Agrawal. 2026. Self-distillation enables con-tinual learning. CoRR , abs/2601.19897. Huatong Song, Jinhao Jiang, Yingqian Min, Jie Chen, Zhipeng Chen, Wayne Xin Zhao, Lei Fang, and Ji-Rong Wen. 2025. R1-Searcher: Incentivizing the search capability in LLMs via reinforcement learning. 
+
+CoRR , abs/2503.05592. Jiabin Tang, Yuhao Yang, Wei Wei, Lei Shi, Lixin Su, Suqi Cheng, Dawei Yin, and Chao Huang. 2024a. GraphGPT: Graph instruction tuning for large lan-guage models. In SIGIR .Yanran Tang, Ruihong Qiu, Yilun Liu, Xue Li, and Zi Huang. 2024b. CaseGNN: graph neural networks for legal case retrieval with text-attributed graphs. In 
+
+ECIR .Yanran Tang, Ruihong Qiu, Yilun Liu, Xue Li, and Zi Huang. 2026a. LEXA: legal case retrieval via graph contrastive learning with contextualised LLM embeddings. World Wide Web (WWW) , 29(2):20. Yanran Tang, Ruihong Qiu, Hongzhi Yin, Xue Li, and Zi Huang. 2024c. CaseLink: inductive graph learn-ing for legal case retrieval. In SIGIR .Yanran Tang, Ruihong Qiu, Hongzhi Yin, Xue Li, and Zi Huang. 2026b. Cassette: Case-to-case structural distillation for efficient legal case retrieval. TOIS .Hugo Touvron, Louis Martin, Kevin Stone, Peter Al-bert, Amjad Almahairi, Yasmine Babaei, Nikolay Bashlykov, Soumya Batra, Prajjwal Bhargava, Shruti Bhosale, Dan Bikel, Lukas Blecher, Cristian Canton-Ferrer, Moya Chen, Guillem Cucurull, David Esiobu, Jude Fernandes, Jeremy Fu, Wenyin Fu, and 1 others. 2023. Llama 2: Open foundation and fine-tuned chat models. CoRR , abs/2307.09288. Danny Wang, Ruihong Qiu, Guangdong Bai, and Zi Huang. 2025a. Text meets topology: Rethinking out-of-distribution detection in text-rich networks. In 
+
+EMNLP .Danny Wang, Ruihong Qiu, and Zi Huang. 2026a. What information matters? graph out-of-distribution detec-tion via tri-component information decomposition. 
+
+CoRR , abs/2605.13032. Haoyu Peter Wang, Shikun Liu, Rongzhe Wei, and Pan Li. 2025b. Generalization principles for inference over text-attributed graphs with large language mod-els. In ICML .Heng Wang, Shangbin Feng, Tianxing He, Zhaoxuan Tan, Xiaochuang Han, and Yulia Tsvetkov. 2023. Can language models solve graph problems in natural language? In NeurIPS .Peiyi Wang, Lei Li, Zhihong Shao, Runxin Xu, Damai Dai, Yifei Li, Deli Chen, Yu Wu, and Zhifang Sui. 2024. Math-Shepherd: Verify and reinforce LLMs step-by-step without human annotations. In ACL .Yinjie Wang, Xuyang Chen, Xiaolong Jin, Mengdi Wang, and Ling Yang. 2026b. Openclaw-rl: Train any agent simply by talking. CoRR , abs/2603.10165. Yuyao Wang, Bowen Liu, Jianheng Tang, Nuo Chen, Yuhan Li, Qifan Zhang, Chenyi Zi, Chen Zhang, and Jia Li. 2025c. Npg-muse: Scaling long chain-of-thought reasoning with np-hard graph problems. 
+
+CoRR , abs/2508.20373. Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten Bosma, Brian Ichter, Fei Xia, Ed H. Chi, Quoc V. Le, and Denny Zhou. 2022. Chain-of-thought prompt-ing elicits reasoning in large language models. In 
+
+NeurIPS .Xixi Wu, Yifei Shen, Fangzhou Ge, Caihua Shan, Yizhu Jiao, Xiangguo Sun, and Hong Cheng. 2025a. When do LLMs help with node classification? A compre-hensive analysis. In ICML .Yicong Wu, Guangyue Lu, Yuan Zuo, Huarong Zhang, and Junjie Wu. 2025b. Graph-R1: Incentivizing the zero-shot graph learning capability in LLMs via ex-plicit reasoning. In EMNLP .An Yang, Baosong Yang, Beichen Zhang, Binyuan Hui, Bo Zheng, Bowen Yu, Chengyuan Li, Dayi-heng Liu, Fei Huang, Haoran Wei, Huan Lin, Jian Yang, Jianhong Tu, Jianwei Zhang, Jianxin Yang, Ji-axi Yang, Jingren Zhou, Junyang Lin, Kai Dang, and 22 others. 2024. Qwen2.5 technical report. CoRR ,abs/2412.15115. Wen-tau Yih, Matthew Richardson, Christopher Meek, Ming-Wei Chang, and Jina Suh. 2016. The value of semantic parse labeling for knowledge base question answering. In ACL .Siyan Zhao, Zhihui Xie, Mengchen Liu, Jing Huang, Guan Pang, Feiyu Chen, and Aditya Grover. 2026. Self-distilled reasoner: On-policy self-distillation for large language models. In ICML .A Detailed Related Work 
+
+A.1 Reasoning on Text-Attributed Graphs 
+
+Existing LLM-based TAG methods generally as-sume a fixed neighbourhood context constructed before generation. Early approaches use LLMs as text encoders for nodes and labels, followed by graph-aware aggregation over the resulting em-beddings (Li et al., 2024a; He et al., 2024a; Liu et al., 2024a; Wang et al., 2025b). Subsequent methods integrate graph structure directly into the language model input space through soft graph em-beddings, graph-language token interleaving, or graph-aware adapters (Tang et al., 2024a; Chen et al., 2024b; Kong et al., 2025). A complementary line probes whether LLMs can reason over graph structure when graphs are serialised into natural language (Wang et al., 2023), and shared bench-marks have emerged to evaluate graph-LLM meth-ods across diverse tasks (Li et al., 2024b; Wu et al., 2025a). More recent work applies post-training to elicit explicit graph reasoning behaviours from LLMs. GraphWiz (Chen et al., 2024a) instruction-tunes chain-of-thought (Wei et al., 2022) reasoning traces for graph problems, while NPG-Muse (Wang et al., 2025c) distils reasoning trajectories from larger models. On TAG reasoning specifically, recent reinforce-ment learning approaches still rely on static neigh-bour selection. Graph-R1 (Wu et al., 2025b) compresses local subgraphs into textual sum-maries before GRPO fine-tuning, while TRN-R1-Zero (Liu et al., 2026) performs reasoning over randomly sampled neighbourhood subgraphs using a neighbour-aware reward objective. Across these methods, the neighbourhood context is selected be-fore reasoning begins through heuristic rules such as full-subgraph concatenation, summarisation, or random sampling, so neighbour acquisition itself is never treated as a learnable decision process. 
+
+A.2 Agentic Search 
+
+Recent agentic retrieval systems interleave reason-ing with external information acquisition by allow-ing language models to issue search queries dur-ing generation, e.g., Self-RAG (Asai et al., 2024), Search-o1 (Li et al., 2025), Search-r1 (Jin et al., 2025), R1-Searcher (Song et al., 2025) and Re-Search (Chen et al., 2025). These methods typically retrieve documents through external semantic re-trievers, while the retrieval LLM is supervised only through final outcome rewards. The action space and environment are thus an unstructured document corpus resolved by similarity, rather than a graph-structured neighbourhood. This structural differ-ence is load-bearing: a degree-preserving rewire that keeps every node’s text and degree intact but destroys topology collapses walk accuracy to the preview+direct baseline (§5.3), so the gain is not recoverable by flat retrieval over the same node texts. 
+
+A.3 Credit Assignment and On-Policy Self-Distillation 
+
+Sequential neighbour exploration introduces a sparse credit-assignment problem: a graph-walk trajectory may contain multiple neighbour-selection actions while receiving supervision only from a final task-level reward. Process reward mod-els (PRMs) (Lightman et al., 2024; Wang et al., 2024) partially address sparse supervision in LLM reasoning by assigning step-level rewards to inter-mediate reasoning steps. However, PRMs require labelled intermediate trajectories or reference solu-tions, which are unavailable for graph exploration tasks. Recent work on on-policy self-distillation (OPSD) instead provides dense optimisation sig-nals by comparing the LLM against a more-informed teacher LLM at the token level (Shen-feld et al., 2026; Hübotter et al., 2026; Zhao et al., 2026). Existing OPSD methods construct the teacher using privileged outcome information, such as gold answers (Hübotter et al., 2026; Zhao et al., 2026), reference solutions, or externally supplied hints (Wang et al., 2026b). Consequently, the result-ing supervision measures agreement with a known-correct continuation. CNY extends OPSD to graph exploration settings where no labelled intermedi-ate supervision exists. Our destination-conditioned OPSD conditions the teacher on the revealed des-tination reached by the LLM itself, namely the neighbour retrieved by a graph-walk action. 
+
+B OPSD Credit Derivation 
+
+This appendix derives the walk-action credit δt of Eq. (7) as the gradient of a per-token reverse-KL self-distillation objective. Let t index token posi-tions in τ , with yt the token at position t and s<t 
+
+the autoregressive prefix (the initial prompt plus all earlier tokens). The student and teacher next-token distributions at position t are πθ(· | s<t ) and 
+
+πθ(· | s<t ∥ ¯ot), where ¯ot is the recap attached to the walk action containing position t (undefined when no such action exists) and ∥ denotes concate-nation of the recap into s<t immediately before the action span; πstu  
+
+> t
+
+(y) and πtea  
+
+> t
+
+(y) denote the probability each assigns to a token y. At each walk-action token, OPSD distils the student towards its own destination-conditioned teacher by minimising the per-token reverse KL divergence 
+
+Drev  
+
+> t
+
+≜ KL  πθ(· | s<t ) πθ(· | s<t ∥ ¯ot)
+
+= Ey∼πstu 
+
+> t
+
+ log πstu  
+
+> t
+
+(y) − log πtea  
+
+> t
+
+(y),
+
+(10) the standard on-policy self-distillation objective: the student samples the token on policy and is pulled towards the recap-informed teacher, which is held fixed (stop-gradient) (Shenfeld et al., 2026; Hübotter et al., 2026; Zhao et al., 2026). Be-cause the teacher is detached, the gradient is a REINFORCE-style gradient whose per-token weight is the teacher-to-student log-ratio, 
+
+∇θDrev  
+
+> t
+
+= − Ey∼πstu 
+
+> t
+
+ δt(y) ∇θ log πstu  
+
+> t
+
+(y) ,δt(y) ≜ log πtea  
+
+> t
+
+(y) − log πstu  
+
+> t
+
+(y),
+
+(11) so minimising the reverse KL is identical to us-ing δt as a per-token advantage (Shenfeld et al., 2026; Hübotter et al., 2026): crediting the ac-tion by the log-ratio and distilling towards the teacher are the same update. Evaluated at the re-alised token yt, this gives the single-sample credit 
+
+δt = log πtea  
+
+> t
+
+−log πstu  
+
+> t
+
+= −KL rev  
+
+> t
+
+of Eq. (7), with 
+
+KL rev  
+
+> t
+
+= log πstu  
+
+> t
+
+− log πtea  
+
+> t
+
+the per-token reverse log-ratio. As a single realised-token term it is a biased estimator of the reverse-KL gradient (Shen-feld et al., 2026), used directly as the dense credit. 
+
+C Algorithms 
+
+Algorithm 1 gives one CNY rollout (§4.1); Algo-rithm 2 gives one training step (§4.3), pricing the GRPO advantage with the OPSD credit of Eq. (8). 
+
+D Datasets and Prompt Templates 
+
+This appendix documents the datasets and the prompt templates that turn each graph instance into a rollout. All stochastic data construction uses a fixed random state, so rebuilding from source repro-duces the exact splits, neighbourhoods and rollouts used in every experiment. 
+
+Algorithm 1 CNY rollout                                                                      
+
+> Require: target node v0, LLM πθ, max hops Tmax
+> 1: q0←BUILD PROMPT (v0,N(v0),Y)
+> 2: h0←ε,F0← N (v0)
+> 3: for k= 1 . . . T max do
+> 4: ak∼πθ(· | q0, h k−1)
+> 5: if ak=<walk> X</walk> and X∈ F k−1then
+> 6: ok←<information> xX</information>
+> 7: hk←hk−1∥ak∥ok
+> 8: Fk←UPDATE FRONTIER (Fk−1, X )▷Eq. 2 9: else if ak=<answer> c</answer> then
+> 10: return c,τ= ( q0, h k−1∥ak)
+> 11: else
+> 12: hk←hk−1∥ak▷malformed; loop continues 13: end if
+> 14: end for
+> 15: return ⊥
+
+Algorithm 2 CNY training step                                                                                
+
+> Require: batch B, group size N, OPSD coefficient β
+> 1: for v0∈ B do
+> 2: sample τ1, . . . , τ Nin parallel via Alg. 1 3: ri←R(τi)▷Eq. 3 4: {ˆAτi}Ni=1 ←GROUP NORMALISE ({ri}Ni=1 )▷
+> GRPO 5: for i= 1 . . . N , each walk action <walk> X</walk>
+> with observation oin τido
+> 6: ¯o←RECAP (o)
+> 7: τtea
+> i←INSERT DESTINATION RECAP (τi,¯o)
+> 8: compute log πstu
+> tand log πtea
+> ton the node-ID to-kens of X
+> 9: δt←log πtea
+> t−log πstu
+> t▷Eq. 7 10: ˜At←ˆAτi+β δ t▷Eq. 8 11: end for
+> 12: ˜At←ˆAτifor all remaining tokens in τi
+> 13: end for
+> 14: θ←θ−η∇L PPO -clip ({˜At};ϵlo , ϵ hi )
+
+D.1 Baselines and Evaluation Details 
+
+The evaluation suite reuses Graph-R1’s Table 1 datasets (Wu et al., 2025b), omitting the molecu-lar regression subset and link prediction. Expla-Graph is the sole graph-level evaluation, and its per-instance explanation graph supplies a walkable concept neighbourhood evaluated under the same walk template as node classification (App. D.5). Within the three baseline families of §5.1, the general-purpose LLMs are Llama2-7B (Touvron et al., 2023) and Mistral-7B (Jiang et al., 2023); the graph foundation models are OFA (Liu et al., 2024a), UniGraph (He et al., 2025), LLaGA (Chen et al., 2024b) and GOFA (Kong et al., 2025) (in its GOFA-T and GOFA-F settings); numbers for both families are taken from the Graph-R1 bench-mark. Graph-R1’s reported results summarise node texts with DeepSeek-v3 before reasoning; follow-ing TRN-R1-Zero, we re-evaluate Graph-R1 from its released checkpoint on raw node text instead. D.2 Graph Statistics 
+
+Table 8 reports the raw graph for each dataset. Edge counts are reported directly from the stored edge in-dex; for undirected citation and co-purchase graphs each undirected edge is counted twice. For the WN18RR edge split the reported sizes count edges, the classification unit, rather than nodes. The top block lists training datasets, the bottom block evaluation datasets that never enter the train-ing corpus. The Products label vocabulary lists 47 names, of which only 44 occur as ground-truth classes. 
+
+D.3 Node-Classification Prompt 
+
+Every node-classification prompt follows a single multi-step template. In place of an explicit output-format specification, the template provides two il-lustrative example turns and relies on the strict format reward (§4.1) to enforce well-formed spans. Figure 5 shows the template skeleton with place-holder fields; Figure 7 renders one Cora test in-stance verbatim, with example node IDs and label indices substituted per instance. 
+
+D.4 Edge-Classification Prompt 
+
+Edge classification (FB15K237, WN18RR) reuses the same multi-step walk template: the target slot carries two anchors (head and tail entity) rather than one, and the initial frontier is the union of their 1-hop neighbourhoods, so a walk may inspect either side. The label slot is the relation vocabulary, shortlisted to K=10 per edge to match the n-way evaluation column reported in Table 1 (gold rela-tion plus 9 sampled distractors, drawn deterministi-cally from the FB15K237 relation vocabulary). The walk budget is non-trivial ( max_hops =5 ): naming a Freebase relation typically requires reading at least one neighbour on each side. Figure 8 shows one FB15K237 test instance verbatim; entity IDs and relation indices are substituted per edge. 
+
+D.5 Expla-Graph Stance-Walk Construction 
+
+Expla-Graph (§5.2) is mapped onto the same multi-step walk template used for node classification, so the evaluation prompt stays in-distribution: the (be-lief, argument) pair occupies the target slot, the two stances ( 0 counter, 1 support) occupy the category slot, and the explanation graph supplies a walkable concept neighbourhood. Every instance’s concept graph is packed into one disjoint global graph, so a 
+
+<walk> can never leave its own instance.      
+
+> CNY rollout prompt template
+> Classify the target {node} into one of the {|Y|} categories below. Each turn must look like one of: <thinking>...</thinking> <walk> {id} </walk>
+> fetch a node's full text + its 1-hop neighbours <thinking>...</thinking> <answer> {label}
+> </answer>
+> commit a category You MAY walk to gather more information, or emit
+> <answer> directly if the previews below are sufficient. Previews are truncated, only <walk> returns trustworthy full text. You may walk up to {T_max} times. Target {node}: {target text} Categories: {0: label_0, ..., |Y|-1: label_last} Neighbour {nodes} (preview only; walk for full content): - [{id}]: {truncated preview} ... (one line per 1-hop neighbour of the target) Initial allowed node IDs: {N(v_0)}. After a walk, IDs revealed inside <information> also become valid.
+
+Figure 5: CNY rollout prompt template. Curly-brace fields are substituted per node. 
+
+Walkable neighbourhood. The initial frontier is a connected seed subset of the concept graph, a seed concept together with its one-hop concepts, shown as name-only previews; the remaining con-cepts stay hidden until walked. Each concept’s relations live in its node text and surface through the existing <information> channel after a walk (“ Node X: <name>. Connections: ... ”), so no edge text or bespoke block is introduced. 
+
+Stance decision rule. The task-instruction slot carries a stance rule, “first determine what the belief claims, then judge whether the argument agrees with that claim (support) or disagrees with it (counter)”. The dominant error without it is judging whether the argument is positive about the topic rather than whether it agrees with the belief, which inverts the label whenever the belief is itself a contrarian claim. The rule occupies the generic task-instruction slot and the label names stay plain Dataset Nodes Edges Classes Train Val Test CiteSeer 3,186 8,450 6 1,911 637 638 PubMed 19,717 88,648 3 11,830 3,944 3,943 Photo 48,362 873,782 12 29,016 9,674 9,672 Computer 87,229 1,256,548 10 52,336 17,446 17,447 History 41,551 503,180 12 24,930 8,310 8,311 Sportsfit 173,055 3,020,134 13 103,834 34,610 34,611 Instagram 11,339 144,010 2 6,803 2,268 2,268 WN18RR 40,943 93,003 11 86,835 3,034 3,134 Cora 2,708 10,556 7 1,626 542 540 WikiCS 11,701 431,206 10 7,020 2,341 2,340 Products 54,025 74,420 44 14,708 1,572 37,745 FB15K237 14,541 310,116 237 272,115 17,535 20,466 Expla-Graph 14,294 23,490 2 1,659 553 554 
+
+Table 8: Dataset statistics. 
+
+(counter , support ), so scoring is untouched. 
+
+Leakage control. The gold explanation-graph string is never placed in the prompt, as it trivially discloses the stance; only the belief, the argument, the concept names (previews) and the relations re-vealed on a walk are surfaced. Figure 9 shows one evaluation instance verbatim; the concept IDs and stance indices are substituted per instance. 
+
+D.6 Destination Recap Prompt 
+
+The OPSD credit of §4.4 re-scores each walk action under a recap of the destination it reached. Figure 6 gives the prompt that produces this recap. The re-cap is generated by the LLM itself and constrained to a single topic-only sentence: node IDs, walk rec-ommendations and any guess at the target’s class are explicitly forbidden, so the recap supplies des-tination context without leaking the gold label or a navigation hint. 
+
+E Implementation 
+
+Table 9 lists the optimisation and rollout hyperpa-rameters of the CNY-14B reference run; Table 10 lists the compute allocation per backbone. All val-ues are read from the released training configura-tion. On the headline configuration of Table 10 (4×H100 80GB, TP = 4 ), the 14B run trains at a median of ∼300 s per step ( ∼280 s on a typical non-evaluation step; evaluation runs every tenth step), under a 1,000 -step wall limit beyond which training halts; the schedule fits within each H100’s                             
+
+> Setting Value Backbone Qwen2.5-14B-Instruct GRPO group size N(rollouts per prompt) 8Prompt batch size 32 Global batch size 256 Learning rate 1×10 −6(constant) Optimiser Adam ( β1=0 .9,β2=0 .98 )Weight decay 0.01
+> PPO clip ϵlow /ϵ high 0.2/0.28
+> OPSD coefficient β0.03
+> Max hops Tmax 5Initial frontier cap (training) 3Recap length Lφ≤50 tokens Max response length 2,048 tokens Context length 32,768 tokens Rollout steps 1,000
+
+Table 9: Hyperparameters of the CNY-14B reference run (Qwen2.5-14B-Instruct, GRPO with OPSD), as read from the released training configuration. 
+
+80 GB under TP = 4 .
+
+F Additional Analyses 
+
+All measurements below use the frozen CNY-14B unless a training run is stated. 
+
+F.1 Preview Construction 
+
+Previews are rendered as [{id}]: {prefix} ... ,with per-dataset lengths fixed in the released config-uration; Expla-Graph is the sole exception, where a preview is the concept name (App. D.5). Varying the budget at inference only, WikiCS accuracy is 
+
+77 .1 at 5 tokens (title-only, as the page title opens each node’s text), 77 .9 at 10 , 76 .8 at the published 
+
+30 and 77 .5 at 60 .
+
+F.2 Matched Preview Exposure CNY destination recap prompt  
+
+> [System] You are a topic summarizer for graph nodes. Read a destination node and its 1-hop neighbours, then produce ONE concise sentence (<= 50 tokens) describing what topic the destination is about and what topics its neighbours cover. Hard constraints: - Topic / entity descriptions only. - DO NOT mention any node IDs, numeric identifiers, or "node X" / "paper X" labels. - DO NOT recommend further searches or walks. - DO NOT speculate about any start-node classification. - One sentence. No preamble. No <thinking> or
+> <walk> tags. [User] Destination content: {destination text} Destination's 1-hop neighbours: - {neighbour preview} ... Summarize the topic:
+
+Figure 6: Destination recap prompt used by OPSD 
+
+(§4.4). The recap is produced by the LLM itself and constrained to a single topic-only sentence of at most 50 tokens, with node IDs, walk recommendations and any guess at the target’s class explicitly forbidden, so the recap supplies destination context without leaking the gold label or a navigation hint. 
+
+The walk arm also sees lightweight previews of the whole neighbourhood, which could itself drive the gain. We therefore let the model answer di-rectly while shown previews of every neighbour but forbidden to walk, matched to each dataset’s preview length and frontier size. Exposing all pre-views improves the direct baseline only modestly (Cora 65 .0 → 66 .3, WikiCS 71 .0 → 73 .4, Prod-ucts 83 .0 → 83 .5), and walking still adds a sub-stantial margin over this stronger control (Cora 
+
+66 .3 → 74 .1, WikiCS 73 .4 → 76 .6, Products 
+
+83 .5 → 87 .6), placing the gain in reading the se-lected neighbour, not in preview exposure. 
+
+F.3 Failure Modes of Walking 
+
+A flip is a node that the target text alone classi-fies correctly but walking then misclassifies. Flips are pooled over three walk-evaluation seeds and assigned to the three modes of §5.8 by manual inspection. Within the first mode they concen-           
+
+> Backbone GPUs Parallelism Qwen2.5-14B, Qwen3-14B 4×H100 TP = 4
+> Qwen2.5-7B 2×H100 TP = 2
+> Llama-3.2-3B, Qwen3-4B 1×H100 / L40 TP = 1
+
+Table 10: Compute allocation per backbone. The smallest backbones also fit a single L40; the headline CNY-14B run uses four H100 80GB GPUs under Mega-tron tensor parallelism. 
+
+trate on adjacent class pairs, most often Computer Architecture to Operating Systems , and the second mode collects multi-facet targets whose des-tination text foregrounds the wrong facet. CNY node-classification prompt (Cora test instance) 
+
+Classify the target paper into one of the 7 categories listed below. Each turn must look like one of: <thinking>...</thinking> <walk> 411 </walk> 
+
+to fetch a node's full text + its 1-hop neighbors <thinking>...</thinking> <answer> 0</answer> 
+
+to commit a category You MAY walk to gather more information, or emit <answer> directly if the previews below are sufficient. Previews are truncated, only 
+
+<walk> returns trustworthy full text. You may walk up to 5 times. Target paper: User's Guide to the PGAPack Parallel Genetic Algorithm Library Version 0.2. Categories: - 0: Rule_Learning - 1: Neural_Networks - 2: Case_Based - 3: Genetic_Algorithms - 4: Theory - 5: Reinforcement_Learning - 6: Probabilistic_Methods Neighbor papers (short preview only; walk to see full content): - [411]: Genetic Algorithms as Multi-Coordinators in Large-Scale Optimization: We present high-level, decomposition-based algorithms ... - [709]: DISTRIBUTED GENETIC ALGORITHMS FOR PARTITIONING UNIFORM GRIDS: - [2693]: On the Virtues of Parameterized Uniform Crossover: Traditionally, genetic algorithms have relied upon 1 and 2-point crossover ... Initial allowed node IDs: 411, 709, 2693 After a walk, IDs revealed inside the 
+
+<information> block also become valid. 
+
+Figure 7: CNY node-classification prompt. A Cora test instance; node and label IDs are substituted per instance. 
+
+CNY edge-classification prompt (FB15K237 test in-stance) 
+
+Classify the relation between the head Freebase entity and the tail Freebase entity into one of the 10 relations listed below. Each turn must look like one of: <thinking>...</thinking> <walk> 6531 </walk> 
+
+to fetch an entity's full text + its 1-hop neighbors <thinking>...</thinking> <answer> 15 </answer> 
+
+to commit a relation index You MUST walk at least 3 times before producing the final <answer> . Previews are truncated; only <walk> returns trustworthy full text. You may walk up to 5 times. Walk any node ID from the union of head's and tail 's neighborhoods (or IDs revealed by previous walks) to gather relational context. Head Freebase entity [id=6180]: Zurich Tail Freebase entity [id=2861]: Switzerland Relations (10-way shortlist; gold + 9 sampled distractors): - 15: Geographical Containment - 54: Capital of a Country - 83: Headquarters City of an Organization - 88: Entities Involved in an Event - 135: Country of an Administrative Division - 144: Capital of an Administrative Area - 154: Time Zones of a Location - 163: Locations of Events - 194: Administrative Divisions and Their Capitals - 199: Place Founded of an Organization Head's 1-hop Freebase entities (short preview only; walk to see full content): - [6531]: University of Zurich - [7126]: Canton of Zurich - [2620]: Central European Time (7 more) Tail's 1-hop Freebase entities (short preview only; walk to see full content): - [1922]: France - [1449]: Germany - [7018]: Austria (6 more) Initial allowed node IDs: 6531, 7126, 2620, ... , 1922, 1449, 7018, ... After a walk, IDs revealed inside the 
+
+<information> block also become valid. 
+
+Figure 8: CNY edge-classification prompt. An FB15K237 test instance. Two anchors (head, tail) re-place the single target, and the label slot is a 10 -way shortlist over the FB15K237 relation vocabulary; entity and relation IDs are substituted per edge. CNY graph-reasoning prompt (Expla-Graph) 
+
+Classify the target node into one of the 2 categories listed below. To decide: first determine what the belief claims (whether it is for or against something), then judge whether the argument agrees with that claim (support) or disagrees with it (counter). Each turn must look like one of: <thinking>...</thinking> <walk> 49 </walk> 
+
+to fetch a node's full text + its 1-hop neighbors <thinking>...</thinking> <answer> 0</answer> 
+
+to commit a category You MAY walk to gather more information, or emit <answer> directly if the previews below are sufficient. Previews are truncated, only 
+
+<walk> returns trustworthy full text. You may walk up to 5 times. Target node: Belief: Cannabis should be legalized. Argument: Cannabis legalization increases safety. Categories: - 0: counter - 1: support Neighbor nodes (short preview only; walk to see full content): - [49]: Cannabis. Cannabis has the property of medical use. - [50]: Medical use. Cannabis has the property of medical use. Medical use is used in the context of cannabis ... - [45]: Government oversight. Cannabis legalization has the subevent of government oversight. Government oversight causes safety .- [46]: Safety. Government oversight causes safety. Safety has the subevent of responsible cannabis use. Initial allowed node IDs: 49, 50, 45, 46 After a walk, IDs revealed inside the 
+
+<information> block also become valid. 
+
+Figure 9: CNY graph-reasoning prompt. An Expla-Graph test instance (gold stance: support). The (belief, argument) pair is the target and the explanation-graph concepts are the walkable neighbourhood; concept IDs and stance indices are substituted per instance.
