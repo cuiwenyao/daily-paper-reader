@@ -6,38 +6,28 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-09-10
-- 运行时间：2026-09-10 22:09:03 UTC
+- 最新运行日期：2026-09-11
+- 运行时间：2026-09-11 21:33:50 UTC
 - 运行状态：成功
-- 本次总论文数：6
-- 精读区：2
-- 速读区：4
+- 本次总论文数：2
+- 精读区：1
+- 速读区：1
 
 ### 今日简报（AI）
-今日精选6篇AI论文，精读2篇聚焦几何推理与文学知识处理。最值得看的是用符号感知引导语言模型做几何逻辑推导（9.0分），以及神经符号时空GraphRAG用于文学知识加工（8.0分）。普通读者可先读这两篇精读，速读的XAI可解释性方向留待后续按需跟进。
-- 详情：[/202609/10/README](/202609/10/README)
+1）2026-09-11 日报：成功收录2篇，精读《Beyond Solver Verdicts: Generative Reward Models for Autoformalization》（8.0），速读《A Multi-Stage Rule-Chaining Framework for Compositional and Interpretable Cognitive Reasoning》（6.0）。
+2）最值得看的是自动形式化中的生成式奖励模型方向，以及多阶段规则链如何服务组合与可解释认知推理。
+3）普通读者可先读8.0精读把握自动形式化评估新思路，再按兴趣浏览6.0速读了解规则链框架。
+- 详情：[/202609/11/README](/202609/11/README)
 
 ### 精读区论文标签
-1. [From Symbolic Perception to Logical Deduction: A Framework for Guiding Language Models in Geometric Reasoning](/202609/10/2609.10335v1-from-symbolic-perception-to-logical-deduction-a-framework-for-guiding-language-models-in-geometric-reasoning)  
-   标签：评分：9.0/10、query:ns-xai
-   evidence：符号求解器与大语言模型结合实现可解释几何推理
-2. [NS-ST-GraphRAG: Neuro-Symbolic Spatio-Temporal GraphRAG for Literary Knowledge Processing](/202609/10/2609.05139v1-ns-st-graphrag-neuro-symbolic-spatio-temporal-graphrag-for-literary-knowledge-processing)  
+1. [Beyond Solver Verdicts: Generative Reward Models for Autoformalization](/202609/11/2609.11085v1-beyond-solver-verdicts-generative-reward-models-for-autoformalization)  
    标签：评分：8.0/10、query:ns-xai
-   evidence：融合本体抽取与可追溯证据的神经符号框架
+   evidence：神经符号系统结合神经模型与符号求解器
 
 ### 速读区论文标签
-1. [ProToMEx: Rapid, Interpretable Explanations via Structured Representations](/202609/10/2609.04265v1-protomex-rapid-interpretable-explanations-via-structured-representations)  
+1. [A Multi-Stage Rule-Chaining Framework for Compositional and Interpretable Cognitive Reasoning](/202609/11/2609.10654v1-a-multi-stage-rule-chaining-framework-for-compositional-and-interpretable-cognitive-reasoning)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：基于结构化潜在主题的可解释解释
-2. [Solving Hard XAI Queries Based on a Compiled Dual-Rail Encoding](/202609/10/2609.04931v1-solving-hard-xai-queries-based-on-a-compiled-dual-rail-encoding)  
-   标签：评分：6.0/10、query:ns-xai
-   evidence：用符号编译编码求解困难XAI解释
-3. [SAEScientist-Bench: Can AI Agents Conduct Autonomous SAE Interpretability Research?](/202609/10/2609.09113v1-saescientist-bench-can-ai-agents-conduct-autonomous-sae-interpretability-research)  
-   标签：评分：6.0/10、query:ns-xai
-   evidence：用稀疏自编码器做机制可解释性与模型审查
-4. [XAI-Arena: Can LLMs Assess the Quality of XAI Explanations?](/202609/10/2609.09428v1-xai-arena-can-llms-assess-the-quality-of-xai-explanations)  
-   标签：评分：6.0/10、query:ns-xai
-   evidence：以大模型评判者评估XAI解释质量
+   evidence：面向组合式可解释推理的多阶段符号规则链
 
 
 <div class="dpr-home-promo-card">
