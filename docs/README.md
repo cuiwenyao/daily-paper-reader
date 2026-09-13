@@ -6,36 +6,34 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-09-12
-- 运行时间：2026-09-12 21:41:47 UTC
+- 最新运行日期：2026-09-13
+- 运行时间：2026-09-13 21:12:38 UTC
 - 运行状态：成功
-- 本次总论文数：5
+- 本次总论文数：3
 - 精读区：0
-- 速读区：5
+- 速读区：3
 
 ### 今日简报（AI）
-今日速读5篇，聚焦幻觉检测、MoE检索可解释性与推理轨迹后训练三大方向。最值得关注的是用低层符号能力实现无监督 grounding 的幻觉检测（7.0分），以及重新审视完整推理轨迹的后训练方法（6.0分）。普通读者可优先了解“幻觉检测如何不依赖标注”，再留意检索系统可解释性的可视化进展。
-- 详情：[/202609/12/README](/202609/12/README)
+2026-09-13日报：零精读、3篇速读且均为6.0分，焦点落在MoE推理路由、ViT概念电路与隐式思维链监督。
+
+最值得看的是MoE推理中“有效秩路由”从集中到分化再回归，以及结构过程监督如何提升隐式思维链；ViT概念电路则提示“世界知识”可能藏在权重回路里。
+
+普通读者可先读这三篇摘要与图表，重点判断路由、过程监督思路能否迁移到自己的任务，再决定要不要深挖复现。
+- 详情：[/202609/13/README](/202609/13/README)
 
 ### 精读区论文标签
 - 本次无精读推荐。
 
 ### 速读区论文标签
-1. [Leveraging Low-Level Symbolic Competences for Unsupervised Grounding in Hallucination Detection](/202609/12/2609.05025v1-leveraging-low-level-symbolic-competences-for-unsupervised-grounding-in-hallucination-detection)  
-   标签：评分：7.0/10、query:ns-xai
-   evidence：结合SQL符号推理与大模型进行幻觉检测
-2. [ExpertLens: Visualizing Embedding Spaces for Post-Hoc Explainability in MoE Enhanced Retrievers](/202609/12/2609.06155v1-expertlens-visualizing-embedding-spaces-for-post-hoc-explainability-in-moe-enhanced-retrievers)  
+1. [From Concentration to Differentiation and Back: Routing Effective Rank in MoE Reasoning Cohorts](/202609/13/2609.06403v1-from-concentration-to-differentiation-and-back-routing-effective-rank-in-moe-reasoning-cohorts)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：面向神经检索器的表示级后验可解释性
-3. [Revisiting Complete Reasoning Traces for Post-Training](/202609/12/2609.07103v1-revisiting-complete-reasoning-traces-for-post-training)  
+   evidence：通过路由有效秩无标签分析大模型推理中的内部计算重组
+2. ["World Knowledge" in the Weights: Reading Concept Circuits of Vision Transformers](/202609/13/2609.09055v1-world-knowledge-in-the-weights-reading-concept-circuits-of-vision-transformers)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：基于注意力的LLM推理轨迹分析
-4. [Distribution-aware Language Neuron Identification in Multilingual Large Language Models](/202609/12/2609.10993v1-distribution-aware-language-neuron-identification-in-multilingual-large-language-models)  
+   evidence：从视觉Transformer中读取可解释概念电路
+3. [Structural Process Supervision for Latent Chain-of-Thought Reasoning](/202609/13/2609.09928v1-structural-process-supervision-for-latent-chain-of-thought-reasoning)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：多语言大模型神经元级可解释性分析
-5. [From Parameters to Answers: How LLMs Retrieve and Use Their Internal Knowledge](/202609/12/2609.11859v1-from-parameters-to-answers-how-llms-retrieve-and-use-their-internal-knowledge)  
-   标签：评分：6.0/10、query:ns-xai
-   evidence：大模型内部知识检索的逐层可解释性分析
+   evidence：面向大模型潜在思维链推理的过程监督与结构化对齐
 
 
 <div class="dpr-home-promo-card">
