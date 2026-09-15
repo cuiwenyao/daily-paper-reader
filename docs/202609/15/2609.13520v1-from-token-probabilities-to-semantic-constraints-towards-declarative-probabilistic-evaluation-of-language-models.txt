@@ -1,0 +1,3593 @@
+From Token Probabilities to Semantic Constraints: Towards Declarative
+Probabilistic Evaluation of Language Models
+Kyle Richardson1 Cullen Anderson2 Pranav Balakrishnan2 Takuto Ban2 Daksha Ladia2
+Ankita Gupta2
+Marisa Hudspeth2
+1Allen Institute for AI
+2University of Massachusetts Amherst
+kyler@allenai.org, {cyanderson,pranavbalakr,tban,dladia}@umass.edu
+Abstract
+While Large Language Models have improved
+rapidly, many fundamental questions remain
+about how to evaluate the knowledge and rea-
+soning abilities they acquire, and how such eval-
+uations relate to the learning signals used in
+pre-training. In this paper, we propose MOD-
+ELLOG, a declarative probabilistic framework
+for pre-training evaluation that makes the se-
+mantic structure of model behavior explicit and
+provides new formal tools for relating evalua-
+tion to learning. MODELLOG specifies evalua-
+tion targets as symbolic constraints over token-
+level predictions and measures how strongly a
+model’s distribution satisfies those constraints.
+We explore the framework through a new suite
+of tasks targeting negation, mutual exclusiv-
+ity, and consistency, finding systematic fail-
+ures that are difficult to characterize through
+token likelihood or answer accuracy alone. We
+further show that these evaluation scores can
+also be interpreted as losses, whose gradients
+reflect logical strength, informativeness, and
+variable-level sensitivity. This links evalua-
+tion and learning through a shared semantics,
+suggesting evaluation methods that diagnose
+model behavior while also helping to clarify
+the semantic structure of learning.
+1
+Introduction
+Modern pre-training relies on a remarkably simple
+learning signal: cross-entropy loss for next-token
+prediction. This objective has given rise to models
+with broad linguistic, factual, and reasoning capa-
+bilities, but at first glance it seems limited. While it
+provides positive, local supervision over observed
+continuations, many other richer semantic relations
+remain implicit. For example in Figure 1, next-
+token supervision might tell us that alcohol is a
+sensible completion to the generic statement When
+driving, it is not safe to drink __, which expresses
+a broadly applicable factual or normative commit-
+ment. However, the objective does not directly
+(A) LM Token Predictions
+Example local next-token decisions for a language
+model t ∼PMθ (·).
+When driving, it is not safe to drink
+alcohol
+a
+It is not true that while driving it is
+safe to drink alcohol
+b
+When driving, it is safe to drink
+alcohol
+c
+It is true that while driving it is safe
+to drink alcohol
+d
+(C) Queries over formulas T
+Evaluation as structured probabilistic queries
+over constraints Ti weighted by PMθ
+Soft satisfaction: P(Ti; Mθ)
+Marginals: P( v | Ti; Mθ)
+Gradients : ∇θ P(Ti; Mθ)
+(B) Declarative Constraints T
+Boolean formulas specifying ideal
+token decisions for any model M(·).
+Likely tokens Tp
+Models M should prefer local factual
+token decisions.
+M( a )
+∧
+M( b )
+Unlikely tokens Tn
+Models M should disprefer non-factual
+local tokens decisions.
+¬M( c )
+∧
+¬M( d )
+Paraphrase Symmetries Ts
+Token decisions involving paraphrases
+should be compatible
+M( a )↔M( b ) ∧
+M( c )↔M( d )
+Incompatibilities Tm
+Contradictory token predictions should
+be distinct and mutually exclusive.
+(M( a ) ∧¬M( b )) ∨
+(¬M( a ) ∧M( b ))
+P(M(·)) ∼
+PMθ (·)
+Figure 1: An illustration of our evaluation framework
+MODELLOG that maps local next-token predictions
+from a pre-trained language model (A) into proposi-
+tional variables M(·) denoting prediction events. Sym-
+bolic constraints over these variables (B) specify the
+local semantic relations that should hold among them.
+Evaluation then becomes probabilistic inference over
+constraints (C): model token probabilities PMθ(·) pro-
+vide weights over assignments P(M(·)), satisfaction or
+marginal probability measures how strongly the model
+supports the desired semantic structure, and the gradi-
+ents of such inferences provide a direct link to learning.
+state that alcohol should be unlikely in the contra-
+dictory context When driving, it is safe to drink
+__. Nor does it explicitly encode relations among
+multiple token predictions: paraphrases should pre-
+serve the same commitments, while contexts that
+commit to incompatible states of affairs should in-
+duce divergent predictions. This raises the natural
+question: why is cross-entropy such an effective
+signal for learning? Relatedly, can richer learning
+signals be developed that improve the robustness
+of cross-entropy pre-training?
+In this paper, we approach these broad ques-
+tions solely through the lens of pre-training evalua-
+tion, focusing in particular on how to formalize and
+1
+arXiv:2609.13520v1  [cs.CL]  11 Sep 2026
+
+
+precisely measure the degree to which pre-trained
+models satisfy semantic constraints. As illustrated
+in Figure 1, we develop a framework called MOD-
+ELLOG where we express the target of an evalua-
+tion as an explicit declarative theory: a set of log-
+ical formulas specifying the relations that should
+ideally hold among a model’s local token-level pre-
+dictions. For example, to express that alcohol is
+compatible with both the prefix When driving, it is
+not safe to drink __ and its paraphrased form It is
+not true that when driving it is safe to drink __, we
+use logical variables such as M( a ) and M( b )
+to denote the corresponding prediction events. The
+paraphrase relation between these contexts can then
+be encoded by the constraint M( a )↔M( b ), re-
+quiring that the two prediction events agree. In this
+way, declarative theories let us move from isolated
+token likelihoods to explicit statements about the
+semantic relations that should hold among them.
+Questions about model behavior can then be
+formulated as structured queries over the theories
+themselves. We focus on probabilistic queries:
+given a model’s token probabilities, we ask how
+much probability mass the model assigns to inter-
+pretations that satisfy the constraints of a given
+theory. This builds on work in statistical relational
+learning (Getoor and Taskar, 2007; De Raedt et al.,
+2016) and neuro-symbolic modeling (Marra et al.,
+2024; Feldstein et al., 2024), where logical con-
+straints are combined with probabilistic weights to
+reason about structured events. In this way, proba-
+bilistic inference moves evaluation beyond binary
+correctness, measuring how strongly a model’s dis-
+tribution supports a target semantic structure.
+The main goal of this paper is to give a technical
+outline of MODELLOG and show how such a frame-
+work can both clarify the semantics of evaluation
+and connect such semantics directly to learning.
+As such, the paper is primarily methodological in
+nature and offers a mix of formal and empirical
+results. On the formal side, we identify two inter-
+pretability challenges that arise when doing seman-
+tic reasoning over token probabilities. First, raw
+next-token probabilities measure how probability
+mass is divided among competing continuations,
+making them difficult to interpret directly as proba-
+bilities of semantic validity. We therefore rescale
+them using information about the local prediction
+distribution, treating semantic event probability as
+membership in a model’s effective “live” region
+of plausible continuations (Holtzman et al., 2020;
+Hewitt et al., 2022). Second, raw constraint prob-
+abilities can overstate model competence, since
+some formulas are easy to satisfy by chance. We
+therefore introduce a notion of constraint infor-
+mativeness, which accounts for chance satisfaction
+and is incorporated into our main probabilistic eval-
+uation metric.
+Since semantic satisfaction is differentiable in
+model probabilities, our evaluation scores can also
+be interpreted as losses. Surprisingly, we show
+how constraint informativeness, introduced as a
+measurement for evaluation, appears directly in the
+corresponding gradients for learning. This offers
+a formal perspective on why likelihood-style next-
+token objectives – which we show in MODELLOG
+can be represented as maximally informative con-
+junctive formulas – can potentially induce strong
+learning signals and provides a basis for systemati-
+cally comparing them to other candidate objectives.
+On the empirical side, we introduce PROBCT
+(Probabilistic Consistency Tests) a set of diag-
+nostic tests inspired by prior work on consistency
+probing (Elazar et al., 2021; Kassner and Schütze,
+2020). We find that current pre-trained models per-
+form poorly across these tasks, suggesting that pre-
+training does not reliably induce the structured se-
+mantic relations captured by our constraints. More
+importantly, PROBCT illustrates how declarative
+theories and probabilistic queries can expose fail-
+ures that are difficult to see from token likelihoods
+or accuracy alone. This includes an intriguing
+inverse-scaling (McKenzie et al., 2023) pattern we
+observe, where larger models systematically satisfy
+certain constraints less often than smaller ones.
+Contributions
+In line with the special track on
+New Missions for NLP Research, we propose MOD-
+ELLOG, a new evaluation framework that connects
+language model evaluation with techniques from
+statistical relational learning and probabilistic logic.
+Our main contribution is methodological: we show
+how declarative probabilistic evaluation can help
+to bring more semantic clarity to evaluation by
+treating evaluation data as compositional semantic
+objects. We illustrate this methodology through a
+mixture of formal results and empirical case studies
+on a new diagnostic benchmark called PROBCT.
+2
+Related Work
+Language model evaluation
+Our work connects
+to loss-based language model evaluation, which
+measures models using quantities such as perplex-
+ity (Jelinek, 1980; Goodman, 2001; Bengio et al.,
+2
+
+
+2003; Brown et al., 2020; Lozhkov et al., 2025;
+Groeneveld et al., 2024; Magnusson et al., 2024),
+and post-hoc behavioral evaluation, which tests
+models on diagnostic tasks and benchmarks (Sri-
+vastava et al., 2023; Wang et al., 2018; Petroni
+et al., 2019; Richardson et al., 2020; Ribeiro et al.,
+2020; Liang et al., 2022, inter alia). We specifi-
+cally take inspiration from behavioral studies that
+use consistency as a core diagnostic of model be-
+havior (Elazar et al., 2021; Kassner and Schütze,
+2020; Liu et al., 2025; Jang et al., 2022; Novikova
+et al., 2025). MODELLOG sits between these tra-
+ditions: it uses model probabilities while targeting
+interpretable semantic capabilities. Unlike either, it
+evaluates rich declarative constraints over multiple
+predictions, yielding probabilistic, differentiable
+measurements that directly connect the semantics
+of evaluation with learning.
+Neuro-symbolic modeling
+We employ tech-
+niques from statistical relational learning that com-
+bine logical constraints with probabilistic weights
+(De Raedt and Kimmig, 2015; Manhaeve et al.,
+2018; Li et al., 2019, 2023) and exact inference
+techniques (Chavira and Darwiche, 2008; Fierens
+et al., 2015). Similar techniques are also used in
+constraint-based neuro-symbolic learning methods,
+notably semantic loss (Xu et al., 2018; Ahmed et al.,
+2023a,b; Richardson et al., 2025; Calanzone et al.,
+2025) and semantic probabilistic layers (Ahmed
+et al., 2022), as well as other approaches that cou-
+ple structured probabilistic inference with LLMs
+(Dohan et al., 2022; Kassner et al., 2023; Lew et al.,
+2023; Cheng et al., 2026; Garg et al., 2026; Richard-
+son et al., 2026). Our focus differs: rather than
+using constraints primarily as training objectives or
+output-layer structure for inference, we use them
+for LM evaluation and formal analysis.
+3
+The MODELLOG Framework
+In this section, we define the core concepts and no-
+tation underlying the evaluation framework MOD-
+ELLOG illustrated in Figure 2, starting with the
+five principles outlined below. In § 3.1, we then
+turn to the core technical obstacles that arise when
+applying our approach to pre-trained language
+model evaluation: token probability calibration,
+constraint probability rescaling and selection.
+1.
+Token prediction events are symbolic ob-
+jects.
+Let x = w1, . . . , wn be a token sequence
+and PMθ( wj | x< j) be the next token probabil-
+ity assigned by an autoregressive model Mθ. In
+MODELLOG, local model predictions are treated
+as symbolic propositions. We write M(x, wj ) to
+denote the proposition that for model M, the to-
+ken wj is a valid completion at position j in the
+context x<j. Intuitively, this proposition abstracts
+away from the raw token probability and asks if the
+model supports wj as a plausible continuation.
+2. Relations between predictions are formulas.
+Semantic evaluation requires reasoning not only
+about individual predictions, but about relations
+among predictions. In MODELLOG, these relations
+are expressed as Boolean formulas F over predic-
+tion variables M(·) (denoted below in short form
+as P), using standard logical operators such as ∧,
+∨, →, ↔and Booleans ⊤/⊥(true/false). Thus,
+a formula F specifies the semantic structure that
+should hold among a set of local token predictions.
+3.
+Formulas are weighted by model proba-
+bilities.
+To evaluate a formula probabilistically,
+we assign each prediction variable a weight de-
+rived from the language model. For a prediction
+event M(x, wj ), this weight is based on the lan-
+guage model probability PMθ( wj | x<j). Since
+MODELLOG represents prediction events as logical
+atoms, their semantics are naturally Bernoulli: in
+any interpretation, the event either holds or does not
+hold (we examine this closely in §3.1). We write
+the resulting event probability as Pθ(M(x, wj )).
+In this way, a language model induces a probability
+distribution over truth assignments.
+4.
+Evaluation is probabilistic satisfaction.
+Given a formula F and probabilities for its vari-
+ables, MODELLOG evaluates the degree to which
+the model satisfies the formula by computing
+Pθ(F), the probability that F holds under the model-
+induced distribution over truth assignments. Equiv-
+alently, this is the total probability mass assigned
+to interpretations I that satisfy the declarative the-
+ory F. We compute this quantity using weighted
+model counting (Chavira and Darwiche, 2008):
+Pθ(F) = WMC(F; θ)
+(1)
+:=
+X
+I∈I(F)
+Y
+P:I(P)=T
+Pθ(P) ·
+Y
+P:I(P)=F
+(1 −Pθ(P))
+|
+{z
+}
+probability S(I;θ) of interpretation I
+Pθ(F) is then our main evaluation score: a graded
+measure of how strongly the model’s probabilities
+support the desired semantic constraint.
+3
+
+
+(A) Token predictions
+When driving, it is not safe to drink alcohol
+a
+When driving, it is safe to drink alcohol
+c
+(B) Constraint F
+‘Alcohol’ is a valid token completion in one sentence, but
+not in both sentences.
+F =
+ M( a ) ∧¬M( c )
+
+∨
+ ¬M( a ) ∧M( c )
+
+(C) Boolean semantics
+(D) Language model
+(E) Uninformed Prior
+Mθ
+M0
+M( a ) M( c ) I ∈I(F)
+S(Ij; θ)
+uniform
+I1
+T
+T
+Pθ(M( a )) · Pθ(M( c ))
+0.25
+I2
+T
+F
+✓
+Pθ(M( a )) · (1 −Pθ(M( c )))
+0.25
+I3
+F
+T
+✓
+(1 −Pθ(M( a ))) · Pθ(M( c ))
+0.25
+I4
+F
+F
+(1−Pθ(M( a )))·(1−Pθ(M( c )))
+0.25
+WMC(F; θ) = S(I2) + S(I3)
+WMC0(F) = 0.5
+ˆPθ(M(x, wj )) ∼PMθ ( wj
+| x< j)
+P0(M(x, wj )) = 0.5
+Figure 2: Given token predictions (A) and a constraint F over those predictions (B), evaluation reduces to weighted
+model counting (WMC) over interpretations Ii of F (C), weighted by model-induced probabilities from Mθ (D).
+To make satisfaction scores interpretable, we also compare against an uninformed prior (E), which performs
+weighted model counting under uniform weights, yielding WMC0(F).
+5.
+Learning is tied to satisfaction gradients.
+Since satisfaction probabilities are differentiable
+functions of the model-induced variable probabili-
+ties, MODELLOG exposes a natural connection to
+learning. For a formula F, we can define the corre-
+sponding semantic loss from Xu et al. (2018):
+ℓsl(F; θ) := −log Pθ(F).
+(2)
+This loss penalizes the model when it assigns low
+probability mass to interpretations satisfying the
+declarative theory. Thus, the same quantity used
+for evaluation can also be differentiated to ask how
+changes in local prediction probabilities would af-
+fect semantic satisfaction. Later, we use this con-
+nection to show that semantic properties of the
+constraints that are relevant for evaluation appear
+in the gradients of the semantic loss ∇ℓsl(F; θ).
+Example 1 (Likelihood formula). An important
+special case is standard language-model likelihood.
+Given a token sequence x = w1, . . . , wn, define the
+likelihood formula below as the conjunction of the
+observed token-prediction events Fℓ(x).
+Fℓ(x) :=
+nV
+j=1
+M
+ x, wj
+
+Formula 1: A symbolic formula for likelihood.
+Because Fℓ(x) is a pure conjunction, its satisfac-
+tion probability factors into the product of the prob-
+abilities of the observed token events. This gives
+the standard likelihood objective as a special case
+(see Richardson et al. (2026) for a similar result).
+Proposition 1 (Likelihood special case). If each
+event probability is identified with the model’s next-
+token probability, Pθ(M(x, wj )) = PMθ( wj |
+x<j), then the satisfaction probability of Fℓ(x) is
+equal to the language-model likelihood of x:
+Pθ(Fℓ(x)) =
+n
+Y
+j=1
+PMθ( wj | x<j).
+Consequently, the semantic loss ℓsl(Fℓ(x); θ) is the
+negative log-likelihood, i.e., the (unnormalized)
+cross-entropy loss ℓce(Fℓ(x), θ) = −log PMθ(x).
+Thus, ordinary next-token training is recovered
+in MODELLOG in the case where the declarative
+theory is a conjunction of observed token events.
+We note that other likelihood-like losses, such as
+unlikelihood loss from Welleck et al. (2019), can
+be expressed as a similar conjunctive formula ex-
+tended with logical negation. This restates the cen-
+tral puzzle of cross-entropy in semantic terms:
+why should optimizing satisfaction of this very par-
+ticular kind of formula – a simple conjunction of
+prediction events – produce models that satisfy
+much richer semantic constraints? Later, we argue
+that part of the answer may lie in the inherent in-
+formativeness of likelihood formulas. To make this
+idea precise, we will compare a model’s satisfac-
+tion probability against the probability of satisfying
+the same formula by chance. This motivates an un-
+informed prior: the weighted model count of a
+formula F under uniform weights, where each pre-
+diction variable has probability 0.5:
+WMC0(F) := | I(F) |
+2|vars(F)| .
+(3)
+Here, vars(F) is the set of atomic variables appear-
+ing in F. As illustrated in Figure 2(E), this quantity
+captures the baseline satisfiability of the formula
+independent of a model, and it becomes central to
+the issues we discuss next and our evaluation.
+4
+
+
+3.1
+Subtleties in pre-training evaluation
+The semantics above is deliberately close to stan-
+dard neuro-symbolic formulations (Manhaeve et al.,
+2018; Xu et al., 2018) that have been applied to
+language model training (Ahmed et al., 2023a;
+Richardson et al., 2025; Calanzone et al., 2025).
+In these settings, the main role of the probabilistic
+semantics is to provide a differentiable signal for
+learning; probabilities, such as the raw token likeli-
+hoods considered above, therefore need only define
+a useful training objective, not an interpretable or
+calibrated evaluation score. In MODELLOG, our
+initial goal is measurement: Pθ(F) is meant to quan-
+tify how strongly a pre-trained model satisfies a
+semantic constraint. This evaluation setting makes
+interpretability of the probabilities themselves es-
+sential, leading to the following issues involving
+calibration and constraint selection.
+What do token variables mean semantically?
+Treating local token decisions as logical variables
+makes them Bernoulli-like, i.e., either true/false in
+a given context. Following Richardson et al. (2025),
+we interpret truth as local validity, or whether a
+token is an acceptable continuation and its proba-
+bility exceeds some acceptability threshold ϵ. The
+difficulty is that language models output categori-
+cal distributions over the vocabulary, not Bernoulli
+probabilities over validity events. Thus, raw token
+probabilities must be calibrated into event probabil-
+ities that reflect membership in the model’s locally
+valid region of continuations.
+We calibrate token event probabilities by us-
+ing structural information about the local distribu-
+tion to offset the odds of the raw token probability:
+ˆPθC
+ M(x, wj )
+
+:= σ
+
+logit
+ PMθ( wj | x)
+
++ C
+
+∝eCPMθ( wj | x).
+(4)
+Here, logit(·) corresponds to the log odds of the
+raw token probability and C is an offset term repre-
+senting the size of the valid region of continuations.
+Intuitively, larger values of C increase the odds of
+a token being treated as valid, correcting for the
+fact that raw probability mass may be spread across
+many plausible continuations. The calibrated value
+therefore estimates live-region membership rather
+than raw next-token likelihood.
+While different choices can be made for C, we
+use the entropy of the top-p tokens or nucleus of
+the local distribution (Holtzman et al., 2020), which
+we later refer to as nucleus entropy calibration
+and discuss below through an example.
+Example 2 (Token calibration via nucleus entropy).
+For the prefixes A computer is not / is an __, the
+completion airplane is semantically valid only in
+the negative context.
+Yet under SmolLM2-135M
+(Lozhkov et al., 2025), its raw probabilities are
+small in both contexts: 0.0055 after is not and
+3.2678e-05 after is. Nucleus entropy calibration
+rescales these probabilities by the effective size of
+the local live region: entropies of 3.97 and 4.11
+for the top-p tokens (with nucleus p = 0.95) cor-
+respond to perplexities, eH, of roughly 53 and 61,
+estimating the number of plausible alternatives in
+the nucleus. This yields calibrated event probabil-
+ities of 0.58 and 0.001, recovering the intended
+contrast: airplane is plausible in the negative con-
+text but not the affirmative one.
+What do constraint probabilities tell us?
+A
+second issue is that raw constraint probabilities
+conflate model behavior with formula structure:
+P1 ∨P2 can receive higher raw probability than
+P1 ∧P2 because it admits more satisfying assign-
+ments. In learning, analogous effects appear as
+reasoning shortcuts (Van Krieken et al., 2024; Mar-
+conato et al., 2023, 2026), which create spurious
+learning patterns; such issues arise in evaluation
+too. We therefore compare model-weighted satis-
+faction to the uninformed baseline WMC0(F) from
+Eq. 3 and define our main probabilistic consis-
+tency metric ρ:
+ρ(F; θC) = WMC(F; θC) −WMC0(F)
+1 −WMC0(F)
+.
+(5)
+This measures the fraction of possible improvement
+over chance satisfaction achieved by the model:
+ρ = 0 matches the uninformed baseline, ρ = 1 is
+perfect satisfaction. We also use a hard, accuracy-
+like consistency metric,
+CAcc(F; θC) = 1[WMC(F; θC) > WMC0(F)] ,
+(6)
+which records whether the model satisfies the con-
+straint better than chance. Averaging this over ex-
+amples gives a dataset-level score, which we report
+later in § 5 and Table 2.
+How can we determine if a constraint is use-
+ful?
+In MODELLOG, experiment designers must
+come up with specific constraints to test. A nat-
+ural question then is: how can we know if a con-
+straint is meaningful to use for testing? Intuitively,
+5
+
+
+one should prioritize constraints that are inher-
+ently informative and hence not subject to spurious
+satisfaction. Using the uninformed baseline, we
+define the notion of constraint informativeness:
+I(F) := −log2 WMC0(F).
+Here I(F) measures how many bits of informa-
+tion are gained by knowing that F holds under an
+otherwise uniform assignment. As we discuss in
+the example below, this gives us a useful tool for
+reasoning about what to test and how it might con-
+nect to learning.
+Example 3 (Constraint informativeness). For a se-
+quence x = w1, . . . , wn, the likelihood formula
+Fℓ(x) from Formula 1 requires every observed
+token-prediction event M(x, wj ) to hold. It is
+therefore a complete assignment, or minterm, and
+is maximally informative among satisfiable con-
+straints over these variables (see § A).
+Proposition 2 (Likelihood is a maximally infor-
+mative minterm). Let Fℓ(x) be the likelihood for-
+mula for a text sequence x over n observed token-
+prediction events. For any satisfiable formula F(x)
+over the same variables:
+I(F(x)) ≤I(Fℓ(x)) = n.
+Moreover, equality holds iff F(x) has exactly one
+satisfying interpretation.
+Thus, likelihood is maximally informative be-
+cause it corresponds to a complete assignment of
+the observed token events. Richer constraints, such
+as implications or biconditionals, may test differ-
+ent structure but typically admit more satisfying
+interpretations and are therefore less informative
+in this formal sense. This reframes likelihood-style
+next token prediction as optimizing satisfaction of
+a maximally informative positive constraint from
+the text.
+More generally, informativeness provides a way
+to reason about the logical strength of evaluation
+constraints. If one formula semantically entails
+(|=) another, then satisfying the stronger formula
+also guarantees satisfaction of the weaker one. This
+gives the following monotonicity property:
+Proposition 3 (Monotonicity of satisfaction and
+informativeness). For any two formulas F1 and F2
+over the same variables, if F1 |= F2, then
+Pθ(F1) ≤Pθ(F2)
+and
+I(F1) ≥I(F2).
+This highlights an important difference between
+learning and evaluation. For learning, highly infor-
+mative constraints may be desirable because they
+can induce stronger losses, a topic we revisit in
+Section 6. For evaluation, however, the most in-
+formative constraint is not always the most useful
+diagnostic. A very strong formula may simply
+fail, while weaker entailed constraints can reveal
+partial semantic knowledge and provide a more in-
+terpretable picture of model behavior. As a simple
+but useful consequence, monotonicity can be used
+constructively: by weakening the likelihood con-
+junction, we obtain likelihood-style upper bounds
+that provide principled new evaluation targets.
+Example 4 (Deriving novel likelihood bounds).
+Let W
+≥k denote a threshold disjunction, true when
+at least k of its arguments are true:
+F≥k(x) :=
+n_
+≥k
+j=1
+M(x, wj )
+Formula 2: A relaxed form of Formula 1.
+Here k = 1 gives ordinary disjunction (∨) and
+k = n gives Fℓ(x), which is ordinary sequence like-
+lihood under the raw weighting from Prop. 1. Since
+F≥n(x) |= · · · |= F≥1(x), monotonicity gives a hi-
+erarchy of increasingly tight upper bounds:
+Pθ(F≥1(x))
+|
+{z
+}
+∨
+≥Pθ(F≥2(x)) ≥... ≥Pθ(F≥n(x))
+|
+{z
+}
+∧
+.
+While simple, this shows how bounds that are not
+obvious from the usual product form of likelihood
+become immediate once likelihood is represented
+semantically as a logical conjunction. This relates
+in spirit to selective-modeling objectives that train
+on subsets of tokens (Lin et al., 2024), and shows
+how such relaxations can be derived semantically.
+4
+Testing the framework
+To evaluate MODELLOG empirically, we introduce
+PROBCT (Probabilistic Consistency Tests), a di-
+agnostic suite described in § 4.1. We then describe
+our experimental setup in § 4.21.
+4.1
+A case study on PROBCT
+Following prior work on knowledge probing
+(Petroni et al., 2019; Kassner and Schütze, 2020;
+Elazar et al., 2021), we automatically generate
+tasks from factual knowledge graphs (§ B.1). As
+shown in Table 1, PROBCT contains five task sub-
+sets, inspired by prior work, that cover constraints
+1Our code and data are available at https://github.
+com/cullena20/ModelLog .
+6
+
+
+Task Subset
+Constraint F
+I(F) ≈
+Example
+Transitivity
+(M(x1, y1 ) ∧M(x2, y2 ))
+→M(x1, y2 )
+0.193
+A Golden Retriever is a dog ∧Every dog is a mammal
+→A Golden Retriever is a mammal
+Forward Implication
+M(x, y1 )→M(x, y2 )
+0.415
+A Golden Retriever is a dog →A Golden Retriever is a mammal
+Negation Consistency
+M(x, y ) ⊕M(¬x, y )
+1.0
+A Golden Retriever is a dog ⊕A Golden Retriever is not a dog
+Entity Mutual Exclusivity
+M(x, y1 ) ⊕M(x, y2 )
+1.0
+A Golden Retriever is a mammal ⊕A Golden Retriever is a reptile
+Spatial Mutual Exclusivity
+Paris is in Germany ⊕Paris is in France
+Table 1: A description of the PROBCT diagnostic benchmark in terms of its five task subsets, the structure of the
+constraints F being tested with their informativeness I(F) and an example set of prefixes.
+Model
+Transitivity
+Forward Implication
+Neg. Consistency
+Mutual Exclusivity
+Spatial Exclusivity
+Gemma-3-270M
+81.0(±2.3)
+79.7(±0.5)
+18.5(±1.4)
+48.7(±0.8)
+18.5(±4.8)
+Gemma-3-1B-pt
+69.0(±1.5)
+65.1(±1.5)
+15.9(±0.8)
+57.3(±3.9)
+12.4(±4.8)
+Gemma-3-4B-pt
+46.9(±1.1)
+50.8(±1.7)
+18.2(±0.9)
+56.8(±5.2)
+19.9(±6.6)
+Gemma-3-12B-pt
+40.4(±1.6)
+45.2(±2.0)
+19.2(±0.9)
+54.7(±5.4)
+23.8(±7.7)
+Llama-3.2-1B
+52.7(±2.4)
+68.7(±1.8)
+23.1(±2.1)
+64.0(±3.8)
+31.5(±7.4)
+Llama-3.2-3B
+45.5(±1.3)
+60.8(±2.1)
+21.6(±2.6)
+61.6(±6.0)
+25.3(±6.9)
+Llama-3.1-8B
+35.2(±1.5)
+50.0(±1.2)
+22.7(±1.3)
+60.0(±5.9)
+16.1(±6.4)
+Qwen3-0.6B
+76.4(±0.5)
+82.8(±1.5)
+17.2(±0.6)
+58.2(±0.7)
+9.1(±3.2)
+Qwen3-1.7B
+64.2(±1.2)
+75.3(±1.6)
+18.9(±3.1)
+62.9(±2.1)
+25.9(±7.2)
+Qwen3-4B
+60.8(±3.2)
+73.0(±2.6)
+19.3(±0.6)
+67.7(±5.0)
+16.6(±5.1)
+Qwen3-8B
+53.7(±2.2)
+69.6(±2.7)
+20.8(±0.1)
+68.2(±4.3)
+14.8(±5.3)
+Qwen3-14B
+56.4(±2.1)
+64.1(±3.6)
+20.9(±1.2)
+65.9(±5.6)
+12.6(±5.4)
+Table 2: Main results (CAcc %) across the different reasoning tasks in PROBCT and model families, averaged over
+different nucleus values p ∈{0.8, 0.85, 0.9, 0.95} used for calibration.
+with different logical structures and levels of infor-
+mativeness: transitivity (Li et al., 2019), forward
+implication (Richardson et al., 2020), negation
+consistency (Kassner and Schütze, 2020), and two
+forms of mutual exclusivity involving exclusive-or
+(⊕) reasoning (Xu et al., 2018).
+We apply LLM-as-a-judge style filtering with
+GPT-5o-mini to improve correctness and natural-
+ness of the generated data (§ B.2), yielding around
+500-1000 examples per subset. As a check on qual-
+ity, a subset of the authors validated 50 randomly
+sampled examples, finding overall high quality and
+acceptance (§ B.4). Finally, we restrict examples
+to single-token substitutions, producing the model-
+specific splits further detailed in § B.3.
+4.2
+Models and Experimental Setup
+We evaluate the following pre-trained models:
+Gemma-3 (Team et al., 2025), Llama-3 (Grattafiori
+et al., 2024), and Qwen3 (Yang et al., 2025), with
+parameter sizes from 270M to 14B. For each model
+and PROBCT subset, we report average constraint
+accuracy CAcc (Eq. 6) and per-example probabilis-
+tic consistency ρ (Eq. 5). Unless noted, all results
+use nucleus-entropy calibration (§ 3.1); for CAcc,
+we report mean performance across different nu-
+cleus thresholds p with standard deviations.
+5
+Results and Findings
+Our main results on PROBCT are reported in Ta-
+ble 2 and Figure 3 (see also § F).
+Models often fail declarative consistency tests.
+Across model families, performance is low on sev-
+eral PROBCT subsets, especially on negation con-
+sistency and spatial exclusivity. For example, in
+the latter case, the largest Gemma-3 and Qwen3 mod-
+els improve over the uninformed baseline on only
+23.8% and 12.6% of examples, respectively. Fig-
+ure 3 shows that these failures are not only aggre-
+gate effects: many examples have negative prob-
+abilistic consistency scores ρ, meaning that the
+model supports the constraint less than the unin-
+formed baseline. Thus, MODELLOG reveals fail-
+ures not simply in individual token predictions, but
+in the semantic relations among predictions.
+Consistency can inverse-scale.
+A more surpris-
+ing pattern is that larger models are not always
+more consistent. On transitivity and forward im-
+plication, CAcc often decreases with model scale
+across all three families. Further analysis suggests
+that this reflects systematic changes in how models
+distribute probability across premise and conclu-
+sion facts (see an example in Table 8). For im-
+plication constraints P1→P2, where P1 is a more
+7
+
+
+Gemma-3-12B-pt
+6
+4
+2
+0
+Probabilistic Consistency
+0
+5
+10
+15
+20
+25
+30
+35
+40
+45
+Count
+Aggregate CAcc: 39.3%
+3
+2
+1
+0
+1
+Probabilistic Consistency
+0
+5
+10
+15
+20
+25
+30
+35
+40
+Count
+Aggregate CAcc: 48.4%
+1.0
+0.5
+0.0
+0.5
+1.0
+Probabilistic Consistency
+0
+15
+30
+45
+60
+75
+90
+105
+120
+135
+Count
+Aggregate CAcc: 18.1%
+1.0
+0.5
+0.0
+0.5
+1.0
+Probabilistic Consistency
+0
+15
+30
+45
+60
+75
+90
+105
+120
+Count
+Aggregate CAcc: 62.4%
+1.0
+0.5
+0.0
+0.5
+1.0
+Probabilistic Consistency
+0
+15
+30
+45
+60
+75
+90
+105
+Count
+Aggregate CAcc: 34.0%
+Llama-3.1-8B
+6
+4
+2
+0
+Probabilistic Consistency
+0
+3
+6
+9
+12
+15
+18
+21
+24
+Count
+Aggregate CAcc: 37.1%
+3
+2
+1
+0
+1
+Probabilistic Consistency
+0
+4
+8
+12
+16
+20
+24
+28
+32
+36
+Count
+Aggregate CAcc: 52.0%
+1.0
+0.5
+0.0
+0.5
+1.0
+Probabilistic Consistency
+0
+15
+30
+45
+60
+75
+90
+105
+Count
+Aggregate CAcc: 20.8%
+1.0
+0.5
+0.0
+0.5
+1.0
+Probabilistic Consistency
+0
+15
+30
+45
+60
+75
+90
+105
+120
+135
+Count
+Aggregate CAcc: 68.2%
+1.0
+0.5
+0.0
+0.5
+1.0
+Probabilistic Consistency
+0
+15
+30
+45
+60
+75
+90
+105
+120
+135
+Count
+Aggregate CAcc: 25.3%
+Qwen3-14B
+6
+4
+2
+0
+Probabilistic Consistency
+0
+5
+10
+15
+20
+25
+30
+35
+40
+Count
+Aggregate CAcc: 59.9%
+3
+2
+1
+0
+1
+Probabilistic Consistency
+0
+6
+12
+18
+24
+30
+36
+42
+48
+54
+Count
+Aggregate CAcc: 68.8%
+1.0
+0.5
+0.0
+0.5
+1.0
+Probabilistic Consistency
+0
+15
+30
+45
+60
+75
+90
+105
+120
+Count
+Aggregate CAcc: 19.0%
+1.0
+0.5
+0.0
+0.5
+1.0
+Probabilistic Consistency
+0
+20
+40
+60
+80
+100
+120
+140
+160
+Count
+Aggregate CAcc: 73.4%
+1.0
+0.5
+0.0
+0.5
+1.0
+Probabilistic Consistency
+0
+20
+40
+60
+80
+100
+120
+140
+Count
+Aggregate CAcc: 20.0%
+Transitivity
+Forward Implication Negation Consistency
+Mutual Exclusivity
+Spatial Exclusivity
+Figure 3: Probabilistic Consistency score histograms ρ(·, θC) for our largest models in each model family, using
+nucleus value p = 0.95. Points highlighted in red are inconsistent, while points highlighted in blue are consistent.
+The solid vertical black line corresponds to the average probabilistic consistency (see also § F).
+Model
+PθC(P2)−PθC(P1) PθC(P2>P1) CAcc
+Gemma-3-270M
+0.17
+64.7
+75.4
+Gemma-3-1B-pt
+−0.02
+49.5
+57.8
+Gemma-3-4B-pt
+−0.19
+34.7
+44.1
+Gemma-3-12B-pt
+−0.24
+30.1
+38.3
+Table 3: Inverse-scaling (McKenzie et al., 2023) behav-
+ior for the forward implication: P1→P2 for Gemma-3.
+PθC(P2)−PθC(P1) is the mean difference between con-
+clusion and premise probabilities. PθC(P2>P1) is the
+percentage of points where PθC(P2) > PθC(P1). See
+§ C for similar patterns across our full set of models.
+specific fact and P2 a broader consequence, smaller
+models are more likely to assign higher probability
+to P2 than to P1. As shown in Table 3, this trend re-
+verses with scale: for example, PθC(P2)−PθC(P1)
+drops from 0.17 to -0.24 across Gemma-3. Similar
+patterns are found for our other models (Table 6)
+and for the transitivity rule (Table 7).
+Importantly, this should not be read as show-
+ing that larger models are worse reasoners overall.
+Larger models may distribute probability differ-
+ently across logically related predictions, some-
+times reducing consistency under one constraint
+while improving other aspects of robustness. MOD-
+ELLOG makes such shifts measurable, providing
+a framework for testing how model scale changes
+the semantic structure of probabilistic predictions.
+Findings are stable across calibration choices.
+Results are stable across nucleus thresholds, sug-
+gesting that the observed patterns are not artifacts
+of calibration (for results across different calibra-
+tion methods, see § E). Taken together, these case
+studies show that MODELLOG can reveal system-
+atic failures, inverse-scaling patterns, and qualita-
+tive changes in model behavior that are difficult to
+capture with standard evaluation metrics.
+6
+Discussion and Future Directions
+We began with the puzzle of cross-entropy: why
+does a local next-token objective provide such an
+effective learning signal, and can richer semantic
+losses improve pre-training? Although we focused
+on evaluation and the semantics of model con-
+straints, MODELLOG defines evaluation scores as
+differentiable satisfaction probabilities, connected
+through the semantic loss ℓsl(F; θ) (Eq. 2). We
+end by returning to this learning question, showing
+that concepts introduced for evaluation, such as
+the uninformed baseline WMC0(F) and constraint
+informativeness I(F), reappear directly in the gra-
+dients of semantic loss ∇ℓsl(F; θ). This suggests
+that they are not only diagnostic quantities, but
+also potential tools for studying how the evaluation
+failures observed above might be turned into more
+effective training strategies.
+Informativeness shapes semantic-loss gradients.
+The first connection is that constraint informa-
+tiveness contributes to the potential scale of the
+semantic-loss gradient. Since gradients are vector-
+valued, we measure this scale standardly using a
+norm. Highly informative constraints are hard to
+8
+
+
+satisfy by chance, so failures on such constraints
+can receive larger loss amplification. More pre-
+cisely, we have the following bound (see proof in
+§ A):
+Proposition 4 (Gradient scaling by informative-
+ness). For any formula F such that WMC(F; θ) ≥
+WMC0(F),
+∥∇θℓsl(F; θ)∥≤2I(F) ∥∇θWMC(F; θ)∥.
+This bound shows that informativeness appears
+as an exponential amplification term in the pos-
+sible learning signal induced by a constraint. It
+does not imply that more informative constraints
+always produce larger or better updates: the ac-
+tual gradient can be reweighted externally and also
+depends on the local derivative of the satisfaction
+probability, which may point in different directions
+across noisy examples. Still, the result suggests
+that highly informative constraints, such as the like-
+lihood constraint (Formula 1), can provide strong
+learning signals when their gradients are coherent.
+This may therefore help explain part of their suc-
+cess.
+Informativeness appears directly in the gradi-
+ent.
+The previous bound controls gradient scale;
+the next identity decomposes the gradient into in-
+terpretable factors. First, we define the following:
+A(F; θ) = WMC0(F)
+WMC(F; θ).
+This compares the model’s satisfaction probability
+to the uninformed baseline: A(F; θ) < 1 means
+that the model satisfies the constraint better than
+chance, while A(F; θ) > 1 means that it does
+worse. Based on this, the semantic-loss gradient
+then factors as follows:
+Proposition 5 (Semantic-loss gradient identity).
+For any formula F,
+∇θℓsl(F; θ) = −A(F; θ) 2I(F) ∇θWMC(F; θ).
+Thus, the gradient decomposes into three pieces: a
+fit term A(F; θ), an intrinsic informativeness term
+2I(F), and a local direction term ∇θWMC(F; θ).
+This gives a more nuanced view of semantic learn-
+ing signals: informativeness appears as a structural
+factor, while A(F; θ) reflects how much the model
+currently under- or over-satisfies the constraint rel-
+ative to the uninformed baseline. The actual up-
+date direction then remains determined by the local
+derivative ∇θWMC(F; θ).
+The informativeness term again helps explain
+why likelihood-style formulas can induce strong
+learning signals. More importantly, by separating
+constraint strength from model fit and local update
+direction, the identity makes the latter terms di-
+agnostic of whether a constraint provides useful
+learning evidence.
+Putting the pieces together.
+These results give a
+partial answer to the cross-entropy puzzle. Likeli-
+hood is recovered in MODELLOG as a conjunction
+of observed token-prediction events whose satis-
+faction probability is sequence likelihood (Prop. 1).
+This formula is maximally informative (Prop. 2),
+and the gradient results show that informative-
+ness can amplify the semantic-loss signal. Thus,
+likelihood-style objectives may be effective be-
+cause they optimize highly informative constraints
+supplied by text, even though they do not directly
+encode richer semantic relations.
+At the same time, these results complicate a
+simple training story in which semantic failures
+are fixed by replacing likelihood with weaker
+constraint-based losses: since likelihood-style con-
+straints are already maximally informative, such
+replacements may not provide stronger pre-training
+signals. Richer constraints may instead be most
+useful for identifying which examples or constraint
+types provide useful learning evidence. Future
+work can use the gradient decomposition above
+to study when such constraints provide coherent
+learning signals, connecting evaluation failures to
+questions of constraint informativeness, data cover-
+age, selection, and weighting.
+7
+Conclusion
+We introduced MODELLOG, a declarative proba-
+bilistic framework for evaluating pre-trained lan-
+guage models through logical constraints over
+token-level predictions. Using exact probabilis-
+tic inference, MODELLOG measures graded satis-
+faction of semantic properties that are difficult to
+capture with likelihood or accuracy alone. Through
+PROBCT, we showed how this framework can re-
+veal consistency failures in current models, and
+our formal analysis characterized the structure and
+informativeness of evaluation constraints, includ-
+ing their connection to semantic-loss gradients.
+This suggests a broader role for evaluation as a
+methodology for making model behavior semanti-
+cally measurable while also informing more inter-
+pretable learning objectives.
+9
+
+
+Limitations
+This work has three main limitations. First, MOD-
+ELLOG currently focuses on single-token predic-
+tion events and evaluates constraints under a fac-
+torized product model over local prediction events.
+This is a deliberate semantic abstraction: the events
+correspond to separate local queries to the lan-
+guage model, while dependencies among them are
+introduced declaratively by the constraints rather
+than assumed to be part of the model’s autoregres-
+sive distribution. This keeps inference tractable
+and enables clean formal analysis, but the current
+framework does not yet address multi-token spans,
+variable-length paraphrases, or full sequence-level
+constraints. Second, our empirical results are in-
+tended as small case studies of the framework
+and are based on synthetic diagnostic tasks gen-
+erated from knowledge-graph relations, which, de-
+spite our efforts at filtering, may still contain noise.
+These tasks provide controlled tests of declarative
+constraints, but they do not capture the full com-
+plexity of natural language evaluation. Third, while
+our formal analysis connects probabilistic evalua-
+tion to semantic-loss gradients, we do not train
+models with these losses at scale. The learning
+discussion should therefore be read as a formal and
+diagnostic contribution, with actual training left for
+future work.
+Acknowledgements
+We thank Kareem Ahmed, Gregor Betz, Yanai
+Elazar, Poorva Garg, Ronan Le Bras, William Mer-
+rill, Jackson Petty and Sahil Sidheekh for useful
+feedback at different stages of this work. We also
+thank Andrew McCallum and the Manning Col-
+lege of Information & Computer Sciences at the
+University of Massachusetts Amherst for their sup-
+port of this project, as well as the UMass Unity
+Cluster (www.umass.edu/research-computing/
+unity-research-computing-platform) for pro-
+viding GPU compute. We acknowledge that both
+ChatGPT and Claude were used to improve some
+of the writing and overall presentation, and to pro-
+vide feedback on some of the technical results. All
+mistakes remain our own.
+References
+Kareem Ahmed, Kai-Wei Chang, and Guy Van den
+Broeck. 2023a. A pseudo-semantic loss for autore-
+gressive models with logical constraints. Proceeding
+of NeurIPS.
+Kareem Ahmed, Stefano Teso, Kai-Wei Chang, Guy
+Van den Broeck, and Antonio Vergari. 2022. Seman-
+tic probabilistic layers for neuro-symbolic learning.
+Proceedings of NeurIPS.
+Kareem Ahmed, Stefano Teso, Paolo Morettin, Luca
+Di Liello, Pierfrancesco Ardino, Jacopo Gobbi, Yitao
+Liang, Eric Wang, Kai-Wei Chang, Andrea Passerini,
+and 1 others. 2023b. Semantic loss functions for
+neuro-symbolic structured prediction. Proceedings
+of ICLR.
+Yoshua Bengio, Réjean Ducharme, Pascal Vincent, and
+Christian Jauvin. 2003. A neural probabilistic lan-
+guage model. Journal of machine learning research,
+3(Feb):1137–1155.
+Tom Brown, Benjamin Mann, Nick Ryder, Melanie
+Subbiah, Jared D Kaplan, Prafulla Dhariwal, Arvind
+Neelakantan, Pranav Shyam, Girish Sastry, Amanda
+Askell, and 1 others. 2020. Language models are
+few-shot learners. Proceedings of NeurIPS.
+Diego Calanzone, Stefano Teso, and Antonio Vergari.
+2025.
+Logically consistent language models via
+neuro-symbolic integration. In Proceedings of ICLR.
+Mark Chavira and Adnan Darwiche. 2008. On proba-
+bilistic inference by weighted model counting. Artifi-
+cial Intelligence, 172(6-7):772–799.
+Junyan Cheng, Kyle Richardson, and Peter Chin. 2026.
+Analytica: Soft propositional reasoning for robust
+and scalable llm-driven analysis.
+Proceedings of
+ICLR.
+Luc De Raedt, Kristian Kersting, Sriraam Natarajan, and
+David Poole. 2016. Statistical relational artificial
+intelligence: Logic, probability, and computation.
+Morgan & Claypool Publishers.
+Luc De Raedt and Angelika Kimmig. 2015. Probabilis-
+tic (logic) programming concepts. Machine Learn-
+ing, 100(1):5–47.
+David Dohan, Winnie Xu, Aitor Lewkowycz, Ja-
+cob Austin, David Bieber, Raphael Gontijo Lopes,
+Yuhuai Wu, Henryk Michalewski, Rif A Saurous,
+Jascha Sohl-Dickstein, and 1 others. 2022. Language
+model cascades. arXiv preprint arXiv:2207.10342.
+Yanai Elazar, Nora Kassner, Shauli Ravfogel, Abhi-
+lasha Ravichander, Eduard Hovy, Hinrich Schütze,
+and Yoav Goldberg. 2021. Measuring and improving
+consistency in pretrained language models. Transac-
+tions of the Association for Computational Linguis-
+tics, 9:1012–1031.
+Jonathan Feldstein, Paulius Dilkas, Vaishak Belle, and
+Efthymia Tsamoura. 2024.
+Mapping the neuro-
+symbolic ai landscape by architectures: A handbook
+on augmenting deep learning through symbolic rea-
+soning. arXiv preprint arXiv:2410.22077.
+10
+
+
+Daan Fierens, Guy Van den Broeck, Joris Renkens,
+Dimitar Shterionov, Bernd Gutmann, Ingo Thon,
+Gerda Janssens, and Luc De Raedt. 2015. Inference
+and learning in probabilistic logic programs using
+weighted boolean formulas. Theory and Practice of
+Logic Programming, 15(3):358–401.
+Poorva Garg, Renato Lui Geh, Daniel Israel, Todd Mill-
+stein, Kyle Richardson, and Guy Van den Broeck.
+2026.
+Probabilistic programs of thought.
+arXiv
+preprint arXiv:2604.17290.
+Lise Getoor and Ben Taskar. 2007.
+Introduction to
+statistical relational learning. MIT press.
+Joshua T Goodman. 2001. A bit of progress in language
+modeling. Computer Speech & Language, 15(4):403–
+434.
+Aaron Grattafiori, Abhimanyu Dubey, Abhinav Jauhri,
+Abhinav Pandey, Abhishek Kadian, Ahmad Al-
+Dahle, Aiesha Letman, Akhil Mathur, Alan Schelten,
+Alex Vaughan, and 1 others. 2024. The llama 3 herd
+of models. arXiv preprint arXiv:2407.21783.
+Dirk Groeneveld, Iz Beltagy, Evan Walsh, Akshita Bha-
+gia, Rodney Kinney, Oyvind Tafjord, Ananya Jha,
+Hamish Ivison, Ian Magnusson, Yizhong Wang, and
+1 others. 2024. Olmo: Accelerating the science of
+language models. In Proceedings of ACL.
+John Hewitt, Christopher D Manning, and Percy Liang.
+2022.
+Truncation sampling as language model
+desmoothing. In Findings of EMNLP.
+Ari Holtzman, Jan Buys, Li Du, Maxwell Forbes, and
+Yejin Choi. 2020. The curious case of neural text
+degeneration. Proceedings of ICLR.
+Myeongjun Erik Jang, Deuksin Kwon, and Thomas
+Lukasiewicz. 2022. Becel: Benchmark for consis-
+tency evaluation of language models. In Proceedings
+of COLING.
+Frederick Jelinek. 1980.
+Interpolated estimation of
+markov source parameters from sparse data. In Proc.
+Workshop on Pattern Recognition in Practice, 1980.
+Nora Kassner and Hinrich Schütze. 2020. Negated and
+misprimed probes for pretrained language models:
+Birds can talk, but cannot fly. In Proceedings of
+ACL.
+Nora Kassner, Oyvind Tafjord, Ashish Sabharwal, Kyle
+Richardson, Hinrich Schuetze, and Peter Clark. 2023.
+Language models with rationality. In Proceedings of
+EMNLP.
+Alexander K Lew, Tan Zhi-Xuan, Gabriel Grand, and
+Vikash K Mansinghka. 2023. Sequential monte carlo
+steering of large language models using probabilistic
+programs. arXiv preprint arXiv:2306.03081.
+Tao Li, Vivek Gupta, Maitrey Mehta, and Vivek Sriku-
+mar. 2019. A logic-driven framework for consistency
+of neural models. In Proceedings of EMNLP.
+Ziyang Li, Jiani Huang, and Mayur Naik. 2023. Scallop:
+A language for neurosymbolic programming. Pro-
+ceedings of the ACM on Programming Languages,
+7(PLDI):1463–1487.
+Percy Liang, Rishi Bommasani, Tony Lee, Dimitris
+Tsipras, Dilara Soylu, Michihiro Yasunaga, Yian
+Zhang, Deepak Narayanan, Yuhuai Wu, Ananya Ku-
+mar, and 1 others. 2022. Holistic evaluation of lan-
+guage models. arXiv preprint arXiv:2211.09110.
+Zhenghao Lin, Zhibin Gou, Yeyun Gong, Xiao Liu,
+Yelong Shen, Ruochen Xu, Chen Lin, Yujiu Yang,
+Jian Jiao, Nan Duan, and 1 others. 2024. Rho-1:
+Not all tokens are what you need. arXiv preprint
+arXiv:2404.07965.
+Yinhong Liu, Zhijiang Guo, Tianya Liang, Ehsan
+Shareghi, Ivan Vuli´c, and Nigel Collier. 2025. Align-
+ing with logic: Measuring, evaluating and improving
+logical preference consistency in large language mod-
+els. Proceedings of ICML.
+Anton Lozhkov,
+Elie Bakouch,
+Gabriel Martin
+Blazquez, Guilherme Penedo, Lewis Tunstall, An-
+drés Marafioti, Agustín Piqueres Lajarín, Hynek Ky-
+dlíˇcek, Vaibhav Srivastav, Joshua Lochner, and 1 oth-
+ers. 2025. Smollm2: When smol goes big—data-
+centric training of a fully open small language model.
+In Proceedings of COLM.
+Ian Magnusson, Akshita Bhagia, Valentin Hofmann,
+Luca Soldaini, Ananya H Jha, Oyvind Tafjord, Dustin
+Schwenk, Evan Walsh, Yanai Elazar, Kyle Lo, and 1
+others. 2024. Paloma: A benchmark for evaluating
+language model fit. Proceedings of NeurIPS.
+Robin Manhaeve, Sebastijan Dumancic, Angelika Kim-
+mig, Thomas Demeester, and Luc De Raedt. 2018.
+Deepproblog: Neural probabilistic logic program-
+ming. Proceedings of NeurIPS.
+Emanuele Marconato, Samuele Bortolotti, Emile van
+Krieken, Paolo Morettin, Elena Umili, Antonio Ver-
+gari, Efthymia Tsamoura, Andrea Passerini, and
+Stefano Teso. 2026. Symbol grounding in neuro-
+symbolic ai: A gentle introduction to reasoning short-
+cuts. Journal of Artificial Intelligence Research, 86.
+Emanuele Marconato, Stefano Teso, Antonio Vergari,
+and Andrea Passerini. 2023. Not all neuro-symbolic
+concepts are created equal: Analysis and mitigation
+of reasoning shortcuts. Proceedings of NeurIPS.
+Giuseppe Marra, Sebastijan Dumanˇci´c, Robin Man-
+haeve, and Luc De Raedt. 2024. From statistical
+relational to neurosymbolic artificial intelligence: A
+survey. Artificial Intelligence, 328:104062.
+John P. McCrae, Alexandre Rademaker, Francis Bond,
+Ewa Rudnicka, and Christiane Fellbaum. 2019. En-
+glish WordNet 2019 – an open-source WordNet for
+English. In Proceedings of the 10th Global Wordnet
+Conference.
+11
+
+
+Ian R McKenzie, Alexander Lyzhov, Michael Pieler,
+Alicia Parrish, Aaron Mueller, Ameya Prabhu, Euan
+McLean, Aaron Kirtland, Alexis Ross, Alisa Liu, and
+1 others. 2023. Inverse scaling: When bigger isn’t
+better. arXiv preprint arXiv:2306.09479.
+Jekaterina Novikova, Carol Anderson, Borhane Blili-
+Hamelin, Domenic Rosati, and Subhabrata Majum-
+dar. 2025. Consistency in language models: Current
+landscape, challenges, and future directions. arXiv
+preprint arXiv:2505.00268.
+Fabio Petroni, Tim Rocktäschel, Sebastian Riedel,
+Patrick Lewis, Anton Bakhtin, Yuxiang Wu, and
+Alexander Miller. 2019. Language models as knowl-
+edge bases? In Proceedings of EMNLP.
+Marco Tulio Ribeiro, Tongshuang Wu, Carlos Guestrin,
+and Sameer Singh. 2020.
+Beyond accuracy: Be-
+havioral testing of nlp models with checklist. In
+Proceedings of ACL.
+Kyle Richardson, Yu Feng, Poorva Garg, Junyan Cheng,
+Guy Van den Broeck, and Dan Roth. 2026. Cots as
+tractable probabilistic programs. In Proceedings of
+the The Ninth Workshop on Tractable Probabilistic
+Models.
+Kyle Richardson, Hai Hu, Lawrence Moss, and Ashish
+Sabharwal. 2020. Probing natural language inference
+models through semantic fragments. In Proceedings
+of the AAAI.
+Kyle Richardson, Vivek Srikumar, and Ashish Sabhar-
+wal. 2025. Understanding the logic of direct prefer-
+ence alignment through logic. Proceedings of ICML.
+Aarohi Srivastava, Abhinav Rastogi, Abhishek Rao,
+Abu Awal Md Shoeb, Abubakar Abid, Adam Fisch,
+Adam R Brown, Adam Santoro, Aditya Gupta, Adrià
+Garriga-Alonso, and 1 others. 2023. Beyond the
+imitation game: Quantifying and extrapolating the
+capabilities of language models. Transactions on
+machine learning research.
+Fabian M. Suchanek, Gjergji Kasneci, and Gerhard
+Weikum. 2007. YAGO: A core of semantic knowl-
+edge. In Proceedings of the 16th International Con-
+ference on World Wide Web.
+Gemma Team, Aishwarya Kamath, Johan Ferret, Shreya
+Pathak, Nino Vieillard, Ramona Merhej, Sarah Perrin,
+Tatiana Matejovicova, Alexandre Ramé, Morgane
+Rivière, Louis Rouillard, Thomas Mesnard, Geoffrey
+Cideron, Jean bastien Grill, Sabela Ramos, Edouard
+Yvinec, Michelle Casbon, Etienne Pot, Ivo Penchev,
+and 197 others. 2025. Gemma 3 technical report.
+Preprint, arXiv:2503.19786.
+Emile Van Krieken, Pasquale Minervini, Edoardo M
+Ponti, and Antonio Vergari. 2024. On the indepen-
+dence assumption in neurosymbolic learning. Pro-
+ceedings of ICML.
+Alex Wang, Amanpreet Singh, Julian Michael, Felix
+Hill, Omer Levy, and Samuel Bowman. 2018. Glue:
+A multi-task benchmark and analysis platform for
+natural language understanding. In Proceedings of
+BlackboxNLP.
+Sean Welleck, Ilia Kulikov, Stephen Roller, Emily Di-
+nan, Kyunghyun Cho, and Jason Weston. 2019. Neu-
+ral text generation with unlikelihood training. arXiv
+preprint arXiv:1908.04319.
+Jingyi Xu, Zilu Zhang, Tal Friedman, Yitao Liang, and
+Guy Broeck. 2018. A semantic loss function for deep
+learning with symbolic knowledge. In Proceedings
+of ICML.
+An Yang, Anfeng Li, Baosong Yang, Beichen Zhang,
+Binyuan Hui,
+Bo Zheng,
+Bowen Yu,
+Chang
+Gao, Chengen Huang, Chenxu Lv, and 1 others.
+2025.
+Qwen3 technical report.
+arXiv preprint
+arXiv:2505.09388.
+A
+Proofs
+Proposition 2 (Likelihood is a maximally infor-
+mative minterm). Let Fℓ(x) be the likelihood for-
+mula for a text sequence x over n observed token-
+prediction events. For any satisfiable formula F(x)
+over the same variables:
+I(F(x)) ≤I(Fℓ(x)) = n.
+Moreover, equality holds iff F(x) has exactly one
+satisfying interpretation.
+Proof. Let F be any satisfiable formula over n vari-
+ables. Since F, in virtue of being satisfiable, has at
+least one satisfying interpretation, it follows that:
+|I(F)| ≥1.
+Under uniform weights,
+WMC0(F) = |I(F)|
+2n
+≥2−n.
+Applying −log2 gives
+I(F) = −log2 WMC0(F) ≤n.
+The likelihood formula Fℓhas exactly one satisfy-
+ing interpretation, namely the all-true assignment,
+so WMC0(Fℓ) = 2−n and I(Fℓ) = n. Equality
+holds exactly when |I(F)| = 1.
+Proposition 3 (Monotonicity of satisfaction and
+informativeness). For any two formulas F1 and F2
+over the same variables, if F1 |= F2, then
+Pθ(F1) ≤Pθ(F2)
+and
+I(F1) ≥I(F2).
+12
+
+
+Proof. If F1 |= F2, then every interpretation sat-
+isfying F1 also satisfies F2. By definition then
+I(F1) ⊆I(F2). Since Pθ(F) is computed by sum-
+ming nonnegative interpretation weights over I(F),
+it follows that:
+Pθ(F1) ≤Pθ(F2).
+The same subset relation holds under the uniform
+weighting used by WMC0, giving
+WMC0(F1) ≤WMC0(F2).
+Applying −log2 reverses the inequality, so that:
+I(F1) = −log2 WMC0(F1)
+≥−log2 WMC0(F2) = I(F2).
+Proposition 4 (Gradient scaling by informative-
+ness). For any formula F such that WMC(F; θ) ≥
+WMC0(F),
+∥∇θℓsl(F; θ)∥≤2I(F) ∥∇θWMC(F; θ)∥.
+Proof. By applying the chain rule to the semantic
+loss, we have
+∇θℓsl(F; θ) = −
+1
+WMC(F; θ)∇θWMC(F; θ).
+Taking norms gives
+∥∇θℓsl(F; θ)∥=
+1
+WMC(F; θ) ∥∇θWMC(F; θ)∥.
+By assuming then that WMC(F; θ) ≥WMC0(F),
+it follows that
+1
+WMC(F; θ) ≤
+1
+WMC0(F).
+Since I(F) = −log2 WMC0(F), we have the fol-
+lowing equivalence:
+1
+WMC0(F) = 2I(F).
+Combining these (in)equalities then yields:
+∥∇θℓsl(F; θ)∥≤2I(F) ∥∇θWMC(F; θ)∥.
+Proposition 5 (Semantic-loss gradient identity).
+For any formula F,
+∇θℓsl(F; θ) = −A(F; θ) 2I(F) ∇θWMC(F; θ).
+Proof. This again relies on the chain rule from
+above for the semantic loss:
+∇θℓsl(F; θ) = −
+1
+WMC(F; θ)∇θWMC(F; θ).
+By definition,
+A(F; θ) = WMC0(F)
+WMC(F; θ).
+Importantly, the following holds:
+1
+WMC(F; θ) =
+A(F; θ)
+WMC0(F).
+Since again we have:
+I(F) = −log2 WMC0(F),
+and
+1
+WMC0(F) = 2I(F).
+Substituting these identities into the semantic-loss
+gradient gives the desired output:
+∇θℓsl(F; θ) = −A(F; θ) 2I(F)∇θWMC(F; θ).
+B
+Dataset Generation
+B.1
+Large-Scale Dataset Generation via
+Knowledge Graphs
+We construct evaluation data for each logical con-
+straint from two complementary knowledge bases
+(KBs): Open English WordNet2 (OEWN) (Mc-
+Crae et al., 2019), which provides a large-scale
+lexical hierarchy, and YAGO (Suchanek et al.,
+2007), which contributes physical and historical
+facts about named entities.
+For each constraint type, we extract relational
+tuples from these KBs and instantiate them into
+predefined natural language templates; for exam-
+ple, a tuple relating an entity e1 to its category e2
+is rendered as “A e1 is a e2.” The KB’s relational
+structure then determines how individual facts are
+combined into constraint instances, following the
+schemas in Table 1. Forward Implication pairs
+two facts sharing an entity such that the KB hierar-
+chy entails one from the other. Transitivity chains
+two such hierarchy edges to yield a three-fact ex-
+ample. Mutual Exclusivity and Spatial Mutual
+2https://github.com/globalwordnet/
+english-wordnet
+13
+
+
+Exclusivity pair sibling nodes in the KB taxonomy
+that cannot jointly apply to a single entity. Nega-
+tion Consistency pairs a fact with its negated form
+under the same templates. This procedure yields
+a large candidate pool for each constraint, which
+is subsequently filtered through an LLM-As-Judge
+pipeline.
+B.2
+LLM-As-Judge Filtering
+Automatically constructing logical constraint
+datasets from a knowledge base may introduce nu-
+merous artifacts. To address this, we employ an
+LLM-As-Judge to filter the generated evaluation
+sets according to a strict criteria. Each extracted
+datapoint, which consists of a series of automat-
+ically extracted facts placed into predefined tem-
+plates and a constraint between them, is scored
+according to the following binary criteria.
+1. Grammatical Coherence: All facts must be
+grammatically natural. Because facts are ex-
+tracted from knowledge graphs and inserted
+into predefined templates, grammatical errors
+and unnatural phrasings can emerge.
+2. Monosemous: All facts must concern en-
+tities with a single, unambiguous meaning.
+Knowledge graphs contain polysemous nodes
+whose extracted facts may be interpretable un-
+der multiple senses (e.g., “bat” may refer to
+the animal or the sports equipment), under-
+mining the logical validity of the constraint.
+3. Entity Salience:
+All facts must concern
+well-known, real-world entities. Knowledge
+graphs sometimes contain overly specific, ar-
+chaic, or obscure entries that, while techni-
+cally valid graph nodes, produce evaluation
+examples that are unreasonable to expect a
+language model to have encountered during
+pre-training.
+4. Factual Accuracy:
+All facts must indeed
+be true. This controls for any errors that may
+exist in the knowledge graph.
+We use GPT-5o-mini as the LLM judge, and
+only keep datapoints passing each criteria.
+B.3
+Dataset Sizes
+To limit our evaluation to single-token substitutions,
+we additionally apply a final model-specific filter-
+ing step to remove any data points whose trigger
+word is split into multiple tokens. We provide the
+size of each dataset in PROBCT at each filtering
+stage in Table 4. This consists of the raw dataset
+sizes extracted from the knowledge bases, the sizes
+after LLM-as-judge filtering, and the sizes after
+removing multi-token prediction events for each
+model family.
+B.4
+Human Validation of LLM Filter
+Table 5 reports a human validation study of the
+knowledge base to final LLM-filtered dataset. For
+each dataset, we sample n = 50 examples from the
+knowledge base and collect independent judgments
+from two annotators alongside the LLM filter’s de-
+cision. We report acceptance rates from human an-
+notators through majority vote and from the LLM
+filter, along with the percentage of LLM-accepted
+items also accepted by each annotator.
+Both annotators estimate LLM precision at 0.88
+or higher on every dataset. Therefore items re-
+tained by the filter are reliably correct under inde-
+pendent human review, and the underlying judg-
+ments appear consistent across annotators rather
+than annotator-specific. Moreover, the LLM is
+generally the stricter filter, retaining a similar or
+smaller fraction of examples than human annota-
+tors.
+C
+Inverse Scaling Investigation
+We provide additional evidence explaining the in-
+verse scaling phenomenon observed in the For-
+ward Implication and Transitivity datasets in Ta-
+bles 6 and 7. Across all model families, the small-
+est model is the most consistent and the largest
+model is the least consistent, where consistency
+is measured by aggregate CAcc scores (Qwen3 is
+a minor exception, with the second largest model
+being slightly more inconsistent than the largest
+model). In all cases the probabilities assigned to
+the conclusions, which are always broader con-
+sequences of the premises in PROBCT, decrease
+with model size on average. The probabilities as-
+signed to the more narrower premises increases
+with size on average for the Gemma-3 and Qwen3
+model families, and remain similar across model
+sizes in the Llama-3 family. Specific examples ex-
+hibiting this phenomenon between Gemma-3-270M
+and Gemma-3-12B are shown in Table 8.
+14
+
+
+Constraint
+Raw
+Filtered
+Gemma-3
+Llama-3
+Qwen3
+Forward Implication
+2,000
+1,049
+514
+369
+369
+Transitivity
+2,000
+1,091
+486
+307
+307
+Mutual Exclusivity
+2,000
+1,468
+975
+781
+781
+Negation Consistency
+2,000
+956
+956
+856
+856
+Spatial Exclusivity
+2,000
+915
+897
+739
+739
+Table 4: Dataset sizes at each filtering stage. Raw: initial generated examples. Filtered: after LLM-as-judge filtering.
+Gemma-3, Llama-3, Qwen3: remaining examples after removing multi-token prediction events per model family.
+Dataset
+Human Accept
+LLM Accept
+Ann1 Precision
+Ann2 Precision
+Forward Implication
+0.78
+0.44
+0.91
+0.95
+Mutual Exclusivity
+0.84
+0.76
+0.95
+0.97
+Negation
+0.62
+0.46
+0.96
+0.96
+Spatial Mutex
+0.46
+0.50
+0.88
+0.92
+Transitivity
+0.86
+0.56
+1.00
+1.00
+Table 5: Human validation of the KB to LLM filtering pipeline on n = 50 sampled examples per dataset. Human
+Accept is the fraction accepted by both annotators. LLM Accept is the fraction accepted by GPT-5o-mini. Ann1
+Precision and Ann2 Precision give the fraction of LLM-accepted items each annotator independently judged correct
+i.e., the LLM filter’s precision as measured by each annotator.
+D
+Enforcing Factuality
+Our main results utilize general logical constraints
+without imposing factuality. However, PROBCT
+is generated from knowledge bases and therefore
+comes with ground truth factual labels. This allows
+us to evaluate each dataset under a modified logical
+constraint that consists of the conjunction of all
+true statements in a data point. These results are
+presented in Figure 9.
+E
+Additional Calibration Methods
+Here we consider alternative choices for the calibra-
+tion method; that is we consider different choices
+of the value C in Equation 4. As a reminder, our
+default method uses the entropy of the top-p nu-
+cleus of the local distribution, and results are repro-
+duced in Table 10 for ease of comparison. Entropy
+calibration, shown in Table 11, sets C to be the
+entropy of the full next-token distribution, drop-
+ping the nucleus restriction. Nucleus calibration,
+shown in Table 12, sets C to be the log count of
+tokens in the top-p nucleus, replacing entropy with
+a uniform count over the same set.
+Both alternatives generally preserve the qual-
+itative findings of Table 2:
+models generally
+perform poorly, inverse scaling on Transitivity
+and Forward Implication is present across model
+families, and the task difficulty ordering is un-
+changed. Spatial Exclusivity is the most sensitive
+to calibration method, with meaningfully improved
+scores here compared to nucleus entropy calibra-
+tion across model families and sizes. For example,
+Gemma-3-12B has an average score of 18.5 for nu-
+cleus entropy calibration, while it has scores of
+59.4 and 44.4 for nucleus calibration and entropy
+calibration respectively. Scores on Negation Con-
+sistency remain similarly poor across model fami-
+lies and calibration methods.
+15
+
+
+Model
+PθC(P1)
+PθC(P2)
+∆
+PθC(P2>P1)
+CAcc
+Gemma-3-270M
+0.53(±0.03)
+0.70(±0.02)
+0.17(±0.01)
+64.7(±0.2)
+75.4(±1.2)
+Gemma-3-1B-pt
+0.60(±0.03)
+0.58(±0.04)
+−0.02(±0.00)
+49.5(±0.6)
+57.8(±3.3)
+Gemma-3-4B-pt
+0.69(±0.04)
+0.50(±0.04)
+−0.19(±0.00)
+34.7(±0.4)
+44.1(±3.4)
+Gemma-3-12B-pt
+0.70(±0.04)
+0.45(±0.04)
+−0.24(±0.01)
+30.1(±0.5)
+38.3(±4.3)
+Llama-3.2-1B
+0.73(±0.03)
+0.66(±0.04)
+−0.06(±0.01)
+45.2(±0.8)
+64.3(±2.8)
+Llama-3.2-3B
+0.67(±0.04)
+0.57(±0.04)
+−0.10(±0.00)
+41.5(±0.7)
+54.5(±3.7)
+Llama-3.1-8B
+0.70(±0.03)
+0.50(±0.04)
+−0.20(±0.01)
+33.2(±1.0)
+43.3(±4.1)
+Qwen3-0.6B
+0.59(±0.03)
+0.76(±0.03)
+0.17(±0.00)
+67.1(±0.4)
+80.1(±2.5)
+Qwen3-1.7B
+0.64(±0.03)
+0.72(±0.03)
+0.08(±0.00)
+60.0(±0.3)
+73.1(±3.1)
+Qwen3-4B
+0.66(±0.03)
+0.69(±0.04)
+0.03(±0.01)
+54.8(±0.7)
+69.8(±4.4)
+Qwen3-8B
+0.68(±0.03)
+0.67(±0.04)
+−0.01(±0.00)
+51.3(±0.8)
+67.5(±4.3)
+Qwen3-14B
+0.65(±0.04)
+0.62(±0.05)
+−0.03(±0.01)
+46.5(±1.1)
+59.8(±5.2)
+Table 6: Inverse scaling analysis for the forward implication P1→P2 across all model families. ∆is shorthand
+for PθC(P2)−PθC(P1), the mean difference between conclusion and premise probabilities. PθC(P2>P1) is the
+percentage of points where PθC(P2) > PθC(P1). Calibration is done using nucleus entropy averaged over nucelus
+values p ∈{0.80, 0.85, 0.90, 0.95}.
+Model
+PθC(P1)
+PθC(P2)
+PθC(P3)
+∆
+PθC(P3>P1P2)
+CAcc
+Gemma-3-270M
+0.48(±0.03)
+0.64(±0.04)
+0.64(±0.02)
+0.34(±0.02)
+82.7(±1.8)
+77.6(±1.8)
+Gemma-3-1B-pt
+0.55(±0.03)
+0.61(±0.04)
+0.52(±0.03)
+0.20(±0.02)
+68.5(±0.7)
+64.6(±0.4)
+Gemma-3-4B-pt
+0.65(±0.04)
+0.71(±0.04)
+0.45(±0.04)
+−0.01(±0.01)
+48.5(±0.2)
+42.6(±0.3)
+Gemma-3-12B-pt
+0.64(±0.04)
+0.72(±0.04)
+0.40(±0.04)
+−0.05(±0.02)
+42.3(±0.5)
+36.0(±0.5)
+Llama-3.2-1B
+0.65(±0.04)
+0.84(±0.03)
+0.58(±0.04)
+0.02(±0.01)
+54.0(±0.6)
+51.3(±2.6)
+Llama-3.2-3B
+0.60(±0.04)
+0.82(±0.03)
+0.47(±0.04)
+−0.02(±0.02)
+47.2(±0.4)
+43.5(±1.7)
+Llama-3.1-8B
+0.62(±0.05)
+0.82(±0.03)
+0.43(±0.04)
+−0.08(±0.02)
+41.9(±0.7)
+33.8(±1.4)
+Qwen3-0.6B
+0.50(±0.03)
+0.81(±0.03)
+0.69(±0.03)
+0.28(±0.01)
+81.5(±0.8)
+75.7(±0.9)
+Qwen3-1.7B
+0.61(±0.04)
+0.83(±0.03)
+0.66(±0.04)
+0.14(±0.02)
+68.2(±0.4)
+63.0(±1.6)
+Qwen3-4B
+0.60(±0.04)
+0.81(±0.03)
+0.63(±0.04)
+0.14(±0.01)
+65.9(±0.3)
+59.6(±3.7)
+Qwen3-8B
+0.64(±0.05)
+0.84(±0.03)
+0.61(±0.04)
+0.07(±0.01)
+59.5(±0.1)
+52.6(±2.6)
+Qwen3-14B
+0.60(±0.04)
+0.81(±0.03)
+0.58(±0.04)
+0.09(±0.01)
+60.4(±0.7)
+54.9(±2.5)
+Table 7: Inverse scaling analysis for transitivity (P1∧P2)→P3 , across all model families. ∆is shorthand for
+PθC(P3)−PθC(P1)PθC(P2), the mean gap between the conclusion probability and the product of premise probabil-
+ities. PθC(P3>P1P2) is the percentage of points where PθC(P3) > PθC(P1)PθC(P2). Calibration is done using
+nucleus entropy averaged over nucleus values p ∈{0.80, 0.85, 0.90, 0.95}.
+PθC(P1)
+PθC(P2)
+ρ
+Prefix
+a
+b
+270M
+12B
+270M
+12B
+270M
+12B
+Ctenocephalides Felis
+is a type of . . .
+flea
+insect
+0.07
+0.83
+0.78
+0.03
+0.94
+−2.21
+Satsuma is a type of
+. . .
+mandarin
+fruit
+0.03
+0.62
+0.76
+0.12
+0.97
+−1.17
+Hesperocyparis
+Goveniana is a type of
+. . .
+cypress
+tree
+0.07
+0.84
+0.89
+0.45
+0.97
+−0.85
+Arbalest is a type of
+. . .
+crossbow
+weapon
+0.13
+0.89
+0.51
+0.55
+0.76
+−0.59
+Pannier is a type of . . .
+bag
+container
+0.20
+0.83
+0.58
+0.32
+0.67
+−1.26
+Table 8: Examples of inverse scaling for forward implication, comparing Gemma-3-270M and Gemma-3-12B using
+nucleus entropy with nucleus value p = 0.95. Each row defines P1 = M(Prefix, a) and P2 = M(Prefix, b), where
+a and b are the premise and conclusion completions respectively.
+16
+
+
+Model
+Transitivity
+Forward Implication
+Neg. Consistency
+Mutual Exclusivity
+Spatial Exclusivity
+Gemma-3-270M
+40.8(±6.9)
+39.5(±5.8)
+7.5(±0.4)
+64.1(±0.2)
+32.6(±5.3)
+Gemma-3-1B-pt
+39.0(±7.2)
+40.0(±6.7)
+10.8(±0.9)
+71.1(±2.6)
+28.8(±5.0)
+Gemma-3-4B-pt
+47.5(±5.6)
+42.9(±6.5)
+17.0(±1.4)
+73.9(±4.0)
+41.4(±6.9)
+Gemma-3-12B-pt
+45.1(±7.9)
+40.7(±6.7)
+13.9(±0.9)
+74.9(±4.0)
+48.7(±7.9)
+Llama-3.2-1B
+64.5(±4.3)
+60.8(±5.3)
+15.9(±1.3)
+79.7(±3.6)
+52.9(±6.4)
+Llama-3.2-3B
+53.4(±7.9)
+45.9(±8.0)
+13.6(±1.8)
+79.0(±4.0)
+49.3(±6.6)
+Llama-3.1-8B
+51.3(±7.2)
+43.9(±7.8)
+20.2(±2.1)
+78.8(±3.4)
+38.8(±7.1)
+Qwen3-0.6B
+58.9(±5.8)
+51.6(±5.8)
+11.3(±0.7)
+73.9(±0.5)
+21.9(±5.2)
+Qwen3-1.7B
+65.5(±5.1)
+56.7(±4.9)
+16.3(±3.1)
+77.2(±2.6)
+44.4(±5.2)
+Qwen3-4B
+61.3(±5.3)
+54.3(±4.5)
+9.5(±1.2)
+81.9(±2.2)
+35.1(±7.0)
+Qwen3-8B
+67.4(±5.3)
+57.9(±6.5)
+12.4(±1.7)
+82.8(±2.7)
+33.9(±5.9)
+Qwen3-14B
+59.6(±5.3)
+53.3(±7.9)
+13.4(±2.2)
+81.0(±3.7)
+35.3(±7.4)
+Table 9: Enforcing Factuality: CAcc (%) over conjunction of true statements using nucleus entropy calibration
+averaged over p ∈{0.8, 0.85, 0.9, 0.95}.
+Model
+Transitivity
+Forward Implication
+Neg. Consistency
+Mutual Exclusivity
+Spatial Exclusivity
+Gemma-3-270M
+81.0(±2.3)
+79.7(±0.5)
+18.5(±1.4)
+48.7(±0.8)
+18.5(±4.8)
+Gemma-3-1B-pt
+69.0(±1.5)
+65.1(±1.5)
+15.9(±0.8)
+57.3(±3.9)
+12.4(±4.8)
+Gemma-3-4B-pt
+46.9(±1.1)
+50.8(±1.7)
+18.2(±0.9)
+56.8(±5.2)
+19.9(±6.6)
+Gemma-3-12B-pt
+40.4(±1.6)
+45.2(±2.0)
+19.2(±0.9)
+54.7(±5.4)
+23.8(±7.7)
+Llama-3.2-1B
+52.7(±2.4)
+68.7(±1.8)
+23.1(±2.1)
+64.0(±3.8)
+31.5(±7.4)
+Llama-3.2-3B
+45.5(±1.3)
+60.8(±2.1)
+21.6(±2.6)
+61.6(±6.0)
+25.3(±6.9)
+Llama-3.1-8B
+35.2(±1.5)
+50.0(±1.2)
+22.7(±1.3)
+60.0(±5.9)
+16.1(±6.4)
+Qwen3-0.6B
+76.4(±0.5)
+82.8(±1.5)
+17.2(±0.6)
+58.2(±0.7)
+9.1(±3.2)
+Qwen3-1.7B
+64.2(±1.2)
+75.3(±1.6)
+18.9(±3.1)
+62.9(±2.1)
+25.9(±7.2)
+Qwen3-4B
+60.8(±3.2)
+73.0(±2.6)
+19.3(±0.6)
+67.7(±5.0)
+16.6(±5.1)
+Qwen3-8B
+53.7(±2.2)
+69.6(±2.7)
+20.8(±0.1)
+68.2(±4.3)
+14.8(±5.3)
+Qwen3-14B
+56.4(±2.1)
+64.1(±3.6)
+20.9(±1.2)
+65.9(±5.6)
+12.6(±5.4)
+Table 10: CAcc (%) using nucleus entropy calibration averaged over nucleus values p ∈{0.8, 0.85, 0.9, 0.95}.
+Reproduced from Table 2 for ease of comparison with the alternative calibrations in Tables 11 and 12
+Model
+Transitivity
+Forward Implication
+Neg. Consistency
+Mutual Exclusivity
+Spatial Exclusivity
+Gemma-3-270M
+79.2
+81.5
+20.9
+47.5
+31.4
+Gemma-3-1B-pt
+65.2
+68.9
+18.3
+65.5
+26.5
+Gemma-3-4B-pt
+48.1
+56.8
+17.9
+68.8
+37.0
+Gemma-3-12B-pt
+40.5
+52.1
+18.3
+72.0
+44.4
+Llama-3.2-1B
+58.3
+75.6
+17.6
+72.6
+50.9
+Llama-3.2-3B
+50.8
+66.1
+16.1
+74.9
+45.5
+Llama-3.1-8B
+43.0
+56.6
+18.3
+75.0
+34.2
+Qwen3-0.6B
+79.8
+85.9
+15.5
+56.6
+19.4
+Qwen3-1.7B
+69.7
+79.7
+13.7
+68.5
+41.9
+Qwen3-4B
+68.1
+78.0
+17.2
+76.1
+32.1
+Qwen3-8B
+62.5
+75.6
+19.2
+78.9
+30.2
+Qwen3-14B
+61.2
+70.5
+18.7
+78.0
+30.7
+Table 11: CAcc (%) using entropy calibration.
+17
+
+
+Model
+Transitivity
+Forward Implication
+Neg. Consistency
+Mutual Exclusivity
+Spatial Exclusivity
+Gemma-3-270M
+77.8(±1.5)
+83.7(±2.2)
+17.0(±3.3)
+42.2(±5.7)
+55.3(±13.1)
+Gemma-3-1B-pt
+68.0(±3.6)
+74.2(±5.8)
+17.4(±2.4)
+63.4(±1.4)
+42.9(±15.0)
+Gemma-3-4B-pt
+53.2(±7.4)
+63.7(±7.7)
+15.4(±3.5)
+72.2(±4.7)
+52.9(±16.5)
+Gemma-3-12B-pt
+45.4(±7.7)
+56.5(±8.2)
+17.2(±2.3)
+71.8(±6.2)
+59.4(±17.1)
+Llama-3.2-1B
+68.6(±8.5)
+82.0(±5.6)
+11.6(±4.9)
+70.1(±1.5)
+68.6(±12.9)
+Llama-3.2-3B
+56.0(±7.8)
+73.6(±6.7)
+12.3(±3.9)
+76.4(±4.3)
+59.5(±14.7)
+Llama-3.1-8B
+50.5(±9.6)
+64.4(±10.0)
+13.4(±5.1)
+75.1(±6.4)
+47.3(±17.7)
+Qwen3-0.6B
+82.2(±3.7)
+90.0(±3.4)
+9.8(±3.3)
+48.3(±8.0)
+46.0(±14.7)
+Qwen3-1.7B
+77.7(±6.2)
+85.5(±4.0)
+8.5(±3.2)
+62.4(±4.5)
+61.9(±11.8)
+Qwen3-4B
+74.4(±6.3)
+83.9(±4.2)
+11.6(±4.5)
+71.2(±4.1)
+55.2(±17.2)
+Qwen3-8B
+70.8(±8.0)
+82.0(±5.5)
+12.7(±4.4)
+75.7(±1.2)
+48.0(±16.0)
+Qwen3-14B
+69.9(±7.2)
+79.5(±6.5)
+13.2(±4.7)
+78.7(±3.4)
+46.6(±18.9)
+Table 12: CAcc (%) using nucleus calibration averaged over nucleus values p ∈{0.8, 0.85, 0.9, 0.95}.
+18
+
+
+F
+Additional Probabilistic Consistency
+Histograms
+Gemma-3-270M
+6
+4
+2
+0
+Probabilistic Consistency
+0
+20
+40
+60
+80
+100
+120
+140
+Count
+Aggregate CAcc: 78.8%
+3
+2
+1
+0
+1
+Probabilistic Consistency
+0
+20
+40
+60
+80
+100
+120
+140
+Count
+Aggregate CAcc: 80.4%
+1.0
+0.5
+0.0
+0.5
+1.0
+Probabilistic Consistency
+0
+15
+30
+45
+60
+75
+90
+105
+120
+135
+Count
+Aggregate CAcc: 19.8%
+1.0
+0.5
+0.0
+0.5
+1.0
+Probabilistic Consistency
+0
+8
+16
+24
+32
+40
+48
+56
+64
+72
+Count
+Aggregate CAcc: 48.1%
+1.0
+0.5
+0.0
+0.5
+1.0
+Probabilistic Consistency
+0
+30
+60
+90
+120
+150
+180
+210
+240
+270
+Count
+Aggregate CAcc: 24.9%
+Gemma-3-1B-pt
+6
+4
+2
+0
+Probabilistic Consistency
+0
+15
+30
+45
+60
+75
+90
+105
+Count
+Aggregate CAcc: 67.5%
+3
+2
+1
+0
+1
+Probabilistic Consistency
+0
+15
+30
+45
+60
+75
+90
+105
+Count
+Aggregate CAcc: 67.3%
+1.0
+0.5
+0.0
+0.5
+1.0
+Probabilistic Consistency
+0
+15
+30
+45
+60
+75
+90
+105
+120
+Count
+Aggregate CAcc: 17.3%
+1.0
+0.5
+0.0
+0.5
+1.0
+Probabilistic Consistency
+0
+15
+30
+45
+60
+75
+90
+105
+120
+Count
+Aggregate CAcc: 62.8%
+1.0
+0.5
+0.0
+0.5
+1.0
+Probabilistic Consistency
+0
+40
+80
+120
+160
+200
+240
+280
+320
+Count
+Aggregate CAcc: 19.1%
+Gemma-3-4B-pt
+6
+4
+2
+0
+Probabilistic Consistency
+0
+8
+16
+24
+32
+40
+48
+56
+Count
+Aggregate CAcc: 46.1%
+3
+2
+1
+0
+1
+Probabilistic Consistency
+0
+6
+12
+18
+24
+30
+36
+42
+48
+Count
+Aggregate CAcc: 53.3%
+1.0
+0.5
+0.0
+0.5
+1.0
+Probabilistic Consistency
+0
+20
+40
+60
+80
+100
+120
+140
+Count
+Aggregate CAcc: 16.9%
+1.0
+0.5
+0.0
+0.5
+1.0
+Probabilistic Consistency
+0
+15
+30
+45
+60
+75
+90
+105
+120
+135
+Count
+Aggregate CAcc: 64.1%
+1.0
+0.5
+0.0
+0.5
+1.0
+Probabilistic Consistency
+0
+20
+40
+60
+80
+100
+120
+140
+160
+180
+Count
+Aggregate CAcc: 28.4%
+Gemma-3-12B-pt
+6
+4
+2
+0
+Probabilistic Consistency
+0
+5
+10
+15
+20
+25
+30
+35
+40
+45
+Count
+Aggregate CAcc: 39.3%
+3
+2
+1
+0
+1
+Probabilistic Consistency
+0
+5
+10
+15
+20
+25
+30
+35
+40
+Count
+Aggregate CAcc: 48.4%
+1.0
+0.5
+0.0
+0.5
+1.0
+Probabilistic Consistency
+0
+15
+30
+45
+60
+75
+90
+105
+120
+135
+Count
+Aggregate CAcc: 18.1%
+1.0
+0.5
+0.0
+0.5
+1.0
+Probabilistic Consistency
+0
+15
+30
+45
+60
+75
+90
+105
+120
+Count
+Aggregate CAcc: 62.4%
+1.0
+0.5
+0.0
+0.5
+1.0
+Probabilistic Consistency
+0
+15
+30
+45
+60
+75
+90
+105
+Count
+Aggregate CAcc: 34.0%
+Transitivity
+Forward Implication Negation Consistency
+Mutual Exclusivity
+Spatial Exclusivity
+Figure 4: WMC score distributions for Gemma-3 base models using nucleus entropy calibration with nucleus value
+p = 0.95. Points highlighted in red are inconsistent, while points highlighted in blue are consistent. The solid
+vertical black line corresponds to the average probabilistic consistency. Each figure is labeled with the corresponding
+aggregate CAcc score.
+Llama-3.2-1B
+6
+4
+2
+0
+Probabilistic Consistency
+0
+4
+8
+12
+16
+20
+24
+28
+32
+36
+Count
+Aggregate CAcc: 55.7%
+3
+2
+1
+0
+1
+Probabilistic Consistency
+0
+8
+16
+24
+32
+40
+48
+56
+64
+Count
+Aggregate CAcc: 71.3%
+1.0
+0.5
+0.0
+0.5
+1.0
+Probabilistic Consistency
+0
+10
+20
+30
+40
+50
+60
+70
+80
+90
+Count
+Aggregate CAcc: 20.8%
+1.0
+0.5
+0.0
+0.5
+1.0
+Probabilistic Consistency
+0
+15
+30
+45
+60
+75
+90
+105
+120
+135
+Count
+Aggregate CAcc: 68.8%
+1.0
+0.5
+0.0
+0.5
+1.0
+Probabilistic Consistency
+0
+10
+20
+30
+40
+50
+60
+70
+80
+90
+Count
+Aggregate CAcc: 41.4%
+Llama-3.2-3B
+6
+4
+2
+0
+Probabilistic Consistency
+0
+4
+8
+12
+16
+20
+24
+28
+32
+Count
+Aggregate CAcc: 47.2%
+3
+2
+1
+0
+1
+Probabilistic Consistency
+0
+5
+10
+15
+20
+25
+30
+35
+40
+45
+Count
+Aggregate CAcc: 63.7%
+1.0
+0.5
+0.0
+0.5
+1.0
+Probabilistic Consistency
+0
+15
+30
+45
+60
+75
+90
+105
+Count
+Aggregate CAcc: 17.9%
+1.0
+0.5
+0.0
+0.5
+1.0
+Probabilistic Consistency
+0
+15
+30
+45
+60
+75
+90
+105
+120
+Count
+Aggregate CAcc: 69.1%
+1.0
+0.5
+0.0
+0.5
+1.0
+Probabilistic Consistency
+0
+15
+30
+45
+60
+75
+90
+105
+120
+Count
+Aggregate CAcc: 35.5%
+Llama-3.1-8B
+6
+4
+2
+0
+Probabilistic Consistency
+0
+3
+6
+9
+12
+15
+18
+21
+24
+Count
+Aggregate CAcc: 37.1%
+3
+2
+1
+0
+1
+Probabilistic Consistency
+0
+4
+8
+12
+16
+20
+24
+28
+32
+36
+Count
+Aggregate CAcc: 52.0%
+1.0
+0.5
+0.0
+0.5
+1.0
+Probabilistic Consistency
+0
+15
+30
+45
+60
+75
+90
+105
+Count
+Aggregate CAcc: 20.8%
+1.0
+0.5
+0.0
+0.5
+1.0
+Probabilistic Consistency
+0
+15
+30
+45
+60
+75
+90
+105
+120
+135
+Count
+Aggregate CAcc: 68.2%
+1.0
+0.5
+0.0
+0.5
+1.0
+Probabilistic Consistency
+0
+15
+30
+45
+60
+75
+90
+105
+120
+135
+Count
+Aggregate CAcc: 25.3%
+Transitivity
+Forward Implication Negation Consistency
+Mutual Exclusivity
+Spatial Exclusivity
+Figure 5: Probabilistic Consistency score distributions for Llama-3 pretrained models using nucleus entropy
+calibration with nucleus value p = 0.95. Points highlighted in red are inconsistent, while points highlighted in blue
+are consistent. The solid vertical black line corresponds to the average probabilistic consistency. Each figure is
+labeled with the corresponding aggregate CAcc score.
+19
+
+
+Qwen3-0.6B
+6
+4
+2
+0
+Probabilistic Consistency
+0
+8
+16
+24
+32
+40
+48
+56
+64
+72
+Count
+Aggregate CAcc: 77.2%
+3
+2
+1
+0
+1
+Probabilistic Consistency
+0
+15
+30
+45
+60
+75
+90
+105
+Count
+Aggregate CAcc: 84.8%
+1.0
+0.5
+0.0
+0.5
+1.0
+Probabilistic Consistency
+0
+15
+30
+45
+60
+75
+90
+105
+120
+Count
+Aggregate CAcc: 16.6%
+1.0
+0.5
+0.0
+0.5
+1.0
+Probabilistic Consistency
+0
+8
+16
+24
+32
+40
+48
+56
+64
+Count
+Aggregate CAcc: 57.4%
+1.0
+0.5
+0.0
+0.5
+1.0
+Probabilistic Consistency
+0
+30
+60
+90
+120
+150
+180
+210
+240
+Count
+Aggregate CAcc: 13.8%
+Qwen3-1.7B
+6
+4
+2
+0
+Probabilistic Consistency
+0
+6
+12
+18
+24
+30
+36
+42
+48
+Count
+Aggregate CAcc: 65.5%
+3
+2
+1
+0
+1
+Probabilistic Consistency
+0
+15
+30
+45
+60
+75
+90
+Count
+Aggregate CAcc: 77.8%
+1.0
+0.5
+0.0
+0.5
+1.0
+Probabilistic Consistency
+0
+15
+30
+45
+60
+75
+90
+105
+120
+Count
+Aggregate CAcc: 15.0%
+1.0
+0.5
+0.0
+0.5
+1.0
+Probabilistic Consistency
+0
+15
+30
+45
+60
+75
+90
+105
+120
+Count
+Aggregate CAcc: 65.8%
+1.0
+0.5
+0.0
+0.5
+1.0
+Probabilistic Consistency
+0
+20
+40
+60
+80
+100
+120
+140
+Count
+Aggregate CAcc: 35.5%
+Qwen3-4B
+6
+4
+2
+0
+Probabilistic Consistency
+0
+5
+10
+15
+20
+25
+30
+35
+40
+45
+Count
+Aggregate CAcc: 65.1%
+3
+2
+1
+0
+1
+Probabilistic Consistency
+0
+8
+16
+24
+32
+40
+48
+56
+64
+72
+Count
+Aggregate CAcc: 76.4%
+1.0
+0.5
+0.0
+0.5
+1.0
+Probabilistic Consistency
+0
+15
+30
+45
+60
+75
+90
+105
+120
+Count
+Aggregate CAcc: 18.5%
+1.0
+0.5
+0.0
+0.5
+1.0
+Probabilistic Consistency
+0
+20
+40
+60
+80
+100
+120
+140
+160
+Count
+Aggregate CAcc: 74.3%
+1.0
+0.5
+0.0
+0.5
+1.0
+Probabilistic Consistency
+0
+20
+40
+60
+80
+100
+120
+140
+160
+180
+Count
+Aggregate CAcc: 24.4%
+Qwen3-8B
+6
+4
+2
+0
+Probabilistic Consistency
+0
+5
+10
+15
+20
+25
+30
+35
+40
+Count
+Aggregate CAcc: 57.3%
+3
+2
+1
+0
+1
+Probabilistic Consistency
+0
+8
+16
+24
+32
+40
+48
+56
+64
+Count
+Aggregate CAcc: 73.7%
+1.0
+0.5
+0.0
+0.5
+1.0
+Probabilistic Consistency
+0
+15
+30
+45
+60
+75
+90
+105
+120
+Count
+Aggregate CAcc: 20.8%
+1.0
+0.5
+0.0
+0.5
+1.0
+Probabilistic Consistency
+0
+20
+40
+60
+80
+100
+120
+140
+160
+180
+Count
+Aggregate CAcc: 74.5%
+1.0
+0.5
+0.0
+0.5
+1.0
+Probabilistic Consistency
+0
+25
+50
+75
+100
+125
+150
+175
+200
+Count
+Aggregate CAcc: 22.5%
+Qwen3-14B
+6
+4
+2
+0
+Probabilistic Consistency
+0
+5
+10
+15
+20
+25
+30
+35
+40
+Count
+Aggregate CAcc: 59.9%
+3
+2
+1
+0
+1
+Probabilistic Consistency
+0
+6
+12
+18
+24
+30
+36
+42
+48
+54
+Count
+Aggregate CAcc: 68.8%
+1.0
+0.5
+0.0
+0.5
+1.0
+Probabilistic Consistency
+0
+15
+30
+45
+60
+75
+90
+105
+120
+Count
+Aggregate CAcc: 19.0%
+1.0
+0.5
+0.0
+0.5
+1.0
+Probabilistic Consistency
+0
+20
+40
+60
+80
+100
+120
+140
+160
+Count
+Aggregate CAcc: 73.4%
+1.0
+0.5
+0.0
+0.5
+1.0
+Probabilistic Consistency
+0
+20
+40
+60
+80
+100
+120
+140
+Count
+Aggregate CAcc: 20.0%
+Transitivity
+Forward Implication Negation Consistency
+Mutual Exclusivity
+Spatial Exclusivity
+Figure 6: Probabilistic Consistency score distributions for Qwen3 pretrained models using nucleus entropy calibration
+with nucleus value p = 0.95. Points highlighted in red are inconsistent, while points highlighted in blue are
+consistent. The solid vertical black line corresponds to the average probabilistic consistency. Each figure is labeled
+with the corresponding aggregate CAcc score.
+20

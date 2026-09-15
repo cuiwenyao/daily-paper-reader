@@ -1,0 +1,2177 @@
+Neuron Activation-based Computation of
+Logical Explanations for Deep Neural Networks
+Tomáš Kolárik1
+, Faezeh Labbaf1
+, Fabrizio Leopardi1
+,
+Grigory Fedyukovich1,3
+, Michael Wand2
+, Natasha Sharygina1
+1 University of Lugano (USI), Lugano, Switzerland
+2 SUPSI, IDSIA, Lugano, Switzerland
+3 Florida State University, United States of America
+Abstract
+Formal explainability of classifying neural networks (NNs) is an active
+area of research, providing explanations with provable guarantees of the
+classification within continuous regions of the input feature space. How-
+ever, the existing techniques are either limited to individual input features
+without guarantees on their relations or the provided solutions fail to scale
+to deep architectures. This paper addresses these issues by introducing a
+flexible symbolic framework for an efficient, guided computation of expla-
+nations of the NN behavior, parametrized by the activations of internal
+neurons, and using logical engines such as SMT solvers.
+Unlike prior
+methods that rely on specialized NN verifiers, our method yields explana-
+tions that are not restricted in shape. Our algorithm is implementable on
+top of a general-purpose logical solver, isolating the NN-specific encoding
+from the algorithmic framework. We experimented with a wide range of
+benchmarks from the domains of image recognition and medicine, illus-
+trating the advantages of the new method, particularly in computational
+efficiency. Notably, our approach enables logical explanation of deep net-
+works not amenable to prior logic-based methods.
+1
+Introduction
+A recent trend in explaining the behavior of classifying neural networks (NNs)
+is based on formal methods and first-order logic: Given a NN and a sample
+point, that is, an assignment of all input features of the NN to concrete values,
+the problem is to compute a logical justification in the form of a sufficient con-
+dition for the NN classification. Logic-based methods encode the NN behavior
+and the classification outcome into a logical formula and then reason over it
+while generalizing the constraints on the sample point. Although these meth-
+ods deliver formal explanations accompanied by provable guarantees regarding
+their correctness and can precisely capture the semantic behavior of the NN
+1
+arXiv:2609.14099v1  [cs.LO]  12 Sep 2026
+
+
+within the vicinity of the sample point, their computation is a significant bottle-
+neck [7,22,23,31,36,37,46,47,50,51], not amenable to realistic deep architectures.
+Early logic-based methods [7,22,23,36,37,46,47,50,51] rely on symbolic engines
+that are based on constraint or SMT (Satisfiability Modulo Theories [38, 40])
+solving, like SMT solvers [5, 9–11, 13, 16] or specialized NN verifiers such as
+Marabou [26] to derive explanations via abductive reasoning, which originates
+from program verification [1, 15, 42, 43]. These methods iteratively relax input
+constraints by enumerating the input features. This process is highly sensitive
+to feature count, requiring a series of computationally expensive queries to a
+black-box solver, and depends heavily on selecting a specific feature order. The
+approach in [7] targets the query overhead by accelerating individual verification
+calls by abstracting and iteratively refining the original NN, but the sensitivity
+to feature count remains a bottleneck. In addition to the computational com-
+plexity of solving, often similar to an unsatisfiable core extraction, the issue is
+that the resulting explanations exhibit hyperrectangular shapes that stem from
+the formula structure and fail to capture input feature relations or to scale be-
+yond specific sample points. Furthermore, the encoding and reasoning over the
+NN are often coupled: while the symbolic solvers are heavily optimized tools,
+they could be constrained by such an approach. To address these problems,
+a new method [28, 31] for computing generic logical explanations that isolates
+the NN-specific encoding from the reasoning algorithms was recently proposed.
+The explanations are derived from proofs of unsatisfiability, preserving complex
+relationships between input features, and utilizing the full power of symbolic
+solvers without any NN-specific alterations to them. For example, [31] utilizes
+Craig interpolation [12] and unsatisfiable core extraction to extract formal justi-
+fications for classification, removing the need for multiple calls to the underlying
+solver. While these explanations are correct by construction, not restricted in
+shape, and offer greater generality than antecedent methods, the approach still
+scales poorly. Similarly to other prior methods, the problem stems from the
+direct encoding of the NN without sharing any information about its structure
+or how it evaluates at the sample point.
+To overcome the scalability limitations of all prior logical explanation ap-
+proaches, we introduce a mechanism that systematically focuses the computa-
+tion on the sample point while preserving or even improving explanation gener-
+ality in practice. Our solution decouples and advances both the encoding and
+solving phases. At the encoding level, we introduce a comprehensive parametriz-
+able NN encoding that is driven by the activation of internal neurons at the given
+sample point, and by an input configuration specific to the NN that is either
+user-provided or automatically generated by external NN analysis algorithms.
+The configuration selects internal neurons that are firmly fixed to only one ac-
+tivation phase and neurons where the engine is guided to favor one activation
+phase over the other. This provides a high flexibility in the trade-off between
+the computational complexity and the potential size of the space associated
+with the resulting explanations, while not restricting their shape and remaining
+provably correct. We also provide an efficient choice of the NN configuration
+by identifying important neurons that maintains a balance in the selection be-
+2
+
+
+tween fixing and guiding the internal nodes based on a gradient traversal from
+the sample point towards a different class, observing the difference between the
+neuron activations.
+At the solver level, we introduce a novel transferable mechanism to optimize
+the performance of general-purpose logical solvers such as SAT or SMT for
+a concrete application such as NN analysis, by involving guiding constraints.
+Unlike traditional approaches that rely on rigid, general-purpose heuristics, our
+method uses guiding variables to encode preferred properties into the logical
+formula, allowing solvers to prioritize decisions systematically aligned with the
+model’s domain-specific structure. The technique can be applied wherever some
+constraints are more likely to hold than others and in any logical solver handling
+non-determinism. By leveraging also the order of decision suggestions derived
+from the NN architecture, the search space is pruned more efficiently than by
+existing abductive reasoning tools. This contribution bridges the gap between
+theoretical correctness and practical applicability, offering a scalable solution
+for generating rigorous logical explanations in deep learning contexts.
+Overall, our novel neuron activation-based framework for automated compu-
+tation of logical explanations is agnostic to the backend solver, as well as to the
+techniques that generalize the constraints on the sample point, such as Craig
+interpolation (where various algorithms are available) [31], unsatisfiable core ex-
+traction [7,31,50,51], or interval expansion [23,31]. This enables fine-tuning the
+trade-off between the generality and interpretability of logical explanations—
+properties discussed in [28]. In particular, when instantiated with Craig inter-
+polation, the resulting explanations are not restricted in shape, unlike those
+generated by prior methods relying on specialized NN verifiers. Furthermore,
+the approach generalizes to any acyclic network architecture (e.g., convolutional
+neural networks—CNNs, ResNets) and activation function, handling arbitrary
+piecewise-linear functions directly (by guiding or splitting disjunctions) and lin-
+early overapproximating non-piecewise-linear ones [53]. Although beyond the
+scope of this paper, the computational framework can easily integrate impor-
+tant external components (e.g., [31,32]) to provide various interpretations (e.g.,
+visual) of the logical explanations—an active research field driven by diverse
+applications such as image recognition and medicine. Notably, while the re-
+sulting explanations remain large and complex (sharing the complexity of those
+in [31]), such interpretability methods render useful visualizations in a matter
+of seconds.
+We implemented the guided approach using the OpenSMT [9,21] solver and
+experimented with a wide range of real-world benchmarks across a spectrum of
+complexities from the medical and image-recognition domains, demonstrating
+the advantages of the new method—particularly regarding its computational ef-
+ficiency. Notably, our approach enables the explainability of deep networks not
+amenable to prior logic-based techniques. Compared to the leading abduction-
+based explainability methods for NNs, namely the case study [31], and the
+tool VeriX1 [51], which delivers sound and more compact explanations than
+1The recently published tool VeriX+ [50] improves the sensitivity of VeriX to the number
+3
+
+
+other non-logic-based state-of-the-art tools such as Anchors [45] and LIME [44]
+on the image classification datasets MNIST [14] and GTSRB [49], our experi-
+ments show that we not only provide yet more general explanations, but also
+substantially outperform both [31, 51] in these datasets, especially on deep ar-
+chitectures. The comparative experimentation illustrates the improvement of
+the generality of the explanations by applying interpretation techniques from
+prior works [31,32].
+As a secondary contribution, we experiment with applying the parametrized
+NN encoding to an alternative modular framework centered on inductive invari-
+ant synthesis. By modeling the network as a discrete-time transition system
+rather than a monolithic function, we facilitate the discovery of predicates de-
+scribing relationships among neurons in each layer. Our proof-of-concept exper-
+iments demonstrate that leveraging internal neuron configurations significantly
+enhances formal NN analysis, even when decoupled from traditional monolithic
+SMT encodings. Overall, the performance improved drastically: when fixing
+neurons, benchmarks were solved even when they were timing out without the
+fixing.
+Related Work.
+Logic-based methods formulate the explainability of NNs us-
+ing abductive reasoning [28]. There is a multitude of such methods [7, 22, 36,
+37, 46, 47], culminating in highly performant VeriX and VeriX+ [50] frame-
+works. As such, all these techniques are based on specialized NN verifiers and
+focus only on special cases of the logical concept of abduction, restricting to a
+specific formula structure or a specific neighborhood of a sample point. As a
+consequence, they are also sensitive to the number of input features. Similarly,
+the work in [23] provides interval-based explanations, yet still constrains indi-
+vidual features that cannot reflect feature relationships and hence approximate
+complex decision boundaries. Overall, these approaches suffer from not being
+general due to the choice of tools, techniques, and the type of explanations,
+and the resulting limitations disallow the use of the newly introduced concept
+of fixing neuron activations that requires the support of unrestricted explana-
+tions. The recent case study [31] experimented with using Craig interpolation
+techniques and unsatisfiable cores to relax input constraints to guarantee the
+generalization of the explanation. Notably, only one satisfiability query suffices
+for this purpose. However, the method fails to scale to multi-layer architectures
+due to direct encoding of the NN. The approach in this paper, while inspired
+by the generalization ideas of [31], not only elevates the computation of unre-
+stricted logical explanations to a generic symbolic overapproximating reasoning,
+but more importantly, addresses the scalability issues by parametrizing the ex-
+plainability task with the NN architecture.
+Alongside explainability, NN verification (VNN) is an active field focused on
+whether a network satisfies a given property (e.g., local robustness). Solving
+such general satisfiability queries often requires exhaustive exploration of the
+feature space. The related problems, solutions, and tools are thoroughly sur-
+of input features but still lacks evaluation on deep architectures.
+4
+
+
+veyed in [25]. Some VNN tools serve as internal engines for early logic-based
+explainability methods, but their iterative black-box use leads to significant
+complexity blow-ups. Such tools could be integrated into our neuron activation-
+based framework if extended to support guiding constraints, but they typically
+lack generalization techniques (e.g., Craig interpolation), which are crucial for
+explainability.
+Classic (non-logic-based) approaches to NN explainability either perform
+analysis at the unit (neuron) level [17, 52], which however fails to capture
+global properties or interdependencies between units; are gradient-based meth-
+ods [3, 48], which describe the network behavior around a particular sample;
+or inversion methods [35], which provide global, but only approximate, views.
+There is also a range of model-agnostic methods [4, 33], including SHAP [29],
+LIME [44], and Anchors [45], but they often yield logically inconsistent explana-
+tions [37]. All the classic methods above rely on approximations with no strict
+guarantees or are sample-based: the behavior outside the sampled distribution
+remains unknown.
+Post-processing of logical explanations is an important step for providing a
+human-understandable interpretation, such as a visualization or formula sim-
+plification. There is a whole body of work on interpretation techniques, which
+is outside the scope of this paper [7, 29, 31, 32, 44, 45, 48, 50, 51]. The general
+nature of logical explanations used in this paper makes them amenable to such
+techniques. In our experiments, we used techniques such as the visualization
+of the feature space [31], minimum norm point extraction, and hypervolume
+estimation [32] for comparative analysis.
+Acknowledgements.
+This is an extended version of the paper published
+at ATVA’26. This work was conducted as part of the “Formal Reasoning on
+Neural Networks” project funded by the Hasler Foundation, Switzerland.
+2
+Preliminaries
+Neural Network Classifiers.
+A finite set of input features is F = {1, . . . , m},
+each associated with a discrete or continuous domain Di ⊂R, either a discrete
+set of real numbers or a closed interval. A classifier is M = (F, F, K, κ), where
+F = D1 × D2 × · · · × Dm is the input feature space, K = {c1, c2, . . . , cK} a fi-
+nite set of K classes, K ≥2, and κ : F →K is a classification function. An
+arbitrary point in the feature space is x = (x1, . . . , xm) ∈F, and each xi ∈Di
+is an input feature variable. A specific sample point in the feature space is s =
+(s1, . . . , sm) ∈F, where each si ∈Di is a constant. For all classes, at least one
+sample point must be classified into the class. A (fully connected) classifying
+neural network (NN) is a classifier represented by a graph (V, E) with the set of
+vertices V and the set of edges E, representing the neurons and their weighted
+connections, respectively.
+The approach in this paper also extends to other
+acyclic architectures (e.g., CNNs). Neurons v(ℓ)
+i
+are partitioned into L+1 layers
+V(0), . . . , V(L) such that each V(ℓ) = {v(ℓ)
+i }n(ℓ)
+i=1 contains n(ℓ) neurons. Layer V(0)
+5
+
+
+is the input layer, V(L) is the output layer, layers V(1), . . . , V(L−1) are hidden
+layers, and VH = SL−1
+ℓ=1 V(ℓ) is the set of neurons in hidden layers. For each
+0 ≤ℓ< L, every neuron v(ℓ)
+i
+∈V(ℓ) is connected to every neuron v(ℓ+1)
+j
+∈V(ℓ+1)
+by an edge (v(ℓ)
+i , v(ℓ+1)
+j
+) ∈E, which is assigned a weight w(ℓ)
+i,j ∈R, and for each
+1 ≤ℓ≤L, every neuron v(ℓ)
+i
+is assigned a bias b(ℓ)
+i
+∈R. Each input neuron v(0)
+i
+is associated with input feature variable xi ∈Di and each output neuron v(L)
+i
+to class ci ∈K. Given a neuron v(ℓ)
+i , z(ℓ)
+i
+: F →R is the pre-activation and
+a(ℓ)
+i
+: F →R is the activation, defined as follows: z(0)
+i
+(x) = a(0)
+i (x) = xi, and
+for hidden and output layers (1 ≤ℓ≤L):
+z(ℓ)
+i (x) =
+n(ℓ−1)
+X
+j=1
+w(ℓ−1)
+j,i
+a(ℓ−1)
+j
+(x) + b(ℓ)
+i
+(1)
+a(ℓ)
+i (x) = σ
+ z(ℓ)
+i (x)
+
+(2)
+where σ(z) = ReLU (z) = max{z, 0} in the case of hidden layers and σ(z) =
+z in the case of output layers.
+A neuron v(ℓ)
+i
+∈VH is active w.r.t.
+input
+x ∈F if z(ℓ)
+i (x) > 0, and inactive if z(ℓ)
+i (x) ≤0. This can be extended to
+arbitrary piecewise-linear σ or an overapproximation [53]. The classification is
+given by the output neuron with the maximum activation: κ(x) = ci ⇐⇒i =
+argmaxj{a(L)
+j
+}.
+SMT Encoding of Neural Networks.
+Using an SMT-LIB [6] quantifier-free
+first-order logic, given a class c ∈K, κ(x)̸ = c is encoded by ψ := ψM∧ψD ∧¬ψc:
+ψM: The neural network M: the constraints in (1), with fixed weights and bi-
+ases, and in (2), are encoded directly. The ReLU function can be encoded
+using the if-then-else (ITE) term of the SMT-LIB standard.
+ψD: All domains Di of the feature space, that is, x ∈F (i.e., xi ∈Di for
+all i ∈F).
+¬ψc: The constraint on the outcome of the classification is not class c: the value
+of at least one output neuron a(L)
+i
+(x) exceeds that of class c.
+Functions z(ℓ)
+i
+and a(ℓ)
+i
+are encoded via inlining or auxiliary variables. Since
+K ≥2 and classes are not redundant, ψ is satisfiable. Given a sample point
+s ∈F s.t. κ(s) = c, and using φs := V
+i∈F xi = si, formula φs ∧ψ is unsat-
+isfiable. We instantiate the SMT-LIB logic to QF_LRA (Quantifier-Free Linear
+Real Arithmetic). More details on the encoding follow in Appendix A. Alterna-
+tive encodings like QF_FP use floating-point semantics, but sound solving and
+interpolation are much more challenging in such settings.
+Logical Explanations.
+Our solution aims at general logic-based explana-
+tions. Thus, we define a general logical concept using the notion of abductive
+reasoning2 that subsumes all prior abduction-based concepts [7,22,23,36,37,46,
+2For vectors of variables x, y and formulas T(x, y), O(x, y), the abduction problem is to
+find a formula φ(x) s.t.: (1) φ(x) ∧T(x, y) ⇏⊥, and (2) φ(x) ∧T(x, y) ⇒O(x, y).
+6
+
+
+47,50,51]3.
+Definition 1 (Logical Explanation, Impact Space). Given a classifier M =
+(F, F, K, κ), and a class c ∈K, a logical explanation of class c is a satisfiable
+formula φ such that ∀x ∈F . φ(x) =⇒κ(x) = c. The impact space of φ is
+the set Fφ := {x ∈F | φ(x)} ⊂F.
+Logical explanations with the smallest impact space correspond to a sample
+point s ∈F: φs with Fφs = {s}. Logical explanations are sufficient conditions of
+classification to class c: they guarantee the classification for all points covered
+by the impact space. Unlike many prior methods, the concept can be applied
+both to global and local4 explanations since it does not rely on a sample point.
+The general logical representation of explanations is inherently flexible, making
+it applicable to a wide range of interpretation techniques—an active research
+area on its own (e.g., [31, 32, 51]) driven by diverse, application-specific user
+needs.
+Various symbolic techniques for the construction of generalized logical ex-
+planations can be employed, such as unsatisfiable core extraction, interval ex-
+pansion, or Craig interpolation5. A Craig interpolant I = Itp(φ, ψ), where φ
+is a logical explanation and ψ encodes κ(x)̸ = c, is a logical explanation of c
+satisfying φ ⇒I (hence Fφ ⊆FI). Various interpolation algorithms exhibit
+different logical strengths of the produced formulas [8]: Farkas’ lemma (ItpF),
+its logically stronger variant (ItpDF), their dual versions (Itp′
+F, Itp′
+DF), and an
+algorithm with a flexible strength (Itpf ) [2] parametrized by a rational fac-
+tor f ∈[0, 1]. The explanations generated by these algorithms, when applied to
+the same arguments, follow ItpDF ⇒ItpF ⇒Itpf ⇒Itp′
+F ⇒Itp′
+DF.
+The next sections describe the contributions of this paper, which enable
+efficient computation of generic logical explanations. The generalization is not
+restricted to any particular method and is suitable for a wide range of solvers.
+Sect. 3 describes particular techniques for domain-specific guidance within a
+parametrized encoding of NNs, and Sect. 4 addresses a generic but powerful
+idea of guiding constraints that aim at general-purpose logical solvers.
+3
+Neuron Activation-based Logical Explanations
+This section introduces a flexible symbolic framework for an efficient, guided
+computation of logical explanations of the NN behavior, parametrized by the
+activations of internal neurons, and using logical solvers such as SMT solvers.
+In particular, it focuses on a comprehensive parametrizable encoder of the NN
+3Our generalization is influenced by the recent case study [31] on the application of Craig
+interpolation for the explainability of classifying NNs. Theoretical comparison of [31] with
+other abduction-based concepts is available in [28].
+4Given a sample s (can also be randomly selected), φ s.t. s ∈Fφ is a local explanation.
+5Given an unsatisfiable formula A∧B, a Craig interpolant is a formula I s.t.: A ⇒I, I ∧B
+is unsatisfiable, and I uses only the common variables of A and B. I = Itp(A, B) denotes the
+interpolant I computed by an interpolation algorithm Itp from A and B.
+7
+
+
+Encoder
+Solver
+Sample s
+Classification
+NN-specific
+Configurations
+,
+Model enconding + 
+input/output constraints 
+ 
+ 
+ 
+Guiding Constraints 
+ 
+Generalizer
+Configuration Constraints  
+SAT/UNSAT
+UNSAT + Proof
+Intermediate explanation 
+Logical explanation 
+Neuron activation-based framework
+Figure 1: Neuron activation-based framework for automated computation of logical expla-
+nations, which takes as input a sample point, NN, the classification, and configurations of
+internal neurons, and outputs a logical explanation.
+classifier—namely, the constraints on weights and biases (1) and neuron out-
+puts (2)—which is driven by the activation of internal neurons at the given
+sample point being explained, and by an input configuration specific to the NN.
+Notably, as opposed to many prior approaches, the encoder is isolated from the
+symbolic computational engine, which is addressed in the next section.
+Fig. 1 gives an overview of our framework for computing logical explana-
+tions with a parametrized encoding of the input neural network, highlighting in
+orange the contributions of this paper. The Encoder processes a given neural
+network, input sample, and its classification, yielding a logical formula φs ∧ψ
+that is unsatisfiable by construction (cf. Sect. 2). Notably, the Encoder is
+parametrizable by NN-specific configurations GH and FH that define specific
+internal neurons whose activation should be guided (GH) or fixed (FH), option-
+ally producing additional constraints: GH controls solely guiding constraints
+(γ1, . . . , γng), while FH may restrict the encoding ψ as well as produce addi-
+tional configuration constraints φC to maintain the soundness of the resulting
+explanation φ. This parametrized encoding helps the logical Solver, such as a
+proof-producing SMT solver, to prove the unsatisfiability of φs ∧ψ faster: one
+of the branches in each ReLU activation defined in (2) within the encoding ψ
+may be firmly pruned (via FH) or preferred over the other (via GH). This be-
+comes especially important for deep NNs with many hidden layers (i.e., with
+many consecutive ReLU case splits). To allow the guidance of the reasoning
+over ψ via GH, the Solver implements a new concept of decision guidance (see
+Sect. 4), given the additional ordered input (γ1, . . . , γng) generated based on GH,
+where each constraint γi (here an activation of an internal neuron) is favored
+to be satisfied rather than not. Then, the Solver extracts a proof of the un-
+satisfiability of φs ∧ψ, which is subsequently applied to the Generalizer that
+generalizes formula φs into an intermediate explanation φ′. Combined with the
+logical encoding of NN configuration constraints φC, the final explanation re-
+sults in φ = φ′ ∧φC. The Generalizer can be implemented in various ways
+as long as the overapproximation of formula φs is computed and thus directly
+8
+
+
+Algorithm 1: Generating neuron activation-based guiding constraints
+Input: M = (F, F, K, κ), sample point s ∈F,
+set of neurons to guide GH ⊆VH
+Output: ordered set of ng guiding constraints (γ1, γ2, . . . , γng), ng = |GH|
+▷following Sect. 2, each z(ℓ)
+i
+refers to (1), v(ℓ)
+i
+to a neuron,
+▷. . . L to the number of layers, and n(ℓ) to the number of neurons in layer ℓ
+1 Γ ←()
+▷initialize the list of guiding constraints
+2 for ℓ←1; ℓ≤L −1; ℓ←ℓ+ 1 do
+▷iterate over all hidden layers
+3
+for i ←1; i ≤n(ℓ); i ←i + 1 do
+▷iterate over all neurons of layer ℓ
+▷guide solver to prefer the (in)active phase for (in)active neurons from GH
+4
+if v(ℓ)
+i
+∈GH then Γ ←Γ ∥
+ z(ℓ)
+i (s) > 0
+
+?
+ z(ℓ)
+i
+> 0
+
+:
+ z(ℓ)
+i
+≤0
+
+5 return Γ
+produces a φ′.
+For example, Craig interpolation procedures can be used to
+extract φ′ as a computed interpolant. Another option is extracting an unsat-
+isfiable core—removing parts of φs while maintaining its unsatisfiability—but
+requiring additional calls (SAT/UNSAT) to the Solver. The resulting logical
+explanations are amenable to further interpretations (e.g., [31,32]).
+The rest of the section describes how the Encoder forms its outputs (Solver
+inputs, cf. Sect. 4), given NN configurations GH and FH: model encoding ψM (a
+part of ψ), guiding constraints (γ1, . . . , γng), and configuration constraints φC.
+Decision Guidance via Neuron Activations.
+Logical solvers can handle
+focused, structure-aware guiding constraints (cf. Sect. 4), which we exploit to
+support direct NN encoding (cf. Sect. 2) by suggesting preferred internal neuron
+activations. In Fig. 1, direct NN encoding corresponds to model encoding ψ,
+sent alongside guiding constraints (γ1, . . . , γng) to the Solver. Alg. 1 describes
+how to encode neural network M and a sample point s ∈F into guiding con-
+straints, driven by a set GH (a part of NN configurations in Fig. 1) specifying
+which neurons to guide. The choice of the set GH is specific to the network M
+and can be user-provided or automatically generated by external NN analysis
+algorithms. The algorithm strictly follows the order of hidden layers and neu-
+rons (though other orders are possible). The guiding constraints focus on the
+pre-activation (1) of neurons z(ℓ)
+i
+evaluated at s, guiding the solver toward the
+desired activation (2), either a(ℓ)
+i
+= z(ℓ)
+i
+or a(ℓ)
+i
+= 0, within the ITE encoding.
+For example, consider a NN with x = (x1, x2, x3) and a neuron v(1)
+i
+∈GH (in
+the first hidden layer) with pre-activation z(1)
+i
+= 2a(0)
+1
++ 0a(0)
+2
++ a(0)
+3
+= 2x1 + x3.
+Given sample s1 = (1, 1, 3), Alg. 1 adds guiding constraint z(1)
+i
+> 0 to Γ; given
+sample s2 = (0, 2, 0), it adds z(1)
+i
+≤0. More detailed example follows in Ap-
+pendix A. Notably, guiding constraints affect neither satisfiability soundness nor
+explanation correctness. Moreover, the order of neurons and of their activations
+is not strictly enforced, as the solver considers them solely during the decisions,
+ignoring them during conflict analysis and propagation. See Sect. 4 for more
+9
+
+
+Algorithm 2: Parametrizable NN encoding, fixing neuron activations
+Input: M = (F, F, K, κ), sample point s ∈F, set of
+neurons to fix FH ⊆VH
+Output: NN encoding ψM, configuration constraints φC
+▷notation as in Alg. 1; a(ℓ)
+i
+refers to (2); a(0)
+i
+= xi (input feature variables)
+1 ψM ←⊤, φC ←⊤
+▷initialize encodings of M and the configuration constraints
+2 for ℓ←1; ℓ≤L −1; ℓ←ℓ+ 1 do
+▷iterate over all hidden layers
+3
+for i ←1; i ≤n(ℓ); i ←i + 1 do
+▷iterate over all neurons of layer ℓ
+4
+if v(ℓ)
+i̸
+∈FH then
+▷do not fix neurons that are not included in FH
+5
+ψM ←ψM ∧
+
+a(ℓ)
+i
+= ite
+ z(ℓ)
+i
+> 0, z(ℓ)
+i , 0
+
+▷direct ITE encoding
+6
+else
+7
+ψM ←ψM ∧
+ z(ℓ)
+i (s) > 0
+
+?
+ a(ℓ)
+i
+= z(ℓ)
+i
+
+:
+ a(ℓ)
+i
+= 0
+
+▷fix the activation
+8
+φC ←φC ∧
+ z(ℓ)
+i (s) > 0
+
+?
+ z(ℓ)
+i
+> 0
+
+:
+ z(ℓ)
+i
+≤0
+
+▷constrain the activation
+9 ψM ←ψM ∧Vn(L)
+i=1 (a(L)
+i
+= z(L)
+i
+)
+▷no ReLU in the output layer
+10 return ψM, φC
+details.
+A direct strategy for Alg. 1 is to set GH = VH, guiding the decisions on all
+neuron activations in the network. This is in fact usually the optimal choice
+since using guiding constraints improves both performance and generality in
+practice.
+NN Encoding Parametrizable by Fixing Neuron Activations.
+This
+part describes how to encode a neural network M into formula ψM (cf. Sect. 2)
+while optionally fixing selected neurons to one activation phase—that is, se-
+lecting one branch of the ReLU splits (2). In Fig. 1, ψM is a conjunct of the
+model encoding ψ. If neurons are fixed, ψM encodes a stricter variant of M.
+To ensure that the resulting explanation φ is valid w.r.t. M, the Encoder also
+produces configuration constraints φC: in Fig. 1, these are applied to the inter-
+mediate explanation φ′ produced by the Generalizer such that φ := φ′ ∧φC.
+Then, φ constrains parts of the feature space where only the fixed activation
+phase of neurons is reachable. This technique is orthogonal to the decision guid-
+ance above, which addresses only optional neuron activation guiding constraints.
+Alg. 2 describes the process of encoding ψM and configuration constraints φC,
+given M, a sample point s, and a set of neurons FH to be fixed. The set FH
+is an input similar to GH in Alg. 1, but forms a separate part of the NN con-
+figurations in Fig. 1. Alg. 2 encodes the constraints depending on the input
+feature variables x = (x1, . . . , xm) and again strictly follows the order of layers
+and neurons. Direct encoding using an ITE term is applied for neurons not
+specified in FH; otherwise, only one of the branches is encoded, depending on
+10
+
+
+the evaluation of the pre-activation value z(ℓ)
+i
+at the sample point s. The algo-
+rithm also stores the pre-activation constraint into configuration constraints φC
+to maintain the restriction and soundness of the resulting explanations. For
+example, consider the same NN and neuron v(1)
+i
+. If v(1)
+i
+/∈FH, its activation is
+encoded as a(1)
+i
+= ite(z(1)
+i
+> 0, z(1)
+i
+, 0) as part of ψM. If v(1)
+i
+∈FH, given sample
+s1 = (1, 1, 3), a(1)
+i
+= z(1)
+i
+; given sample s2 = (0, 2, 0), a(1)
+i
+= 0, while adding
+z(1)
+i
+> 0 and z(1)
+i
+≤0 to φC, respectively. More detailed example follows in
+Appendix A. At the end of Alg. 2, it encodes output neuron constraints where
+no ReLU function is applied. Notably, such a φ is a correct logical explanation
+w.r.t. M (Definition 1) since the form of the formula is not restricted.
+Theorem 1. Given a neural network M and a sample point s ∈F classified
+as class c by M, let ψ′
+M and φC be the formulas produced by Alg. 2, M′ be the
+restricted NN encoded by ψ′
+M, and φ′ be a logical explanation of M′ and c such
+that φs =⇒φ′. Then, φ := φ′ ∧φC is a logical explanation of M and class c.
+Proof. Let ψM be the encoding of the original network M, then ψ := ψM ∧
+ψD ∧¬ψc encodes the change of classification c in M. We need to prove that
+φ is satisfiable and φ ∧ψ is unsatisfiable. The satisfiability of φ (i.e., φ′ ∧φC)
+follows since φs∧φC is satisfiable (φC is constructed based on s) and the premise
+φs ⇒φ′. Let ψ′ := ψ′
+M∧ψD ∧¬ψc. Since φ′∧ψ′ is unsatisfiable, so is φ′∧ψ∧φC
+because ψM ∧φC ≡ψ′
+M and hence ψ ∧φC ≡ψ′.
+Therefore, φ ∧ψ is also
+unsatisfiable.
+This universally produces logical explanations from sample points. For in-
+stance, given M, sample s classified as c, ψM and φC produced by Alg. 2, and
+using an interpolant φ′ = Itp(φs, ψM ∧ψD ∧¬ψc), where Itp is a Craig inter-
+polator, then φ := φ′ ∧φC is a logical explanation of M and class c such that
+φs ⇒φ.
+When the activation phase of a neuron at sample s is unstable—i.e., pre-
+activation z(ℓ)
+i (s) in Alg. 2 is close to zero—fixing such a neuron may be too re-
+strictive, potentially resulting in a non-robust explanation. This can be avoided
+by extending the condition in line 4 with a disjunction for |z(ℓ)
+i (s)| ≤ε, using a
+small ε (e.g., ε = 10−3 for normalized domains Di) to enforce direct encoding.
+A straightforward strategy is to set GH = ∅for Alg. 1 and FH = VH for
+Alg. 2, which removes all branchings from ψM (if no activations are unstable).
+Even then, ψ may not be deterministic, due to classification constraints ψc (cf.
+Sect. 2). The combination of Alg. 2 and Alg. 1 can be optimized not to produce
+guiding constraints for neurons that have been fixed. Hence, it still makes sense
+to apply the input sets with FH ∩GH̸ = ∅(neurons with unstable activation are
+not fixed), and a meaningful combination is even FH = GH = VH. However,
+if fixing all neurons is overly restrictive, it is useful to identify FH as a subset
+of VH. The following paragraph introduces an algorithm to identify relevant
+neurons, which is useful for finding an efficient combination of configurations FH
+and GH.
+11
+
+
+Finding Relevant Neurons by Crossing the Decision Boundary.
+Rel-
+evant neurons RH in hidden layers can be identified given two sample points
+s, s′ ∈F classified into different classes by the network (i.e., κ(s)̸ = κ(s′)):
+RH =
+
+v(ℓ)
+i
+| ℓ∈[1, L), i ∈[1, n(ℓ)], (a(ℓ)
+i (s) = 0)̸ = (a(ℓ)
+i (s′) = 0)
+	
+.
+(3)
+The Encoder leaves these neurons unfixed.
+By (3), their activation phase
+changes when evaluated at s and s′ across the decision boundary. This pre-
+serves the flexibility needed to capture feature relations associated with this
+boundary crossing. All other neurons are fixed (FH = VH \RH), with GH = VH
+as the fallback.
+To restrict the state space and maximize the benefits of fixing, RH must be
+kept small. For this reason, s′ is computed as an adversarial example [20] of
+sample s, by adding a small, carefully chosen perturbation to s that changes the
+classification. In the literature, adversarial examples are typically constructed
+by solving a constrained optimization problem over a small perturbation to
+maximize the loss of the original class, often via iterative search within a neigh-
+borhood of the original sample s. A popular technique for this purpose is Pro-
+jected Gradient Descent (PGD) [34]. Starting from an initial point close to s,
+using a fixed number of iterations, PGD updates the position in a direction
+that increases the loss of the classifier. After each update, the point is projected
+back into a small vicinity of s, bounding the perturbation and the resulting
+adversarial example.
+Overall, each presented technique contributes to the performance of comput-
+ing NN explanations and can be combined on demand, as illustrated in Sect. 5.
+4
+Decision Guidance of Logical Solvers
+Logic-based explainability methods rely on efficient symbolic logical solvers,
+such as SAT, SMT, or MILP, as underlying computational engines.
+These
+solvers are highly optimized for general constraint solving. However, generic
+heuristics may not be optimal for specific domain-driven problems. This paper
+proposes guiding constraints as a transferable mechanism to optimize the per-
+formance of logical solvers for NN analysis. A guiding constraint is a formula
+defining a preferred property rather than a mandatory requirement, which can
+be a natural, yet optional, part of the input. The solver implementation is still
+allowed to completely ignore it. Given a formula ϕ and a guiding constraint
+γ, we introduce a fresh propositional variable g, called the guiding variable of
+γ. Notably, γ is not limited to existing variables, literals, or even terms in ϕ.
+Then, because ϕ is equisatisfiable with ϕ ∧(g ⇒γ), a solver can enforce γ
+via a propositional decision on g. Internally, the solver constructs a sequence
+of guiding variables gi that serve as systematic decision suggestions for logical
+constraints γi. Crucially, the order of decision suggestions matters: many mod-
+els naturally follow a domain-specific topology that is entirely lost in standard
+logical encodings focused solely on firm constraints. Moreover, extracting an ef-
+fective decision order from structured models, such as a NN aligned into layers,
+12
+
+
+Algorithm 3: Check the satisfiability with propositional decision guidance
+Input: formula ϕ, finite ordered set of ng guiding constraints
+(γ1, γ2, . . . , γng)
+Output: sat or unsat if ϕ is satisfiable or not, resp.
+1 (g1, g2, . . . , gng) ←MakeNewVariables(ng)
+▷ng fresh propositional variables
+2 ϕ ←ϕ ∧Vng
+i=1
+ gi =⇒γi
+
+▷update the formula
+▷get a propositional assignment A
+3 A ←CheckSat*(ϕ, (g1, g2, . . . , gng))
+▷calls SelectDecisionLiteral* inside
+4 if A satisfies ϕ and contains all propositional variables then
+▷full assignment
+5
+return sat
+6 return unsat
+7 function SelectDecisionLiteral*(A, (g1, g2, . . . , gng))
+8
+for i ←1; i ≤ng; i ←i + 1 do
+▷strictly follow the order
+9
+if gi̸ ∈A then return gi
+▷select literal gi if not assigned yet
+10
+return SelectInternalDecisionLiteral(A)
+▷use internal heuristics
+is straightforward.
+Alg. 3 describes the main idea of the decision guidance via propositional
+decisions within a logical solver checking the satisfiability of a formula ϕ, given
+an ordered set of guiding constraints. Although the algorithm is straightforward
+and introduces only a few solver modifications (highlighted in blue), implemen-
+tation requires internal knowledge of the target tool to integrate the feature into
+the decision heuristics, often within a highly optimized environment. In lines 1–
+2, the algorithm creates guiding variables and updates formula ϕ. In line 3,
+it calls CheckSat*, which differs from standard solving by using SelectDe-
+cisionLiteral* instead of SelectInternalDecisionLiteral for decision
+choices of propositional literals. In SelectDecisionLiteral* (lines 8–9), the
+solver first attempts to pick an unassigned guiding variable, selecting the pos-
+itive literal gi as the decision literal. As long as some gi remains unassigned,
+decision guidance takes precedence over default internal heuristics. Notably, Se-
+lectDecisionLiteral* affects only decision choices, leaving conflict reasoning
+and propagation untouched. Hence, any gi that conflicts with the current as-
+signment is skipped (gi̸ ∈A in line 9).
+When γi is itself a propositional literal or has an existing propositional ab-
+straction in the solver, the implementation can omit creating gi and use that
+literal directly. While Alg. 3 targets DPLL-based SMT solvers, frameworks sup-
+porting non-propositional decisions (e.g., MCSat [39]) can implement decision
+guidance without explicit guiding variables.
+A restricted form of this capability was previously introduced in Math-
+SAT5 [11], requiring guiding constraints to be propositional literals in the in-
+13
+
+
+put formula ϕ. The novel, unrestricted feature was first implemented in Z3 [13]
+and OpenSMT, where guiding the computation of NN explanations yielded
+orders-of-magnitude speedups over unguided reasoning—a gain transferable to
+any supporting SMT solver.
+This general concept applies to diverse logical solvers and domains. In this
+paper, we leverage decision suggestions to guide the NN explanation process to-
+ward specific neuron activations, aligned with a sample point and the topological
+order of a network. Concretely, this instantiation appears in Fig. 1 within the
+Solver implementing Alg. 3, accepting guiding constraints (γ1, . . . , γng) from
+the Encoder as input. This application utilizes a subset of the full capability:
+individual constraints γi (neuron activations) are already present in ψM, though
+Alg. 3 supports arbitrary fresh constraints.
+5
+Experimental Evaluation
+We implemented the neuron activation-based approach using a parametrized
+encoding of the NN w.r.t. a specific configuration of the internal neurons within
+the Encoder (Alg. 1 and 2)6. Computation of configurations that are based
+on (3) is implemented using TorchAttack library [27] for PGD. We stress-tested
+the performance of our techniques on the classical image-classification datasets,
+traditionally used to study the performance limits of logical explanation tech-
+niques for classification: GTSRB (3072 inputs, 43 classes), CIFAR10 [30] (3072
+inputs, 10 classes), and MNIST (784 inputs, 10 classes).
+We also used two
+smaller tabular medical domain benchmarks that operate on very concrete do-
+main inputs and are used by medical practitioners: heart-attack risk [24] (13
+inputs, 2 classes), and obesity [41] (15 inputs, 7 classes) datasets. Here, not
+only the individual features but also the relationships among them are highly
+relevant. For each dataset, we randomly selected 100 sample points, and trained
+fully connected NNs with 1 to 14 layers for the image-classification datasets and
+with 1 to 8 layers for the medical datasets7, each with 50 neurons per hidden
+layer. This paper focuses primarily on the monolithic approach that is based
+on SMT, evaluated in Sect. 5.1. Additionally, in Sect. 5.2, we evaluate an alter-
+native experimental modular variant to observe how internal neuron activation
+configurations influence non-interpolation-based NN analysis. Although we omit
+the formal details of the modular encoding for brevity, we provide the underly-
+ing intuition, noting that specific optimizations from Alg. 2 can be effectively
+migrated to this setting.
+5.1
+SMT and Craig interpolation Instantiation
+We instantiated the framework from Fig. 1 with the OpenSMT as the Solver
+and used its interpolating features as the procedures for the Generalizer. To
+support decision guidance capability, we implemented Alg. 3 in OpenSMT
+6https://github.com/usi-verification-and-security/spexplain
+7In the medical datasets, the training of NNs beyond 8 layers often does not converge.
+14
+
+
+1
+2
+4
+6
+8
+10
+12
+14
+Number of hidden layers
+0
+200
+400
+600
+800
+1000
+1200
+1400
+1600
+1800
+PAR-2 (s)
+GTSRB
+1
+2
+4
+6
+8
+10
+12
+14
+Number of hidden layers
+0
+200
+400
+600
+800
+1000
+1200
+PAR-2 (s)
+CIFAR10
+1
+2
+4
+6
+8
+10
+12
+14
+Number of hidden layers
+0
+200
+400
+600
+800
+1000
+1200
+PAR-2 (s)
+MNIST
+1
+2
+4
+6
+8
+Number of hidden layers
+0
+5
+10
+15
+20
+25
+30
+35
+40
+PAR-2 (s)
+Heart attack risk
+1
+2
+4
+6
+8
+Number of hidden layers
+0
+5
+10
+15
+20
+25
+30
+35
+40
+PAR-2 (s)
+Obesity
+Method - Itp Algorithm
+Direct - weaker
+Direct - weak
+Direct - mid
+Direct - strong
+Direct - stronger
+Guide-all - weaker
+Guide-all - weak
+Guide-all - mid
+Guide-all - strong
+Guide-all - stronger
+Fix-all - weaker
+Fix-all - weak
+Fix-all - mid
+Fix-all - strong
+Fix-all - stronger
+Hybrid - weaker
+Hybrid - weak
+Hybrid - mid
+Hybrid - strong
+Hybrid - stronger
+Method - Itp Algorithm
+Direct - weaker
+Direct - weak
+Direct - mid
+Direct - strong
+Direct - stronger
+Guide-all - weaker
+Guide-all - weak
+Guide-all - mid
+Guide-all - strong
+Guide-all - stronger
+Fix-all - weaker
+Fix-all - weak
+Fix-all - mid
+Fix-all - strong
+Fix-all - stronger
+Hybrid - weaker
+Hybrid - weak
+Hybrid - mid
+Hybrid - strong
+Hybrid - stronger
+Method - Itp Algorithm
+Direct - weaker
+Direct - weak
+Direct - mid
+Direct - strong
+Direct - stronger
+Guide-all - weaker
+Guide-all - weak
+Guide-all - mid
+Guide-all - strong
+Guide-all - stronger
+Fix-all - weaker
+Fix-all - weak
+Fix-all - mid
+Fix-all - strong
+Fix-all - stronger
+Hybrid - weaker
+Hybrid - weak
+Hybrid - mid
+Hybrid - strong
+Hybrid - stronger
+Method - Itp Algorithm
+Direct - weaker
+Direct - weak
+Direct - mid
+Direct - strong
+Direct - stronger
+Guide-all - weaker
+Guide-all - weak
+Guide-all - mid
+Guide-all - strong
+Guide-all - stronger
+Fix-all - weaker
+Fix-all - weak
+Fix-all - mid
+Fix-all - strong
+Fix-all - stronger
+Hybrid - weaker
+Hybrid - weak
+Hybrid - mid
+Hybrid - strong
+Hybrid - stronger
+Method - Itp Algorithm
+Direct - weaker
+Direct - weak
+Direct - mid
+Direct - strong
+Direct - stronger
+Guide-all - weaker
+Guide-all - weak
+Guide-all - mid
+Guide-all - strong
+Guide-all - stronger
+Fix-all - weaker
+Fix-all - weak
+Fix-all - mid
+Fix-all - strong
+Fix-all - stronger
+Hybrid - weaker
+Hybrid - weak
+Hybrid - mid
+Hybrid - strong
+Hybrid - stronger
+Figure 2: Performance comparison of our methods and interpolation algorithms. In medical
+datasets, it shows PAR-2 only up to 40 to make methods other than Direct visible.
+1
+2
+4
+6
+8
+10
+12
+14
+Number of hidden layers
+0
+200
+400
+600
+800
+1000
+1200
+1400
+1600
+1800
+PAR-2 (s)
+GTSRB
+1
+2
+4
+6
+8
+10
+12
+14
+Number of hidden layers
+0
+200
+400
+600
+800
+1000
+1200
+PAR-2 (s)
+CIFAR10
+1
+2
+4
+6
+8
+10
+12
+14
+Number of hidden layers
+0
+200
+400
+600
+800
+1000
+1200
+PAR-2 (s)
+MNIST
+1
+2
+4
+6
+8
+Number of hidden layers
+0
+5
+10
+15
+20
+25
+30
+35
+40
+PAR-2 (s)
+Heart attack risk
+1
+2
+4
+6
+8
+Number of hidden layers
+0
+5
+10
+15
+20
+25
+30
+35
+40
+PAR-2 (s)
+Obesity
+Method - Conﬁguration
+Method - Conﬁguration
+Method - Conﬁguration
+Direct - strong
+Guide-all - strong
+Fix-all - strong
+Hybrid - strong
+VeriX - CS - ϵ = 0.5%
+VeriX - CS - ϵ = 5%
+VeriX - CS - ϵ = 100%
+VeriX - IR - ϵ = 0.5%
+VeriX - IR - ϵ = 5%
+VeriX - IR - ϵ = 100%
+Method - Conﬁguration
+Direct - strong
+Guide-all - strong
+Fix-all - strong
+Hybrid - strong
+VeriX - CS - ϵ = 0.5%
+VeriX - CS - ϵ = 5%
+VeriX - CS - ϵ = 100%
+VeriX - IR - ϵ = 0.5%
+VeriX - IR - ϵ = 5%
+VeriX - IR - ϵ = 100%
+Method - Conﬁguration
+Direct - strong
+Guide-all - strong
+Fix-all - strong
+Hybrid - strong
+VeriX - CS - ϵ = 0.5%
+VeriX - CS - ϵ = 5%
+VeriX - CS - ϵ = 100%
+VeriX - IR - ϵ = 0.5%
+VeriX - IR - ϵ = 5%
+VeriX - IR - ϵ = 100%
+Figure 3: Performance comparison of strong variants with VeriX.
+(Solver). The choice of tools is intentional to support a direct comparison with
+the experimental study [31], referred to as Direct. We compare four different
+configurations of our method: Direct: GH = FH = ∅(the implementation used
+in [31]); Guide-all: GH = VH, FH = ∅; Fix-all: GH = ∅, FH = VH; and Hybrid:
+GH = VH, FH = VH \ RH (using (3) with adversarial example s′). Instances
+15
+
+
+of interpolation algorithms (cf. Sect. 2) use the notation ItpDF 7→stronger,
+ItpF 7→strong, Itp′
+F 7→weak, Itp′
+DF 7→weaker, and Itpf 7→mid with f := 0.5.
+Depending on the complexity of the dataset, the evaluation uses the following
+computation time limits per individual explanation: GTSRB: 15 min; MNIST
+and CIFAR10: 10 min; medical datasets: 5 min. To aggregate both the runtime
+and occasional timeouts, we leverage the metric commonly used in the SMT
+community, PAR-2, which is the runtime, or in the case of a timeout, twice the
+timeout. For every NN and explanation technique, we report the average PAR-2
+out of all 100 explanations. The experiments were run on a Linux 5.4 machine
+with 256 GB physical memory and AMD® EPYC 7452 64-threaded CPU.
+Fig. 2 shows how different configurations and interpolation algorithms scale
+to the number of layers, running on particular datasets. The x-axis shows the
+number of hidden layers, and the y-axis shows the PAR-2 average. The plots
+show the clear trend that the original Direct method always times out when
+using models with at most 4 layers. In contrast, the new techniques scale sub-
+stantially better. Notably, even Guide-all that encodes the entire network still
+significantly improves over Direct. The Fix-all configuration dominates the per-
+formance in the medical domain tasks and GTSRB, but experiences timeouts at
+CIFAR10 and MNIST within deeper networks due to a weakness of the theory
+solver in OpenSMT (simplex)—it struggles at resolving the overly restricted
+problem, approaching the worst-case execution. The Hybrid configuration ad-
+dresses this issue and usually achieves the best or second-best performance.
+The choice of interpolation algorithm has low impact on scaling trends, with
+one notable exception, Hybrid with weaker, when it produces many non-convex
+constraints. Explaining with stronger performs best but it usually does not
+generalize at all. In the following, we select the second-best performing algo-
+rithm strong.
+We compare to the state-of-the-art NN explanation tool VeriX8, using two
+configurations [51]: complete verification with sensitivity traversal (CS), which
+relaxes the sample point most, and incomplete verification with random traversal
+(IR), the most performant option.
+A further parameter is the perturbation
+radius ϵ that defines the maximal vicinity of the sample point. We adopted [51]
+ϵ ∈{0.5%, 5%, 100%}.
+The value ϵ = 100% is conceptually similar to our
+approach, as features are allowed to range in entire domain. Fig. 3 compares
+the results from Fig. 2 (using strong) and VeriX. VeriX performs better
+using IR configuration or with higher values of ϵ. VeriX performs significantly
+worse in the image-classification domain, because it is sensitive to the number of
+input features [31], and slightly outperforms all our methods only in the heart-
+attack risk case. Recall that here the usefulness of the explanations produced by
+VeriX is limited by not capturing relations between features that are important
+in tabular data. We further experimented with more complex networks (200
+neurons per layer). These experiments are much more challenging, with more
+methods timing out for some network sizes, though key trends from Fig. 3
+8VeriX+ could not be successfully executed on our evaluation suite, running only on the
+simpler benchmarks with shallow networks reported in [50]. It would be also interesting to
+compare with the recent results of [7], which remains future work.
+16
+
+
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+Oldpeak
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+Age
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+Maximum heart rate
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+Oldpeak
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+Blood pressure
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+Age
+High risk
+Low risk
+Direct
+Guide-all
+Fix-all
+Hybrid
+VeriX - CS - ϵ = 5%
+Sample point
+Figure 4: Visual comparison of selected 2D snapshots of explanation spaces of the heart-
+attack dataset (with two classes: high and low risk) produced by different methods.
+Figure 5: Visual comparison of generality of explanations produced by different techniques
+from three MNIST samples of digits 0, 4, and 5.
+The number of pixels that are darker
+compared to the original image reflects more general explanations.
+persist. For the results and discussion, refer to Appendix B.
+We checked the generality of strong explanations9 computed by our meth-
+ods using subsumption checks for all pairs of explanations for heart-attack net-
+works having 1 to 4 layers10. There is a clear trend in the generality: 98% of
+explanations produced by Direct and Guide-all are equivalent, while 100% and
+95% of Guide-all explanations are subsumed by Fix-all and Hybrid explana-
+tions, respectively, and 98% of Hybrid explanations are subsumed by Fix-all.
+If using weaker interpolation algorithms, the checks frequently result in incon-
+clusive cases (explanations intersect but do not subsume each other) due to the
+higher flexibility in the generalization. While the dominance of Fix-all may be
+counter-intuitive, it reveals that (1) the continuous area restricted by the neuron
+activations is still large enough for the generalizations, and (2) since this area
+is defined by more deterministic, convex constraints, it is easier for the interpo-
+lation to generalize the constraints. These results suggest that the generality of
+explanations is not compromised or even improves when restricting the NN.
+The following further supports observations on generality and demonstrates
+that the explanations remain useful and interpretable. Fig. 4 visually compares
+selected two-dimensional snapshots of explanations in the feature space [31],
+9Algorithm strong focuses on a close neighborhood of the sample point but still often
+covers spaces with a similar shape compared to weaker algorithms [31].
+10Beyond 4 layers, Direct never finishes, and the subset checks are also very expensive.
+17
+
+
+using the single-layer heart-attack network and more general algorithm weak.
+Explanations computed by Fix-all and Hybrid again subsume other explana-
+tions, providing the highest generality and also most precise approximation of
+the decision boundary. Direct and Guide-all are also general, not restricted to
+a specific vicinity of the sample points. By contrast, the explanations computed
+by VeriX (CS, ϵ = 5%) represent only small rectangles in the feature space.
+In image-recognition domain, Fig. 5 demonstrates the generality of strong
+explanations for the MNIST dataset, showing specific points from the feature
+space (i.e., digit images) that are different from the original sample point but
+still covered by the explanation. The points are computed using [32], the eu-
+clidean minimum norm, and illustrate how much each pixel of the sample can
+be darkened while still guaranteeing the classification, capturing the flexibility
+given by the explanation and hence reflecting the size of its impact space. It
+compares Guide-all, Fix-all, and VeriX (CS, ϵ = 100%), confirming that Fix-
+all yields more general explanations than Guide-all. Despite the use of strong
+algorithm, both are still substantially more general than VeriX where only a
+few isolated pixels are switched to black. We also observed that VeriX (CS,
+ϵ = 5%) slightly darkens many pixels, but the difference from the original is
+barely visible.
+The figure further illustrates that, among all techniques, the
+explanations remain similar if computed from a NN with one or four layers,
+suggesting that even restricted encoding of the network (e.g. Fix-all) does not
+harm the generality.
+Compared to VeriX, the explanations computed using our technique re-
+sult in more complex formulas, potentially occupying megabytes rather than
+kilobytes of memory. However, this does not hinder their interpretability: for
+instance, computing the minimum norm point in Fig. 5 requires only a few
+seconds. Further details are provided in Appendix C.
+5.2
+Modular Encoding Instantiation
+The core intuition behind a modular translation lies in treating a neural network
+not as a monolithic mathematical function, but as a discrete-time transition
+system. In this framework, the activation values of neurons in a given layer
+represent the “state” of the system. The transition from one layer to the next
+is governed by a recurring logical predicate that encapsulates the linear trans-
+formation (weights and biases) and the non-linear activation function (ReLU ).
+By defining a generic transition formula, we decouple the architectural defini-
+tion from the specific instance of the network. This modularity allows formal
+verification tools to discover inductive invariants that describe the properties of
+neurons in any hidden layer that can also serve as explanations11. The purpose
+of this section is to demonstrate that this alternative encoding benefits from
+neuron activation, similarly to when the monolithic encoding is used.
+A modular transition ψstep captures the logic of a single layer transition from
+state x(ℓ) to x(ℓ+1) for any hidden layer 0 ≤ℓ< L:
+11The main benefit of this non-monolithic encoding is providing better control over the
+shapes of the computed explanations.
+18
+
+
+ψstep(x, x′, ℓ, ℓ′) = 0 ≤ℓ< L ∧
+n
+^
+i=1
+
+x′
+i = ite
+ (
+n
+X
+j=1
+w(ℓ)
+j,i xj + b(ℓ)
+i ) > 0,
+n
+X
+j=1
+w(ℓ)
+j,i xj + b(ℓ)
+i , 0
+
+∧ℓ′ = ℓ+ 1.
+(4)
+An inductive invariant Inv is a property of neurons in each hidden layer.
+Given the initial condition φs∧ψD and the error state ¬ψc, Inv intuitively serves
+as a symbolic summary of activations that never reach the misclassification
+region, i.e., the three conditions hold:
+1. Initiation: φs ∧ψD =⇒Inv(x, 0)
+2. Inductiveness: Inv(x, ℓ) ∧ψstep(x, x′, ℓ, ℓ′) =⇒Inv(x′, ℓ′)
+3. Safety: Inv(x, L) =⇒ψc
+We adopted the winning strategy from Sect. 5.1 Fix-all using the precom-
+puted values A(ℓ)
+i
+of neuron pre-activations for every layer ℓand neuron i based
+on evaluating the neural network on the sample. The modified modular transi-
+tion ψ′
+step uses these values to pick only the active or inactive phase:
+ψ′
+step(x, x′, ℓ, ℓ′) = 0 ≤ℓ< L ∧
+n
+^
+i=1
+
+x′
+i = ite
+ A(ℓ)
+i
+> 0,
+n
+X
+j=1
+w(ℓ)
+j,i xj + b(ℓ)
+i , 0
+
+∧ℓ′ = ℓ+ 1.
+(5)
+As a proof of concept, we implemented the encoding on top of an exist-
+ing solver [18, 19], which iteratively guesses template instantiations (e.g., as
+defined below) and checks the initiation and inductiveness conditions.
+The
+conjunction of instantiations that passed these checks as well as the safety con-
+dition forms a computed explanation. The templates have the following forms:
+(ℓ= _ =⇒xℓ
+i ≤_), (ℓ= _ =⇒xℓ
+i ≥_), (ℓ= _ =⇒xℓ
+i = _), (xℓ
+i ≤_),
+(xℓ
+i ≥_), (xℓ
+i = _), where each _ is a placeholder. Because the behavior of
+the invariant synthesis depends heavily on a smart choice of the templates, our
+implementation does not aim to compete with the monolithic approach. In-
+stead, we evaluate the impact of the fixing strategy by comparing the invariant
+synthesis runtimes when using ψstep (the Direct strategy) and ψ′
+step (the Fix-
+all strategy). The evaluation follows the setup in Sect. 5.1, using the medical
+benchmarks12. Fig. 6 illustrates a clear advantage of computing explanations
+using the Fix-all strategy (red lines) over the Direct strategy (blue lines), which
+mostly times out. Overall, for both monolithic and non-monolithic encoding of
+NNs, the data confirms that the fixing is a viable solution to computing logical
+explanations significantly faster.
+12The current prototype invariant synthesis is driven by template selection and is sensitive
+to the input feature count, timing out on all the image-recognition benchmarks.
+19
+
+
+1
+2
+4
+6
+8
+Number of hidden layers
+0
+100
+200
+300
+400
+500
+600
+PAR-2 (s)
+Heart attack risk
+Method
+Fix-all
+Direct
+1
+2
+4
+6
+8
+Number of hidden layers
+0
+100
+200
+300
+400
+500
+600
+PAR-2 (s)
+Obesity
+Method
+Fix-all
+Direct
+Figure 6: Performance of an enumerative invariant discovery with/without fixing.
+6
+Conclusion and Future Work
+This paper presented a novel neuron activation-based symbolic framework for
+automated computation of logical explanations that (1) enables scaling to deep
+architectures not amenable to prior logic-based explainability methods, (2) im-
+proves the generality of the resulting explanations that are provably correct and
+not restricted in shape, as opposed to explanations generated by prior meth-
+ods that rely on specialized NN verifiers, (3) isolates the NN-specific encoding
+from the reasoning algorithms that are based on general-purpose logical solvers,
+instantiated to OpenSMT, utilizing the newly introduced transferable mecha-
+nism of guiding constraints, and (4) is agnostic to the backend solver and the
+techniques that generalize the constraints on the sample point.
+The experi-
+ments on diverse real-world benchmarks from the domains of image recognition
+(GTSRB, CIFAR10, MNIST) and medicine across a spectrum of complexities
+showed that the new method computes more general explanations and outper-
+forms prior state-of-the-art approaches, often by orders of magnitude, particu-
+larly the leading abduction-based tool for NNs VeriX. The experiments also
+showed that the approach is generic and applies beyond SMT encoding.
+In future work, we will aim to handle other NN structures, such as convolu-
+tional NNs, addressing more complex yet efficient classification tasks, with no
+need for changes in our method at the theoretical level. Moreover, we will aim
+at embedding other activation functions beyond ReLU , such as Leaky ReLU .
+References
+[1] Albarghouthi, A., Dillig, I., Gurfinkel, A.: Maximal specification synthesis.
+SIGPLAN Not. 51(1), 789–801 (Jan 2016), https://doi.org/10.1145/
+2914770.2837628
+[2] Alt, L., Hyvärinen, A.E.J., Sharygina, N.: LRA interpolants from no man’s
+land. In: Strichman, O., Tzoref-Brill, R. (eds.) HVC. pp. 195–210. Springer
+International Publishing, Cham (2017)
+20
+
+
+[3] Bach, S., Binder, A., Montavon, G., Klauschen, F., Müller, K.R., Samek,
+W.: On Pixel-Wise Explanations for Non-Linear Classifier Decisions by
+Layer-Wise Relevance Propagation. PLOS One 10(7) (2015)
+[4] Baehrens, D., Schroeter, T., Harmeling, S., Kawanabe, M., Hansen, K.,
+Müller, K.R.: How to Explain Individual Classification Decisions. Journal
+of Machine Learning Research 11 (2010)
+[5] Barbosa, H., Barrett, C., Brain, M., Kremer, G., Lachnitt, H., Mann,
+M., Mohamed, A., Mohamed, M., Niemetz, A., Nötzli, A., Ozdemir, A.,
+Preiner, M., Reynolds, A., Sheng, Y., Tinelli, C., Zohar, Y.: cvc5: A ver-
+satile and industrial-strength SMT solver. In: Fisman, D., Rosu, G. (eds.)
+TACAS. pp. 415–442. Springer International Publishing, Cham (2022)
+[6] Barrett, C., Fontaine, P., Tinelli, C.: The SMT-LIB Standard: Version
+2.6. Tech. rep., Department of Computer Science, The University of Iowa
+(2017), https://smt-lib.org
+[7] Bassan, S., Elboher, Y.Y., Ladner, T., Althoff, M., Katz, G.: Explaining,
+fast and slow: Abstraction and refinement of provable explanations. In:
+Proceedings of the 42nd International Conference on Machine Learning.
+Proceedings of Machine Learning Research, PMLR (2025)
+[8] Blicha, M., Hyvärinen, A.E.J., Kofroň, J., Sharygina, N.: Decomposing
+Farkas interpolants. In: Vojnar, T., Zhang, L. (eds.) TACAS. pp. 3–20.
+Springer International Publishing, Cham (2019)
+[9] Bruttomesso,
+R.,
+Pek,
+E.,
+Sharygina,
+N.,
+Tsitovich,
+A.:
+The
+OpenSMT Solver. In: Esparza, J., Majumdar, R. (eds.) TACAS. LNCS,
+vol. 6015, pp. 150–153. Springer (2010), https://doi.org/10.1007/
+978-3-642-12002-2_12
+[10] Christ, J., Hoenicke, J., Nutz, A.: SMTInterpol: An interpolating SMT
+solver. In: Donaldson, A.F., Parker, D. (eds.) SPIN. Lecture Notes in Com-
+puter Science, vol. 7385, pp. 248–254. Springer (2012), https://doi.org/
+10.1007/978-3-642-31759-0_19
+[11] Cimatti, A., Griggio, A., Schaafsma, B., Sebastiani, R.: The MathSAT5
+SMT Solver. In: Piterman, N., Smolka, S. (eds.) TACAS. LNCS, vol. 7795,
+pp. 93–107. Springer (2013)
+[12] Craig, W.: Three uses of the Herbrand-Gentzen theorem in relating model
+theory and proof theory. In: J. of Symbolic Logic. pp. 269–285 (1957)
+[13] De Moura, L., Bjørner, N.: Z3: An efficient SMT solver. In: TACAS.
+pp. 337–340. TACAS’08/ETAPS’08, Springer-Verlag, Berlin, Heidelberg
+(2008), https://doi.org/10.1007/978-3-540-78800-3_24
+21
+
+
+[14] Deng, L.: The MNIST Database of Handwritten Digit Images for Ma-
+chine Learning Research. IEEE Signal Processing Magazine 29(6), 141–142
+(2012), https://doi.org/10.1109/MSP.2012.2211477
+[15] Dillig, I., Dillig, T., Li, B., McMillan, K.L.: Inductive invariant generation
+via abductive inference. In: Hosking, A.L., Eugster, P.T., Lopes, C.V.
+(eds.) OOPSLA. pp. 443–456. ACM (2013), https://doi.org/10.1145/
+2509136.2509511
+[16] Dutertre, B.: Yices 2.2. In: Biere, A., Bloem, R. (eds.) CAV. pp. 737–744.
+Springer International Publishing, Cham (2014)
+[17] Erhan, D., Bengio, Y., Courville, A., Vincent, P.: Visualizing Higher-layer
+Features of a Deep Network. Tech. rep., University of Montreal (2009)
+[18] Fedyukovich, G., Bodík, R.: Accelerating Syntax-Guided Invariant Synthe-
+sis. In: TACAS, Part I. vol. 10805, pp. 251–269 (2018)
+[19] Fedyukovich, G., Kaufman, S., Bodík, R.: Sampling Invariants from Fre-
+quency Distributions. In: FMCAD. pp. 100–107. IEEE (2017)
+[20] Goodfellow, I.J., Shlens, J., Szegedy, C.: Explaining and harnessing ad-
+versarial examples. In: Bengio, Y., LeCun, Y. (eds.) ICLR (2015), http:
+//arxiv.org/abs/1412.6572
+[21] Hyvärinen, A.E.J., Marescotti, M., Alt, L., Sharygina, N.: OpenSMT2:
+An SMT Solver for Multi-core and Cloud Computing. In: Creignou, N.,
+Le Berre, D. (eds.) SAT. pp. 547–553. Springer International Publishing,
+Cham (2016)
+[22] Ignatiev, A., Narodytska, N., Marques-Silva, J.: Abduction-based explana-
+tions for machine learning models. In: AAAI. AAAI’19/IAAI’19/EAAI’19,
+AAAI Press (2019), https://doi.org/10.1609/aaai.v33i01.33011511
+[23] Izza, Y., Ignatiev, A., Stuckey, P.J., Marques-Silva, J.: Delivering inflated
+explanations. In: AAAI. AAAI’24/IAAI’24/EAAI’24, AAAI Press (2024),
+https://doi.org/10.1609/aaai.v38i11.29170
+[24] Janosi, A., Steinbrunn, W., Pfisterer, M., Detrano, R.: Heart Disease.
+UCI Machine Learning Repository (1989), https://doi.org/10.24432/
+C52P4X
+[25] Kanav, S., Křetínský, J., Rieder, S.: A Literature Review on Verification
+and Abstraction of Neural Networks Within the Formal Methods Commu-
+nity. Springer Nature Switzerland, Cham (2025), https://doi.org/10.
+1007/978-3-031-75778-5_3
+[26] Katz, G., Huang, D.A., Ibeling, D., Julian, K., Lazarus, C., Lim, R., Shah,
+P., Thakoor, S., Wu, H., Zeljić, A., Dill, D.L., Kochenderfer, M.J., Barrett,
+C.: The Marabou framework for verification and analysis of deep neural
+22
+
+
+networks. In: Dillig, I., Tasiran, S. (eds.) CAV. pp. 443–452. Springer In-
+ternational Publishing, Cham (2019)
+[27] Kim, H.: Torchattacks: A pytorch repository for adversarial attacks. arXiv
+preprint arXiv:2010.01950 (2020)
+[28] Kolárik, T., Fedyukovich, G., Labbaf, F., Leopardi, F., Sharygina, N.,
+Wand, M.: Formally explaining neural network classification. In: Sampaio,
+A., Stoelinga, M. (eds.) Formal Methods. pp. 471–496. Springer Nature
+Switzerland, Cham (2026)
+[29] König, M., Bosman, A.W., Hoos, H.H., Van Rijn, J.N.: Critically assessing
+the state of the art in neural network verification. J. Mach. Learn. Res.
+25(1) (Jan 2024)
+[30] Krizhevsky, A.: Learning multiple layers of features from tiny images. Tech.
+rep., University of Toronto (2009)
+[31] Labbaf, F., Kolárik, T., Blicha, M., Fedyukovich, G., Wand, M., Sharygina,
+N.: Space explanations of neural network classification. In: Piskac, R.,
+Rakamaric, Z. (eds.) CAV. Springer International Publishing (2025)
+[32] Leopardi, F., Labbaf, F., Kolárik, T., Wand, M., Sharygina, N.: Interpret-
+ing logical explanations of classifying neural networks. In: ESANN (2026),
+to appear
+[33] Lundberg, S.M., Lee, S.I.: A Unified Approach to Interpreting Model Pre-
+dictions. In: NIPS (2017)
+[34] Madry, A., Makelov, A., Schmidt, L., Tsipras, D., Vladu, A.: Towards deep
+learning models resistant to adversarial attacks. In: ICLR. OpenReview.net
+(2018), https://openreview.net/forum?id=rJzIBfZAb
+[35] Mahendran, A., Vedaldi, A.: Understanding Deep Image Representations
+by Inverting Them. In:
+CVPR. pp. 5188 – 5196 (2015)
+[36] Malfa, E.L., Michelmore, R., Zbrzezny, A.M., Paoletti, N., Kwiatkowska,
+M.: On guaranteed optimal robust explanations for NLP models. In: IJ-
+CAI. pp. 2658 – 2665 (2021)
+[37] Marques-Silva,
+J.:
+Logic-Based Explainability in Machine Learning.
+Springer Nature Switzerland, Cham (2023), https://doi.org/10.1007/
+978-3-031-31414-8_2
+[38] de Moura, L., Bjørner, N.: Satisfiability Modulo Theories: Introduction
+and Applications. Communications of the ACM 54(9), 69 – 77 (2011)
+[39] de Moura, L., Jovanović, D.: A model-constructing satisfiability calculus.
+In: Giacobazzi, R., Berdine, J., Mastroeni, I. (eds.) Verification, Model
+Checking, and Abstract Interpretation. pp. 1–12. Springer Berlin Heidel-
+berg, Berlin, Heidelberg (2013)
+23
+
+
+[40] Nieuwenhuis, R., Oliveras, A., Tinelli, C.: Solving SAT and SAT modulo
+theories: from an abstract Davis–Putnam–Logemann-Loveland procedure
+to DPLL(T). Journal of the ACM (JACM) 53(6), 937–977 (2006), https:
+//doi.org/10.1145/1217856.1217859
+[41] Palechor, F.M., Manotas, A.D.l.H.: Estimation of Obesity Levels Based On
+Eating Habits and Physical Condition. UCI Machine Learning Repository
+(2019), https://doi.org/10.24432/C5H31Z
+[42] Prabhu, S., D’Souza, D., Chakraborty, S., Venkatesh, R., Fedyukovich, G.:
+Weakest precondition inference for non-deterministic linear array programs.
+In: Finkbeiner, B., Kovács, L. (eds.) TACAS, Part II. Lecture Notes in
+Computer Science, vol. 14571, pp. 175–195. Springer (2024), https://doi.
+org/10.1007/978-3-031-57249-4_9
+[43] Prabhu, S., Fedyukovich, G., D’Souza, D.: Maximal quantified precon-
+dition synthesis for linear array loops. In: Weirich, S. (ed.) ESOP, Part
+II. Lecture Notes in Computer Science, vol. 14577, pp. 245–274. Springer
+(2024), https://doi.org/10.1007/978-3-031-57267-8_10
+[44] Ribeiro, M.T., Singh, S., Guestrin, C.: “Why Should I Trust You?”: Ex-
+plaining the predictions of any classifier. In: KDD. p. 1135–1144. KDD
+’16, Association for Computing Machinery, New York, NY, USA (2016),
+https://doi.org/10.1145/2939672.2939778
+[45] Ribeiro, M.T., Singh, S., Guestrin, C.: Anchors: High-Precision Model-
+Agnostic Explanations. In: AAAI (2018)
+[46] Seshia, S.A., Sadigh, D., Sastry, S.S.: Towards Verified Artificial Intelli-
+gence. Communications of the ACM 65(7), 46 – 55 (2022)
+[47] Shih, A., Choi, A., Darwiche, A.: A Symbolic Approach to Explaining
+Bayesian Network Classifiers. In: IJCAI. pp. 5103 – 5111 (2018)
+[48] Simonyan, K., Vedaldi, A., Zisserman, A.: Deep Inside Convolutional Net-
+works: Visualising Image Classification Models and Saliency Maps. In:
+Workshop Proceedings of the ICLR (2014)
+[49] Stallkamp, J., Schlipsing, M., Salmen, J., Igel, C.: The German Traffic
+Sign Recognition Benchmark: A multi-class classification competition. In:
+IEEE International Joint Conference on Neural Networks. pp. 1453–1460
+(2011)
+[50] Wu, M., Li, X., Wu, H., Barrett, C.: Efficiently computing compact for-
+mal explanations. Proceedings of the AAAI Conference on Artificial In-
+telligence 40(42), 35857–35866 (Mar 2026), https://doi.org/10.1609/
+aaai.v40i42.40900
+24
+
+
+x1
+x2
+x3
+c1
+c2
+-1
+-1
+0
+2
+4
+1
+-4
+-1
+1
+1
+Figure 7: A simple neural network example
+[51] Wu, M., Wu, H., Barrett, C.:
+VeriX: Towards verified explainability
+of deep neural networks. In:
+Oh, A., Neumann, T., Globerson, A.,
+Saenko, K., Hardt, M., Levine, S. (eds.) Advances in Neural Informa-
+tion Processing Systems. vol. 36, pp. 22247–22268. Curran Associates, Inc.
+(2023),
+https://proceedings.neurips.cc/paper_files/paper/2023/
+file/46907c2ff9fafd618095161d76461842-Paper-Conference.pdf
+[52] Zeiler, M.D., Fergus, R.: Visualizing and Understanding Convolutional
+Networks. In: ECCV. pp. 818 – 833 (2014)
+[53] Zhang, H., Weng, T.W., Chen, P.Y., Hsieh, C.J., Daniel, L.: Efficient
+neural network robustness certification with general activation functions.
+In: Advances in Neural Information Processing Systems. vol. 31, pp. 4944–
+4953 (2018)
+A
+Running Example
+This section illustrates a direct SMT encoding (cf. Sect. 2) of the explainability
+problem, using a toy example of a classifying neural network, as well as modified
+encodings with the guidance driven by neuron activations (cf. Sect. 3).
+Fig. 7 shows a neural network (cf. Sect. 2) that maps 3-dimensional inputs
+x = (x1, x2, x3) to two classes {c1, c2} with input feature domains Di = [0, 4]
+(therefore, the feature space corresponds to a cube with edge length 4). The
+network consists of 3 input neurons, 2 hidden neurons with ReLU activation,
+and 2 output neurons. The weights are set according to the edge labels in the
+figure and the biases are set to zero, resulting in the following pre-activations:
+z(1)
+1 (x) = 2x1 + x3
+z(2)
+1 (x) = a(1)
+1 (x) −4a(1)
+2 (x)
+z(1)
+2 (x) = −x1 + x2 −x3
+z(2)
+2 (x) = −a(1)
+1 (x) + 4a(1)
+2 (x)
+If a(2)
+1 (x) ≥a(2)
+2 (x), then κ(x) = c1 (i.e., the input is classified as class c1),
+otherwise, κ(x) = c2. For example, for input sample s = (1, 1, 3), a(2)
+1 (s) = 5
+and a(2)
+2 (s) = −5, and therefore, sample s is classified as class c1.
+Direct Encoding.
+Given the neural network above, formula ψ = ψM ∧ψD ∧
+¬ψc (cf. Sect. 2), where c = c1, is encoded over the input feature variables
+x1, x2, x3 as follows:
+25
+
+
+• the output neurons are encoded by
+ψM :=
+ a(2)
+1
+= ite(2x1 + x3 > 0, 2x1 + x3, 0)
+−4 · ite(−x1 + x2 −x3 > 0, −x1 + x2 −x3, 0)
+
+∧
+ a(2)
+2
+= −ite(2x1 + x3 > 0, 2x1 + x3, 0)
++ 4 · ite(−x1 + x2 −x3 > 0, −x1 + x2 −x3, 0)
+
+using the auxiliary variables a(2)
+1 , a(2)
+2
+and inlining a(1)
+1 , a(1)
+2
+and z(1)
+1 , z(1)
+2 ,
+z(2)
+1 , z(2)
+2 .
+• the domains are encoded by
+ψD := (0 ≤x1 ≤4) ∧(0 ≤x2 ≤4) ∧(0 ≤x3 ≤4),
+• the negation of classifying to class c = c1, that is, classifying to class c2,
+is encoded by
+¬ψc := a(2)
+1
+< a(2)
+2 .
+The input sample s = (1, 1, 3) classified as c1 (i.e., κ(s) = c1) is encoded as
+φs = (x1 = 1) ∧(x2 = 1) ∧(x3 = 3). Formula ψ is satisfiable, while ψ ∧φs is
+unsatisfiable.
+Using the input configuration FH = ∅(i.e., with no fixing of activations of
+hidden neurons), Alg. 2 (cf. Sect. 3) outputs φC 7→⊤and a formula ψM similar
+to the one above except it would also use auxiliary variables a(1)
+1 , a(1)
+2
+and not
+inline them.
+Neuron Activation-based Encoding.
+This part shows examples of outputs
+of the algorithms in Sect. 3. Using the input configuration FH = VH (i.e., fixing
+all activations of hidden neurons) and the sample s = (1, 1, 3), Alg. 2 outputs
+ψM 7→
+ a(2)
+1
+= (2x1 + x3) −4 · 0
+
+∧
+ a(2)
+2
+= −(2x1 + x3) + 4 · 0
+
+and
+φC 7→(2x1 + x3 > 0) ∧(−x1 + x2 −x3 ≤0).
+Using the input configuration GH = VH (i.e., guiding all activations of hidden
+neurons) and the sample s = (1, 1, 3), Alg. 1 outputs guiding constraints
+ (2x1+
+x3 > 0), (−x1+x2−x3 ≤0)
+
+. Recall that Algs. 1 and 2 are orthogonal, although
+guiding a neuron that has already been fixed is useless.
+B
+Further Performance Experiments
+Fig. 8 compares the performance of the same methods as in Fig. 3, selecting just
+the performant option ϵ = 100% for VeriX, on more complex networks with 200
+neurons per hidden layer. While some observations from Fig. 3 remain similar,
+these experiments are much more challenging and only some of the methods
+manage to compute explanations for all sizes of the networks. Notably, Fix-all
+still scales very well for GTSRB. VeriX fails to compute the explanations in
+most image classification cases, while it performs well for medical datasets.
+26
+
+
+1
+2
+4
+6
+8
+10
+12
+14
+Number of hidden layers
+0
+200
+400
+600
+800
+1000
+1200
+1400
+1600
+1800
+PAR-2 (s)
+GTSRB
+1
+2
+4
+6
+8
+10
+12
+14
+Number of hidden layers
+0
+200
+400
+600
+800
+1000
+1200
+PAR-2 (s)
+CIFAR10
+1
+2
+4
+6
+8
+10
+12
+14
+Number of hidden layers
+0
+200
+400
+600
+800
+1000
+1200
+PAR-2 (s)
+MNIST
+1
+2
+4
+6
+8
+Number of hidden layers
+0
+100
+200
+300
+400
+500
+600
+PAR-2 (s)
+Heart attack risk
+1
+2
+4
+6
+8
+Number of hidden layers
+0
+100
+200
+300
+400
+500
+600
+PAR-2 (s)
+Obesity
+Method - Conﬁguration
+Method - Conﬁguration
+Method - Conﬁguration
+Direct - strong
+Guide-all - strong
+Fix-all - strong
+Hybrid - strong
+VeriX - CS - ϵ = 100%
+VeriX - IR - ϵ = 100%
+Method - Conﬁguration
+Direct - strong
+Guide-all - strong
+Fix-all - strong
+Hybrid - strong
+VeriX - CS - ϵ = 100%
+VeriX - IR - ϵ = 100%
+Method - Conﬁguration
+Direct - strong
+Guide-all - strong
+Fix-all - strong
+Hybrid - strong
+VeriX - CS - ϵ = 100%
+VeriX - IR - ϵ = 100%
+Figure 8: Performance comparison with VeriX on networks with 200 neurons per layer.
+C
+Size of Explanations
+Our explanations are much more complex formulas compared to VeriX. The
+explanations produced by VeriX take few KB of data, while the explanations
+by our method take up to tens or hundreds of MB per explanation depending
+on the size of the model and input. Fig. 9 shows the relation between the depth
+of the model and the explanations size. For image classification tasks, Guide-
+all produces bigger formulas, except for the stronger interpolation algorithm,
+which is very restricted and in most cases represents a single sample point.
+27
+
+
+2
+4
+6
+8
+10
+12
+14
+Number of hidden layers
+0
+25
+50
+75
+100
+125
+150
+175
+Size [MB]
+GTSRB
+2
+4
+6
+8
+10
+12
+14
+Number of hidden layers
+0
+20
+40
+60
+80
+100
+120
+Size [MB]
+CIFAR10
+2
+4
+6
+8
+10
+12
+14
+Number of hidden layers
+0
+10
+20
+30
+40
+50
+60
+Size [MB]
+MNIST
+2
+4
+6
+8
+Number of hidden layers
+0.0
+0.1
+0.2
+0.3
+0.4
+Size [MB]
+Heart attack risk
+2
+4
+6
+8
+Number of hidden layers
+0.0
+0.1
+0.2
+0.3
+0.4
+Size [MB]
+Obesity
+Method - Itp Algorithm
+Direct - weaker
+Direct - weak
+Direct - mid
+Direct - strong
+Direct - stronger
+Guide-all - weaker
+Guide-all - weak
+Guide-all - mid
+Guide-all - strong
+Guide-all - stronger
+Fix-all - weaker
+Fix-all - weak
+Fix-all - mid
+Fix-all - strong
+Fix-all - stronger
+Hybrid - weaker
+Hybrid - weak
+Hybrid - mid
+Hybrid - strong
+Hybrid - stronger
+Method - Itp Algorithm
+Direct - weaker
+Direct - weak
+Direct - mid
+Direct - strong
+Direct - stronger
+Guide-all - weaker
+Guide-all - weak
+Guide-all - mid
+Guide-all - strong
+Guide-all - stronger
+Fix-all - weaker
+Fix-all - weak
+Fix-all - mid
+Fix-all - strong
+Fix-all - stronger
+Hybrid - weaker
+Hybrid - weak
+Hybrid - mid
+Hybrid - strong
+Hybrid - stronger
+Method - Itp Algorithm
+Direct - weaker
+Direct - weak
+Direct - mid
+Direct - strong
+Direct - stronger
+Guide-all - weaker
+Guide-all - weak
+Guide-all - mid
+Guide-all - strong
+Guide-all - stronger
+Fix-all - weaker
+Fix-all - weak
+Fix-all - mid
+Fix-all - strong
+Fix-all - stronger
+Hybrid - weaker
+Hybrid - weak
+Hybrid - mid
+Hybrid - strong
+Hybrid - stronger
+Method - Itp Algorithm
+Direct - weaker
+Direct - weak
+Direct - mid
+Direct - strong
+Direct - stronger
+Guide-all - weaker
+Guide-all - weak
+Guide-all - mid
+Guide-all - strong
+Guide-all - stronger
+Fix-all - weaker
+Fix-all - weak
+Fix-all - mid
+Fix-all - strong
+Fix-all - stronger
+Hybrid - weaker
+Hybrid - weak
+Hybrid - mid
+Hybrid - strong
+Hybrid - stronger
+Method - Itp Algorithm
+Direct - weaker
+Direct - weak
+Direct - mid
+Direct - strong
+Direct - stronger
+Guide-all - weaker
+Guide-all - weak
+Guide-all - mid
+Guide-all - strong
+Guide-all - stronger
+Fix-all - weaker
+Fix-all - weak
+Fix-all - mid
+Fix-all - strong
+Fix-all - stronger
+Hybrid - weaker
+Hybrid - weak
+Hybrid - mid
+Hybrid - strong
+Hybrid - stronger
+Figure 9: Explanation size comparison
+28

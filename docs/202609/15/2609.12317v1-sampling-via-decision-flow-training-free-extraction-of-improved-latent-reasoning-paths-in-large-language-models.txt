@@ -1,0 +1,1318 @@
+Sampling via Decision-Flow: Training-Free Extraction of Improved Latent
+Reasoning Paths in Large Language Models
+Zhendong Mi, Shaoyi Huang†
+Stevens Institute of Technology
+{zmi2, shuang59}@stevens.edu
+Abstract
+A central question in LLM reasoning is whether
+reinforcement learning (RL) instills genuinely
+new capabilities or merely reshapes how exist-
+ing knowledge is expressed during inference.
+Building on the distribution-sharpening hypoth-
+esis, which holds that RL reallocates prob-
+ability mass toward high-reward trajectories
+already latent in base models, we ask: can
+we unlock those latent paths without costly
+RL fine-tuning? We present Decision-Flow
+Sampling (DF-Sample), a training-free, data-
+free inference-time framework that constructs
+a hierarchical reasoning tree, scores terminal
+nodes for quality, and back-propagates utili-
+ties to inform each intermediate branching de-
+cision. Unlike conventional sampling strate-
+gies that make purely local step-wise choices,
+DF-Sample performs explicit global trajectory
+evaluation before committing to a path, recover-
+ing high-quality but low-probability reasoning
+chains that standard decoding overlooks. On
+GPQA, DF-Sample achieves 45.6% accuracy,
+surpassing power sampling (38.9%) and GRPO
+(39.9%), showing that a training-free method
+can outperform a trained one. Across three
+models and four benchmarks, DF-Sample con-
+sistently outperforms baselines, indicating sub-
+stantial latent reasoning potential in pretrained
+base models.
+1
+Introduction
+Reinforcement learning has become the dominant
+post-training paradigm for improving LLM rea-
+soning (Guo et al., 2025; Hu et al., 2025). By
+optimizing with outcome- or process-level rewards,
+RL-based post-training has pushed state-of-the-art
+performance on challenging benchmarks in mathe-
+matics, code, and science (Hendrycks et al., 2021;
+Li et al., 2022; Rein et al., 2024). Yet how RL
+improves reasoning remains actively debated (He
+et al., 2025; Karan and Du, 2025).
+The Distribution Sharpening hypothesis (Shao
+et al., 2025; Zhang et al., 2025; Yue et al., 2025)
+provides one compelling answer: RL does not in-
+troduce genuinely new competencies, but rather re-
+allocates probability mass toward high-reward tra-
+jectories that were already latent in the base model.
+While this effectively improves single-attempt met-
+rics such as Pass@1, it simultaneously reduces
+output diversity by concentrating mass on high-
+confidence paths and suppressing alternative strate-
+gies. This reduction in diversity comes at a cost.
+Several recent works have implicated it in a form
+of model collapse (He et al., 2025; Hao et al., 2025;
+Song et al., 2025), in which the model’s reasoning
+coverage contracts even as peak performance im-
+proves (Liang et al., 2025). The model becomes
+more confident but less exploratory.
+This raises two natural questions. First, if high-
+quality reasoning paths are already latent in the
+base model (Karan and Du, 2025), can we unlock
+them without costly RL fine-tuning (Dragoi et al.,
+2025; Vafaii et al., 2025)? We argue yes. The
+key insight is that the problem is not one of miss-
+ing knowledge but of misallocated probability, and
+misallocation is a sampling problem, not a training
+problem. Second, given that a correct reasoning
+path already exists, how do we effectively find it?
+Existing approaches inspired by probabilistic sam-
+pling techniques such as MCMC (Karan and Du,
+2025; Wu et al., 2025) correct reasoning locally,
+one step at a time. But local optimality at each step
+does not guarantee global optimality for the full tra-
+jectory. A locally plausible transition can still steer
+reasoning toward a globally wrong conclusion.
+To address both questions, we propose DF-
+Sample: a training-free framework that selects
+high-quality reasoning chains during inference by
+performing explicit global trajectory evaluation.
+Rather than making greedy or locally-guided deci-
+sions at each step, DF-Sample constructs a hierar-
+chical reasoning tree, evaluates terminal nodes for
+quality, propagates those quality signals backward
+through the tree, and samples a final path according
+arXiv:2609.12317v1  [cs.LG]  11 Sep 2026
+
+
+0.00
+0.25
+0.50
+0.75
+Accuracy
+0.496
+0.69
+0.785 0.748
+0.818
+MATH500
+0.0
+0.2
+0.4
+0.6
+Accuracy
+0.329
+0.512 0.537 0.573 0.591
+HumanEval
+0.0
+0.2
+0.4
+Accuracy
+0.278
+0.353
+0.399 0.389
+0.456
+GPQA
+0
+1
+2
+3
+Win Rate
+1.61
+2.09
+2.38
+2.88
+3.06
+AlpacaEval 2.0
+Base
+Low-temperature
+GRPO
+Power Sampling
+DF-Sample (Ours)
+Figure 1: DF-Sample vs. baselines on Qwen2.5-MATH-7B using MATH500, HumanEval, GPQA, AlpacaEval 2.0
+datasets. DF-Sample achieves the best performance on different datasets. Full results are as shown in Table 1.
+to a posterior that integrates generation priors with
+the propagated utilities. Our contributions are as
+follows:
+• Decision-Flow Sampling (DF-Sample). A
+training-free inference-time framework that
+extracts high-quality but low-probability rea-
+soning paths from base language models, im-
+proving reasoning accuracy without any pa-
+rameter updates.
+• Global trajectory evaluation via terminal-
+node utility and backward propagation.
+We introduce a terminal energy function that
+scores complete reasoning chains and a back-
+ward propagation mechanism that carries
+those global signals to each intermediate deci-
+sion, mitigating the myopic bias of standard
+sampling.
+• Extensive empirical validation. Across three
+model families (Qwen2.5-Math-7B, Qwen2.5-
+7B, Phi-3.5-mini-instruct) and four datasets
+(MATH500, HumanEval, GPQA-Diamond,
+AlpacaEval 2.0), DF-Sample consistently
+outperforms base models, competitive sam-
+pling baselines, and RL-trained counterparts.
+On MATH500 with Qwen2.5-Math-7B, DF-
+Sample achieves 81.8% accuracy, surpassing
+GRPO (78.5%) and power sampling (74.8%)
+as shown in Figure 1.
+2
+Motivation
+Before introducing the method, we present two
+empirical observations about base model reasoning
+behavior which motivate our work.
+Correct reasoning paths are latent, not ab-
+sent. Building on recent evidence (Karan and Du,
+2025; Hao et al., 2025), we observe that base mod-
+els often already possess correct reasoning paths
+and they simply assign those paths lower prob-
+ability than incorrect alternatives. Consider the
+equation x2 = 5x (Figure 2). A correct solution
+Input: Solve 
+the quadratic 
+equation x2=5x 
+for all real 
+values of x.
+Incorrect path:
+Divide both sides 
+by x, assuming x 
+does not equal to 
+zero. 
+Output:
+x=5. (Incomplete 
+solution, missing x=0) 
+Incorrect answer!
+Correct path:
+Rearrange to 
+x2-5x=0 
+and factor out x to 
+get x(x-5)=0.
+Output:
+x=0 and x=5. (Both 
+valid solutions found) 
+Correct answer!
+Path generation 
+probability = 0.7
+High probability but suboptimal reasoning
+Low probability but good reasoning
+Path generation 
+probability = 0.3
+Figure 2: Upper path (incorrect, high confidence) vs.
+lower path (correct, low confidence) for quadratic
+equation solving problem.
+factors both sides: x2 −5x = 0 ⇒x(x −5) = 0.,
+yielding both solutions. However, the model may
+instead divide both sides by x, implicitly assuming
+x̸ = 0 and missing the solution x = 0. The divi-
+sion path receives a higher probability because it
+matches common patterns and requires fewer steps,
+not because it is more correct.
+This is not an isolated failure mode. It reflects
+a systematic mismatch between generation proba-
+bility and reasoning quality in base models. The
+implication for our method is direct: we do not
+need to train the model to produce better reasoning;
+we need a sampling procedure that looks past local
+probability and identifies globally superior paths.
+Local sampling optimality does not guaran-
+tee global reasoning quality. Given that correct
+reasoning paths are latent in the model’s distribu-
+tion, the question becomes how to find them. A
+natural candidate is MCMC-style sampling (Karan
+and Du, 2025) for correcting reasoning through
+local proposal-and-accept steps. However, multi-
+step CoT reasoning violates a key assumption that
+makes local corrections sufficient: the quality of a
+single reasoning step is not a reliable signal of the
+quality of the complete trajectory.
+Figure 3 illustrates this with the task of deter-
+mining whether f(x) = x2 is injective on R. Path
+A exploits symmetry, noting that f(x) = f(−x)
+
+
+Problem: Determine whether the function f (x) = x2 is injective on    .
+Reasoning Path A
+1. Injectivity 
+requires distinct 
+inputs to produce 
+distinct outputs.
+2. For any x!= 0, 
+we have f (x) = 
+x2= (-x)2 = f (−x)
+3. Since x != -x but f 
+(x) = f (−x), f is 
+not injective on R.
+Reasoning Path B
+1. Injectivity requires 
+distinct inputs to get 
+distinct outputs.
+2. The derivative is f ′(x) = 
+2x.
+3. For x != 0, f ′(x) != 0, so 
+the function is monotonic.
+4. Monotonic functions are 
+injective. Therefore, f is 
+injective on R.
+High 
+acceptance 
+and more 
+plausible 
+but helpless
+for overall 
+reasoning!
+Low 
+acceptance 
+but helpful 
+for
+overall 
+reasoning!
+Figure 3: Two reasoning paths for the same problem.
+Path B is locally plausible at each step but reaches an
+incorrect conclusion; Path A reasons correctly.
+for x̸ = 0, and correctly concludes f is not in-
+jective. Path B introduces a derivative argument
+(f′(x) = 2x, f′(x)̸ = 0 for x̸ = 0, therefore mono-
+tonic, therefore injective), which is locally plausi-
+ble at each step but reaches an incorrect conclusion.
+A sampling procedure that accepts Path B’s steps
+because they are individually reasonable will sys-
+tematically fail on problems where globally-correct
+reasoning is locally counterintuitive.
+This motivates an approach that evaluates rea-
+soning paths holistically, constructing a space of
+complete paths and selecting among them based on
+path-level quality rather than step-level probability.
+3
+Preliminary
+Let Y denote a finite discrete token vocabulary, and
+consider sequences consisting of tokens in Y. A
+sequence of length T ∈Z≥0 is denoted by y0:T =
+(y0, y1, . . . , yT ), where each yt ∈Y. We use y to
+represent the full sequence. For any time step t,
+we define the prefix (historical context) as y<t =
+(y0, . . . , yt−1), and the suffix (generation of future
+tokens) as y>t = (yt+1, . . . , yT ).
+Under this formulation, a large language model
+(LLM) induces a probability distribution pθ over
+the sequence space. Autoregressive language mod-
+els parameterize this distribution through condi-
+tional factors pθ(yt | y<t). By the chain rule of
+probability, the joint likelihood of a sequence can
+be factorized as
+pθ(y0:T ) =
+T
+Y
+t=0
+pθ(yt | y<t).
+(1)
+Consequently, sampling a complete sequence
+from pθ corresponds to sequentially sampling to-
+kens according to the conditional distributions
+above.
+4
+Proposed Method
+DF-Sample operates in four sequential stages, each
+building on the output of the previous. Specifically,
+Stage I: Hierarchical Reasoning Tree Construc-
+tion. A hierarchical reasoning tree is constructed
+which systematically expands candidate reasoning
+steps. Stage II: Terminal Node Energy Evalua-
+tion. We assign each final node an utility score
+based on the quality of its corresponding final rea-
+soning output. Stage III: Decision-Flow Back-
+ward Propagation. Terminal evaluation utility are
+propagated backward through the tree, enabling
+intermediate reasoning states to incorporate and
+obtain globally node-level utilities or utility. Stage
+IV: Posterior Path Selection. A reasoning path
+is selected according to a posterior decision rule
+that integrates prior generation tendencies with the
+propagated utility, and the final answer is derived
+from the selected chain. A toy example is shown
+in Figure 4 to illustrate the four stages.
+4.1
+Hierarchical Reasoning Tree Construction
+Given an input problem q, we construct a rea-
+soning tree T of depth L by hierarchical sam-
+pling.
+At each node of depth ℓ−1, we inde-
+pendently sample K candidate extensions from
+the language model, forming total child nodes
+C(vℓ−1) = {v1
+ℓ, v2
+ℓ, . . . , vdK
+ℓ
+} (d denotes the num-
+ber of nodes at depth ℓ−1). The i-th child vi
+ℓ
+at depth ℓcorresponds to one reasoning step svi
+ℓ
+generated conditioned on the problem and the path
+from the root to the parent of vi
+ℓ.
+For each node v, we record both the gener-
+ated reasoning text sv and the accumulated log-
+probability along the path from the root:
+log p(sv | q, s<v) =
+|sv|
+X
+t=1
+log p(wt | q, s<v, w<t)
+(2)
+The full tree is constructed before any selection is
+made, enabling subsequent global evaluation over
+the entire reasoning space, a key departure from
+step-wise decoding strategies.
+4.2
+Terminal Node Energy Evaluation
+We evaluate the quality of complete reasoning
+chains by scoring their terminal nodes. This de-
+sign is motivated by a consistent empirical ob-
+servation as shown in Figure 5: the final reason-
+ing step typically exhibits strong summarization
+and conclusion-oriented properties, condensing the
+
+
+Input Root Node
+ 
+Level 1  
+Level 2 
+ 
+(a) Stage I: Reasoning tree construction via branching sampling. 
+Numbers along arrows indicates the node generation probabilities
+U(   ) = 0.18 
+ 
+U(   ) = 0.42 
+ 
+U(   ) = 0.76 
+ 
+U(   ) = 0.25 
+ 
+U(   ) = 0.63 
+ 
+U(   ) = 0.91 
+ 
+(b) Stage II: Utility of leaf nodes is calculated via terminal 
+energy evaluation in Eq. (6)
+U(   ) = 0.18 
+ 
+U(   ) = 0.42 
+ 
+U(   ) = 0.76 
+ 
+U(   ) = 0.25 
+ 
+U(   ) = 0.63 
+ 
+U(   ) = 0.91 
+ 
+U(   ) = 0.60 
+ 
+U(   ) = 0.56 
+ 
+U(   ) = 0.59 
+ 
+(c) Stage III: Final leaf utilities are recursively aggregated to 
+parent nodes by combining their generation probabilities in (a) 
+with their utility values, following Eq. (8)–(9)
+π(   ) = 0.05 
+ 
+π(   ) = 0.13 
+ 
+π(   ) = 0.82 
+ 
+π(   ) = 0.18 
+ 
+π(   ) = 0.34 
+ 
+π(   ) = 0.48 
+ 
+π(   ) = 0.81 
+ 
+π(   ) = 0.19 
+ 
+π(   ) = 1.0 
+ 
+0.8 
+ 
+0.2 
+ 
+0.15 
+ 
+0.2 
+ 
+0.65 
+ 
+0.4 
+ 
+0.3 
+ 
+0.3 
+ 
+(d) Stage IV: At each node, children are sampled via the 
+posterior distribution defined in Eq. (10), normalizing the 
+product of generation probabilities and propagated utilities
+Figure 4: An illustrative toy example of Decision-Flow sampling with branching factor K, showing how global
+reasoning strategies are selected by combining utility U with prior probabilities.
+Problem: In a parallel universe where a magnet can have an 
+isolated North or South pole, which of Maxwell’s equations 
+would be different?
+Reasoning Path
+First node: Magnetic monopoles introduce isolated magnetic 
+charges.
+Second node: The existence of magnetic charges alters the 
+behavior of magnetic fields.
+Last node: The presence of isolated magnetic poles implies a non-
+zero divergence of the magnetic field; therefore, Gauss’s law for 
+magnetism would be different.
+Shows strong summarization and 
+conclusion-oriented property!
+Summary & Conclusion
+1
+2
+3
+Figure 5: Final node exhibits strong summarization and
+conclusion-oriented characteristics.
+chain’s outcome into a concise statement. Evalu-
+ating the terminal node therefore serves as an effi-
+cient proxy for trajectory quality.
+Define a terminal energy function over leaf
+nodes:
+E(τ) = −α·log p(svL | q, s<vL)
+|svL|
++R(svL), (3)
+where α is a temperature coefficient controlling the
+influence of model likelihood, |svL| denotes the
+number of tokens of the final reasoning step, and
+R(svL) is a quality score for the final output. A
+lower R(svL) indicates higher output quality and a
+lower energy E indicates a higher-quality path.
+To evaluate the significance of leaf nodes, we
+define the terminal utility of each leaf node vL
+as U(vL). This metric facilitates the propagation
+of path-level evaluations back through the entire
+reasoning tree and is formulated as
+U(vL) = exp(−E(vL))
+(4)
+where higher U(vL) indicates greater terminal util-
+ity. These leaf-level scores are then propagated
+backward through the three in Stage III.
+4.3
+Decision-Flow Backward Propagation
+Having scored all terminal nodes, we propagrate
+utility signals backward through the tree in a
+bottom-up pass. For any non-leaf node vt
+ℓ−1, its
+utility is defined as the prior-weighted expected
+utility of its K children, a recursive aggregation
+that carries trajectory-level quality information to
+each intermediate decision state:
+U(vt
+ℓ−1) =
+(t+1)K
+X
+i=tK+1
+pprior(vi
+ℓ| vt
+ℓ−1) U(vi
+ℓ),
+(5)
+where vi
+ℓrepresents the i-th node at Level ℓ(the (i
+% K)-th child of vt
+ℓ−1).
+The prior transition probability pprior(vi
+ℓ| vt
+ℓ−1)
+is defined by normalizing the language model’s
+generation probabilities over the K sampled chil-
+dren at each node:
+pprior(vi
+ℓ| vt
+ℓ−1) =
+exp
+
+log p(svi
+ℓ
+|vt
+ℓ−1,s<vt
+ℓ−1)
+
+P(t+1)K
+j=tK+1 exp
+
+log p(svj
+ℓ
+|vt
+ℓ−1,s<vt
+ℓ−1)
+
+(6)
+
+
+This backward propagation mechanism is what dis-
+tinguishes DF-Sample from locally-guided meth-
+ods: every intermediate node accumulates infor-
+mation about the global quality of the paths it can
+reach, rather than making decisions based solely
+on the local next-step probability distribution.
+4.4
+Posterior Path Selection
+With utilities computed for all nodes, we define a
+posterior selection policy that integrates generation
+priors with propagated utilities. For node vt
+ℓ−1, the
+probability of selecting its i-th child vi
+ℓis defined
+as:
+π∗(vi
+ℓ| vt
+ℓ−1) =
+pprior(vi
+ℓ| vt
+ℓ−1) U(vi
+ℓ)
+P(t+1)K
+j=tK+1 pprior(vj
+ℓ| vt
+ℓ−1) U(vj
+ℓ)
+.
+(7)
+Starting from the root node, we recursively sam-
+ple children according to the posterior distribution
+π∗(· | ·) until reaching a final leaf node, yielding
+a complete reasoning path ˆτ. If ˆτ contains an ex-
+plicit final answer, we output it directly; otherwise,
+ˆτ is appended to the original prompt and used as
+context for generating a final answer.
+The posterior selection rule reduces the my-
+opic bias of purely local accept-reject strategies
+by weighting each child not only by how likely it
+is but by how good the paths it leads to tend to be.
+A locally improbable step that consistently leads to
+correct conclusions will be favored over a locally
+probable step that leads to wrong ones.
+4.5
+Efficient Inference via Block-wise
+Sampling
+The algorithmic pipeline involves two key design
+considerations. First, before constructing the rea-
+soning tree, the model estimates the required num-
+ber of reasoning steps N, which determines the
+tree depth needed to produce a complete reason-
+ing trajectory. Second, as N grows, the number of
+candidate nodes expands exponentially, incurring
+substantial computational overhead.
+To mitigate this complexity, we introduce a
+block-wise sampling strategy. Specifically, when
+N exceeds a predefined threshold B, we first con-
+struct and evaluate the reasoning tree for the initial
+block of steps and apply Decision-Flow selection
+to identify the best partial trajectory. The selected
+partial reasoning path is then appended to the origi-
+nal problem as context for generating subsequent
+reasoning blocks. This process repeats until the full
+Algorithm 1 Decision-Flow Sample (DF-Sample)
+1: Input: Question q, model M, branching factor K, total
+depth N, block size B, temperature α
+2: Output: Selected reasoning chain ˆτ
+3: Initialize context c ←q (question with prompt)
+4: Initialize final chain ˆτ ←∅
+5: t ←0
+6: while t < N do
+7:
+L ←min(B, N −t)
+8:
+Initialize reasoning tree T with root node v0 (using
+context c)
+9:
+// Phase 1: Hierarchical Reasoning Tree Construction
+10:
+for ℓ= 1 to L do
+11:
+for each node v at depth ℓ−1 do
+12:
+Create leaf nodes {v1
+ℓ, . . . , vK
+ℓ}
+13:
+Sample
+K
+candidate
+reasoning
+steps
+{sv1
+ℓ, . . . , svK
+ℓ} from M
+14:
+Add leaves to T
+15:
+end for
+16:
+end for
+17:
+// Phase 2: Terminal Node Energy Evaluation
+18:
+for each leaf node vL do
+19:
+Compute terminal energy E(vL) using Eq. (3)
+20:
+U(vL) ←exp(−E(vL))
+21:
+end for
+22:
+// Phase 3: Decision-Flow Backward Propagation
+23:
+for ℓ= L −1 downto 0 do
+24:
+for each node v at depth ℓdo
+25:
+U(vℓ) = P
+i pprior(vi
+ℓ+1 | vℓ) U(vi
+ℓ+1)
+26:
+end for
+27:
+end for
+28:
+// Phase 4: Posterior Path Selection
+29:
+τb ←∅, v ←v0
+30:
+while ℓ< L do
+31:
+Sample vi
+ℓwith probability
+π∗(vi
+ℓ| v) ∝pprior(vi
+ℓ| v) U(vi
+ℓ)
+32:
+Append svi
+ℓto τb
+33:
+v ←vi
+ℓ
+34:
+end while
+35:
+Append τb to ˆτ
+36:
+Update context c ←(q, ˆτ)
+37:
+t ←t + L
+38: end while
+39: return ˆτ
+reasoning depth N is reached. The Pseudocode of
+Decision-Flow Sampling is shown in Algorithm 1.
+5
+Experiments
+5.1
+Setup
+Datasets. We evaluate on four benchmarks span-
+ning maths, codes, science, and general helpfulness:
+MATH500: 500 competition-level mathematics
+problems from the MATH dataset (Lightman et al.,
+2023), covering algebra, geometry, and number
+theory. HumanEval: 164 hand-written program-
+ming tasks (Chen et al., 2021). Solutions are eval-
+uated by executing unit tests and a problem is cor-
+rect only if all tests pass. GPQA-Diamond: 198
+
+
+Table 1: Performance comparison of DF-Sample and baselines on MATH500, HumanEval, GPQA-Diamond, and
+AlpacaEval 2.0. Bold denotes the best performance. DF-Sample outperforms all baselines in most settings.
+MATH500
+HumanEval
+GPQA-Diamond
+AlpacaEval 2.0
+Qwen2.5-Math-7B
+Base
+0.496
+0.329
+0.278
+1.61
+Low-temperature
+0.690
+0.512
+0.353
+2.09
+GRPO (MATH)
+0.785
+0.537
+0.399
+2.38
+Power Sampling
+0.748
+0.573
+0.389
+2.88
+DF-Sample (Ours)
+0.818
+0.591
+0.456
+3.06
+Qwen2.5-7B
+Base
+0.498
+0.329
+0.278
+7.05
+Low-temperature
+0.628
+0.524
+0.303
+5.29
+GRPO (MATH)
+0.740
+0.561
+0.354
+7.62
+Power Sampling
+0.706
+0.622
+0.318
+8.59
+DF-Sample (Ours)
+0.736
+0.646
+0.359
+9.19
+Phi-3.5-mini-instruct
+Base
+0.400
+0.213
+0.273
+14.82
+Low-temperature
+0.478
+0.585
+0.293
+18.15
+GRPO (MATH)
+0.406
+0.134
+0.359
+16.74
+Power Sampling
+0.508
+0.732
+0.364
+17.65
+DF-Sample (Ours)
+0.544
+0.665
+0.394
+17.89
+graduate-level multiple-choice questions in physics,
+chemistry, and biology (Rein et al., 2024), the most
+difficult split of GPQA. AlpacaEval 2.0: 805 open-
+ended instruction-following prompts (Dubois et al.,
+2024). Responses are judged by GPT-4-Turbo and
+reported as a length-normalized win rate.
+Models and Baselines. We evaluate on three
+base model families: Qwen2.5-Math-7B, Qwen2.5-
+7B, and Phi-3.5-mini-instruct. We compare against
+four methods: Base model: Standard greedy de-
+coding from the base model, with no sampling
+modification; Low-temperature sampling: Ex-
+ponentiated conditional next-token distributions
+at each step(Wang et al., 2020), which sharpens
+the output distribution without constructing a tree;
+GRPO: Group Relative Policy Optimization (Shao
+et al., 2025), an RL-based fine-tuning method;
+Power sampling:
+improves reasoning by sam-
+pling many candidate reasoning segments from
+base model and selecting better replacement seg-
+ment via MCMC (Karan and Du, 2025). All base-
+line results are taken directly from the correspond-
+ing papers (Karan and Du, 2025).
+Implementations. In our implementation, fol-
+lowing prior work (Karan and Du, 2025), we set
+α = 4.0 to encourage the model to produce outputs
+with higher confidence. We use K = 3 and B = 3
+in all experiments. All other hyperparameters are
+kept consistent with the Power Sampling baseline.
+The value of R is evaluated using GPT-4o. All
+experiments are run on 2 NVIDIA A6000 GPUs.
+5.2
+Main Results
+DF-Sample consistently improves over the base
+model across all settings and outperforms the
+training-free baseline power sampling in most
+configurations. The gains are particularly strik-
+ing on GPQA-Diamond, where DF-Sample with
+Qwen2.5-Math-7B achieves 45.6% compared to
+GRPO’s 39.9%. This is notable because GPQA-
+Diamond problems require multi-step scientific
+reasoning where globally-correct paths are most
+likely to be locally counterintuitive — precisely
+the regime where global trajectory evaluation pro-
+vides the largest advantage over step-wise methods.
+On MATH500, DF-Sample achieves 81.8% with
+Qwen2.5-Math-7B, exceeding GRPO (78.5%) by
+3.3 percentage points without any parameter up-
+dates. On AlpacaEval 2.0, DF-Sample’s win rate
+improvements generalize beyond verifiable reason-
+ing tasks, suggesting that the latent path hypothesis
+extends to general instruction following.
+5.3
+Analysis
+Token likelihood distribution. Figure 6 shows
+the histogram of length-normalized sequence log-
+likelihoods for DF-Sample, GRPO, and power sam-
+pling on MATH500. GRPO concentrates mass in
+a narrow high-likelihood region, consistent with
+distribution sharpening. DF-Sample is biased to-
+ward higher likelihood but retains a broader spread
+than GRPO, indicating it accesses a wider region
+
+
+1.0
+0.8
+0.6
+0.4
+0.2
+0.0
+Average Log-Likelihood
+0
+5
+10
+15
+Density
+GRPO
+Power Sampling
+DF-Sample (Ours)
+Figure 6: The average log-likelihood of Ours, power
+sampling, and GRPO responses over MATH500.
+1.0
+0.8
+0.6
+0.4
+0.2
+0.0
+Average Confidence
+0
+2
+4
+6
+8
+10
+Density
+GRPO
+Power Sampling
+DF-Sample (Ours)
+Figure 7: The average token confidence of Ours, power
+sampling, and GRPO responses over MATH500.
+Base
+GRPO
+Power
+Sampling
+DF-Sample (Ours)
+0
+200
+400
+600
+800
+Average Response Tokens
+600
+671
+679
+620
+Figure 8: DF-Sample (Ours) vs. baselines on average
+generated tokens with Qwen2.5-Math-7B on
+MATH500 dataset.
+of the base model’s distribution while still favoring
+higher-quality paths.
+Token-level confidence. Figure 7 compares the
+distribution of token-level confidence, defined as
+the average negative confidence of next-token pre-
+dictions.
+Conf(x0:T ) =
+1
+T+1
+PT
+t=0
+P
+x∈X p(x | x<t) log p(x | x<t).
+(8)
+GRPO responses concentrate near the highest-
+confidence region, indicating that the generated
+tokens are typically produced in locally confident
+contexts under the base model. Power sampling
+shows a somewhat broader distribution of con-
+fidence values.
+In contrast, DF-Sample shows
+the largest spread and extends furthest into low-
+confidence regions. This reveals that DF-Sample is
+selecting paths through parts of the reasoning space
+where the model is locally uncertain but globally
+correct, precisely the latent paths the method is
+designed to recover.
+Average response lengths and latency. Fig-
+ure 8 compares the average number of tokens gen-
+erated for DF-Sample, power sampling, and GRPO
+relative to the base model on the MATH500 dataset.
+Power sampling produces the longest responses,
+followed by GRPO, indicating that these meth-
+ods tend to generate longer reasoning trajectories.
+Power
+Sampling
+2
+3
+4
+0
+20
+40
+60
+Accuracy (%)
+38.9
+39.4
+45.6
+54.0
+K
+Figure 9: Accuracy comparison of DF-Sample (with
+different K) and Power-Sampling with
+Qwen2.5-Math-7B on GPQA-Diamond.
+In contrast, DF-Sample generates responses with
+lengths of about 619 comparable to the base model
+of about 600. This suggests that DF-Sample tends
+to select relatively shorter reasoning trajectories
+while still preserving relatively correct answers.
+On the MATH500 dataset with Qwen2.5-Math-7B,
+power sampling requires about 340 seconds per
+question, while DF-Sample takes around 384 sec-
+onds. Despite the slightly longer inference time,
+DF-Sample achieves 81.8% accuracy, outperform-
+ing power sampling by 7.0%.
+5.4
+Ablation Study
+Impact of K. Figure 9 shows the performance
+of DF-Sample on GPQA with Qwen2.5-Math-7B
+under different K. The model is more likely to find
+correct reasoning paths with larger K, achieving
+higher accuracy. For example, the accuracy is only
+about 1% higher than power sampling when K =
+2, while when K = 4 it improves by about 18%.
+However, larger K increases inference latency, so
+we set K = 3 to balance accuracy and efficiency.
+Pass@k. Figure 10 compares the pass@k accu-
+racy of DF-Sample and baselines on the MATH500
+dataset. DF-Sample achieves the highest pass@1
+and pass@2 accuracy, with advantages particularly
+pronounced in the low-k regime. As k increases,
+the performance of the two methods becomes com-
+
+
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10 11 12 13 14 15 16
+k
+0.4
+0.5
+0.6
+0.7
+0.8
+0.9
+1.0
+Pass@k
+Power Sampling
+Base
+GRPO
+DF-Sample (Ours)
+Figure 10: DF-Sample (Ours) vs. baselines on relative
+Pass@k accuracy to base model (Qwen2.5-Math- 7B)
+on MATH500 dataset.
+Table 2: Ablation study on α on the GPQA-Diamond
+dataset using Qwen2.5-Math-7B.
+Value of α
+Accuracy (%)
+100
+30.3
+10
+40.9
+5
+48.0
+4
+45.9
+1
+27.8
+parable, with power sampling slightly surpassing
+DF-Sample at a few larger k values. Nevertheless,
+the differences remain small, indicating that DF-
+Sample is highly effective at extracting correct rea-
+soning paths, especially when only a small number
+of samples are available.
+Impact of temperature coefficient α. Table 2
+reports the ablation on the temperature coefficient
+α on GPQA with Qwen2.5-Math-7B. When α is
+too large, sampling overly favors high-probability
+reasoning paths and degrades accuracy. When α is
+too small, the distribution becomes overly flat and
+lacks sufficient discrimination among candidate
+reasoning paths. We observe the best performance
+when α > 1 with moderate values (around 4 or 5).
+6
+Related works
+RL for LLM reasoning. RL-based approaches im-
+prove reasoning through post-training. Early work
+applies RLHF (Dong et al., 2024) to align outputs
+with human preferences, while more recent meth-
+ods adopt reinforcement learning with verifiable
+rewards (RLVR) that directly optimize task cor-
+rectness using automated verifiers (Lambert et al.,
+2024; Guo et al., 2025; Zeng et al., 2025). GRPO
+(Shao et al., 2025) is a representative RLVR method
+that improves reasoning via group-relative policy
+updates. Despite strong results, such approaches re-
+quire expensive fine-tuning and may reduce output
+diversity (Shao et al., 2025; He et al., 2025). In con-
+trast, DF-Sample achieves similar improvements
+without parameter updates.
+Inference-Time Reasoning Search. Another
+line of work improves reasoning by allocating addi-
+tional inference-time computation. Methods such
+as Tree of Thoughts (Yao et al., 2023), HyperTree
+(Gui et al., 2025), and ReST-MCTS (Zhang et al.,
+2024) explore tree-structured reasoning search,
+while adaptive branching dynamically allocates
+compute during reasoning (Inoue et al., 2025).
+Power Sampling (Karan and Du, 2025) reshapes
+reasoning distributions via MCMC-style sampling.
+In contrast, DF-Sample evaluates reasoning trajec-
+tories using global path-level utilities.
+Sampling-Based Methods. Sampling-based ap-
+proaches such as MCMC and Generative Flow Net-
+works (GFlowNets) (Bengio et al., 2021) reshape or
+approximate a model’s output distribution to favor
+high-reward trajectories (Neal, 2001). For exam-
+ple, QUEST (Faria et al., 2024) applies a Metropo-
+lis–Hastings variant to iteratively resample model
+outputs, while annealed sampling (Karan and Du,
+2025) sharpens the output distribution via temper-
+ature scheduling. The Decision Flow framework
+(Chertkov et al., 2025) formulates trajectory sam-
+pling using a GFlowNet-style approach with back-
+ward regression over sequence graphs. Building on
+this idea, DF-Sample applies decision-flow-style
+evaluation to reasoning trajectories, improving rea-
+soning accuracy in LLMs.
+7
+Conclusion
+In this paper, we propose Decision-Flow Sam-
+pling (DF-Sample), a training-free inference-time
+sampling framework for improving reasoning per-
+formance in LLMs. Unlike conventional decod-
+ing strategies that rely on local step-wise proba-
+bilities, DF-Sample constructs a hierarchical rea-
+soning tree and performs global trajectory-level
+evaluation through terminal-node utility estimation
+and backward utility propagation. By integrating
+generation probabilities with propagated utilities,
+our method effectively identifies high-quality yet
+low-probability reasoning paths that are often over-
+looked during standard decoding. Extensive experi-
+ments across diverse reasoning benchmarks demon-
+strate that DF-Sample consistently improves over
+base models and competitive sampling baselines,
+and achieves performance comparable to RL-based
+approaches without any parameter updates.
+
+
+Limitations
+DF-Sample operates purely at inference time and
+does not modify model parameters. While this de-
+sign enables training-free improvements, it also
+raises the question of whether the reasoning pat-
+terns discovered during sampling could be distilled
+back into the model through training or fine-tuning.
+For example, future work could explore integrating
+DF-Sample-style trajectory selection with learning-
+based approaches, allowing models to internalize
+effective reasoning strategies rather than relying
+solely on search during inference.
+References
+Emmanuel Bengio, Moksh Jain, Maksym Korablyov,
+Doina Precup, and Yoshua Bengio. 2021.
+Flow
+network based generative models for non-iterative
+diverse candidate generation. Advances in neural
+information processing systems, 34:27381–27394.
+Mark Chen, Jerry Tworek, Heewoo Jun, Qiming Yuan,
+Henrique Ponde de Oliveira Pinto, Jared Kaplan,
+Harri Edwards, Yuri Burda, Nicholas Joseph, Greg
+Brockman, Alex Ray, Raul Puri, Gretchen Krueger,
+Michael Petrov, Heidy Khlaaf, Girish Sastry, Pamela
+Mishkin, Brooke Chan, Scott Gray, and 39 others.
+2021. Evaluating large language models trained on
+code. Preprint, arXiv:2107.03374.
+Michael Chertkov, Sungsoo Ahn, and Hamidreza
+Behjoo. 2025.
+Sampling decisions.
+Preprint,
+arXiv:2503.14549.
+Hanze Dong, Wei Xiong, Bo Pang, Haoxiang Wang,
+Han Zhao, Yingbo Zhou, Nan Jiang, Doyen Sahoo,
+Caiming Xiong, and Tong Zhang. 2024. Rlhf work-
+flow: From reward modeling to online rlhf. arXiv
+preprint arXiv:2405.07863.
+Marius Dragoi, Ioana Pintilie, Florin Gogianu, and
+Florin Brad. 2025. Beyond pass@ k: Breadth-depth
+metrics for reasoning boundaries.
+arXiv preprint
+arXiv:2510.08325.
+Yann Dubois, Balázs Galambosi, Percy Liang, and Tat-
+sunori B Hashimoto. 2024. Length-controlled al-
+pacaeval: A simple way to debias automatic evalua-
+tors. arXiv preprint arXiv:2404.04475.
+Gonçalo Faria, Sweta Agrawal, António Farinhas,
+Ricardo Rei, José de Souza, and André Martins.
+2024.
+Quest: Quality-aware metropolis-hastings
+sampling for machine translation.
+Advances in
+Neural Information Processing Systems, 37:89042–
+89068.
+Runquan Gui, Zhihai Wang, Jie Wang, Chi Ma, Huiling
+Zhen, Mingxuan Yuan, Jianye Hao, Defu Lian, En-
+hong Chen, and Feng Wu. 2025. Hypertree planning:
+Enhancing llm reasoning via hierarchical thinking.
+Preprint, arXiv:2505.02322.
+Daya Guo, Dejian Yang, Haowei Zhang, Junxiao
+Song, Ruoyu Zhang, Runxin Xu, Qihao Zhu, Shi-
+rong Ma, Peiyi Wang, Xiao Bi, and 1 others. 2025.
+Deepseek-r1: Incentivizing reasoning capability in
+llms via reinforcement learning.
+arXiv preprint
+arXiv:2501.12948.
+Zhezheng Hao, Hong Wang, Haoyang Liu, Jian Luo,
+Jiarui Yu, Hande Dong, Qiang Lin, Can Wang, and
+Jiawei Chen. 2025.
+Rethinking entropy interven-
+tions in rlvr: An entropy change perspective. arXiv
+preprint arXiv:2510.10150.
+Andre Wang He, Daniel Fried, and Sean Welleck.
+2025.
+Rewarding the unlikely: Lifting grpo be-
+yond distribution sharpening. In Proceedings of the
+2025 Conference on Empirical Methods in Natural
+Language Processing, pages 25559–25571.
+Dan Hendrycks, Collin Burns, Saurav Kadavath, Akul
+Arora, Steven Basart, Eric Tang, Dawn Song, and Ja-
+cob Steinhardt. 2021. Measuring mathematical prob-
+lem solving with the math dataset. arXiv preprint
+arXiv:2103.03874.
+Jingcheng Hu, Yinmin Zhang, Qi Han, Daxin Jiang, Xi-
+angyu Zhang, and Heung-Yeung Shum. 2025. Open-
+reasoner-zero: An open source approach to scaling
+up reinforcement learning on the base model. arXiv
+preprint arXiv:2503.24290.
+Yuichi Inoue, Kou Misaki, Yuki Imajuku, So Kuroki,
+Taishi Nakamura, and Takuya Akiba. 2025. Wider
+or deeper?
+scaling llm inference-time compute
+with adaptive branching tree search.
+Preprint,
+arXiv:2503.04412.
+Aayush Karan and Yilun Du. 2025. Reasoning with
+sampling: Your base model is smarter than you think.
+arXiv preprint arXiv:2510.14901.
+Nathan Lambert, Jacob Morrison, Valentina Pyatkin,
+Shengyi Huang, Hamish Ivison, Faeze Brahman,
+Lester James V Miranda, Alisa Liu, Nouha Dziri,
+Shane Lyu, and 1 others. 2024. Tulu 3: Pushing fron-
+tiers in open language model post-training. arXiv
+preprint arXiv:2411.15124.
+Yujia Li, David Choi, Junyoung Chung, Nate Kushman,
+Julian Schrittwieser, Rémi Leblond, Tom Eccles,
+James Keeling, Felix Gimeno, Agustin Dal Lago, and
+1 others. 2022. Competition-level code generation
+with alphacode. Science, 378(6624):1092–1097.
+Xiao Liang, Zhongzhi Li, Yeyun Gong, Yelong Shen,
+Ying Nian Wu, Zhijiang Guo, and Weizhu Chen.
+2025.
+Beyond pass@ 1:
+Self-play with varia-
+tional problem synthesis sustains rlvr. arXiv preprint
+arXiv:2508.14029.
+Hunter Lightman, Vineet Kosaraju, Yura Burda, Harri
+Edwards, Bowen Baker, Teddy Lee, Jan Leike,
+John Schulman, Ilya Sutskever, and Karl Cobbe.
+2023.
+Let’s verify step by step.
+Preprint,
+arXiv:2305.20050.
+
+
+Radford M Neal. 2001. Annealed importance sampling.
+Statistics and computing, 11(2):125–139.
+David Rein, Betty Li Hou, Asa Cooper Stickland, Jack-
+son Petty, Richard Yuanzhe Pang, Julien Dirani, Ju-
+lian Michael, and Samuel R Bowman. 2024. Gpqa:
+A graduate-level google-proof q&a benchmark. In
+First Conference on Language Modeling.
+Rulin Shao, Shuyue Stella Li, Rui Xin, Scott Geng, Yip-
+ing Wang, Sewoong Oh, Simon Shaolei Du, Nathan
+Lambert, Sewon Min, Ranjay Krishna, and 1 others.
+2025. Spurious rewards: Rethinking training signals
+in rlvr. arXiv preprint arXiv:2506.10947.
+Yuda Song, Julia Kempe, and Remi Munos. 2025.
+Outcome-based exploration for llm reasoning. arXiv
+preprint arXiv:2509.06941.
+Hadi Vafaii, Dekel Galor, and Jacob L Yates. 2025.
+Brain-like variational inference. ArXiv, pages arXiv–
+2410.
+Pei-Hsin Wang, Sheng-Iou Hsieh, Shih-Chieh Chang,
+Yu-Ting Chen, Jia-Yu Pan, Wei Wei, and Da-Chang
+Juan. 2020. Contextual temperature for language
+modeling. Preprint, arXiv:2012.13575.
+Chao Wu, Baoheng Li, Mingchen Gao, and Zhenyi
+Wang. 2025. From efficiency to adaptivity: A deeper
+look at adaptive reasoning in large language models.
+Preprint, arXiv:2511.10788.
+Shunyu Yao, Dian Yu, Jeffrey Zhao, Izhak Shafran,
+Thomas L. Griffiths,
+Yuan Cao,
+and Karthik
+Narasimhan. 2023.
+Tree of thoughts:
+Deliber-
+ate problem solving with large language models.
+Preprint, arXiv:2305.10601.
+Yang Yue, Zhiqi Chen, Rui Lu, Andrew Zhao, Zhaokai
+Wang, Shiji Song, and Gao Huang. 2025. Does re-
+inforcement learning really incentivize reasoning ca-
+pacity in llms beyond the base model? arXiv preprint
+arXiv:2504.13837.
+Weihao Zeng, Yuzhen Huang, Qian Liu, Wei Liu, Ke-
+qing He, Zejun Ma, and Junxian He. 2025. Simplerl-
+zoo: Investigating and taming zero reinforcement
+learning for open base models in the wild. arXiv
+preprint arXiv:2503.18892.
+Dan Zhang, Sining Zhoubian, Ziniu Hu, Yisong Yue,
+Yuxiao Dong, and Jie Tang. 2024. Rest-mcts*: Llm
+self-training via process reward guided tree search.
+Preprint, arXiv:2406.03816.
+Kaiyan Zhang, Yuxin Zuo, Bingxiang He, Youbang Sun,
+Runze Liu, Che Jiang, Yuchen Fan, Kai Tian, Guoli
+Jia, Pengfei Li, and 1 others. 2025. A survey of
+reinforcement learning for large reasoning models.
+arXiv preprint arXiv:2509.08827.
