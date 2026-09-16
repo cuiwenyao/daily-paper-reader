@@ -1,0 +1,1687 @@
+Title: ABSOL: Aggregated Bayesian Subsampling Orchestrated with LLMs
+
+URL Source: https://arxiv.org/pdf/2609.15007v1
+
+Published Time: Tue, 15 Sep 2026 01:53:27 GMT
+
+Number of Pages: 24
+
+Markdown Content:
+## ABSOL: Aggregated Bayesian Subsampling Orchestrated with LLMs 
+
+Jackson Hassell 
+
+Megagon Labs 
+
+jackson@megagon.ai 
+
+Chen Shen 
+
+Megagon Labs 
+
+chen_s@megagon.ai 
+
+Estevam Hruschka 
+
+Megagon Labs 
+
+estevam@megagon.ai 
+
+Abstract 
+
+Large language models are increasingly used as natural-language interfaces to structured data, yet they remain unreliable when an-swers require consistent evidence condition-ing, dependency-aware reasoning, and uncer-tainty estimation. Bayesian networks provide an explicit probabilistic reasoning layer, but learning useful structures from data remains costly and fragile at scale. We introduce 
+
+ABSOL , a hybrid LLM-guided Bayesian net-work structure-learning framework that uses LLMs as bounded semantic guides. Across five discrete BN benchmarks spanning 27 to 1041 nodes, ABSOL is the only evaluated method to produce a viable graph on every benchmark, and achieves the highest Edge F1 on every benchmark larger than 27 nodes with GPT-5.4. The four LLM augmentations, which contribute complementary semantic evidence to the sta-tistical backbone, improve Edge F1 over the non-LLM aggregation backbone by +0.23 on average. Complementary post-hoc refinement experiments suggest that these gains depend in part on limiting the LLM’s authority over the fi-nal structure. Together, these results show that language-derived semantic knowledge can sub-stantially improve scalable probabilistic struc-ture learning when used as bounded guid-ance within a statistically grounded reasoning pipeline. The code for ABSOL is available at 
+
+github .com/megagonlabs/absol-bn .
+
+1 Introduction 
+
+Bayesian networks (BNs) represent dependencies among variables as a directed acyclic graph and support well-defined probabilistic inference over evidence, targets, and latent relationships (Pearl, 1988; Koller and Friedman, 2009). Constructing useful BNs at realistic scale remains difficult, how-ever: manual specification is infeasible for domains with hundreds of variables, and purely data-driven structure learning is computationally expensive, sta-tistically fragile, and sensitive to finite-sample ef-fects (Scutari et al., 2019; Kitson et al., 2023). At the same time, LLMs encode substantial se-mantic knowledge about how domain variables tend to relate: which are plausibly associated, which parent-child directions are semantically nat-ural under a BN interpretation, and which rela-tionships are unlikely or only indirectly mediated (Long et al., 2023; Darvariu et al., 2024; Ban et al., 2025). Recent NLP work on LLM-guided causal discovery and Bayesian Network structure elici-tation either delegate graph construction directly to the LLM or interleave LLM guidance with a full-data statistical learner (Zhang et al., 2026; Ji-ralerspong et al., 2024; Babakov et al., 2025b; Long et al., 2023; Feng et al., 2025; Zhou et al., 2024; Babakov et al., 2025a), but neither path has been shown to scale to probabilistic models with hun-dreds of variables. We introduce ABSOL (Figure 1), a hybrid LLM-guided BN structure-learning pipeline that scales to networks with hundreds of variables. Rather than asking an LLM to generate an entire graph, ABSOL 
+
+uses it only at bounded decision points, where se-mantic knowledge guides search while a statistical learner retains authority over structural decisions. This places ABSOL within a broader NLP-systems pattern of using LLMs not as unconstrained predic-tors, but as semantic controllers inside verifiable, statistically grounded reasoning pipelines. To improve scalability, ABSOL learns BN sub-graphs on many row-and-column subsampled ta-bles and aggregates their edge-level decisions into a single global structure (Section 3.2), drawing on the idea that stable structural signals can be re-covered through repeated resampling and aggre-gation (Breiman, 1996; Friedman et al., 1999a; Meinshausen and Bühlmann, 2010; Scutari and Nagarajan, 2013). To incorporate semantic knowledge and com-pensate for the reduced sample size in each sub-arXiv:2609.15007v1 [cs.CL] 14 Sep 2026 Column                                                                          
+
+> Grouping
+> Clusters related
+> variables to bias subset
+> draws
+> Adaptive
+> Sampling
+> Identifies high-
+> uncertainty nodes for
+> targeted resampling
+> Parent
+> Ordering
+> Reranks candidate
+> parents by causal
+> plausibility
+> Cycle
+> Arbitration
+> Drops least plausible
+> edges to break cycles
+> Tabular Data
+> Subset
+> Sampling
+> N row × col subsets
+> Per-sample
+> GES
+> Generates per-subset
+> DAGs
+> Aggregate
+> Edges
+> Identify all parent
+> candidates per node
+> Graph
+> Construction
+> Add ranked edges
+> greedily
+> Final DAG
+> Structure
+> X₁ X₃ X₅
+> 120
+> 011
+> ⋮⋮⋮
+> X₁ X₃ X₅
+> 120
+> 011
+> ⋮⋮⋮
+> X₁ X₃ X₅
+> 120
+> 011
+> ⋮⋮⋮
+> A
+> C
+> D
+> BC
+> D
+> A
+> BC
+> DEF
+> G
+> 12
+> 123
+> A
+> BC
+> DEF
+> G
+> 12
+> 345
+> 67
+> ✗
+> X₁ X₃ X₅
+> 120
+> 011
+> ⋮⋮⋮
+> A
+> BC
+> DEF
+> G
+> X₁ X₂ X₃ ... X₄
+> 102... 1
+> 011... 0
+> 200... 2
+> 001... 1
+> ⋮⋮⋮⋱⋮
+> Subsample Aggregation
+> LLM Augmentation
+
+Figure 1: The ABSOL algorithm. Blue components form the subsample-aggregated GES+BD EU backbone, and orange components are the four bounded LLM augmentations, each acting at a fixed decision point. Graph construction is specified fully in Algorithm 1. 
+
+sampled round, ABSOL consults the LLM at four bounded augmentations (Section 3.3): identifying variables likely to interact (Column Grouping), fo-cusing additional sampling on ambiguous decisions (Adaptive Sampling), ranking candidate parents (Parent Ordering), and resolving local acyclicity conflicts (Cycle Arbitration). This design follows the emerging view that LLMs are more reliable as bounded priors than as autonomous generators of complete dependency graphs (Darvariu et al., 2024; Ban et al., 2025; Du et al., 2025). We evaluate 
+
+ABSOL on five discrete BN benchmarks ranging from 27 to 1041 nodes to test whether bounded LLM guidance remains useful at scales where di-rect LLM graph generation and full-data search become impractical. Our results show that bounded LLM guid-ance substantially improves BN structure learning. Across benchmarks, ABSOL achieves the high-est Edge F1 among the compared methods under GPT-5.4 at every scale except I NSURANCE . Under our evaluated implementations and computational budgets, no baseline produces a usable graph be-yond N EUROPATHIC (222 nodes), whereas ABSOL 
+
+runs successfully on D IABETES (413 nodes) and MUNIN (1041 nodes). Ablations show that the four LLM-guided components improve Edge F1 on ev-ery benchmark over ABSOL noLLM , with an average absolute lift of +0 .23 and the largest relative gains on the largest graphs. Conversely, the post-hoc re-finement variants in Appendix G, which give the LLM unilateral editing authority, reduce Edge F1
+
+in eight of nine tested settings. In summary, our contributions are threefold. First, we provide an empirical account of how language-derived semantic knowledge can be integrated with statistical evidence, contrasting bounded LLM guidance with direct graph genera-tion and post-hoc editing. Second, we introduce a scalable subsample-aggregation backbone that de-composes large BN structure learning into tractable local searches. Third, we provide an empirical study of LLM semantic guidance at scale, show-ing improvements across BN benchmarks up to 1041 nodes and isolating the contribution of each bounded LLM augmentation. 
+
+2 Related Work 
+
+2.1 Bayesian Network Structure Learning 
+
+Bayesian network structure learning recovers a graph over variables from data (Pearl, 1988; Koller and Friedman, 2009). Existing methods fall into three families: constraint-based (e.g., PC), score-based (e.g., GES with BDeu scoring), and hybrid approaches (Kitson et al., 2023). For discrete data, GES+BD EU is the standard score-based base-line (Heckerman et al., 1995; Chickering, 2002). 
+
+ABSOL keeps GES+BD EU as the statistical core, but uses it through subsampled aggregation rather than a single full-data search. 
+
+2.2 Scaling Structure Learning Through Aggregation 
+
+Scaling structure learning to high-dimensional set-tings is challenging both algorithmically and statis-tically. Prior work reduces per-instance complexity by restricting the search space before learning – via candidate-parent restriction (Friedman et al., 1999b), local skeleton discovery combined with score search (Tsamardinos et al., 2006), greedy-search optimization for large data (Scutari et al., 2019), or learning and merging subgraphs from separate variable-space partitions (Bernaola et al., 2023) – at the cost of potentially missing long-range dependencies. A complementary framing asks which structural features persist under data perturbations. Bootstrap aggregation (Breiman, 1996), applied to BN anal-ysis, scores edge and Markov-blanket confidence by learning networks across resampled tables, with follow-up work refining model-averaging choices, replicate counts, and edge-confidence thresholds (Friedman et al., 1999a; Broom et al., 2012; Scutari and Nagarajan, 2013). Stability selection general-izes this intuition through subsampling followed by selection-frequency thresholds (Meinshausen and Bühlmann, 2010). ABSOL extends this line by learning overlapping variable subproblems with GES+BD EU and aggregating edge decisions under an explicit finite-sample bound. 
+
+2.3 LLM-Augmented Structure Learning for Bayesian Networks 
+
+LLM-augmented causal discovery operates at mul-tiple stages, with varying LLM roles in the final structure decision. LLM-primary graph construc-tion methods such as bfsBN (Jiralerspong et al., 2024) use the LLM to directly construct candi-date graph structure, reaching 222 nodes on Neuro-pathic. Hybrid methods instead constrain the LLM to guide rather than decide. In-process guidance during algorithm execution appears most effective: score-based methods like Harmonized Prior (Ban et al., 2025) decompose LLM judgments into soft constraints for GES+BD EU scoring (reaching 109 nodes on Pathfinder), while constraint-based ap-proaches like LLM-CD (Du et al., 2025) insert LLM guidance at skeleton construction and edge-orientation phases. Post-learning verification ap-plies LLM feedback after structure recovery: Cau-Scientist (Peng et al., 2026) validates LLM propos-als against data, and iterative refinement (Ban et al., 2023) cycles between learning and LLM-guided improvement suggestions. In the hybrid and in-process settings, a consistent principle holds: the data-driven learner (GES+BD EU or PC) retains final authority over structural decisions, with the LLM as a biasing signal rather than the decision mechanism. ABSOL follows this guidance-based pattern, but applies LLM augmentation across a subsample-aggregation pipeline rather than a sin-gle full-data learner. 
+
+3 ABSOL Method 
+
+3.1 Problem Definition and Standard BN Learning 
+
+Let D = {x(r)}nr=1 be a discrete data table with n
+
+rows and variables X1, . . . , X p. A Bayesian net-work (BN) consists of a directed acyclic graph G
+
+and local conditional distributions over these vari-ables (Pearl, 1988; Koller and Friedman, 2009). Writing Pa i(G) for the parents of Xi, the graph induces the factorization 
+
+P (X1, . . . , X p) = 
+
+> p
+
+Y
+
+> i=1
+
+P (Xi | Pa i(G)) . (1) The structure-learning task is to estimate G from 
+
+D.We use score-based BN structure learning as the statistical reference. A score-based learner assigns a data-dependent score to each candidate graph and searches for a high-scoring structure. For discrete variables, we use the Bayesian Dirichlet equivalent uniform (BDeu) score (Heckerman et al., 1995). Because BDeu decomposes across node families, local graph operations can be evaluated by rescoring only the affected child families. We pair this score with Greedy Equivalence Search (GES), which greedily searches over Markov-equivalence classes of DAGs using local insert/delete operators (Chickering, 2002). For any table D′, whether the full data D or a row/variable subtable, let SBDeu (G; D′) denote the BDeu score of graph G on D′. We define the GES+BD EU base learner A and its full-data refer-ence output as 
+
+A(D′) := GES  D′; SBDeu (·; D′),Gstd := A(D). (2) Here Gstd denotes the graph returned by full-data GES+BD EU , which need not be the global maximizer of the BDeu score. The aggregation analysis below is therefore learner-relative: it asks when many smaller A(D′) runs reproduce the deci-sions of the full-data reference learner, rather than claiming recovery of the unknown causal graph. 3.2 Subsample-Aggregated BN Learning 
+
+Full-data A is expensive because score-based BN search may need to enumerate parent/oper-ator subsets, which is exponential in p in the worst case. ABSOL instead runs B independent searches on k-variable subtables, with total search cost O(B T GES (m, k )) (Table 2). The costly search therefore happens inside k-variable sub-problems; p enters the aggregation budget through the endpoint co-sampling probability πelig =
+
+k(k−1) /(p(p−1)) .In round b, ABSOL samples m rows and k vari-ables uniformly without replacement, runs A on the induced subtable, and embeds the learned graph 
+
+bG(b) back into the full variable set. 1
+
+We aggregate the learned structures by co-occurrence voting . For an unordered edge e =
+
+{u, v } over the original p variables, let ce denote the number of rounds in which both endpoints were co-sampled ( {u, v } ⊆ Cb). For any graph 
+
+G, let Eskel (G) denote its unordered adjacency set. Throughout this subsection, e ∈ G means 
+
+e ∈ Eskel (G), i.e., the two endpoints are adjacent regardless of direction. Thus, the aggregation guar-antee below concerns adjacency inclusion; directed assembly is handled downstream, with parent or-dering and cycle arbitration providing the LLM-augmented cases in Section 3.3. Define 
+
+bfe =
+
+( 1
+
+> ce
+
+P 
+
+> b:{u,v }⊆ Cb
+
+1{e ∈ bG(b)}, if ce > 0,
+
+0, if ce = 0 .
+
+(3) Rounds in which either endpoint is absent from Cb
+
+are excluded from both numerator and denomina-tor; only rounds with genuine co-occurrence con-tribute. On ce > 0, bfe is an unbiased estimator of 
+
+pco  
+
+> e
+
+= Pr[ e ∈ bG(b) | { u, v } ⊆ Cb], the edge proba-bility conditional on co-sampling. Co-occurrence voting removes the mechanical shrinkage by the endpoint-eligibility rate πelig ; however, pco  
+
+> e
+
+can still depend on the variable budget k through the other variables co-sampled in the subproblem. The ap-pendix derives the resulting concentration bound, including the case ce = 0 . Given a threshold τ , the aggregated graph is 
+
+bGB (τ ) = {e : bfe ≥ τ }. (4) We next formalize two properties of the aggre-gated graph: it approximates the full-data reference 
+
+> 1Experiments include both this backbone and the LLM-augmented variants in Section 3.3; the bound here applies to the backbone.
+
+learner on certifiable edge decisions, and its fail-ure probability can be controlled by the number of subsampling rounds. 
+
+Theorem (Aggregation approximation). Let 
+
+Gstd be the full-data output of A from Eq. 2. Let Mcert be the set of edges whose include/ex-clude verdict can be certified via the full-data GES operator trace; let Mcert = |M cert |. For each certified edge e ∈ M+cert (included in 
+
+Gstd ), define the positive margin a+ 
+
+> e
+
+= pco  
+
+> e
+
+−
+
+τ ; for e ∈ M− 
+
+> cert
+
+(excluded from Gstd ), de-fine the negative margin a− 
+
+> e
+
+= τ − pco  
+
+> e
+
+. Let 
+
+amin = min 
+
+n
+
+min e∈M +cert 
+
+a+ 
+
+> e
+
+, min e∈M −
+
+> cert
+
+a−
+
+> e
+
+o
+
+be the weakest signed margin, with empty positive or negative classes omitted. Under regularity, path-stability, and independent-round assumptions, if 
+
+amin > 0, then 
+
+Pr 
+
+h bGB (τ ) ∩ M cert ̸ = Gstd ∩ M cert 
+
+i
+
+≤ Mcert 
+
+ 1 − πelig 
+
+ 1 − exp( −2a2min ) B .
+
+(5) The failure probability decays exponentially in B;the certified-universe construction, path-stability conditions, and detailed proofs are deferred to Appendix A. The theorem characterizes the subsample-aggregation backbone, and it does not provide a practical certificate for a full ABSOL 
+
+run. Its practical role is to separate finite-vote dis-agreement, which additional rounds reduce, from limitations in each subsample’s information that additional rounds cannot remove. 
+
+Corollary (Aggregation budget). Since the real-ized margin amin is not known a priori, we fix a target resolvable margin atarget ∈ (0 , 1/2] and a pre-specified upper bound M0 ≤  p
+
+> 2
+
+ on certified edges. Applying the standard bound (1 − x)B ≤
+
+exp( −Bx ) to Eq. 5 at 5% failure probability yields the sufficient design rule 
+
+B95 (atarget ) = 
+
+&
+
+log(20 M0)
+
+πelig (1 − exp( −2a2target )) 
+
+'
+
+,
+
+(6) where πelig = k(k−1) /(p(p−1)) is the endpoint co-occurrence probability. For small margins 
+
+atarget ≪ 1, the formula simplifies to the approxi-mation 
+
+B95 (atarget ) ≈
+
+&
+
+log(20 M0)2πelig a2target 
+
+'
+
+.
+
+We use atarget = 0 .10 as a reference margin for planning the subsample budget. Because amin is not known a priori, Eq. 6 gives a conservative sufficient budget rather than a dataset-specific opti-mum. In the main experiments, we use a common experimental budget of B = 1000 (Table 6) for all datasets without per-dataset tuning. Appendix C reports how aggregation behaves as B varies, and Appendix A.8 lists the diagnostics for applying the bound. 
+
+3.3 LLM Augmentation Strategies 
+
+The aggregated learner bGB (τ ) is grounded in data but blind to variable meaning. ABSOL consults an LLM through four bounded augmentations in the pipeline (Figure 1, Algorithm 1), using semantic knowledge while keeping GES+BD EU as the sta-tistical backbone. Each LLM response is parsed and validated before use, and if validation fails, the corresponding step falls back to its statistical base-line. All LLM calls receive short natural-language descriptions of each variable and its discrete states (Appendix F.2). Hyperparameters, prompt tem-plates, and implementation details are deferred to Appendix B. 
+
+Column Grouping Uniform variable subsampling can waste rounds on subsets whose variables are unlikely to interact. For each Xi, we ask the LLM which variables are plausible direct causes or ef-fects, and symmetrize the responses into an adja-cency graph GLLM . During variable sampling, pairs adjacent in GLLM are upweighted to co-occur more often, concentrating the fixed subsampling budget on semantically plausible dependencies. 
+
+Adaptive Sampling After the initial B rounds, edges with vote frequencies near τ are ambigu-ous; we score this ambiguity by the Bernoulli en-tropy of bfe. For nodes incident to high-entropy edges, the LLM is shown the uncertain candidates and their vote frequencies, then asked which addi-tional variables should be co-sampled as possible confounders, mediators, or disambiguators. Addi-tional rounds force-include the suggested variables, and their edge votes and co-occurrence counts are merged with the initial pool (Algorithm 2). 
+
+Parent Ordering Raw vote frequency ranks asso-ciation strength, not causal direction: direct causes can be mixed with confounded or transitively corre-lated variables. For each node, the LLM sees every candidate parent with its subsampling support and returns a ranked list of plausible direct causes. This resembles prior-evaluation approaches for LLM causal knowledge (Darvariu et al., 2024), but the ranking is used inside the aggregation pipeline rather than supplied as external constraints to a separate discovery algorithm. 
+
+Cycle Arbitration Unlike broader LLM-based graph cleanup or refinement (Du et al., 2025; Ban et al., 2023), ABSOL invokes the LLM only when greedy assembly would violate acyclicity, limit-ing semantic intervention to local cases where the statistical assembler would otherwise reject a candi-date edge. When a candidate edge P → C would close one or more cycles, we enumerate the di-rected paths C ; P in the graph and ask the LLM for a subset of path edges whose removal breaks every offending path. We also evaluated a fifth augmentation, post-hoc graph refinement in the style of prior LLM-based refinement work (Ban et al., 2023). Because this variant consistently degraded performance, we exclude it from ABSOL and report the structural failure mode in Appendix G. 
+
+3.4 Augmentation Assembly 
+
+The four LLM augmentations intervene at distinct stages of the ABSOL pipeline. Before structure learning begins, column grouping constructs a se-mantic adjacency graph that biases the variable-subset sampler toward placing plausibly related variables in the same subproblems. ABSOL then performs the initial row-and-column subsampling rounds, runs GES+BD EU on each induced sub-table, and aggregates the resulting directed-edge observations using co-occurrence-normalized sup-port. Adaptive sampling is applied after this ini-tial aggregation stage: directed edges with suffi-ciently high Bernoulli entropy are treated as uncer-tain, and the LLM proposes additional variables to co-sample with the affected nodes. The resulting targeted rounds are merged with the initial rounds by updating the same edge-vote and co-occurrence counts. After all initial and adaptive rounds are com-plete, ABSOL converts the final aggregated evi-dence into a DAG. For each child Xi, it forms a candidate-parent list from variables observed as parents of Xi in the learned subgraphs, together with their co-occurrence-normalized support. Par-ent ordering reranks this list using both the sub-sampling evidence and the variables’ semantic de-scriptions. LLM-endorsed candidates may remain eligible below the aggregation threshold τ , whereas non-endorsed candidates must clear τ . The assem-bler then processes candidate edges greedily in this order, adding Xj → Xi only while respecting the Name # Nodes # Edges Domain                
+
+> INSURANCE 27 52 Finance HEPAR 270 123 Medical NEUROPATHIC 222 770 Medical DIABETES 413 602 Medical MUNIN 1041 1397 Medical
+
+Table 1: Chosen Bayesian network benchmark details.                                
+
+> Method Type Non-LLM Work LLM Calls
+> GES+BD EU Stat. TGES (n, p )0PC Stat. TPC (n, p, d )0LLM-CD Hyb. O(I T PC (n, p, d )) O(Ip 22d)
+> PROMPT BN LLM —1
+> BFS BN LLM —O(p)
+> ABSOL noLLM Hyb. O(B T GES (m, k )) 0
+> ABSOL Hyb. O(( B+t|U| )TGES (m, k )) O(p+|U| +C)
+
+Table 2: Per-method comparison of ABSOL and the baselines. Non-LLM Work is the sequential structure-search cost (excluding CPT fitting), LLM Calls counts API requests. Symbols, parallelism notes, and deriva-tions are given in Appendix D. 
+
+maximum in-degree and acyclicity constraints. If an otherwise eligible edge would create a cycle, cy-cle arbitration is invoked on the existing paths from 
+
+Xi to Xj : the LLM proposes a set of path edges whose removal would break every resulting cycle, and the proposed edit is applied only if it passes structural validation. The complete procedure is given in Algorithm 1. 
+
+4 Experimental Evaluation 
+
+We organize the experiments around three questions: (i) how the subsample-aggregated GES+BD EU backbone compares with the full-data learner where feasible, (ii) which LLM augmenta-tions improve BN structure learning, and what this can tell us about combining LLM and statistical ev-idence, and (iii) whether ABSOL remains accurate and tractable as graph size increases. 
+
+4.1 Datasets 
+
+We evaluate on five discrete Bayesian network benchmarks spanning two orders of magnitude in graph size: INSURANCE , H EPAR 2, N EURO -
+
+> PATHIC
+
+, D IABETES , and M UNIN . All but N EU - 
+
+> ROPATHIC
+
+are drawn from the standard bnlearn 
+
+repository (Scutari, 2010), which supplies the canonical benchmark suite for prior LLM-based BN structure discovery (Babakov et al., 2025b; Ji-ralerspong et al., 2024; Zhang et al., 2026). N EU - 
+
+> ROPATHIC
+
+(Tu et al., 2019) is a synthetic clini-cal network used in prior LLM-driven causal dis-covery work (Jiralerspong et al., 2024). For each ground truth network, we generate a synthetic dis-crete training table (see Appendix F for details) and evaluate the learned structure from the synthetic data against that same network. 
+
+4.2 Baselines 
+
+We compare ABSOL against two purely statisti-cal structure learners, three recent LLM-driven approaches, and a purely statistical variant of the 
+
+ABSOL pipeline. Each baseline is reimplemented to match the configuration reported in its source paper, including hyperparameters, depth caps, and scoring choices. Per-baseline implementation de-tails are deferred to Appendix B. • GES (Chickering, 2002) The score-based learner that ABSOL uses internally as its base learner. Running it directly on the full table isolates the contribution of subsample aggre-gation. • PC (Spirtes et al., 2001) The canonical constraint-based learner, providing a non-score-based statistical reference point. • P ROMPT BN (Zhang et al., 2026) Generates a full DAG in a single LLM call from variable metadata alone, representing the data-free end of the spectrum. • BFS BN (Jiralerspong et al., 2024) Constructs a DAG via a breadth-first multi-turn LLM conversation, representing LLM-as-structure-learner approaches that use no tabular data. • LLM-CD (Du et al., 2025) Hybrid approach that injects LLM guidance into PC’s skeleton-discovery and edge-orientation phases, repre-senting in-process LLM-as-guide approaches that interleave LLM judgments with aconstraint-based learner on the full data table. • ABSOL noLLM : The subsample-aggregated GES+BD EU pipeline of Section 3.2, with no LLM augmentations. Table 2 summarizes each method’s structure-search cost and LLM call count. 
+
+4.3 Evaluation Metrics 
+
+We report three structure-quality measures against the ground-truth network: 
+
+Normalized Hamming Distance (NHD) : frac-tion of ordered variable pairs whose directed ad-Insurance Hepar2 Neuropathic Diabetes Munin                                                                                                             
+
+> Method NHD ↓Edge F1↑BDeu ↑NHD ↓Edge F1↑BDeu ↑NHD ↓Edge F1↑BDeu ↑NHD ↓Edge F1↑BDeu ↑NHD ↓Edge F1↑BDeu ↑
+> GES 0.017 0.920 −2.6e6 OoM OoM OoM OoM PC 0.063 0.674 −2.8e6 0.037 0.391 −6.6e6 0.033 0.135 −6.7e6 ToF ToF PromptBN 0.074 0.764 −2.8e6 OoT OoT NVG OoT bfsBN 0.060 0.774 −2.9e6 0.058 0.368 −6.7e6 OoC OoT OoC LLM-CD 0.017 0.939 −2.8e6 0.019 0.751 −6.5e6 ToF ToF ToF
+> ABSOL noLLM 0.048 0.796 −2.6e6 0.051 0.493 −6.5e6 0.039 0.256 −6.3e6 0.015 0.073 −1.2e8 0.006 0.025 −9.9e7
+> ABSOL 0.023 0.902 −2.6e6 0.017 0.798 −6.5e6 0.033 0.423 −5.8e6 0.007 0.499 −7.0e7 0.005 0.187 −8.6e7
+
+Table 3: Each baseline and ABSOL (with and without LLM augmentations) across five Bayesian network bench-marks. LLM-powered methods use GPT-5.4, and each cell is the result of a single run. See Table 5 for multiple trials and Table 4 for cross-LLM comparison. Best per column in bold. Methods that failed to finish within resource limits are annotated with their failure reason: OoM=out of memory failure, OoT=out of per-response tokens failure, OoC=out of context (context window filled) failure, ToF=timeout failure, NVG=no valid graph, such as not conforming to the output format expected or returning a template that was not evaluable as a DAG. 
+
+jacency differs from ground truth, normalized by 
+
+p(p − 1) (lower is better). 
+
+Edge F1: standard F-measure on directed edges, with precision |Elearned ∩ Egt |/|Elearned | and recall 
+
+|Elearned ∩ Egt |/|Egt | (higher is better). 
+
+BDeu (Heckerman et al., 1995): Bayesian Dirichlet equivalent uniform score of the learned structure on the training table (higher is better). 
+
+4.4 Main Results 
+
+Table 3 shows the main comparison across the five benchmarks. ABSOL is the only evaluated method that produces a viable graph on every benchmark and obtains the highest Edge F1 on every bench-mark larger than I NSURANCE . On I NSURANCE ,full-data GES and LLM-CD outscore ABSOL be-cause the p=27 graph is still small enough for monolithic search, giving each structural decision access to the full variable set. This monolithic strat-egy becomes infeasible as graphs grow: GES ex-hausts memory by H EPAR 2, and LLM-CD times out by N EUROPATHIC . In contrast, ABSOL keeps each structure-learning subproblem fixed-size and uses LLM calls that scale linearly in p. Even on HEPAR 2, where LLM-CD still completes, ABSOL 
+
+reaches comparable Edge F1 in 20 minutes rather than 30 hours (Tables 3, 7). The baseline failures are also informative. Full-data GES exhausts memory on H EPAR 2, while PC completes N EUROPATHIC only after 35 hours and then times out on larger networks. P ROMPT BN usually exceeds its 16K-token completion budget, but on D IABETES it instead returns an invalid dynamic-BN template rather than an evaluable DAG. BFS BN exhausts GPT-5.4’s context window during the N EUROPATHIC traversal as conversation history accumulates, and exceeds the token budget on the first call for D IABETES .LLM-CD completes H EPAR 2, but does not fin-ish on N EUROPATHIC within 48 hours because its skeleton phase is neither depth-bounded nor paral-lelized. Appendix B gives the full mechanisms. The comparison between ABSOL noLLM and 
+
+ABSOL isolates the contribution of the LLM-guided components. Without any LLM calls, 
+
+ABSOL noLLM already beats PC, P ROMPT BN, and 
+
+BFS BN on Edge F1 wherever those baselines com-plete. Adding the four LLM augmentations from Section 3.3 improves Edge F1 on every bench-mark, with an average absolute lift of +0 .23 over 
+
+ABSOL noLLM . The relative lift is largest on the largest graph, M UNIN , where Edge F1 rises more than seven-fold ( 0.025 → 0.187 ). On the three benchmarks with five-trial estimates, ABSOL ’s 95% Edge F1 confidence intervals are within 
+
+0.020 , several times smaller than the lifts over 
+
+ABSOL noLLM (Table 5). BDeu and NHD follow the same overall pattern, and ABSOL improves over ABSOL noLLM across the reported metrics and benchmarks. This pattern is consistent with the intended role of semantic guidance: as the candidate-edge pool grows, the subsampling sig-nal becomes sparser and domain knowledge has greater marginal value. We next consider whether the gains could be explained by benchmark memorization rather than useful semantic guidance. Public Bayesian network benchmarks may be partially recoverable from variable names alone, and recent causal-discovery prompting studies document such memorization ef-fects (Long et al., 2023; Feng et al., 2025; Babakov et al., 2025a). Two comparisons argue against memorization as the main explanation. First, the lift from ABSOL noLLM to ABSOL remains large on the two largest benchmarks, where recalling an entire graph from pretraining is least plausi-Insurance Hepar2 Neuropathic Diabetes Munin                                                                                                                                                               
+
+> Method LLM NHD ↓Edge F1↑BDeu ↑NHD ↓Edge F1↑BDeu ↑NHD ↓Edge F1↑BDeu ↑NHD ↓Edge F1↑BDeu ↑NHD ↓Edge F1↑BDeu ↑
+> PromptBN GPT 0.074 0.764 −2.8e6 OoT OoT NVG OoT DeepSeek NVG OoT OoT OoT NVG Gemini 0.043 0.845 −2.7e6 0.053 0.429 −6.8e6 OoT OoT NVG bfsBN GPT 0.060 0.774 −2.9e6 0.058 0.368 −6.7e6 OoC OoT OoC DeepSeek OoT OoT 0.031 0.171 −6.5e6 OoC OoT Gemini 0.028 0.900 −2.7e6 0.039 0.427 −6.8e6 OoC OoC OoT LLM-CD GPT 0.017 0.939 −2.8e6 0.019 0.751 −6.5e6 ToF ToF ToF DeepSeek 0.017 0.931 −2.6e6 0.019 0.751 −6.5e6 ToF ToF ToF Gemini 0.014 0.949 −2.6e6 0.014 0.817 −6.5e6 ToF ToF ToF
+> ABSOL GPT 0.023 0.902 −2.6e6 0.017 0.798 −6.5e6 0.033 0.423 −5.8e6 0.007 0.499 −7.0e7 0.005 0.187 −8.6e7
+> DeepSeek 0.051 0.804 −2.6e6 0.018 0.761 −6.5e6 0.035 0.380 −5.9e6 0.008 0.446 −7.4e7 0.005 0.184 −8.5e7
+> Gemini 0.017 0.922 −2.6e6 0.017 0.789 −6.5e6 0.034 0.460 −5.9e6 0.006 0.562 −6.4e7 0.005 0.221 −8.4e7
+
+Table 4: LLM backend comparison on 5 datasets. Models used: gpt-5.4-2026-03-05, deepseek-v4-pro, gemini-3.1-pro-preview . Bold marks the best LLM for each method on each dataset/metric. Failure codes as in Table 3. 
+
+ble: +0 .43 Edge F1 on D IABETES (p = 413 ) and 
+
++0 .16 on M UNIN (p = 1041 ). Second, on I N-
+
+SURANCE , where memorization is most plausible, the metadata-only P ROMPT BN+Gemini baseline reaches Edge F1 = 0 .845 , while ABSOL +Gemini reaches 0.922 on the same benchmark (Table 4). This gap suggests that the data-driven learner adds signal beyond name-based graph recall. Moreover, PROMPT BN’s recall drops sharply after I NSUR -
+
+ANCE and does not scale beyond H EPAR 2, while 
+
+ABSOL continues to improve over its no-LLM backbone on the largest graphs. Finally, the augmentation effect is not tied to a single LLM backend. All 15 (LLM, dataset) com-binations in Table 4 improve over ABSOL noLLM 
+
+in Edge F1, with mean lifts of +0 .23 for GPT-5.4, 
+
++0 .19 for DeepSeek, and +0 .26 for Gemini. The same baseline comparison also holds across back-ends: with the same LLM, ABSOL outperforms the LLM-powered baselines except for LLM-CD on I NSURANCE , and for LLM-CD+Gemini on HEPAR 2. Together, these results suggest that the gains come from the bounded integration of seman-tic augmentation into the subsample-aggregated learner, rather than from one particular model. 
+
+4.5 LLM Augmentation Ablation Results 
+
+Table 5 reports leave-one-out (LOO) ablations for the four LLM augmentations on the three datasets where repeated runs are computationally feasible. The full ABSOL pipeline improves Edge F1 over 
+
+ABSOL noLLM by +0 .11 on I NSURANCE , +0 .25 
+
+on H EPAR 2, and +0 .18 on N EUROPATHIC . These gaps are several times larger than the corresponding 95% confidence intervals. The ablation therefore studies which augmentations account for the gain. 
+
+Parent ordering provides the most consistent Edge F1 benefit. Removing it lowers Edge F1 on                                                                                                                                                                                          
+
+> Method Insurance Hepar2 Neuropathic Rank
+> Edge F1
+> ABSOL noLLM 0.789 ±0.015 0.521 ±0.016 0.222 ±0.020 6.00
+> ABSOL 0.896 ±0.008 0.772 ±0.019 0.400 ±0.015 2.00
+> – ParOrd 0.843 ±0.007 0.732 ±0.010 0.341 ±0.012 4.67
+> – ColGroup 0.874 ±0.006 0.752 ±0.010 0.395 ±0.020 3.33
+> – CycleArb 0.898 ±0.013 0.781 ±0.015 0.381 ±0.006 2.00
+> – AdaSam 0.886 ±0.006 0.615 ±0.005 0.427 ±0.003 3.00
+> NHD
+> ABSOL noLLM 0.051 ±0.003 0.048 ±0.002 0.047 ±0.001 6.00
+> ABSOL 0.025 ±0.002 0.019 ±0.002 0.034 ±0.001 1.33
+> – ParOrd 0.038 ±0.001 0.020 ±0.001 0.035 ±0.001 3.33
+> – ColGroup 0.031 ±0.002 0.020 ±0.001 0.035 ±0.001 3.00
+> – CycleArb 0.025 ±0.003 0.017 ±0.001 0.035 ±0.000 1.33
+> – AdaSam 0.029 ±0.002 0.039 ±0.001 0.044 ±0.001 4.33
+> BDeu ( ×10 6)
+> ABSOL noLLM −2.644 ±0.009 −6.520 ±0.004 −6.608 ±0.183 6.00
+> ABSOL −2.619 ±0.001 −6.507 ±0.002 −5.859 ±0.082 1.67
+> – ParOrd −2.624 ±0.003 −6.509 ±0.002 −5.791 ±0.022 2.67
+> – ColGroup −2.620 ±0.001 −6.513 ±0.004 −5.852 ±0.059 3.33
+> – CycleArb −2.620 ±0.001 −6.511 ±0.006 −5.863 ±0.037 3.33
+> – AdaSam −2.619 ±0.001 −6.512 ±0.003 −6.372 ±0.025 3.33
+
+Table 5: ABSOL leave-one-out ablation to isolate the ef-fects of each augmentation. All metrics are reported averaged across five trials (mean ± 95% CI). Best mean per column in bold. All LLM-based methods use GPT-5.4. Rank is averaged for each method across all datasets, per metric. 
+
+all three datasets, producing the largest drop on INSURANCE and N EUROPATHIC , and the second-largest drop on H EPAR 2. This suggests that statisti-cal aggregation recovers useful adjacencies, while semantic directionality is important for converting them into parent sets. 
+
+Adaptive sampling helps when uncertain edges can be resolved by targeted co-sampling, but its effect is dataset-dependent. Removing it gives the largest Edge F1 drop on H EPAR 2 and a smaller drop on I NSURANCE , showing that extra rounds around high-entropy edges can improve the aggre-gated graph. On N EUROPATHIC , however, remov-ing adaptive sampling slightly improves Edge F1
+
+(0.400 → 0.427 ). This exception is consistent with the dataset’s many left/right variable pairs: targeted resampling can concentrate on ambiguous near-duplicates, whereas uniform sampling may provide stronger smoothing. The same variant worsens NHD and BDeu on N EUROPATHIC , so the Edge F1
+
+gain is not a uniform improvement. 
+
+Cycle arbitration is a scale-dependent safeguard rather than a frequent intervention on the repeated-run datasets. It is rarely invoked on smaller graphs: during H EPAR 2 training it fires only once, and its leave-one-out effect is within the confidence in-terval. On larger assembled graphs, cycle-closing conflicts are more common: on M UNIN , the same mechanism fires 62 times. The measurable N EU - 
+
+> ROPATHIC
+
+drop when cycle arbitration is removed (0.400 → 0.381 ) is consistent with this pattern. We therefore retain it because it is nearly inactive when unnecessary but provides a bounded way to resolve acyclicity conflicts when graph assembly becomes harder. 
+
+Column grouping has the smallest standalone leave-one-out effect, but the LOO mean remains below ABSOL on all three datasets. Its contribution appears partly entangled with later stages: among edges present with all augmentations but absent without column grouping, 85% on H EPAR 2 and 
+
+82% on N EUROPATHIC are also lost when parent ordering or cycle arbitration is removed. This over-lap suggests that column grouping is associated with edges that are jointly supported across multi-ple augmentation stages. Overall, the ablation supports keeping the full augmentation set. Parent ordering provides the most consistent Edge F1 benefit. Removing it low-ers Edge F1 on every dataset, with non-overlapping reported confidence intervals, and gives the worst average Edge-F1 rank among the leave-one-out variants. Adaptive sampling produces the largest single-dataset effect on H EPAR 2, but is more dataset-dependent. The remaining augmentations have smaller or more regime-specific effects, with each contributing evidence somewhere in the table or in the call-frequency analysis above. The rank column gives the same summary: the full pipeline has the best or tied-best average rank for every metric, and the best overall average rank across metrics. We therefore use all four augmentations as the default ABSOL configuration. 
+
+5 Conclusion 
+
+We introduced ABSOL , a hybrid Bayesian network structure-learning pipeline that pairs subsample-aggregated GES+BD EU with four bounded LLM augmentations: column grouping, adaptive sam-pling, parent ordering, and cycle arbitration. The aggregation step is supported by a finite-sample bound against a full-data reference learner, while the LLM augmentations inject semantic guidance through constrained, graph-validating operations. Our experiments show that this design changes the scalability frontier for LLM-assisted BN learn-ing. Every evaluated baseline fails by D IABETES 
+
+(413 nodes), whereas ABSOL produces viable graphs on both D IABETES and M UNIN (1041 nodes). Bounded LLM guidance improves Edge 
+
+F1 on every benchmark, with an average absolute lift of +0 .23 over ABSOL noLLM and the largest relative gains on the largest graphs; the pattern is consistent across three LLMs and five datasets. The ablations further show that the most reliable LLM contributions come from targeted semantic in-terventions, especially parent ordering, rather than direct graph generation or unconstrained graph edit-ing. 
+
+Limitations 
+
+Scope of the aggregation guarantee. The finite-sample guarantee in Section 3.2 isolates the error introduced by subsampling: it bounds disagree-ment between the aggregated graph and the full-data GES+BD EU reference learner on certifiable adjacency decisions. It does not separately estab-lish causal consistency of the full-data learner. As with standard BN structure learning, performance can be affected by Markov-equivalence ambigu-ity, BDeu prior choices, finite-sample effects, and unobserved confounding. 
+
+Benchmark setting. Following standard BN eval-uation practice, the training tables are forward-sampled from known reference graphs. This en-ables controlled comparison across methods, but does not test measurement noise, distribution shift, selection bias, or latent confounding in real ob-servational data. The benchmark graphs are also public, so LLMs may have seen variable names or graph fragments during pretraining. Because benchmark leakage cannot be ruled out completely, Section 4.4 checks whether metadata-only base-lines and scaling behavior can explain the observed gains. 
+
+Contamination risks. Contamination-robust eval-uation is an open question for LLM-guided causal structure learning. The Bayesian networks in the bnlearn repository (Scutari, 2010) are widely used because they have been curated and verified by hu-man experts, but that maturity makes pretraining exposure likely. The cleanest control would be to evaluate on networks the LLM could not have seen during training, and were released after its training cutoff or held privately. Synthetic Bayesian net-works offer one alternative: procedurally generat-ing fresh graphs whose variables and dependencies are novel by construction and therefore cannot have been memorized. The main difficulty is keeping such domains semantically coherent, since a net-work over meaningless variables would suppress the semantic signal ABSOL relies on and would test robustness to nonsense rather than to contam-ination. Designing generators that produce novel yet semantically plausible networks is an important open problem, and we leave a full contamination-robust benchmark to future work. 
+
+Ethical Considerations 
+
+Medical benchmarks are not clinical artifacts. 
+
+Four of our five benchmarks (H EPAR 2, N EURO -
+
+> PATHIC
+
+, D IABETES , M UNIN ) describe medical pro-cesses, but Section 4 evaluates structure recovery on synthetic tables sampled from a known refer-ence graph. The learned graphs should not be used for diagnosis, treatment selection, or causal-effect estimation in real populations without independent clinical validation. 
+
+References 
+
+Nikolay Babakov, Ehud Reiter, and Alberto Bugarín. 2025a. CausalGraphBench: a benchmark for evalu-ating language models capabilities of causal graph discovery. In Proceedings of the 63rd Annual Meet-ing of the Association for Computational Linguistics (Volume 4: Student Research Workshop) , pages 240– 258, Vienna, Austria. Association for Computational Linguistics. Nikolay Babakov, Ehud Reiter, and Alberto Bugarín. 2025b. Scalability of Bayesian network structure elicitation with large language models: a novel methodology and comparative analysis. In Proceed-ings of the 31st International Conference on Compu-tational Linguistics , pages 10685–10711, Abu Dhabi, UAE. Association for Computational Linguistics. Taiyu Ban, Lyuzhou Chen, Derui Lyu, Xiangyu Wang, and Huanhuan Chen. 2023. Causal structure learning supervised by large language model. arXiv preprint arXiv:2311.11689 . Submitted to ICLR 2024 (Open-Review: JzFLBOFMZ2). Taiyu Ban, Lyuzhou Chen, Derui Lyu, Xiangyu Wang, Qinrui Zhu, and Huanhuan Chen. 2025. LLM-driven causal discovery via harmonized prior. IEEE Transactions on Knowledge and Data Engineering ,37(4):1943–1960. Niko Bernaola, Mario Michiels, Pedro Larrañaga, and Concha Bielza. 2023. Learning massive interpretable gene regulatory networks of the human brain by merg-ing Bayesian networks. PLOS Computational Biol-ogy , 19(12):e1011443. Leo Breiman. 1996. Bagging predictors. Machine Learning , 24(2):123–140. Bradley M. Broom, Kim-Anh Do, and Devika Subra-manian. 2012. Model averaging strategies for struc-ture learning in Bayesian networks with limited data. 
+
+BMC Bioinformatics , 13(Suppl 13):S10. David Maxwell Chickering. 2002. Optimal structure identification with greedy search. Journal of Ma-chine Learning Research , 3:507–554. Victor-Alexandru Darvariu, Stephen Hailes, and Mirco Musolesi. 2024. Large language models are effec-tive priors for causal graph discovery. Preprint ,arXiv:2405.13551. Huaming Du, Yujia Zheng, Baoyu Jing, Yu Zhao, Gang Kou, Guisong Liu, Tao Gu, Weimin Li, and Carl Yang. 2025. Causal discovery through synergizing large language model and data-driven reasoning. In 
+
+Proceedings of the 31st ACM SIGKDD Conference on Knowledge Discovery and Data Mining , Toronto, ON, Canada. ACM. Tao Feng, Lizhen Qu, Niket Tandon, Zhuang Li, Xiaoxi Kang, and Gholamreza Haffari. 2025. On the relia-bility of large language models for causal discovery. In Proceedings of the 63rd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 9565–9590. Association for Computational Linguistics. Nir Friedman, Moisés Goldszmidt, and Abraham J. Wyner. 1999a. Data analysis with Bayesian networks: A bootstrap approach. In Proceedings of the Fifteenth Conference on Uncertainty in Artificial Intelligence ,pages 196–205. Morgan Kaufmann. Nir Friedman, Iftach Nachman, and Dana Pe’er. 1999b. Learning Bayesian network structure from massive datasets: The “sparse candidate” algorithm. In Pro-ceedings of the Fifteenth Conference on Uncertainty in Artificial Intelligence , pages 206–215. Morgan Kaufmann. David Heckerman, Dan Geiger, and David M. Chick-ering. 1995. Learning bayesian networks: The com-bination of knowledge and statistical data. Machine Learning , 20(3):197–243. Thomas Jiralerspong, Xiaoyin Chen, Yash More, Vedant Shah, and Yoshua Bengio. 2024. Efficient causal graph discovery using large language models. arXiv preprint arXiv:2402.01207 .Neville Kenneth Kitson, Anthony C. Constantinou, Zhi-gao Guo, Yang Liu, and Kiattikun Chobtham. 2023. A survey of Bayesian network structure learning. Ar-tificial Intelligence Review , 56:8721–8814. Daphne Koller and Nir Friedman. 2009. Probabilistic Graphical Models: Principles and Techniques . MIT Press. Stephanie Long, Tibor Schuster, and Alexandre Piché. 2023. Can large language models build causal graphs? arXiv preprint arXiv:2303.05279 .Nicolai Meinshausen and Peter Bühlmann. 2010. Stabil-ity selection. Journal of the Royal Statistical Society: Series B (Statistical Methodology) , 72(4):417–473. Judea Pearl. 1988. Probabilistic Reasoning in Intelli-gent Systems: Networks of Plausible Inference . Mor-gan Kaufmann. Bo Peng, Sirui Chen, Lei Xu, and Chaochao Lu. 2026. Causcientist: Teaching LLMs to respect data for causal discovery. arXiv preprint arXiv:2601.13614 .Submitted January 20, 2026. Marco Scutari. 2010. Learning bayesian networks with the bnlearn r package. Journal of Statistical Software ,35(3):1–22. Marco Scutari and Radhakrishnan Nagarajan. 2013. Identifying significant edges in graphical models of molecular networks. Artificial Intelligence in Medicine , 57(3):207–217. Marco Scutari, Claudia Vitolo, and Allan Tucker. 2019. Learning Bayesian networks from big data with greedy search: Computational complexity and ef-ficient implementation. Statistics and Computing ,29:1095–1108. Peter Spirtes, Clark Glymour, and Richard Scheines. 2001. Causation, Prediction, and Search . The MIT Press. Masayuki Takayama, Tadahisa Okuda, Thong Pham, Tatsuyoshi Ikenoue, Shingo Fukuma, Shohei Shimizu, and Akiyoshi Sannai. 2025. Integrating large language models in causal discovery: A sta-tistical causal approach. Transactions on Machine Learning Research .Ioannis Tsamardinos, Laura E. Brown, and Constantin F. Aliferis. 2006. The max-min hill-climbing Bayesian network structure learning algorithm. Machine Learning , 65(1):31–78. Ruibo Tu, Kun Zhang, Bo C. Bertilson, Hedvig Kjell-ström, and Cheng Zhang. 2019. Neuropathic pain diagnosis simulator for causal discovery algorithm evaluation. In Advances in Neural Information Pro-cessing Systems 32 (NeurIPS 2019) , pages 12773– 12784. Yinghuan Zhang, Yufei Zhang, Parisa Kordjamshidi, and Zijun Cui. 2026. Bayesian network structure discovery using large language models. Transactions on Machine Learning Research .Yu Zhou, Xingyu Wu, Beicheng Huang, Jibin Wu, Liang Feng, and Kay Chen Tan. 2024. Causalbench: A comprehensive benchmark for causal learning capa-bility of LLMs. Preprint , arXiv:2404.06349. 
+
+A Aggregation Approximation Proof 
+
+This appendix proves the aggregation guarantee stated in Section 3.2. It compares the aggregated graph with the full-data output Gstd = A(D). The proof is written for the co-occurrence-normalized voting rule used in the main text. For any learned graph G, let 
+
+Eskel (G) = {{ u, v } : u and v are adjacent in G}.
+
+Throughout this appendix, for an unordered edge 
+
+e, the shorthand e ∈ G means e ∈ Eskel (G). Thus intersections such as Gstd ∩ M cert are skeleton-level edge intersections. 
+
+A.1 Sampling and Votes 
+
+Let M = {{ i, j } : 1 ≤ i < j ≤ p} be the can-didate edge universe. In round b, ABSOL sam-ples rows Rb ⊆ [n] and variables Cb ⊆ [p] uni-formly without replacement, runs the base learner 
+
+A on the induced table D[Rb, C b], and embeds the learned graph back into the full variable set. For 
+
+e = {u, v } ∈ M , define the eligibility indicator 
+
+Jb(e) = 1{{ u, v } ⊆ Cb},
+
+and the conditional vote indicator 
+
+Zb(e) = 1{e ∈ Eskel ( bG(b))}.
+
+Note Zb(e) = 0 whenever Jb(e) = 0 (an ineligible round cannot include e). Let ce = PBb=1 Jb(e)
+
+denote the co-occurrence count. ABSOL uses co-occurrence voting :
+
+bfe =
+
+
+
+1
+
+ce
+
+PBb=1 Jb(e) Zb(e) if ce > 0,
+
+0 if ce = 0 .
+
+Define the conditional edge probability 
+
+pco  
+
+> e
+
+= Pr[ Zb(e) = 1 | Jb(e) = 1] .
+
+On the event ce > 0, the variables {Zb(e)}b:Jb(e)=1 
+
+are independent Bernoulli (pco  
+
+> e
+
+). Hence bfe is an un-biased estimator of pco  
+
+> e
+
+conditional on ce > 0. Co-occurrence voting removes the mechanical shrink-age by the endpoint-eligibility rate πelig = k(k −
+
+1) /(p(p − 1)) ; however, pco  
+
+> e
+
+may still depend on 
+
+k through the other variables co-sampled in the subproblem. The concentration argument below accounts for the probability that ce = 0 .A.2 Certified Edge Universe 
+
+The theorem is stated on a subset of edges whose full-data decision can be localized to a certified step of the full-data greedy search. Let Trace std 
+
+denote the instrumented full-data run of A, includ-ing evaluated but non-selected GES operators. For an edge e = {X, Y }, an operator-level deci-sion certificate is a tuple 
+
+d = ( e, tag , c, Ctx , a, z ),
+
+where tag ∈ { Insert , Delete }, c ∈ { X, Y } is the child node for the local BDeu score, Ctx is the lo-cal CPDAG context used by the operator, a records whether the operator is selected or rejected by the greedy decision at that step, and 
+
+z = 1{e ∈ Eskel (Gstd )}
+
+is the final include/exclude verdict of the full-data learner. The informative variable set for the certifi-cate is 
+
+Ud = {X, Y } ∪ Pa c ∪ NA c,c ′ ∪ S, 
+
+where c′ is the other endpoint and S is the in-sert/delete conditioning set used by the Chickering operator. A certificate is certifying for e if its local deci-sion is consistent with the final bit z and no later selected full-data operator reverses that bit. The certified universe is 
+
+Mcert = {e ∈ M : ∃ certifying decision for e}.
+
+For each e ∈ M cert , fix one canonical certifying decision de, set Ue = Ude , and partition 
+
+M+cert = Mcert ∩ Eskel (Gstd ),
+
+M− 
+
+> cert
+
+= Mcert \ Eskel (Gstd ).
+
+Finally, let Mcert = |M cert | ≤  p
+
+> 2
+
+.
+
+A.3 Concentration Proof 
+
+For e ∈ M cert , define the one-round conditional error probabilities: 
+
+qco+  
+
+> e
+
+:= Pr[ Zb(e) = 0 | Jb(e) = 1] ,qco − 
+
+> e
+
+:= Pr[ Zb(e) = 1 | Jb(e) = 1] .
+
+These are bounded using row-noise and path-stability terms: 
+
+qco+  
+
+> e
+
+≤ 1 − πinfo (e)
+
+πelig (e) (1 − χe),qco − 
+
+> e
+
+≤ 1 − πinfo (e)
+
+πelig (e) (1 − χe),
+
+where χe = min {1, ρ e + ξm(e)} combines path instability and row-subsampling noise. The condi-tional edge probability given eligibility is 
+
+pco  
+
+> e
+
+:= Pr[ Zb(e) = 1 | Jb(e) = 1] ≥ 1 − qco+  
+
+> e
+
+.
+
+For e ∈ M +cert , the vote margin is a+ 
+
+> e
+
+= pco  
+
+> e
+
+− τ ,and for e ∈ M −
+
+> cert
+
+, the vote margin is a− 
+
+> e
+
+= τ −pco  
+
+> e
+
+.Assume a± 
+
+> e
+
+> 0 for every certified edge. Conditional on the eligible-round set {b :
+
+Jb(e) = 1 }, the variables {Zb(e)}b:Jb(e)=1 are in-dependent Bernoulli (pco  
+
+> e
+
+). By Hoeffding’s inequal-ity, 
+
+Pr[ edge error | ce = c] ≤ exp( −2c(a± 
+
+> e
+
+)2).
+
+When ce = 0 , the convention bfe = 0 ensures the edge is excluded, which is covered by the same marginalization below. The co-occurrence count 
+
+ce ∼ Binomial( B, π elig ). Marginalizing over ce
+
+using the moment-generating function, 
+
+E[exp( −2ce(a± 
+
+> e
+
+)2)] =  1 − πelig + πelig exp( −2( a± 
+
+> e
+
+)2)B
+
+=  1 + πelig (exp( −2( a± 
+
+> e
+
+)2) − 1) B .
+
+Therefore, 
+
+Pr[ edge error ] ≤
+
+
+
+1 − πelig 
+
+× 1 − exp  −2( a± 
+
+> e
+
+)2 B
+
+.
+
+(7) For the worst-case certified margin amin =min e a± 
+
+> e
+
+, taking a union bound over certified edges, 
+
+Pr 
+
+h bGB (τ ) ∩ M cert ̸ = Gstd ∩ M cert 
+
+i
+
+≤ Mcert 
+
+ 1 − πelig 
+
+ 1 − exp( −2a2min ) B .
+
+(8) This proves Eq. 5. The per-edge form 
+
+P
+
+> e
+
+ 1 − πelig (1 − exp( −2a2
+
+> e
+
+)) B is tighter. 
+
+A.4 Aggregation Budget 
+
+From Eq. 8, to achieve certified error probability δ
+
+on the certified edge set, it suffices that 
+
+Mcert 
+
+ 1 − πelig (1 − exp( −2a2min )) B ≤ δ. 
+
+Using the standard bound (1 − x)B ≤ exp( −Bx ),we obtain the sufficient confidence rule 
+
+Bδ(amin ) = 
+
+ log( Mcert /δ )
+
+πelig (1 − exp( −2a2min )) 
+
+
+
+.For δ = 0 .05 and a pre-specified upper bound M0
+
+on certified edges, 
+
+B95 (atarget ) = 
+
+&
+
+log(20 M0)
+
+πelig (1 − exp( −2a2target )) 
+
+'
+
+.
+
+(9) The realized weakest margin amin is not known before the aggregation is run. For small mar-gins atarget ≪ 1, the denominator satisfies 1 −
+
+exp( −2a2target ) ≈ 2a2target , giving the approxi-mate design heuristic 
+
+B95 (atarget ) ≈
+
+&
+
+log(20 M0)2πelig a2target 
+
+'
+
+.
+
+If the realized amin ≥ atarget and Mcert ≤ M0,then the design round count B95 (atarget ) certifies 95% agreement on the certified edge set. If either condition fails post-hoc, observed vote margins and certified-edge counts diagnose whether the shortfall comes from unresolved difficult edges or from an underestimated edge count. 
+
+A.5 Sufficient Conditions for Positive Margins 
+
+The concentration argument above only requires positive margins a± 
+
+> e
+
+. We next give sufficient con-ditions linking those margins to variable coverage, row noise, and stability of the full-data GES path. 
+
+Variable coverage. For an edge e = {X, Y },define endpoint eligibility 
+
+J (b) 
+
+> e
+
+= {{ X, Y } ⊆ Cb},πelig (e) = Pr( J (b) 
+
+> e
+
+) = k(k − 1) 
+
+p(p − 1) .
+
+Let I(b) 
+
+> e
+
+= {Ue ⊆ Cb} be informative coverage of the certifying local context. If se = |Ue|, then 
+
+πinfo (e) = Pr( I(b) 
+
+> e
+
+) = 
+
+ p−se
+
+> k−se
+
+ pk
+
+ ,
+
+with value 0 when k < s e.
+
+Path stability. Let P(b) 
+
+> e
+
+be the event that, con-ditional on informative coverage, the subproblem run reaches a matching certifying decision for e
+
+and no later selected operator changes the final bit contrary to ze = 1{e ∈ Eskel (Gstd )}. Define 
+
+ρe = Pr[( P(b) 
+
+> e
+
+)c | I (b) 
+
+> e
+
+].
+
+Let ξm(e) denote the row-subsampling probability that the local BDeu decision associated with the certifying operator is reversed despite informative coverage and path stability. The combined one-round instability is 
+
+χe = min {1, ρ e + ξm(e)}.
+
+Then the one-round mismatch probabilities satisfy, for e ∈ M +cert ,
+
+q+ 
+
+> e
+
+:= Pr[ Zb(e) = 0] ≤ 1 − πinfo (e)(1 − χe),
+
+and, for e ∈ M −
+
+> cert
+
+,
+
+q− 
+
+> e
+
+:= Pr[ Zb(e) = 1] ≤ πelig (e)−πinfo (e)(1 −χe).
+
+Under co-occurrence voting, the relevant probabil-ity is pco  
+
+> e
+
+, the conditional edge probability given eligibility. The one-round mismatch probability (given Jb(e) = 1 ) satisfies: 
+
+qco+  
+
+> e
+
+:= Pr[ Zb(e) = 0 | Jb(e) = 1] ,
+
+≤ 1 − πinfo (e)
+
+πelig (e) (1 − χe),qco − 
+
+> e
+
+:= Pr[ Zb(e) = 1 | Jb(e) = 1] ,
+
+≤ 1 − πinfo (e)
+
+πelig (e) (1 − χe).
+
+Thus, for e ∈ M +cert , a sufficient vote margin is 
+
+a+ 
+
+> e
+
+= πinfo (e)
+
+πelig (e) (1 − χe) − τ, 
+
+and, for e ∈ M −
+
+> cert
+
+,
+
+a− 
+
+> e
+
+= τ −
+
+
+
+1 − πinfo (e)
+
+πelig (e) (1 − χe)
+
+
+
+.
+
+The ratio πinfo /π elig is the probability that, given co-sampling of both endpoints, the full certifying context Ue is also co-sampled. If every a± 
+
+> e
+
+is posi-tive, the theorem holds with amin replaced by 
+
+amin = min 
+
+n
+
+min 
+
+> e∈M +cert
+
+a+ 
+
+> e
+
+, min 
+
+> e∈M −
+> cert
+
+a−
+
+> e
+
+o
+
+,
+
+with empty positive or negative classes omitted. 
+
+A.6 BDeu and Path-Stability Ingredients 
+
+We record the analytic ingredients used to bound 
+
+ξm(e) and ρe.BDeu score-scale shift. Let vsub = k − 1 and 
+
+vfull = p − 1 be the variable universe sizes entering the structure prior for the subproblem and full-data learner. Under finite state spaces, αess > 0, and positive local cell mass, define 
+
+∆Φ(m, n, k, p ) = log( vsub /η str − 1) 
+
+m
+
+− log( vfull /η str − 1) 
+
+n
+
+Then the deterministic per-row BDeu shift between the subproblem scale and the full-data scale satis-fies 
+
+ψe(m, n, k, p ) ≤ | ∆Φ(m, n, k, p )|
+
++ C1
+
+ log mm + log nn
+
+
+
++ C2
+
+ 1
+
+m + 1
+
+n
+
+
+
+,
+
+where C1 and C2 depend on the local table size and BDeu pseudo-counts. This is the term that prevents a small full-data local margin from being treated as certifiable at a much smaller row/variable scale. 
+
+Local BDeu Lipschitz control. Let μe > 0 be the minimum local joint cell mass for the certify-ing local table, and let rY qY rX be the number of cells in the local (Y, X, Pa Y ) table. On the local probability simplex ball ∥ν − νstd ∥∞ ≤ μe/2 and for m ≥ 2/μ e, the normalized BDeu local contrast is Lipschitz with modulus 
+
+LBDeu  
+
+> e
+
+(m, k ) ≤ rY qY rX
+
+×
+
+"
+
+2| log( μe/2) |
+
++ 16(1 + αess )
+
+mμ e
+
+#
+
+.
+
+(10) The key cancellation is that the leading log m terms in the paired digamma derivatives cancel; for fixed 
+
+μe, the limiting modulus is independent of m.
+
+Row-noise bound. Let eγe = [ | ¯∆std  
+
+> e
+
+| − ψe]+ be the effective full-data local margin after subtracting the deterministic score-scale shift, and define 
+
+te = min 
+
+ μe
+
+2 , eγe
+
+LBDeu  
+
+> e
+
+(m, k )
+
+
+
+.
+
+For a constant Ce equal to the relevant local cell count, 
+
+ξm(e) ≤ 2Ce exp( −2mt 2
+
+> e
+
+).
+
+Path-stability sufficient condition. Let gpath  
+
+> ∗
+
+>
+
+0 be the minimum greedy decision gap along the full-data GES path, ψpath  
+
+> ∗
+
+the worst score-scale shift, egpath  
+
+> ∗
+
+= [ gpath  
+
+> ∗
+
+− 2ψpath  
+
+> ∗
+
+]+, Lpath  
+
+> ∗
+
+the worst local Lipschitz modulus, and Σpath  
+
+> A
+
+the total num-ber of candidate operators evaluated along the full-data path. With 
+
+tpath  
+
+> ∗
+
+= min 
+
+(
+
+μpath 
+
+> ∗
+
+2 , egpath 
+
+> ∗
+
+2Lpath  
+
+> ∗
+
+(m, k )
+
+)
+
+,
+
+the path-instability parameter satisfies 
+
+ρe ≤ ρcol  
+
+> e
+
++ 4Σ path  
+
+> A
+
+Cpath 
+
+> ∗
+
+× exp[ −2m(tpath  
+
+> ∗
+
+)2].
+
+Here ρcol  
+
+> e
+
+is the full-trace variable-omission floor: even with no row noise, a fixed variable subsample can omit variables needed to shadow the full-data greedy path. 
+
+A.7 Variable-Subsampling Regimes Fixed (k<p). Co-occurrence voting eliminates the denominator bias that all-round voting in-troduces at small k/p . Under all-round voting, 
+
+E[ bf ar  
+
+> e
+
+] = πelig · pco  
+
+> e
+
+, so the threshold τ must be rescaled by πelig to maintain the same inclusion cri-terion — a per-dataset correction that is impractical to specify ahead of time. Co-occurrence voting tar-gets pco  
+
+> e
+
+directly, making τ dataset-agnostic. However, co-occurrence voting does not elim-inate the informative-coverage floor ρcol  
+
+> e
+
+. Even when both endpoints are co-sampled, the certify-ing local context Ue (which may include parents or conditioning variables beyond {u, v }) can still be absent from Cb. Certified agreement in the co-occurrence regime therefore requires only that the sufficient margins a± 
+
+> e
+
+remain positive after account-ing for the informative-coverage shortfall — not that the denominator bias vanishes (it already has). 
+
+Full-information limit. As k → p, m → n, and 
+
+B → ∞ , we have πelig (e) → 1, πinfo (e) → 1,
+
+ρcol  
+
+> e
+
+→ 0, and the row-noise terms vanish, giving 
+
+Pr 
+
+h bGB (τ ) ∩ M cert = Gstd ∩ M cert 
+
+i
+
+→ 1.
+
+The full-information limit is the same under all-round and co-occurrence voting; before that limit, co-occurrence voting keeps τ interpretable without requiring k ≈ p.A.8 Diagnostics 
+
+For each run, assess the theorem’s dataset-dependent conditions using the following diagnos-tics: • the chosen B, τ , m, k, atarget , and M0;• the observed vote-margin distribution | bfe − τ |
+
+on certified edges, including the minimum or low quantiles; • Mcert , or the conservative upper bound used if the certified trace is not instrumented; • endpoint and informative coverage counts for certified edges; • when available, path-instability summaries such as bρe or separate variable-floor and row-path estimates. Do not use these diagnostics to tune B after test-set evaluation. 
+
+A.9 Outside the Certified Universe 
+
+The theorem makes no claim about M \ M cert .Such edges lack a localized full-data certifying de-cision under the instrumented GES trace. Extend-ing the guarantee to all non-edges would require ad-ditional assumptions about the full-data learner or the data-generating graph. ABSOL ’s main theorem therefore remains scoped to certified agreement with Gstd .Every edge present in Gstd has at least one se-lected Insert in the full-data trace that is not later reversed, so it belongs to M+cert . The uncovered set M \ M cert therefore consists of full-data non-edges that the trace does not certify locally. If G∗ denotes a true causal graph, write SB =
+
+Eskel ( bGB (τ )) , Sstd = Eskel (Gstd ), and S∗ =
+
+Eskel (G∗). Then 
+
+|SB △S∗| ≤ | SB △Sstd | + |Sstd △S∗|.
+
+This appendix controls the first term on Mcert .Controlling the second term requires separate con-sistency assumptions for the full-data BN learner and is outside the learner-relative guarantee. 
+
+B Implementation Details 
+
+This appendix records the implementations behind every method evaluated in Section 4, including the statistical and LLM-driven baselines as well as each component of ABSOL .
+
+B.1 Statistical Base Learners GES: ABSOL ’s base learner and the GES base-line both use the GES implementation from the 
+
+causal-learn library using BDeu as the scoring method. Inside ABSOL , each subsampling round invokes a fresh GES call on the sampled subtable while the full-data GES baseline runs the same procedure on the entire synthetic data table at once. 
+
+Out-of-memory investigation with GES on HEPAR 2: The full-data GES baseline fails with an out-of-memory error on H EPAR 2. This is not caused by an unbounded parent search, as GES runs under the same per-node in-degree cap κ as 
+
+ABSOL ’s internal base learner (Table 6). The cause is instead specific to the causal-learn 
+
+GES+BD EU implementation. It memoizes local family scores, and BD EU scoring allocates con-tingency tables whose size grows multiplicatively with the cardinalities of the child and parent vari-ables. HEPAR 2 contains multi-state categorical variables with up to seven states, so candidate fam-ilies can induce large intermediate count tables. Eventually the combined footprint exceeds avail-able memory on our hardware. This failure mode is specific to the evaluated implementation and score. While alternative implementations or scores such as BIC would possibly have a smaller memory foot-print on the same benchmark, we keep BD EU fixed across the GES-based methods so that the compar-ison isolates the effect of subsample aggregation rather than a change of scoring criterion. 
+
+PC: The PC baseline uses the constraint-based PC implementation in the pgmpy library with all default parameters. The relevant defaults are a hard depth cap on the conditioning-set size ( max_cond_vars =5), a parallel CI-test variant ( variant=parallel ), and a significance level of 0.01 . The depth cap in particular is vital on the larger networks: without it, PC’s skeleton discovery enumerates an exponen-tially growing number of subsets of each node’s neighbours at each depth, and the runtime quickly becomes intractable on networks with hub vertices. 
+
+Parameter fitting: After structure learning, every method that produces conditional probability tables fits parameters by maximum likelihood with a uni-form Dirichlet smoothing prior, using the standard 
+
+pgmpy estimator. ABSOL fits a separate CPT to each node, using only the variables in that node’s Markov blanket. This allows ABSOL to easily scale to arbitrarily large networks, while still sup-porting prediction. GES, PC, and ABSOL all add any missing nodes to the completed DAG as iso-lated nodes before parameter fitting. 
+
+B.2 LLM Baselines PromptBN: We reimplement P ROMPT BN (Zhang et al., 2026) as a single LLM call that is given the variable list together with the variable descriptions of Section F.2 and is asked to return the full directed edge set in one shot. If the returned edge set is invalid, the LLM is prompted to retry up to five times. The model is given a per-response budget of 
+
+16384 tokens. 
+
+bfsBN: BFS BN (Jiralerspong et al., 2024) is reim-plemented as a breadth-first, multi-turn conversa-tion in which the LLM is asked, at each turn, for the parents of the next variable to be expanded. The model is given a per-response budget of 8192 
+
+tokens. Because every turn is retained in the con-versation, BFS BN’s context usage grows with the number of variables explored, making it sensitive to both network size and per-turn response length. The original BFS BN study reports success on NEUROPATHIC with GPT-4. In our setting, BFS BN completes N EUROPATHIC with DeepSeek but ex-hausts the context window with GPT-5.4 and Gem-ini. We read this as a context-budget effect rather than a limitation of the algorithm: the reasoning models we use likely emit substantially longer per-turn responses than GPT-4, so the conversation history grows faster and, on a network as large as NEUROPATHIC , can overrun the available window. 
+
+LLM-CD: We reimplement LLM-CD (Du et al., 2025) from the released GitHub repo, which inserts LLM guidance into a typical PC al-gorithm. The pipeline runs causal-learn ’s 
+
+SkeletonDiscovery with LLM consultation on borderline CI tests, followed by an LLM edge-orientation pass on the resulting skeleton. The original implementation had an optional outside refine-loop to improve the classification ability of the model on a single node. However, as this pa-per focuses only on whole-graph structure learn-ing and not downstream single-node predictive ca-pabilities, this external loop is omitted from this implementation. The runtime-governing parame-ters match the upstream values: α = 0 .05 , chi-square CI test, LLM borderline threshold 0.001 ,no bound on conditioning-set size, and a single-threaded skeleton phase. The model is given a per-response budget of 4096 tokens. 
+
+Timeout failure investigation with LLM-CD on N EUROPATHIC : Our LLM-CD reimplemen-tation completes H EPAR 2 in 30 hours but does not finish running on N EUROPATHIC within a 48-hour wall-clock budget, despite the PC base-line finishing on that dataset in time. The non-termination follows from the published algorithm’s choice of skeleton search. LLM-CD inher-its causal-learn ’s SkeletonDiscovery with no bound on the conditioning-set size, so at the high PC depths reached on hub vertices the per-node CI-test count grows combinatorially. LLM-CD (Du et al., 2025) was evaluated on networks up to 51 nodes, so N EUROPATHIC (p = 222 ) sits outside the regime in which it was demonstrated. However, this is not inconsistent with our PC baseline completing N EUROPATHIC in 35 hours. 
+
+pgmpy ’s PC defaults that we use (a hard depth cap, parallel CI dispatch, and a tighter α = 0 .01 ) to-gether prevent the deep enumeration that consumes LLM-CD’s wall-clock. Capping depth would likely significantly reduce required runtime, but both are deviations from the algorithm as published, so we report LLM-CD as it stands and mark N EU - 
+
+> ROPATHIC
+
+as not completed. 
+
+B.3 The ABSOL Pipeline 
+
+Algorithm 1 gives the full ABSOL pipeline. The four LLM-augmentation hooks named in Sec-tion 3.3 appear as labeled subroutines. Each sub-routine is independently enabled by a configuration flag — with all flags disabled the pipeline reduces to the ABSOL noLLM variant from Section 4.2. 
+
+B.4 Column Grouping 
+
+Column grouping identifies, for every variable, the other variables that are likely to share a direct causal relationship with it. We query the LLM once per variable, then the union of all returned sets is combined into a pair-level related-pair re-lation. This biases column subsampling so that causally adjacent variables co-occur more often than under uniform sampling. Concretely, during column subsampling each candidate is reweighted by a factor α (Table 6) whenever it is related to at least one already-picked column. 
+
+B.5 Adaptive Sampling 
+
+After the initial B subsampling rounds, adaptive sampling measures the Bernoulli entropy of every surviving edge’s vote frequency and flags as un-certain any node with at least one incoming edge whose entropy exceeds the threshold Hunc (in bits) Algorithm 1 ABSOL pipeline          
+
+> Require: Table Dwith pvariables, subsampling budget B, subsample sizes
+> (m, k ), vote threshold τ, max parents κ
+
+1: if column grouping enabled then 
+
+2: GLLM ← LLM-C OLUMN GROUPING (D)
+
+3: end if 
+
+4: Initialize directed-edge tallies bnu→v ← 0 and co-occurrence counts   
+
+> cu,v ←0
+
+5: for b = 1 , . . . , B do 
+
+6: Sample rows Rb of size m without replacement 
+
+7: Sample columns Cb of size k; upweight pairs in GLLM if enabled 
+
+8: bG(b) ← GES (D[Rb, C b]; SBDeu )
+
+9: for edge u → v ∈ bG(b) do bnu→v ← bnu→v + 1 
+
+10: end for 
+
+11: for pair {u, v } ⊆ Cb do cu,v ← cu,v + 1 
+
+12: end for 
+
+13: end for 
+
+14: if adaptive sampling enabled then 
+
+15: bn, c ← LLM-A DAPTIVE SAMPLING (D, bn, c )
+
+16: end if 
+
+17: bfu→v ← bnu→v /c u,v for every candidate edge with cu,v > 0
+
+18: E+ ← { u → v : bfu→v > 0} and Eτ ← { u → v : bfu→v ≥ τ }
+
+19: For each pair {u, v } with both u → v and v → u in Eτ , keep only the direction with the larger bn
+
+20: for each node v do 
+
+21: if parent ordering enabled then 
+
+22: Lv ← LLM-P ARENT ORDERING (v, E+)
+
+23: else 
+
+24: Lv ← candidate parents of v in Eτ , ranked by Pearson correlation with v in D
+
+25: end if 
+
+26: end for 
+
+27: G ← empty DAG on the p variables 
+
+28: for each node v in descending order of P  
+
+> wbnv→wdo
+
+29: for each candidate parent u ∈ Lv with |Pa G(v)| < κ do 
+
+30: if adding u → v would create no cycle then 
+
+31: add u → v to G
+
+32: else if cycle arbitration enabled then 
+
+33: G ← LLM-C YCLE ARBITRATION (G, u, v )
+
+34: end if 
+
+35: end for 
+
+36: end for 
+
+37: return G
+
+and whose endpoints co-occur in at least cmin sam-ples. For each flagged node, the LLM is shown the uncertain candidate parents with their observed frequencies and asked which other variables should be co-sampled to resolve the ambiguity. The LLM-suggested companions are then force-included in 
+
+t additional subsampling rounds per flagged node, with the remaining column slots drawn by the same procedure as the initial pool. Each targeted round runs the same GES call as the initial sampling. The resulting edges and co-sampled pairs are merged into the running tallies before ABSOL proceeds. Algorithm 2 summarizes the procedure. 
+
+B.6 Parent Ordering 
+
+Parent ordering replaces the default correlation-ranked candidate parent list with an LLM-produced ranking. For each child v, the LLM is shown v,every candidate parent with a positive subsampling vote frequency (i.e. every u with bfu→v > 0 prior to applying the cutoff), and the subsampling support of each candidate. The LLM is asked to return the candidates in order of causal relevance. 
+
+Algorithm 2 LLM-A DAPTIVE SAMPLING         
+
+> Require: Data D, tallies bn, co-counts c, entropy threshold Hunc , co-occurrence floor cmin , samples per node t, subsample sizes (m, k )
+
+1: U ← ∅ ▷ uncertain nodes 
+
+2: for each candidate edge u → v with cu,v ≥ cmin do 
+
+3: bf ← bnu→v /c u,v 
+
+4: if H2( bf ) ≥ Hunc then U ← U ∪ { v}
+
+5: end if 
+
+6: end for 
+
+7: for each v ∈ U do 
+
+8: Sv ← LLM-suggested companions for v
+
+9: for j = 1 , . . . , t do 
+
+10: Sample rows R of size m; sample columns C of size k with   
+
+> {v} ∪ Svforce-included
+
+11: bG ← GES (D[R, C ]; SBDeu )
+
+12: for edge u′ → v′ ∈ bG do bnu′→v′ ← bnu′→v′ + 1 
+
+13: end for 
+
+14: for pair {u′, v ′} ⊆ C do cu′,v ′ ← cu′,v ′ + 1 
+
+15: end for 
+
+16: end for 
+
+17: end for 
+
+18: return bn, c 
+
+The vote-frequency cutoff τ is applied differ-ently in the LLM-augmented and unaugmented paths. Without parent ordering, the greedy assem-bler receives only the candidates in Eτ . With parent ordering enabled, candidates the LLM endorses are kept regardless of their subsampling support, and candidates the LLM omits are tail-appended in descending bf and kept only if bfu→v ≥ τ . The moti-vation is that LLM endorsement should bypass the cutoff, with subsampling support as the floor for everything else, so neither signal can silently delete a candidate the other strongly supports. The result-ing ordering is consumed directly by the greedy DAG assembly, with the LLM’s top-ranked parents tried first under the in-degree cap κ.When adaptive sampling is also enabled, candi-dates that adaptive sampling targeted are addition-ally annotated with a pre-/post- adaptive-sampling trajectory, so the LLM can see whether the targeted resampling resolved the ambiguity in favor of or against each candidate. 
+
+B.7 Cycle Arbitration 
+
+The greedy assembly of Section 3.2 adds candidate edges in vote-rank order and skips any edge that would close a cycle. Instead, if cycle arbitration is enabled, when adding P → C would close one or more cycles, we enumerate the directed paths 
+
+C ; P currently in G and produce the union of their edges. The LLM is shown this edge set and asked for a hitting set whose removal breaks ev-ery offending path. The requested edges are then removed and P → C is added. The proposed removals are verified after the fact: if the LLM de-clines (empty hitting set), or if removing its chosen edges does not actually break every offending path, the removals are reverted and the candidate edge is dropped as in the baseline. Path enumeration is capped at Πmax paths—if the cap is exceeded the augmentation falls back to the baseline reject behavior, since the prompt and the model’s ability to construct a valid hitting set both degrade beyond that point. 
+
+B.8 Fallbacks 
+
+When an LLM response cannot be parsed into the expected schema or violates a graph-level invariant (DAG-ness, node membership, or isolation), each augmentation falls back to its statistical counterpart for that step rather than producing an invalid graph. Exact decoding parameters and per-augmentation hyperparameters are listed in Table 6.                        
+
+> Symbol Description Value
+> Aggregation
+> Bsubsampling rounds 1000
+> mrows per subsample 10000
+> kcolumns per subsample 15
+> τvote-frequency threshold 0.5
+> LLM augmentations
+> αcolumn upweight factor 5.0
+> Hunc uncertainty entropy threshold (bits) 0.7
+> cmin min co-occurrence for uncertainty 5
+> ttargeted samples per uncertain node 10
+> Πmax cycle path enumeration cap 10
+> LLM decoding
+> reasoning effort medium max completion tokens 4096 temperature default
+
+Table 6: Hyperparameters used in the main experiments. 
+
+C Subsample-Aggregation Ablation: Vote-Threshold Convergence and Sensitivity 
+
+The aggregation bound in Eq. 5 predicts that, for certified edge decisions with positive margins, disagreement with the full-data reference learner decreases as the number of subsampling rounds grows. We examine this finite-sample behavior on I NSURANCE . Since the main experiments fix 
+
+τ = 0 .5 before evaluation, the ablation separates convergence under this threshold from the sensitiv-ity of the aggregation rule to nearby thresholds. We use the co-occurrence-normalized voting rule from Section 3.2. For a candidate edge 
+
+u → v, the vote frequency is bf co  
+
+> u→v
+
+= ˆ nu→v/c u,v ,where cu,v counts rounds in which both end-points were sampled. This normalization removes the mechanical endpoint-eligibility factor πelig =
+
+k(k−1) /[p(p−1)] from the vote frequency. The experiments below measure finite-sample conver-gence and threshold sensitivity on this benchmark; they do not separately verify the theorem’s regular-ity or path-stability conditions. We sweep three column sizes k ∈ { 7, 10 , 15 },thresholds τ ∈ { 0.10 , 0.20 , . . . , 0.70 }, and round counts B from 50 to 2000. The metric is Normal-ized Hamming Distance (NHD) between bGco  
+
+> B
+
+(τ )
+
+and two references: the full-data GES output Gstd 
+
+and the ground-truth network Gtrue . Results are averaged over 10 independent seeds. 
+
+Convergence with B. Figure 2 shows NHD vs. 
+
+Gstd as B increases under the pre-specified thresh-old τ = 0 .5. The curves decrease and stabilize as B grows. Larger k values produce lower final NHD, reflecting higher effective co-observation counts. At the main column budget k = 15 ,the fixed threshold τ = 0 .5 gives 0.042 ± 0.004 
+
+NHD to Gstd and 0.053 ± 0.004 NHD to Gtrue at 
+
+B = 2000 .
+
+Threshold sensitivity. Figure 3 shows NHD at 
+
+B = 2000 as a function of τ . The best threshold decreases with k: τ ∗ = 0 .70 for k = 7 , 0.60 for 
+
+k = 10 , and 0.50 for k = 15 . Within each k,nearby thresholds give similar results: the NHD gap between the best and second-best threshold is at most 0.008. In this setting, modest misspecifica-tion of τ therefore has limited effect. When πelig 
+
+is small, conservative thresholds suppress noisy edges; when the column budget is larger, moderate thresholds preserve more intermediate edges. For a new dataset, we recommend choosing the largest column budget k permitted by mem-ory and runtime, since larger subproblems preserve more variable context and increase endpoint co-observation. With the k = 15 setting in Table 6, 
+
+τ = 0 .5 is our recommended initial value. This configuration was used without dataset-specific threshold tuning across all five benchmarks in Table 3 and Table 4. When resource constraints require smaller column budgets, the I NSURANCE sweep in Figure 3 suggests tested starting points of τ = 0 .6
+
+for k = 10 and τ = 0 .7 for k = 7 . This im-plies that when each subsample size is smaller, we need larger minimum co-occurrence vote frequency. Nearby thresholds performed similarly: the NHD difference between the best and second-best value was at most 0.008 for every tested k.50 200 500 1000 2000 Aggregation rounds B        
+
+> 0.00 0.05 0.10 0.15 0.20 0.25 0.30 NHD vs  Gstd
+> Insurance ( p=27) convergence to Gstd
+> k=7
+> k=10
+> k=15
+> 50 200 500 1000 2000 Aggregation rounds B
+> 0.00 0.05 0.10 0.15 0.20 0.25 0.30 NHD vs  Gtrue
+> Insurance ( p=27) ground-truth approximation
+> k=7
+> k=10
+> k=15
+
+Figure 2: Convergence of subsample-aggregated GES+BD EU with B for Insurance ( p=27) at k ∈ { 7, 10 , 15 },evaluated at the fixed threshold τ = 0 .5 used in the main experiments. Left: NHD vs. Gstd (convergence to standard learner). Right: NHD vs. Gtrue (ground-truth approximation). Shaded bands: ±1 std over 10 seeds. 0.1 0.2 0.3 0.4 0.5 0.6 0.7               
+
+> Threshold
+> 0.00 0.05 0.10 0.15 0.20 0.25 0.30 0.35 0.40 NHD vs  Gstd
+> (a) Convergence to standard full-data learner at B=2000
+> Insurance ( p=27, k=7) Insurance ( p=27, k=10) Insurance ( p=27, k=15)
+> 0.1 0.2 0.3 0.4 0.5 0.6 0.7
+> Threshold
+> 0.00 0.05 0.10 0.15 0.20 0.25 0.30 0.35 0.40 NHD vs  Gtrue
+> (b) Ground-truth approximation at B=2000
+> Insurance ( p=27, k=7) Insurance ( p=27, k=10) Insurance ( p=27, k=15)
+
+Figure 3: τ sensitivity at B = 2000 on Insurance ( p=27). NHD vs. Gstd (left) and vs. Gtrue (right) as a function of 
+
+τ for k ∈ { 7, 10 , 15 }. Error bars: ±1 std over 10 seeds. The optimal τ decreases from 0.70 to 0.50 as k increases. 
+
+D Cost Model and Derivations 
+
+Table 2 summarizes the practical structure-search cost (excluding CPT fitting) and the number of LLM API calls for each method. The B and t|U| 
+
+subsample rounds in ABSOL and ABSOL noLLM 
+
+are mutually independent and parallelizable. The per-call structure-search cost under the causal-learn max-parent cap κ is TGES (a, b ) = 
+
+O(( a + rκ+1 ) b4 2κ), with a rows, b variables, and maximum variable cardinality r. Under maxi-mum graph degree d for the PC skeleton phase, 
+
+TPC (n, p, d ) = O(( n + rd+2 ) p2 2d). Bounded-state terms ( r constant) simplify these to O(ab 42κ)
+
+and O(np 22d) respectively. The LLM calls column counts API requests, not token volume. For LLM-CD, following Du et al.’s discovery-stage accounting, the count excludes the extra repeated querying used only for uncertainty analysis. C denotes cycle-arbitration events during graph assembly, with C = O(p2) worst-case. I is the number of LLM-CD outer iterations, and the subsample dimensions satisfy k ≪ p and m ≤ n.
+
+E Hardware and Cost 
+
+Compute. All baseline runs were executed on a sin-gle AWS EC2 instance with 16 vCPUs and 128 GiB RAM. The structure learning uses CPU only, and no GPU is required, and the LLM augmentations dispatch to remote API. 
+
+Time and token costs. Table 7 reports wall-clock time and total LLM token usage for each method on each benchmark. All methods are run with a per-trial time limit of 48 hours.                                                                      
+
+> Dataset Method Time (min) Input Tokens Completion Tokens
+> Insurance GES 1.67 ––PC 3.10 ––PromptBN 1.72 2.9K 8.6K bfsBN 11.8 199K 36K LLM-CD 12.1 24K 25K
+> ABSOL noLLM 17.1 ––
+> ABSOL 24.8 191K 140K Hepar2 PC 48.9 ––bfsBN 10.8 2.0M 33K LLM-CD 1777 92K 86K
+> ABSOL noLLM 7.67 ––
+> ABSOL 20.3 757K 308K Neuropathic PC 2096 ––
+> ABSOL noLLM 9.65 ––
+> ABSOL 73.3 5.3M 1.2M Diabetes PromptBN 8.47 79K 8.6K
+> ABSOL noLLM 66.6 ––
+> ABSOL 480 26M 2.1M Munin ABSOL noLLM 38.4 ––
+> ABSOL 160 71M 3.6M
+
+Table 7: Wall-clock time and LLM token usage per method per benchmark, for methods that were able to successfully run. LLM-powered methods (PromptBN, bfsBN, ABSOL ) use GPT-5.4. Non-LLM methods show 
+
+– for token columns. 
+
+F Dataset Preparation 
+
+F.1 Synthetic training data 
+
+For each benchmark we generate a synthetic train-ing table by forward sampling n joint configura-tions from the ground-truth network. The sampled table is the only input that the structure learners ever see. The ground-truth graph is held out and used only for evaluation against the metrics of Sec-tion 4.3. Per-dataset sample counts n and the cor-responding row/column subsample budgets used during aggregation are listed in Table 6 and the per-dataset configuration files released with the code. 
+
+F.2 Variable descriptions 
+
+Every LLM-driven method in this paper consumes a per-network variable description file: a map-ping from each variable name in the network to a short natural-language description of the quantity it represents and the meaning of its discrete states. Variable descriptions are authored once per dataset and reused across every LLM augmentation and every LLM baseline (P ROMPT BN, BFS BN, LLM-CD), so that comparisons across methods are not confounded by differences in the domain context provided to the model. 
+
+G Excluded Augmentation: Graph Refinement 
+
+A natural extension of the augmentations in Sec-tion 3.3 is a graph refinement step that runs after greedy assembly and lets the LLM edit the final DAG by adding or deleting edges, following prior iterative-editing designs (Takayama et al., 2025; Ban et al., 2023). This augmentation was excluded from ABSOL because every variant degraded Edge 
+
+F1 on top of the rest of the pipeline. The four augmentations we retain each act either on the sampling distribution (adaptive sampling, column grouping) or on a locally bounded deci-sion during graph assembly (parent ordering on one child, cycle arbitration on one proposed edge). Graph refinement is the only candidate augmen-tation whose scope is the entire assembled graph and whose authority is unilateral edit, meaning it can add or delete any edge irrespective of upstream evidence. By construction, refinement runs last and con-sumes evidence the rest of the pipeline has already aggregated such as subsampling support, parent-ordering endorsement, cycle-arbitration outcomes. When it disagrees with an upstream decision, it wins by being last. That structural asymmetry per-sists regardless of what information the prompt is given and how narrowly the action space is scoped. We tested three variants of graph refinement: 1. V ANILLA REFINEMENT : the iterative ad-d/delete/terminate loop described in the im-plementations cited above. 2. R EFINEMENT WITH SUBSAMPLING SUP -
+
+> PORT
+
+: every in-graph edge is annotated with its subsampling support in the prompt, and a “near-miss” block annotates edges that were endorsed upstream but did not fit into the greedy aggregation. 3. N ARROWLY SCOPED REFINEMENT : targeted refinement specifically in areas that are likely blind spots for the existing algorithm: con-founding variables and orphan nodes. In two separate passes, the LLM was asked to delete edges from confounding variables, and to con-nect orphan nodes to the main graph. Table 8 reports the F1 delta of each variant on top of the rest of the ABSOL pipeline on all three datasets. None of the three variants contributes positively on any dataset, except vanilla refinement on Neuropathic, which has an Edge F1 delta of nearly zero. Variant Insurance Hepar2 Neuropathic          
+
+> Vanilla refinement −0.042 −0.160 0.001
+> Refinement + support −0.009 −0.026 −0.012
+> Narrowly scoped refinement −0.031 −0.059 −0.108
+
+Table 8: F1 change when graph refinement is appended to the rest of the ABSOL pipeline, by variant and dataset. 
+
+For a representative example: on Hepar2 with the subsampling-support variant, refinement pro-posed 21 deletes, of which 12 were true-positive edges. Five of those true positives had subsampling support ≥ 0.9, including bilirubin →itching at support 0.991 . The prompt showed the LLM each edge’s support and explicitly framed high support as evidence the edge was unlikely to be spurious, but the LLM proposed the deletes anyway. The narrow scope variant exhibits the same mechanism: of eight deletes proposed on Hepar2 for confounder redirection, all eight were true-positive edges, and of eighteen proposed additional edges to connect orphan nodes, only one was true-positive. The three variants in Table 8 span the natural axes of remediation (prompt enrichment, action-space restriction, and a combined justification re-quirement) and they converge to the same failure mode. Once a high-precision graph has been as-sembled, every remaining unilateral edit the LLM is empowered to make is fundamentally a calibra-tion disagreement against statistical evidence the LLM has already been shown. This implies that augmentations that compose positively are the ones that contribute evidence (additional sampling, sam-pling weights, parent endorsements that bypass the cutoff). Augmentations that propose edits to an already- assembled high-precision graph are likely to degrade results, regardless of how they are scoped or informed. 
+
+H Stagewise Error Analysis 
+
+Table 5 measures each augmentation’s end-to-end contribution through leave-one-out ablations. Be-cause the four LLM interfaces perform different conditional tasks, raw per-call accuracy measures are conditioned on different candidate sets and are not directly comparable across augmentations. In-stead, to localize the system-level errors to specific stages and identify process bottlenecks, we analyze the retained intermediate states from the existing runs. In Table 9, for each ground-truth edge, we assign its loss to the first stage after which it can                                                        
+
+> Stage Insurance Hepar2 Neuropathic Diabetes Munin ABSOL
+> Candidate generation 6.2% 6.5% 29 .1% 0.7% 67 .0%
+> Direction resolution 4.2% 11 .4% 7.2% 22 .6% 8.1%
+> Parent selection 1.9% 10 .1% 26 .5% 3.7% 0.0%
+> Greedy assembly 0.0% 0.3% 0.3% 16 .9% 2.6%
+> Recovered 87 .7% 71 .7% 36 .9% 56 .1% 22 .3%
+> ABSOL noLLM
+> Candidate generation 6.2% 10 .0% 33 .4% 30 .9% 87 .1%
+> Vote threshold 13 .5% 22 .2% 5.4% 1.2% 0.0%
+> Direction resolution 5.8% 10 .4% 10 .8% 29 .4% 2.5%
+> Greedy assembly 0.0% 0.0% 27 .6% 30 .1% 7.5%
+> Recovered 74 .5% 57 .5% 22 .8% 8.5% 2.9%
+
+Table 9: Percentage of ground-truth edges that are lost at each stage, with Recovered as the final directed-edge recall. Only Candidate Generation and Recovered are directly comparable across methods because the inter-mediate stages operate on different surviving candidate sets. I NSURANCE , H EPAR 2, and N EUROPATHIC are averaged over five trials, while D IABETES and M UNIN 
+
+are single runs. All ABSOL numbers are with GPT-5.4, and are from the same runs as in Table 3 and Table 5. 
+
+no longer appear in the final graph. The decomposition shows that there is no single downstream bottleneck: the dominant loss stage varies substantially across datasets and scales. The matched comparison shows where the final recall gains first become possible, while the stage decom-position localizes the points at which ground-truth edges become irrecoverable. The final recall of recovered ground-truth edges rises uniformly with LLM augmentations across the five benchmarks, with an average gain of +0 .217 . On the two largest graphs, much of this gain occurs before final assem-bly: candidate-generation losses fall from 30 .9% to 
+
+0.7% on D IABETES and from 87 .1% to 67 .0% on MUNIN . This complements the leave-one-out re-sults, where removing Parent Ordering lowers Edge 
+
+F1 on all three repeated-run benchmarks, with the largest drop on I NSURANCE and N EUROPATHIC 
+
+and the second-largest on H EPAR 2. 
+
+I Prompt Templates 
+
+Shared preamble (prepended to every system mes-sage) 
+
+You are an expert on causal reasoning with deep subject matter expertise. You are working on creating a new Bayesian Network. Reason carefully about direct causal relationships between variables, distinguishing them from indirect effects, common-cause confounding, and coincidental correlation. When frequencies or candidate lists from statistical learning are provided, treat them as informative but not authoritative - they may reflect sampling variance or confounding variables. 
+
+I.1 Column Grouping 
+
+System message 
+
+We are building a Bayesian Network and need to identify which other variables are likely to have a direct causal relationship with a target variable. This will be used to bias sampling so that causally related variables are more often sampled together. Identify the variables that are likely to be directly causally linked to the target variable - either as a direct cause of the target variable or as a direct effect of the target variable. Exclude variables whose relationship with the target variable is only indirect ( mediated through other variables) or purely correlational without a direct causal mechanism. Respond with only a Python list of variable names, nothing else. Example format: ["NodeA", "NodeB", "NodeC"] 
+
+User message 
+
+{variable_descriptions} The target variable is: {target_node} Reminder: respond with only a Python list of variable names, nothing else. 
+
+I.2 Adaptive Sampling 
+
+System message 
+
+We are refining a Bayesian Network through subsample aggregation. For one specific node, the aggregation analysis has produced ambiguous results about its parent set, and we want to run additional targeted samples to resolve the ambiguity. You will be shown a target node, the candidate parents whose status remains uncertain, and the subsampling frequency of each candidate (the fraction of samples - in which both nodes co-occurred - where the candidate appeared as a parent of the target node). Frequencies near 0.5 indicate the samples disagree on whether the edge belongs in the final graph. Identify which OTHER columns should be co-sampled with the target node in additional samples to better resolve which of the uncertain candidate parents are TRUE direct causes of the target node. Focus on: 1. Likely confounders - variables that may be common causes of the target node and one or more of the uncertain candidates, whose presence would let the structure learner correctly attribute the relationship. 2. Likely mediators - variables sitting causally between the target node and a candidate, whose inclusion clarifies whether the candidate is a direct or indirect cause. 3. Disambiguators - variables causally linked to one candidate but not others, helping distinguish which candidates reflect true direct relationships. Do NOT include the target node itself or the uncertain candidates already listed -those will already be included. Pick 3-8 columns from the available list. If you cannot identify useful co-sampling columns, return an empty list. Respond with only a Python list of column names, nothing else. Example format: ["ColumnA", "ColumnB", "ColumnC"] 
+
+User message 
+
+{variable_descriptions} TARGET NODE: {target_node} The subsample aggregation analysis identified the following candidate parents whose status remains uncertain. {uncertain_edges} Reminder: respond with only a Python list of column names, nothing else. 
+
+I.3 Parent Ordering 
+
+System message 
+
+We need to determine which nodes should be the parents of a target node in our Bayesian Network, as well as the order of importance for these parents. We have selected the following candidate parent nodes by training many small Bayesian Networks on subsets of the data. Take these percentages into account, but do not blindly follow them. They could be easily swayed by random variance in sampling frequency - only a small number of nodes are present in each sample -or by spurious correlations in the data subsets. Respond only with a Python-formatted list of your chosen parent node names, nothing else. The list should be in order of relevance, with the strongest parent candidates ranked first. Make sure the parent node names are exact string matches of the ones provided to you. 
+
+User message 
+
+{variable_descriptions} Target Node: {target_node} We are displaying the percentage of subsample networks in which the edge parent->{ target_node} appeared. {parent_percentages} Reminder: respond only with a Python-formatted list of your chosen parent node names, nothing else. 
+
+When adaptive sampling is also enabled, the sys-tem message above is extended with the following block, placed before the response-format instruc-tion. The block explains the additional pre-/post-adaptive-sampling trajectory annotations that the user message attaches to any candidate the adaptive-sampling step targeted. 
+
+Additional system block (adaptive sampling enabled) 
+
+Some candidates may be annotated with a pre-AS / post-AS trajectory of the form: <parent>: <pct> (<count>/<co_occurrence> networks where both co-occurred) pre-AS: <pct> (<count>/<co_occurrence> initial subsample networks where both co-occurred) - AS triggered at H=<entropy> post-AS: <pct> (<count>/< co_occurrence> AS-targeted samples where both co-occurred) These candidates were flagged by an upstream "adaptive sampling" (AS) step because the initial subsample network was uncertain about them (their pre-AS Bernoulli entropy H exceeded a threshold ; H is in bits, 1.0 = maximum uncertainty / 50-50, 0.0 = unanimous). The pipeline then ran additional samples that forced the target node and the uncertain candidates to be co-sampled, with the intent of resolving the ambiguity. The "post-AS" line shows how the edge fared in those targeted samples in isolation, and the "overall" line is the combined evidence. When a candidate has this trajectory, the targeted samples were drawn specifically to disambiguate it, so the post-AS rate is informative about whether the relationship survives controlled co-sampling. A candidate where post-AS rate is high and AS triggered at high H is one the pipeline deliberately scrutinized and where the targeted evidence supports the edge. 
+
+I.4 Cycle Arbitration 
+
+System message 
+
+We are assembling a Bayesian Network by greedily adding directed edges. When a proposed new edge would close one or more cycles, we must remove one or more existing edges so that NO directed path from the new edge's child back to its parent remains. Pick the smallest set of edges to drop such that every offending path has at least one of its edges removed. Prefer dropping edges that are least likely to reflect a true direct causal relationship - edges with implausible direction or pairs more likely to be correlated without direct causation -over edges that reflect well-established domain knowledge. If no acceptable removal set exists (i.e. you would rather keep all existing edges and not add the proposed new edge), respond with an empty list. Respond with only a Python list of edge numbers, nothing else. Example: [2, 5] 
+
+User message 
+
+{variable_descriptions} We are about to add the edge {new_edge_parent } -> {new_edge_child}, but this would create one or more cycles because the following directed paths from { new_edge_child} to {new_edge_parent} already exist in the graph: {cycle_paths} If we add {new_edge_parent} -> { new_edge_child}, every path above closes into a cycle. The candidate edges to remove (the union of all edges appearing in any path above) are: {edge_options} Reminder: respond with only a Python list of edge numbers, nothing else. 
+
+J Artifact License 
+
+Code, prompts, and experiment configurations will be released under the BSD 3-Clause Li-cense. Third-party benchmark networks, software libraries, and hosted LLM outputs remain subject to their original licenses and terms of use.
