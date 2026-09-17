@@ -6,40 +6,52 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-09-16
-- 运行时间：2026-09-16 21:58:05 UTC
+- 最新运行日期：2026-09-17
+- 运行时间：2026-09-17 22:34:29 UTC
 - 运行状态：成功
-- 本次总论文数：5
-- 精读区：0
-- 速读区：5
+- 本次总论文数：10
+- 精读区：1
+- 速读区：9
 
 ### 今日简报（AI）
-今日速读5篇、精读0篇，重点覆盖零样本有害梗图检测、结构化知识事实核查与可追踪多跳图导航。
-
-最值得看的是SyRHM（7.0/10），用符号语言增强推理和联想检索做零样本有害梗图检测；DARE（6.0/10）与Theseus（6.0/10）则分别关注辩证智能体事实核查和多跳图导航的可追踪性。
-
-普通读者可先从SyRHM摘要入手，关注零样本与可解释推理，再顺着事实核查和图导航方向看应用落地。
-- 详情：[/202609/16/README](/202609/16/README)
+今日盘点10篇论文，精读1篇、速读9篇，焦点落在神经符号推理、可解释性与LLM推理可靠性上。  
+最值得看的是精读8.0分的《Disentangling Long-Term Memory via Latent Neuro-Symbolic Reasoning》，以及速读中“知识图谱增强可信分析”和“LLM数学推理解构与脆弱性”两个方向。  
+普通读者可先读精读篇抓长时记忆与符号推理主线，再按兴趣选读速读中的可解释NLI或数学推理拆解。
+- 详情：[/202609/17/README](/202609/17/README)
 
 ### 精读区论文标签
-- 本次无精读推荐。
+1. [Disentangling Long-Term Memory via Latent Neuro-Symbolic Reasoning](/202609/17/2609.18461v1-disentangling-long-term-memory-via-latent-neuro-symbolic-reasoning)  
+   标签：评分：8.0/10、query:ns-xai
+   evidence：用于长期记忆推理的潜在神经符号框架
 
 ### 速读区论文标签
-1. [SyRHM: Symbolic-Language-Enhanced Reasoning with Associative Retrieval for Zero-shot Harmful Meme Detection](/202609/16/2609.13794v1-syrhm-symbolic-language-enhanced-reasoning-with-associative-retrieval-for-zero-shot-harmful-meme-detection)  
+1. [Can We Do Interpretable NLI with Graphs Based on Atomic Propositions?](/202609/17/2609.16814v2-can-we-do-interpretable-nli-with-graphs-based-on-atomic-propositions)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：符号中间表示与神经语言推理结合
-2. [DARE: Dialectical Agentic Reasoning for Structured Knowledge Fact Checking](/202609/16/2609.13808v1-dare-dialectical-agentic-reasoning-for-structured-knowledge-fact-checking)  
+   evidence：以原子命题图表示进行可解释的大模型自然语言推理
+2. [Symbolic Separation: Grounding Deep Agents in Knowledge Graphs for Trustworthy Operational Data Analytics](/202609/17/2609.17107v1-symbolic-separation-grounding-deep-agents-in-knowledge-graphs-for-trustworthy-operational-data-analytics)  
+   标签：评分：7.0/10、query:ns-xai
+   evidence：神经智能体受符号本体知识图谱约束以实现可信推理
+3. [A Four-Stage Decomposition of Word-Problem Solving and Mechanistic Fragility in LLM Math Reasoning](/202609/17/2609.17804v1-a-four-stage-decomposition-of-word-problem-solving-and-mechanistic-fragility-in-llm-math-reasoning)  
+   标签：评分：7.0/10、query:ns-xai
+   evidence：大模型数学推理阶段的机制可解释性分析
+4. [Managing Action Preconditions in Neuro-Symbolic RL: Three Placement Strategies for Embodied Agents](/202609/17/2609.16056v1-managing-action-preconditions-in-neuro-symbolic-rl-three-placement-strategies-for-embodied-agents)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：LLM生成可执行图推理程序，将神经生成与符号结构化推理结合
-3. [Theseus in the Graph: Towards Traceable Multi-Hop Graph Navigation](/202609/16/2609.14528v1-theseus-in-the-graph-towards-traceable-multi-hop-graph-navigation)  
+   evidence：将符号前置条件知识融入学习策略的神经符号强化学习
+5. [The Imitation Game: When LLMs Learn to Reason Like Programs via Code-Centric Reasoning Data Synthesis](/202609/17/2609.16076v1-the-imitation-game-when-llms-learn-to-reason-like-programs-via-code-centric-reasoning-data-synthesis)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：可追溯且忠实的多跳推理路径
-4. [Natural Language Knowledge Graph Query Execution: Leveraging Controlled Semantics in the LLM Context Window](/202609/16/2609.14652v1-natural-language-knowledge-graph-query-execution-leveraging-controlled-semantics-in-the-llm-context-window)  
+   evidence：以可执行代码作为大模型推理的严格符号媒介
+6. [Bridging Learned Visual Perception and Symbolic Belief-Space Planning](/202609/17/2609.16884v1-bridging-learned-visual-perception-and-symbolic-belief-space-planning)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：OWL本体受控语义与LLM结合用于查询推理
-5. [ABSOL: Aggregated Bayesian Subsampling Orchestrated with LLMs](/202609/16/2609.15007v1-absol-aggregated-bayesian-subsampling-orchestrated-with-llms)  
+   evidence：连接学习式视觉感知与符号规划，属神经符号接地方法
+7. [Neuro-Symbolic Hierarchical Intention Anticipation in Human Behavior](/202609/17/2609.17064v1-neuro-symbolic-hierarchical-intention-anticipation-in-human-behavior)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：LLM引导的贝叶斯网络结构学习，融合神经引导与符号概率推理
+   evidence：神经符号编码器结合符号正则进行结构化预测
+8. [NObSP: Functional Decomposition of Neural Networks via Oblique Subspace Projections](/202609/17/2609.17825v1-nobsp-functional-decomposition-of-neural-networks-via-oblique-subspace-projections)  
+   标签：评分：6.0/10、query:ns-xai
+   evidence：将网络预测分解为特征贡献以支持局部解释
+9. [First Token Matters: Understanding Safety Collapse in Large Reasoning Models](/202609/17/2609.18471v1-first-token-matters-understanding-safety-collapse-in-large-reasoning-models)  
+   标签：评分：6.0/10、query:ns-xai
+   evidence：对大推理模型拒答动态进行 token 级可解释性分析
 
 
 <div class="dpr-home-promo-card">
