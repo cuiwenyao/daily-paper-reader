@@ -6,52 +6,35 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-09-17
-- 运行时间：2026-09-17 22:34:29 UTC
+- 最新运行日期：2026-09-18
+- 运行时间：2026-09-18 21:39:57 UTC
 - 运行状态：成功
-- 本次总论文数：10
+- 本次总论文数：5
 - 精读区：1
-- 速读区：9
+- 速读区：4
 
 ### 今日简报（AI）
-今日盘点10篇论文，精读1篇、速读9篇，焦点落在神经符号推理、可解释性与LLM推理可靠性上。  
-最值得看的是精读8.0分的《Disentangling Long-Term Memory via Latent Neuro-Symbolic Reasoning》，以及速读中“知识图谱增强可信分析”和“LLM数学推理解构与脆弱性”两个方向。  
-普通读者可先读精读篇抓长时记忆与符号推理主线，再按兴趣选读速读中的可解释NLI或数学推理拆解。
-- 详情：[/202609/17/README](/202609/17/README)
+今日精读 1 篇、速读 3 篇共 4 篇论文，重点落在可解释 NLI 与神经符号推理两条线上。最值得看的是用原子命题图做可解释自然语言推理（8.0/10），以及“思维状态”驱动的内源推理、CAD 关系学习与低空无人机神经符号智能体等方向（均 6.0/10）。普通读者可先读精读那篇，再按兴趣挑一篇速读，重点关注“可解释性”和“符号与神经网络如何结合”这两个关键词。
+- 详情：[/202609/18/README](/202609/18/README)
 
 ### 精读区论文标签
-1. [Disentangling Long-Term Memory via Latent Neuro-Symbolic Reasoning](/202609/17/2609.18461v1-disentangling-long-term-memory-via-latent-neuro-symbolic-reasoning)  
+1. [Can We Do Interpretable NLI with Graphs Based on Atomic Propositions?](/202609/18/2609.16814v3-can-we-do-interpretable-nli-with-graphs-based-on-atomic-propositions)  
    标签：评分：8.0/10、query:ns-xai
-   evidence：用于长期记忆推理的潜在神经符号框架
+   evidence：通过符号原子命题实现可解释的图式自然语言推理
 
 ### 速读区论文标签
-1. [Can We Do Interpretable NLI with Graphs Based on Atomic Propositions?](/202609/17/2609.16814v2-can-we-do-interpretable-nli-with-graphs-based-on-atomic-propositions)  
-   标签：评分：7.0/10、query:ns-xai
-   evidence：以原子命题图表示进行可解释的大模型自然语言推理
-2. [Symbolic Separation: Grounding Deep Agents in Knowledge Graphs for Trustworthy Operational Data Analytics](/202609/17/2609.17107v1-symbolic-separation-grounding-deep-agents-in-knowledge-graphs-for-trustworthy-operational-data-analytics)  
-   标签：评分：7.0/10、query:ns-xai
-   evidence：神经智能体受符号本体知识图谱约束以实现可信推理
-3. [A Four-Stage Decomposition of Word-Problem Solving and Mechanistic Fragility in LLM Math Reasoning](/202609/17/2609.17804v1-a-four-stage-decomposition-of-word-problem-solving-and-mechanistic-fragility-in-llm-math-reasoning)  
-   标签：评分：7.0/10、query:ns-xai
-   evidence：大模型数学推理阶段的机制可解释性分析
-4. [Managing Action Preconditions in Neuro-Symbolic RL: Three Placement Strategies for Embodied Agents](/202609/17/2609.16056v1-managing-action-preconditions-in-neuro-symbolic-rl-three-placement-strategies-for-embodied-agents)  
+1. [State of Thought Enables Endogenous Reasoning](/202609/18/2609.16055v1-state-of-thought-enables-endogenous-reasoning)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：将符号前置条件知识融入学习策略的神经符号强化学习
-5. [The Imitation Game: When LLMs Learn to Reason Like Programs via Code-Centric Reasoning Data Synthesis](/202609/17/2609.16076v1-the-imitation-game-when-llms-learn-to-reason-like-programs-via-code-centric-reasoning-data-synthesis)  
+   evidence：由模型内部状态主导的内生推理，揭示推理动力学
+2. [CAD-Based Relation Learning and Geometric-Symbolic Planning for Robotic Assembly](/202609/18/2609.17263v1-cad-based-relation-learning-and-geometric-symbolic-planning-for-robotic-assembly)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：以可执行代码作为大模型推理的严格符号媒介
-6. [Bridging Learned Visual Perception and Symbolic Belief-Space Planning](/202609/17/2609.16884v1-bridging-learned-visual-perception-and-symbolic-belief-space-planning)  
+   evidence：神经网络关系学习与几何符号推理结合
+3. [Neuro-Symbolic Agentic AI for Networked Low-Altitude UAVs](/202609/18/2609.19961v1-neuro-symbolic-agentic-ai-for-networked-low-altitude-uavs)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：连接学习式视觉感知与符号规划，属神经符号接地方法
-7. [Neuro-Symbolic Hierarchical Intention Anticipation in Human Behavior](/202609/17/2609.17064v1-neuro-symbolic-hierarchical-intention-anticipation-in-human-behavior)  
+   evidence：融合神经接地与符号推理的神经符号智能体框架
+4. [Schema-Anchored Latent Reasoning for Semantic Parsing-Based Knowledge Base Question Answering](/202609/18/2609.20398v1-schema-anchored-latent-reasoning-for-semantic-parsing-based-knowledge-base-question-answering)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：神经符号编码器结合符号正则进行结构化预测
-8. [NObSP: Functional Decomposition of Neural Networks via Oblique Subspace Projections](/202609/17/2609.17825v1-nobsp-functional-decomposition-of-neural-networks-via-oblique-subspace-projections)  
-   标签：评分：6.0/10、query:ns-xai
-   evidence：将网络预测分解为特征贡献以支持局部解释
-9. [First Token Matters: Understanding Safety Collapse in Large Reasoning Models](/202609/17/2609.18471v1-first-token-matters-understanding-safety-collapse-in-large-reasoning-models)  
-   标签：评分：6.0/10、query:ns-xai
-   evidence：对大推理模型拒答动态进行 token 级可解释性分析
+   evidence：大模型在符号逻辑形式上的推理
 
 
 <div class="dpr-home-promo-card">
