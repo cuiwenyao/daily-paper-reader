@@ -6,38 +6,26 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-09-19
-- 运行时间：2026-09-19 21:43:00 UTC
+- 最新运行日期：2026-09-20
+- 运行时间：2026-09-20 21:37:55 UTC
 - 运行状态：成功
-- 本次总论文数：5
+- 本次总论文数：1
 - 精读区：0
-- 速读区：5
+- 速读区：1
 
 ### 今日简报（AI）
-1) 今日5篇速读、0篇精读，三篇6.0分论文把LLM的“信念状态”“因果解释”“合约监督”推上前台。  
-2) 最值得看的是LLM在上下文中形成信念状态几何，以及用合约对智能体做符号化时序监督这两条方向。  
-3) 普通读者可先读这三篇的摘要与结论，再判断是否跟进完整实验，暂不必投入精读。
-- 详情：[/202609/19/README](/202609/19/README)
+今天日报只筛出1篇速读、无精读，焦点落在视觉语言模型评测新基准EDCT-Bench上。
+该工作用"解释驱动的反事实测试"去挖VLM在忠实性上的缺口，是今天唯一值得翻看的方向，但6.0分提示结论与实验规模仍需自行判断。
+普通读者可先读它的摘要和评测设计，关注"模型说出的理由是否真的对应其判断"，不必急着采信其全部结论。
+- 详情：[/202609/20/README](/202609/20/README)
 
 ### 精读区论文标签
 - 本次无精读推荐。
 
 ### 速读区论文标签
-1. [Large Language Models Develop Belief State Geometry In-Context](/202609/19/2609.17376v1-large-language-models-develop-belief-state-geometry-in-context)  
+1. [EDCT-Bench: Uncovering Faithfulness Gaps in VLMs via Explanation-Driven Counterfactual Testing](/202609/20/2609.17953v1-edct-bench-uncovering-faithfulness-gaps-in-vlms-via-explanation-driven-counterfactual-testing)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：探测大模型残差流中的信念状态，关注推理可解释性
-2. [Regional Explanations via Causal Sufficiency and Necessity](/202609/19/2609.18049v1-regional-explanations-via-causal-sufficiency-and-necessity)  
-   标签：评分：6.0/10、query:ns-xai
-   evidence：面向模型可解释性的区域级因果充分必要解释
-3. [Symbolic Temporal Supervision of LLM Agents Using Contracts](/202609/19/2609.18128v1-symbolic-temporal-supervision-of-llm-agents-using-contracts)  
-   标签：评分：6.0/10、query:ns-xai
-   evidence：符号时序契约监督大模型智能体
-4. [Attention Dispersion as a Diagnostic Signal for Hallucination in Large Language Models](/202609/19/2609.18320v1-attention-dispersion-as-a-diagnostic-signal-for-hallucination-in-large-language-models)  
-   标签：评分：6.0/10、query:ns-xai
-   evidence：用内部注意力分析大模型推理可解释性
-5. [NeuSOGA3D: A Neuro-Symbolic Framework for Explainable 3D Geometric Reconstruction](/202609/19/2609.20323v1-neusoga3d-a-neuro-symbolic-framework-for-explainable-3d-geometric-reconstruction)  
-   标签：评分：6.0/10、query:ns-xai
-   evidence：面向可解释重建的神经符号框架
+   evidence：面向大视觉语言模型解释忠实性的测试
 
 
 <div class="dpr-home-promo-card">
