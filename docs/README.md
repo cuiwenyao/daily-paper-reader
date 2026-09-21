@@ -6,26 +6,34 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-09-20
-- 运行时间：2026-09-20 21:37:55 UTC
+- 最新运行日期：2026-09-21
+- 运行时间：2026-09-21 22:37:54 UTC
 - 运行状态：成功
-- 本次总论文数：1
-- 精读区：0
-- 速读区：1
+- 本次总论文数：4
+- 精读区：1
+- 速读区：3
 
 ### 今日简报（AI）
-今天日报只筛出1篇速读、无精读，焦点落在视觉语言模型评测新基准EDCT-Bench上。
-该工作用"解释驱动的反事实测试"去挖VLM在忠实性上的缺口，是今天唯一值得翻看的方向，但6.0分提示结论与实验规模仍需自行判断。
-普通读者可先读它的摘要和评测设计，关注"模型说出的理由是否真的对应其判断"，不必急着采信其全部结论。
-- 详情：[/202609/20/README](/202609/20/README)
+2026-09-21 日报完成4篇论文筛选：1篇精读《LogicTrack: Auditing Reasoning Trajectories of Large Language Models with Formal Logic Solvers》拿下9.0分，3篇速读覆盖长时记忆、符号回归与多模态推理。  
+最值得看的是精读方向：用形式逻辑求解器审计大模型推理轨迹；速读中《Disentangling Long-Term Memory via Latent Neuro-Symbolic Reasoning》7.0分也值得关注。  
+普通读者可先了解 LogicTrack 如何检查推理是否合规，再按兴趣跟进长时记忆、科学方程恢复或多模态推理。
+- 详情：[/202609/21/README](/202609/21/README)
 
 ### 精读区论文标签
-- 本次无精读推荐。
+1. [LogicTrack: Auditing Reasoning Trajectories of Large Language Models with Formal Logic Solvers](/202609/21/2609.21492v1-logictrack-auditing-reasoning-trajectories-of-large-language-models-with-formal-logic-solvers)  
+   标签：评分：9.0/10、query:ns-xai
+   evidence：神经符号框架用形式逻辑求解器审计推理
 
 ### 速读区论文标签
-1. [EDCT-Bench: Uncovering Faithfulness Gaps in VLMs via Explanation-Driven Counterfactual Testing](/202609/20/2609.17953v1-edct-bench-uncovering-faithfulness-gaps-in-vlms-via-explanation-driven-counterfactual-testing)  
+1. [Disentangling Long-Term Memory via Latent Neuro-Symbolic Reasoning](/202609/21/2609.18461v2-disentangling-long-term-memory-via-latent-neuro-symbolic-reasoning)  
+   标签：评分：7.0/10、query:ns-xai
+   evidence：在连续潜在空间进行记忆解耦的神经符号框架
+2. [MOSAIC-SR: Transformer-Guided Symbolic Regression for Scientific Equation Recovery](/202609/21/2609.20997v1-mosaic-sr-transformer-guided-symbolic-regression-for-scientific-equation-recovery)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：面向大视觉语言模型解释忠实性的测试
+   evidence：Transformer引导符号搜索以恢复可解释方程
+3. [DRT: Dense Reasoning Trace for Efficient and Grounded Multimodal Reasoning](/202609/21/2609.21675v1-drt-dense-reasoning-trace-for-efficient-and-grounded-multimodal-reasoning)  
+   标签：评分：6.0/10、query:ns-xai
+   evidence：含符号连接词的结构化推理轨迹以增强可解释多模态推理
 
 
 <div class="dpr-home-promo-card">
