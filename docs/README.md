@@ -6,36 +6,32 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-09-22
-- 运行时间：2026-09-22 22:11:52 UTC
+- 最新运行日期：2026-09-23
+- 运行时间：2026-09-23 22:27:38 UTC
 - 运行状态：成功
-- 本次总论文数：4
-- 精读区：3
-- 速读区：1
+- 本次总论文数：3
+- 精读区：0
+- 速读区：3
 
 ### 今日简报（AI）
-今日更新4篇（精读3、速读1），主线是"神经+符号"：可微神经-软符号感知任务规划框架、面向逻辑证明辅导反馈的符号验证器，外加一篇速读的文本转参数化贝叶斯网络抽取基准。
-
-最值得看的是两篇8.0分精读：一篇讲如何让符号规划全流程可微，一篇用符号验证器让LLM辅导反馈在逻辑证明中更忠实、更有诊断性。
-
-普通读者可先读这两篇高分精读感受"符号约束+神经网络"的互补思路，再扫一眼PRISM-BN的6.0分速读，了解文本抽取评测目前的受限之处。
-- 详情：[/202609/22/README](/202609/22/README)
+今日速读3篇AI论文，精读0篇，焦点集中在可解释性与模型内部机制。  
+最值得看的是两篇7分工作：NeuSOGA3D用神经符号做可解释3D几何重建，Matryoshka attribution尝试把语言模型输出归因到表示和权重。  
+普通读者可优先浏览这两篇，再结合6分的隐藏思维链提取研究，理解前沿模型能力与可解释性边界。
+- 详情：[/202609/23/README](/202609/23/README)
 
 ### 精读区论文标签
-1. [A Fully Differentiable Neuro-Soft-Symbolic Framework for Perceptual Task Planning](/202609/22/2609.21221v1-a-fully-differentiable-neuro-soft-symbolic-framework-for-perceptual-task-planning)  
-   标签：评分：8.0/10、query:ns-xai
-   evidence：面向可解释规划的完全可微神经符号框架
-2. [Correct Diagnosis, Better Feedback: A Symbolic-Verifier for Faithful LLM Tutoring Feedback in Logic Proofs](/202609/22/2609.22553v1-correct-diagnosis-better-feedback-a-symbolic-verifier-for-faithful-llm-tutoring-feedback-in-logic-proofs)  
-   标签：评分：8.0/10、query:ns-xai
-   evidence：符号验证器驱动、分离诊断与生成的忠实反馈架构
-3. [Linguistic Features for Interpretable Textual Entailment](/202609/22/2609.24932v1-linguistic-features-for-interpretable-textual-entailment)  
-   标签：评分：8.0/10、query:ns-xai
-   evidence：融合符号结构层与神经分布式层的可解释混合模型
+- 本次无精读推荐。
 
 ### 速读区论文标签
-1. [PRISM-BN: A Controlled Corpus and Benchmark for Text-to-Parameterized Bayesian Network Extraction](/202609/22/2609.21673v1-prism-bn-a-controlled-corpus-and-benchmark-for-text-to-parameterized-bayesian-network-extraction)  
+1. [NeuSOGA3D: A Neuro-Symbolic Framework for Explainable 3D Geometric Reconstruction](/202609/23/2609.20323v2-neusoga3d-a-neuro-symbolic-framework-for-explainable-3d-geometric-reconstruction)  
+   标签：评分：7.0/10、query:ns-xai
+   evidence：神经符号框架融合学习先验与显式符号推理以提升可解释性
+2. [Matryoshka attribution: Learning to attribute language model outputs to representations and weights](/202609/23/2609.25518v1-matryoshka-attribution-learning-to-attribute-language-model-outputs-to-representations-and-weights)  
+   标签：评分：7.0/10、query:ns-xai
+   evidence：将语言模型输出归因到内部计算，提升可解释性
+3. [Capable yet Parsimonious: Extracting and Characterizing Hidden Chain-of-Thought in Frontier Models](/202609/23/2609.26637v1-capable-yet-parsimonious-extracting-and-characterizing-hidden-chain-of-thought-in-frontier-models)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：贝叶斯网络作为神经符号AI的符号目标并提供基准语料
+   evidence：提取并刻画前沿模型隐藏的思维链推理
 
 
 <div class="dpr-home-promo-card">
