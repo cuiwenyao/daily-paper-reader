@@ -1,0 +1,858 @@
+Title: Self-Play Search Distillation for Large Language Model Reasoning
+
+URL Source: https://arxiv.org/pdf/2609.30936v1
+
+Published Time: Mon, 28 Sep 2026 00:55:31 GMT
+
+Number of Pages: 30
+
+Markdown Content:
+# Self-Play Search Distillation for Large Language Model Reasoning 
+
+Lorenzo Molfetta Wai-Chung Kwan Giacomo Frisoni Luca Ragazzi 
+
+Gianluca Moro Pavlos Vougiouklis Jeff Z. Pan Pasquale Minervini 
+
+University of Bologna University of Edinburgh 
+
+Huawei Technologies R&D (UK) Ltd. Miniml.AI 
+
+lorenzo.molfetta@unibo.it 
+
+Abstract 
+
+Improving reasoning abilities in Large Lan-guage Models (LLMs) requires high-quality data that exposes difficult decisions, com-peting alternatives, and their consequences. Data scarcity is driven by the low quality of synthetic data and the cost of human la-beling. We introduce Self-Play Search Dis-tillation (SPSD), a framework for generat-ing superhuman synthetic data via self-play of MuZero-like networks trained on board games. SPSD uses executable environments to turn search into structured reasoning prob-lems. At each state, the expert identifies a preferred decision, plausible alternatives, plausible opponent replies, and value esti-mates. By converting the self-play search records into superhuman chains-of-thought, we train LLMs with environment-grounded supervision. Although trained only on self-play search records, SPSD transfers to un-seen mathematics. On Qwen3-4B-Base, it raises the mean over six mathematics bench-marks from 24.1 to 36.6 while increasing the held-out-game win rate from 15% to 45%. SPSD offers an annotation-efficient way to create high-quality synthetic data for improv-ing LLM performance in reasoning tasks. 
+
+1 Introduction 
+
+Scaling the reasoning capabilities of large language models (LLMs) requires more than simply increas-ing the amount of training data. It requires syn-thetic supervision whose quality can exceed the student’s current capabilities. Final answers re-veal whether a solution succeeded, but not how the solver preserved state, rejected plausible alter-natives, or anticipated delayed consequences (Li et al., 2023; Nanda et al., 2023; Valmeekam et al., 2023a,b). Human process supervision can expose these operations, but it is costly to collect, difficult to verify, and ultimately bounded by the expertise of its annotators (Ouyang et al., 2022). Recent self-generation methods offer a scalable alternative by allowing the learner to construct tasks, traces, or feedback (Chen et al., 2024; Liu et al., 2025a; Zhao et al., 2025). Yet, when the learner itself participates in generating the super-vision, data quality remains coupled to its current errors and limitations. The central challenge is to generate structured supervision that exposes com-parisons and consequences beyond the student’s current policy and can be checked independently. Executable board games provide a compact testbed for this challenge. Their rules define exact transitions and legal actions, and terminal outcomes expose delayed consequences, while controlled rule changes vary the reasoning problem without changing the evaluation interface. Search-based self-play systems in this lineage have achieved su-perhuman play and, crucially, retain more than the selected action: they expose alternatives, oppo-nent replies, branch values, and replayable con-sequences (Silver et al., 2017a; Schrittwieser et al., 2020; Ye et al., 2021). A single root search can therefore provide a preferred action, a distribution over legal alternatives, branch values, and contin-uations that can be checked independently by re-play. These records capture the comparisons and delayed consequences absent from outcome-only game logs. Crucially, search-based self-play has already demonstrated that such experts can surpass human performance, providing a source of supervi-sion that is not inherently capped by human exper-tise (Silver et al., 2017a; Schrittwieser et al., 2020). By placing these external search experts—rather than the LLM itself—in the data-generation loop, we decouple supervision quality from the student’s current policy. Self-play search thus becomes more than a game-playing mechanism. It provides a programmable source of search-derived reasoning traces whose alternatives and consequences can be checked by replay under the executable rules of each environment. arXiv:2609.30936v1 [cs.AI] 25 Sep 2026 We introduce Self-Play Search Distillation (SPSD), an offline bridge from superhuman-capable self-play search to LLM post-training. Given a search expert, SPSD converts replayable decision states into verifier-grounded supervision that exposes the selected action, plausible alterna-tives, and their consequences, together with com-plementary questions about the underlying state. The LLM never participates in expert self-play dur-ing post-training and receives no search informa-tion at inference time. Our experiments show that SPSD can improve mathematical reasoning while preserving game competence, although the magni-tude of the gains depends on the backbone. We make three contributions.  
+
+> 1
+
+We introduce an offline framework that turns self-play search into a scalable source of replay-grounded supervision for LLM reasoning.  
+
+> 2
+
+We develop a replay-grounded interface that converts expert decisions, alternatives, and state transitions into reasoning traces and six com-plementary state-supervision tasks.  
+
+> 3
+
+We evaluate whether this supervision transfers beyond the source search environments, across game play, controlled rule variation, and math-ematical reasoning. 
+
+2 Related Work 
+
+Game reasoning. Executable games support both the evaluation of stateful reasoning and the generation of interaction-grounded supervision. ChessGPT (Feng et al., 2023) connects policy learning with language modeling, while Chess-Bench (Ruoss et al., 2024) evaluates chess pre-diction against engine-derived targets. Training on complete games (Zhang et al., 2025) examines whether full-game context improves chess play, latent-state analyses (Karvonen, 2024) probe in-ternal board representations, and chess reasoning testbeds (Wang et al., 2025) evaluate state track-ing and tactical reasoning. GTBench (Duan et al., 2024) evaluates strategic reasoning across game-theoretic settings, while lmgame-Bench (Hu et al., 2025) studies interactive play and transfer from game training. KORGym (Shi et al., 2025) and TextArena (Guertler et al., 2025) provide multi-turn game collections that support evaluation and training. LLM-guided MCTS (Guo et al., 2024) uses language models to prune actions and estimate state values, while Schultz et al. (2025) compares explicit MCTS with search generated inside the language model. While these approaches primar-ily evaluate game competence, train game-playing policies, or place the language model inside the planning loop, we train a search expert separately and let it export environment-grounded root de-cisions, alternatives, and continuations as offline language-model supervision. 
+
+Synthetic supervision. Synthetic methods derive supervision from verifiable tasks and explicit solu-tion processes. AlphaGeometry (Trinh et al., 2024) generates synthetic theorems and proofs without human demonstrations, Enigmata (Chen et al., 2025) pairs controllable puzzles with rule-based verifiers, and Absolute Zero (Zhao et al., 2025) lets one model propose and solve executable rea-soning tasks under programmatic feedback. Log-icPuzzleRL (Wong et al., 2025) trains with ver-ifier rewards on logic puzzles, while Reasoning Gym (Stojanovski et al., 2025) provides procedu-rally generated reasoning environments with veri-fiable rewards. Complementary lines of work ex-pose intermediate computation rather than only fi-nal outcomes. Chain-of-thought prompting (Wei et al., 2022) elicits stepwise rationales, Tree of Thoughts (Yao et al., 2023) searches over alter-native thoughts at inference, and ASTRO (Kim et al., 2025) trains on natural-language MCTS traces with reflection and backtracking. Procedure cloning (Yang et al., 2022) imitates expert com-putations, while Stream of Search (Gandhi et al., 2024) bootstraps from flattened search trajectories. RLoT (Hao et al., 2025) learns adaptive reasoning control through inference-time reinforcement learn-ing, and ToTRL (Wu et al., 2025) reinforces tree-structured reasoning through puzzle solving. Algo-rithm Distillation (Laskin et al., 2023) models learn-ing histories to induce in-context policy improve-ment. Studies of Othello sequence models (Li et al., 2023; Nanda et al., 2023) probe latent board-state representations, while PlanBench (Valmeekam et al., 2023a) and a related critical planning evalua-tion (Valmeekam et al., 2023b) test plan generation and reasoning about change. SPSD also transfers structured decision information, but it supervises one root decision from a planning expert. It retains ranked alternatives and replayable continuations that justify the selected action without exposing the full search tree or asking the student to reproduce the planner’s internal computations. 0.6 1 2 4 8 16 32 64 128 400 ?              
+
+> 10 20 30 40 50 60 70 80
+> 0.6
+> 3
+> 0.8
+> 3.5
+> 1.7
+> 3
+> E2
+> 2
+> 3.5
+> 4
+> 34
+> 3.5
+> E4
+> 8
+> 3
+> 9
+> 3.5
+> 14
+> 3
+> 20
+> 26A4
+> 27
+> 3.8
+> 27
+> 3.5
+> 27
+> 3.6
+> 30
+> 31
+> 32
+> 335A3
+> 3.5
+> 35A3
+> 3.6
+> 120
+> 397A17
+> 3.5
+> luna
+> terra
+> opus
+> pro sol
+> model size (B) FIDE score (%)
+> (a) game performance
+> 0.6 1 248 16 32 64 128 400 ?010 20 30 40 50 60 70 80
+> 0.6
+> 3
+> 0.8
+> 3.5
+> 1.7
+> 3
+> 2
+> 3.5
+> E2
+> 4
+> 3
+> E4
+> 4
+> 3.5
+> 8
+> 3
+> 9
+> 3.5
+> 14
+> 320
+> 26A4
+> 27
+> 3.8
+> 27
+> 3.5
+> 27
+> 3.6
+> 30 31
+> 32
+> 3
+> 35A3
+> 3.5
+> 35A3
+> 3.6
+> 120
+> 397A17
+> 3.5
+> luna terra
+> pro sol
+> opus
+> model size (B) Accuracy (%)
+> (b) mathematics
+
+Qwen 3/3.5/3.6/3.8 Gemma 4 Muse-Glimmer GPT-OSS/GPT-5.6 Opus 5 Gemini 3.1 Pro 
+
+Figure 1: Game and mathematics performance across model scale. Panel (a) reports episode-mean FIDE with SEM whiskers on the SPSD board-game benchmark; panel (b) averages GPQA-Diamond and Humanity’s Last Exam. While game competence tracks mathematical accuracy across scale, even frontier models do not saturate on board-game reasoning. 
+
+Self-play and post-training. Language-model post-training draws supervision from people, teach-ers, model generations, and executable environ-ments. RLHF (Christiano et al., 2017; Ouyang et al., 2022) established preference-based post-training, DPO (Rafailov et al., 2023) optimizes preference pairs directly, and knowledge distilla-tion (Hinton et al., 2015) transfers predictive behav-ior from a teacher. Self-Instruct (Wang et al., 2023) bootstraps instruction data from model generations, while SPIN (Chen et al., 2024) iteratively contrasts target responses with responses produced by ear-lier model versions. Beyond Human Data (Singh et al., 2024) filters self-generated solutions us-ing binary feedback, DeepSeekMath (Shao et al., 2024) introduces GRPO for mathematical reason-ing, ProRL (Liu et al., 2025b) studies prolonged reinforcement learning, and VersaPRM (Zeng et al., 2025) learns process rewards from synthetic rea-soning data. SPIRAL (Liu et al., 2025a) directly optimizes an LLM through online multi-turn game self-play. OpenSIR (Kwan et al., 2025) alter-nates a single policy between proposing and solv-ing mathematical problems under difficulty- and diversity-calibrated rewards, and SCOPE (Kwan et al., 2026) extends self-play to open-ended tasks by co-evolving a task-proposing challenger with a retrieval-augmented solver, graded by rubrics from a judge model. Code-based self-play (Bachrach et al., 2025) refines executable game strategies through competition, while SPADE (Liu et al., 2026) co-evolves executable tasks and a reason-ing agent through hint-based regret. ALE (Belle-mare et al., 2013), TextWorld (Côté et al., 2018), Procgen (Cobbe et al., 2020), Ludii (Piette et al., 2020), and OpenSpiel (Lanctot et al., 2019) pro-vide automatically scored settings for interaction and training. POET (Wang et al., 2019), unsuper-vised environment design (Dennis et al., 2020), and regret-based environment design (Parker-Holder et al., 2022) instead adapt the task distribution as the learner changes. In SPSD, self-play is part of corpus construction. The decisions of the trained search experts are converted into an offline corpus. This shifts self-play from optimizing the learner to producing reusable, environment-grounded reason-ing data. 
+
+3 Background 
+
+Expert Iteration. Expert Iteration (ExIt) alter-nates a planning expert that improves decisions at individual states with an apprentice that generalises those improvements across states (Anthony et al., 2017; Anthony, 2021). At iteration k, an appren-tice Fϕk guides expert search over a set of states 
+
+Dk. For each searched state, the planner produces a search-improved policy πEk , and the training loop supplies an optional value target ˆvk. The next ap-prentice fits these targets through 
+
+LExIt  
+
+> k
+
+(ϕ) = X
+
+> s∈D k
+
+h
+
+ℓπ
+
+ F πϕ (· | s), π Ek (· | s)
+
++ λvℓv
+
+ F vϕ (s), ˆvk(s)i
+
+,ϕk+1 = arg min  
+
+> ϕ
+
+LExIt  
+
+> k
+
+(ϕ).
+
+(1) Here, ℓπ and ℓv fit the policy and value targets, while λv = 0 yields policy-only training. The value target may be a planner estimate, an ob-served return, or a bootstrapped target, depend-ing on the ExIt instance. Search concentrates computation on the current state, and apprentice fitting propagates the resulting improvements to later states. Repeating these operations forms an approximate modified-policy-iteration loop (An-thony et al., 2019; Anthony, 2021). After training, the apprentice-guided planner can be queried for search-improved policies and values. 
+
+Neural-guided MCTS. Monte Carlo tree search provides a common planning mechanism within ExIt. AlphaGo (Silver et al., 2016) established neural-guided MCTS at scale. AlphaGo Zero (Sil-ver et al., 2017b) and AlphaZero (Silver et al., 2017a) coupled this search process to iterative self-play policy and value fitting. MuZero (Schrit-twieser et al., 2020) performs the search through learned latent dynamics, and EfficientZero (Ye et al., 2021) adds sample-efficiency mechanisms around the same planning interface. For a game 
+
+g, let Ag(s) denote the legal actions at state s. At ExIt iteration k, let Qk(s, a ) denote the current action-value estimate at node s, Pk(s, a ) the ap-prentice prior assigned at expansion, and Nk(s, a )
+
+the number of simulations selecting action a. Writ-ing Nk,s = P  
+
+> b∈A g(s)
+
+Nk(s, b ), MuZero-style PUCT combines the backed-up value with a prior-weighted exploration bonus 
+
+atree = arg max 
+
+> a
+
+Qk(s, a ) + Uk(s, a ),Uk(s, a ) = Pk(s, a )
+
+pNk,s 
+
+1 + Nk(s, a )
+
+×
+
+
+
+c1 + log Nk,s + c2 + 1 
+
+c2
+
+
+
+.
+
+(2) The value term favours actions with strong backed-up estimates, while the prior and visit-dependent bonus allocate simulations toward promising under-explored actions. After a fixed simulation budget, root visits define the search-improved policy 
+
+πEk (a | s) = Nk(s, a )1/T mcts 
+
+P  
+
+> b∈A g(s)
+
+Nk(s, b )1/T mcts . (3) The temperature Tmcts controls the sharpness of Equation 3, which supplies the policy target in Equation 1. At Tmcts = 1 , it recovers the nor-malized root-visit target used in the original ExIt formulation (Anthony et al., 2017). LightZero (Niu et al., 2023) provides a unified implementation of this neural-guided search family across diverse en-vironments. A completed root search also yields a selected action and a root value estimate, while retained paths can preserve concrete continuations behind these summaries. These outputs capture both the expert decision and the evidence accumu-lated while comparing legal actions. 
+
+Search-derived supervision. The outputs of a completed search retain different levels of deci-sion information. A selected action records the final choice, the root distribution preserves rela-tive support over legal actions, and retained con-tinuations expose the state changes and delayed consequences behind that comparison. Reason-ing chains and procedure-cloning targets can con-vert this intermediate structure into direct supervi-sion (Wei et al., 2022; Yang et al., 2022; Gandhi et al., 2024). Executable environments provide an additional guarantee, because each narrated tran-sition or outcome can be checked against them. On-policy self-distillation (OPSD) further allows privileged evidence to guide a teacher along pre-fixes sampled by the current student (Shenfeld et al., 2026). Together, these ingredients motivate an in-termediate representation that preserves search ev-idence in executable form before any choice of language form or post-training objective. 
+
+4 Method 
+
+SPSD turns this intermediate representation into an offline bridge from self-play search to LLM post-training. SPSD comprises three stages. A search expert plays against itself and exports one record for each decision state it reaches. Each record is then replayed in the environment, and records whose fields cannot be reproduced are discarded. The surviving records are converted into prompts and reference responses. The expert is held fixed during generation, so the supervision it produces is independent of the student trained on it. For each source game we train an ExIt-family search expert (Anthony et al., 2017) and select a training step, suppressing the ExIt iteration index to write the search outputs as πE , vE , and BE .
+
+4.1 Executable decision records Game interface. Each game g defines a state space Sg, legal-action function Ag(s), transition function Tg(s, a ), terminal and outcome functions, Figure 2: From self-play search to language supervision. A search expert exports selected actions, root-level estimates, and replayable continuations. These records are validated before they become move-choice and state-question supervision for language-model post-training. and state formatter ρg. The executable functions determine which states and transitions are valid, while ρg maps a restored state into the shared lan-guage interface. 
+
+Expert record. The expert record stores the se-lected decision together with the search evidence needed to construct its supervision. To enforce diversity in the data while accounting for the de-terministic nature of the expert, we begin each trajectory with a uniformly random legal prefix and thereby distribute retained decisions across the reachable state space. The expert controls both seats after the prefix. At each selected state, it runs 50 MCTS simulations, selects the root action a⋆(s),and exports 
+
+m(s) =  s, Ag(s), a ⋆(s), π E (· | s), v E (s), BE (s).
+
+(4) where Ag(s) is the legal-action set at s, a⋆(s) the selected root action, πE (· | s) the visit-derived root policy, vE (s) the root value estimate, and BE (s)
+
+the retained branch evidence. For each exported root action, BE (s) stores its visit count, export index, edge value or missing-value marker, and replayable prefix. Each retained branch is replayed in the environment from the prefix stored in BE (s),recovering its successor states and any terminal outcome, and verbalized from those transitions. 
+
+4.2 Replay-grounded supervision Supervision interface. Each decision record be-comes a replay-grounded supervision training in-stance. Materialization produces the row (x, y ; e),where x is the board-game state, y is the target best action, and e is the target-hidden expert trace de-rived from its MCTS process. The prompt is built from ρg(s) and includes the rules, board, side to move, the list of legal options, and the answer con-tract. Both y and e come from the verified contents of m(s). The student receives only x, so it must reconstruct the comparison from the board and the legal-action list. 
+
+Move choice. For move-choice rows, πE and 
+
+BE rank the legal root actions. Replay follows the expert-selected action, up to one visit-ranked legal alternative, and, when available, one oppo-nent reply from the selected continuation. Each re-tained branch contains its ordered action prefix, re-computed successor states, and a terminal outcome upon reaching a terminal state. The generated trace verbalizes only the board effects and outcomes re-covered from these transitions. Linearization pre-serves three invariants. The final handle remains 
+
+a⋆(s), every narrated prefix replays legally, and equivalent failed branches are deduplicated. Ter-minal outcomes appear only when replay reaches a terminal state, while non-terminal comparisons remain anchored to the retained root continuations. The trace concludes with the expert-selected boxed legal handle. Section A details the linearization algorithm and record schema, and Section J shows a linearized record. 
+
+State questions. A model can select a strong move while misreading the board that justifies it. To supervise the reading itself, SPSD adds six environment-derived question types covering oc-cupancy, legality, threat count, legal-action count, legal-action enumeration, and successor state. At every retained decision state, the answer to the se-lected state question is computed from the board, legal-action set, transition function, and terminal rules. Across games, SPSD applies the same ex-ecutable interface to all six question types. The prompt format remains fixed, while each answer is computed from the rules and transitions of the selected game. Splits are grouped by source trajec-tory, and each decision state belongs to exactly one row family, which prevents a state from being both trained and probed. Figure 2 illustrates an exam-ple of move-choice reasoning and a state question derived from an expert MCTS record. Sections B and K report the question types, row-construction procedure, and privileged fields. 
+
+4.3 Language-model post-training 
+
+We consider three post-training paths for distilling expert search into the LLMs. 
+
+Supervised Fine-Tuning. SFT trains the lan-guage model directly on (e, y ), exposing the replay-grounded response as the target sequence. 
+
+On-policy self-distillation. SFT is fitted to states the expert visits, which are not the states a weaker student reaches. To align teacher guidance with the states induced by the student’s own responses while retaining the expert trace as privileged evi-dence, we employ OPSD (Shenfeld et al., 2026), which lets the student sample its own response 
+
+y = ( y1, . . . , y T ) from pθ(· | x) while the trace e
+
+conditions the teacher rather than the student. A fixed teacher with parameters ¯θ evaluates the same student-generated prefix while conditioning on the expert trace 
+
+qe 
+
+> ¯θ
+
+(· | x, y <t ) = p¯θ(· | x, e, y <t ). (5) where ¯θ are the frozen teacher parameters, e the privileged trace of the current row, and y<t the pre-fix the student has already produced. Equation (5) attaches replay-grounded guidance to the exact pre-fixes the current student has visited, so the supervi-sion follows the student’s own state distribution as it changes. At each visited prefix, OPSD minimizes the forward KL over vocabulary V
+
+X
+
+> u∈V
+
+qe 
+
+> ¯θ
+
+(u | x, y <t ) log qe 
+
+> ¯θ
+
+(u | x, y <t )
+
+pθ(u | x, y <t ) . (6) where V is the model vocabulary, qe 
+
+> ¯θ
+
+the teacher distribution of Equation (5), and pθ the student distribution being optimized. Training averages Equation (6) over completions along each student-sampled response, masks prompt and padding to-kens, and updates the student parameters θ. The forward direction penalizes low probability on to-kens the grounded teacher deems likely, keeping the student within the teacher’s support. 
+
+Rule-bot emulation. RuleBot-Distill provides a non-search control under the same student-facing interface. It draws decision states and selected ac-tions from trajectories generated by a fixed heuris-tic policy, yielding compact rule-verified comple-tions. Instead, SPSD uses MuZero state and value predictors to construct a linearized MCTS trace containing the selected action, visit-derived pref-erences over alternatives, value estimates, and re-playable branch evidence. Both arms present the student with the same prompt format and require the same boxed legal handle. They differ in the teacher-side source of the action and its justifica-tion. The comparison tests whether the search-derived structure improves on a verified action alone. Section H and Sections I and J report the prompt templates and record examples for each configuration. Section C details the search, opti-mization, decoding, and compute settings for all three paths. 
+
+5 Experimental Setup 
+
+Training corpus and search experts. We con-struct the main SPSD corpus from Connect4, Dom-ineering, Simplified Othello, and Tic-Tac-Chess to cover alignment under gravity, spatial blocking, line capture, and movement-based tactics. For each game, an EfficientZero expert (Ye et al., 2021) is trained by self-play through LightZero (Niu et al., 2023), with 50 MCTS simulations per decision dur-ing data generation. Each game contributes 5,000 examples, reduced to 600 for Tic-Tac-Chess by its smaller pool of verified states. Each game al-locates 80% of its examples to move choice with replay-grounded reasoning and 20% to the six state-question tasks, which receive equal quotas after pooling. Appendix B details the allocation and verification criteria, and Appendix C.1 reports the expert-training settings. 
+
+Models and post-training. We test a pool of models spanning different families and types. Qwen3-4B-Base, Qwen3-8B with thinking dis-abled and enabled, and Llama-3.1-8B cover base, thinking, and instruction-tuned conditions across two families. SFT fits the linearized MCTS traces of the SPSD corpus directly, and OPSD supplies them as the privileged trace e that conditions the teacher. RuleBot-Distill keeps the OPSD proce-dure unchanged and replaces the search-derived corpus with completions from the heuristic rule bot, leaving the origin of the supervision as the only difference between the two conditions. Ev-ery setting is trained for 1,000 optimization steps on one Nvidia H200 GPU with 141 GB. Appen-dices C and G detail the optimization, decoding, and compute settings. 
+
+Prompting. For move-choice tasks, all condi-tions receive the game rules, current state, player to move, and legal actions, and return a final action in the same boxed-answer format. State-question prompts use the same state representation and re-quire the task-specific answer in a box. Appen-dices H and K specify the move prompt and state-question tasks. 
+
+Rule diversity. To test the effect of rule diversity under a fixed training budget, we compare curricula drawn from a separate pool of five base games and nine variants per game, yielding 50 environments. Each variant changes a local rule governing scoring, openings, movement, or winning conditions while preserving the observation shape, board topology, and action-space size. Appendix D details the rule changes, and Appendix F reports the composition and structural properties of these 50 environments. 
+
+Evaluation Benchmarks. We evaluate game transfer on 15 held-out games from the Ludii collec-tion (Piette et al., 2020), disjoint from the training environments. Appendices E and E.1 describe the game selection and rules. The primary game met-ric is the mean FIDE score, assigning 0, 0.5, and 1 to losses, draws, and wins, respectively. Episode win rate and move legality are also reported, where legality is the fraction of scored attempts that pro-duce a valid legal action. Formatting, parsing, and illegal-action failures count as unsuccessful attempts. For out-of-domain transfer, we evaluate mathematics on MATH500, AIME24, AIME25, AMC23, Olympiad Bench, and Minerva Math. We use pass@1 for MATH500, Olympiad Bench, and Minerva Math, and average accuracy over 32 sam-pled responses per problem for AIME24, AIME25, and AMC23. Appendix C specifies the sampling settings and generation limits for both evaluations. 
+
+Search distillation analysis. To assess whether SPSD transfers the action-choice policy of MCTS into the LLM, which analyses candidate actions through the positions they lead to before commit-ting to one, we follow Chen et al. (2026) and use GPT-5.6 to read each reasoning trace and recover the positions it considers and the move it commits to, expressed as legal actions of the game. Restor-ing the position the model faced at that turn and querying the expert of that game yields a value for every legal move together with the move its search prefers. For each episode, Q50 averages the search values the expert assigns to the committed moves from the player-to-move perspective, over the turns for which it returns a value. Oracle agreement mea-sures how often the committed move matches the action the expert search prefers. Appendix C.2 reports the selection and aggregation protocol. 
+
+6 Results 
+
+Our results support a conditional view of search transfer. Search-derived supervision improves per-formance when the student can convert value-ordered traces into decisions, and neither legality nor longer reasoning traces is sufficient on its own. Table 1, Figure 3, and Figure 4 expose this distinc-tion across model conditions, throughout optimiza-tion, and under fresh search replay. 
+
+RQ- How does transfer vary across model fami-lies and decision metrics? Held-out games pro-vide the central test of transfer beyond the training environments, where the model must choose ac-tions in unfamiliar rule systems (Table 1). For Qwen3-4B-Base, OPSD triples the held-out-game win rate from 15% to 45%. The corresponding FIDE score rises from 15% to 39.9%, while the model produces legal actions in 75.1% of the eval-uated positions. Search-distilled guidance lets the model use ranked alternatives and their con-sequences when it encounters games outside the training environments. This knowledge transfers to mathematical reasoning, raising the six-benchmark mean from 24.1 to 36.6. The two evaluation gains mark a reusable reasoning pattern learned from synthetic search supervision. The Qwen3-8B con-ditions show how thinking configuration shapes this transfer. With thinking enabled, mathematics performance is already near saturation in this com-parison, while OPSD achieves the strongest trained held-out-game result with complete action legality. With thinking disabled, search-derived knowledge Model Condition MATH A24 A25 AMC Olympiad Bench Minerva Math ∆math FIDE (%) Legal (%) Win (%) 
+
+Qwen3-4B-Base 
+
+∅ Baseline 56.4 6.2 5.9 29.7 26.4 20.2 24.1 15.0 65.0 15.0 
+
+▶ SFT 63 .0+6 .6 7.9+1 .7 6.0+0 .1 42 .1+12 .4 31 .6+5 .2 31 .2+11 .0 30 .3+6 .2 19 .9+4 .9 34 .9−30 .1 20 .0+5 .0
+
+▲ RuleBot 69 .4+13 .0 10 .5+4 .3 9.6+3 .7 44 .0+14 .3 35 .7+9 .3 34 .2+14 .0 33 .9+9 .8 35 .1+20 .1 70 .1+5 .1 35 .0+20 .0
+
+♦ OPSD 74 .0+17 .6 12 .7+6 .5 12 .4+6 .5 47 .0+17 .3 35 .1+8 .7 38 .6+18 .4 36 .6+12 .5 39 .9+24 .9 75 .1+10 .1 45 .0+30 .0
+
+Qwen3-8B 
+
+∅ Baseline 84.4 26.4 19.5 68.0 48.9 42.6 48.3 42.5 95.0 45.0 
+
+▶ SFT 83 .2−1.2 24 .4−2.0 19 .9+0 .4 64 .2−3.8 48 .1−0.8 41 .2−1.4 46 .8−1.5 52 .5+10 .0 95 .00.0 55 .0+10 .0
+
+▲ RuleBot 84 .40.0 31 .0+4 .6 21 .4+1 .9 73 .1+5 .1 53 .2+4 .3 43 .0+0 .4 51 .0+2 .7 42 .50.0 90 .0−5.0 45 .00.0
+
+♦ OPSD 86 .8+2 .4 29 .9+3 .5 21 .6+2 .1 74 .0+6 .0 52 .9+4 .0 43 .0+0 .4 51 .4+3 .1 52 .5+10 .0 85 .0−10 .0 55 .0+10 .0
+
+Qwen3-8B 
+
+∅ Baseline 94.4 73.1 62.0 95.3 65.3 59.2 74.9 51.0 100.0 53 .7
+
+▶ SFT 94 .0−0.4 72 .0−1.1 64 .0+2 .0 94 .8−0.5 67 .7+2 .4 59 .9+0 .7 75 .4+0 .5 15 .6−35 .4 30 .6−69 .4 16 .4−37 .3
+
+▲ RuleBot 94 .40.0 70 .3−2.8 64 .2+2 .2 94 .6−0.7 66 .8+1 .5 58 .8−0.4 74 .90.0 53 .0+2 .0 100 .00.0 55 .8+2 .1
+
+♦ OPSD 94 .6+0 .2 70 .9−2.2 64 .8+2 .8 94 .1−1.2 66 .8+1 .5 58 .5−0.7 75 .0+0 .1 59 .5+8 .5 100 .00.0 62 .7+9 .0
+
+Llama-3.1-8B 
+
+∅ Baseline 46.4 4.3 1.5 21.7 15.7 27.6 19.5 42.5 90.0 45.0 
+
+▶ SFT 51 .6+5 .2 2.6−1.7 0.6−0.9 23 .4+1 .7 16 .0+0 .3 27 .2−0.4 20 .2+0 .7 42 .50.0 100 .0+10 .0 45 .00.0
+
+▲ RuleBot 47 .0+0 .6 3.6−0.7 0.8−0.7 23 .9+2 .2 17 .6+1 .9 23 .2−4.4 19 .3−0.2 47 .5+5 .0 100 .0+10 .0 50 .0+5 .0
+
+♦ OPSD 46 .8+0 .4 4.9+0 .6 0.2−1.3 24 .9+3 .2 16 .6+0 .9 21 .7−5.9 19 .2−0.3 47 .5+5 .0 100 .0+10 .0 50 .0+5 .0
+
+= thinking enabled; = thinking disabled. 
+
+Table 1: SPSD training effects. Mathematics benchmarks and their six-benchmark mean, normalized FIDE, legality, and win rate. Best and second to best results are highlighted. 
+
+0 250 500 750 1,000 10 20 30 40 
+
+training step FIDE (%) 
+
+(a) game performance 
+
+0 250 500 750 1,000 20 40 60 80 
+
+training step legality rate (%) 
+
+(b) move behavior 
+
+0 250 500 750 1,000 20 24 28 32 36 40 
+
+training step six-benchmark mean (%)  (c) mathematics transfer    
+
+> SFT RuleBot-Distill OPSD (base) OPSD (+variants)
+
+Figure 3: Training trajectories. Evolution of reasoning abilities of Qwen3-4B-Base during training. SPSD’s advantage emerges from opposite dynamics: SFT peaks early and declines while OPSD keeps improving. transfers to both held-out games and mathemati-cal reasoning. The instruction-tuned Llama-3.1-8B condition produces the same game outcomes under both expert sources. 
+
+RQ- How does the expert source affect transfer? 
+
+For Qwen3-4B-Base, OPSD raises held-out-game win rate from 35% with RuleBot-Distill to 45%. The same condition raises the six-benchmark math-ematics mean from 33.9 to 36.6 (Table 1). OPSD is the strongest overall solution among the compared Qwen3-4B training conditions, with the highest mathematics aggregate, FIDE, legality, and win rate. RuleBot-Distill achieves the best Olympiad-Bench result among these conditions, scoring 35.7 compared with 35.1 for OPSD. The accompanying mathematics improvement extends the gain to prob-lems where comparing candidate continuations and rejecting unproductive ones can guide a solution. 
+
+RQ- How does transfer evolve during train-ing? To trace how game behavior and mathemat-ics evolve during training, we compare the best observed performance at each training budget in Figure 3. SFT learns the linearized targets quickly, but its held-out-game performance peaks early and declines as training continues. The loss of ear-lier gains is consistent with increasing forgetting under longer continual SFT in this setting. The concurrent decline in legality and mathematics sug-gests that continued SFT narrows the model’s use-ful behavior across both the game interface and the separate reasoning tasks. OPSD improves later in training by attaching search evidence to pre-fixes sampled by the current model, keeping the update target connected to the decisions the model must make. At step 1000, the variants curriculum reaches 42.4% FIDE, 77.3% legality, and a mathe-matics mean of 39.2, compared with 39.9%, 75.1%, −1                
+
+> −0.50 0.5 100.5100.51
+> Q50 oracle@50 smoothed win
+> (a) Opus 5
+> −1
+> −0.50 0.5 100.5100.51
+> Q50 oracle@50 smoothed win
+> (b) Gemini 3.1 Pro
+> −1
+> −0.50 0.5 100.5100.51
+> Q50 oracle@50 smoothed win
+> (c) GPT-5.5
+> −1
+> −0.50 0.5 100.5100.51
+> Q50 oracle@50 smoothed win
+> (d) SPSD-Qwen3-4B-Base
+
+Figure 4: MCTS structure and reasoning sharpness. Surfaces relate episode wins to mean selected-action value Q50 and oracle@50 under a fresh 50-simulation MuZero search. and 36.6 for the base curriculum. The variants condition leads across all three metrics at every evaluated post-training step, supporting broader coverage of search-grounded decision patterns. Its advantage on both evaluations suggests that varia-tion in the training rules encourages decision pat-terns that remain useful across environments and reasoning tasks. This result motivates using SPSD to diversify the decisions and consequences en-countered during post-training while preserving guidance on the model’s own responses. 
+
+RQ- How does SPSD distill MCTS search into model decisions? We investigate how SPSD dis-tills MCTS search by relating the model’s selected actions to MCTS values and preferences, and exam-ining their association with game outcomes (Fig-ure 4). Wins concentrate in the high-Q50 and high-agreement region across the four systems. At high selected-action values, the smoothed win sur-faces rise with agreement, linking successful play to the model’s preference for the actions favored by MCTS. Gemini 3.1 Pro maintains a high esti-mated win rate at intermediate agreement when its selected actions have high search values, in-dicating that successful choices can differ from those preferred by MCTS. For GPT-5.5 and SPSD, high-valued choices are more strongly associated with wins when agreement is also high, while Opus 5 has a lower estimated win rate even when both value and agreement are high. For the SPSD model, successful play is associated with generating the actions favored by MCTS. The stronger coupling between successful play and MCTS agreement than in Gemini 3.1 Pro suggests that our comparative search supervision encourages a reasoning pattern centered on ranking actions by their downstream consequences. The model makes these decisions from the game prompt while the search values and traces remain hidden at inference, so agreement with the independently evaluated search reflects alignment in the choices it produces. This align-ment provides a behavioral signature of distillation, with the model favoring alternatives whose evalu-ated consequences support successful play. 
+
+7 Conclusion 
+
+SPSD turns records produced by self-play search experts in executable environments into replay-grounded supervision for language-model post-training. Each record combines the selected ac-tion with ranked alternatives, search values, and replayed continuations to support comparative move-choice traces, verified state questions, and OPSD along student-generated prefixes. Across the Qwen3-4B training budgets studied, OPSD provides the most stable overall performance im-provements among the compared methods, while SFT loses earlier gains under longer training. The variant-enriched curriculum strengthens held-out-game performance and mathematical reasoning transfer through more diverse search-grounded su-pervision. SPSD opens a direction for future work on continual training through expanding curricula of executable environments, with search experts generating supervision for new rules and decision problems. 
+
+Acknowledgements 
+
+This research was partially supported by the AI-PACT project (CUP B47H22004450008, B47H22004460001); the National Plan PNC-I.1 DARE initiative (PNC0000002, CUP B53C22006450001); the Horizon Europe VAL-WARP project (proposal no. 101326664); Huawei–Edinburgh Joint Research Laboratory Grant. We thank LG Solution Srl for partially funding a PhD scholarship to L. Molfetta. References 
+
+Thomas Anthony, Robert Nishihara, Philipp Moritz, Tim Salimans, and John Schulman. 2019. Policy gradient search: Online planning and expert iteration without search trees. CoRR ,abs/1904.03646. Thomas Anthony, Zheng Tian, and David Barber. 2017. Thinking fast and slow with deep learning and tree search. In NIPS .Thomas William Anthony. 2021. Expert Iteration .Ph.D. thesis, University College London. Yoram Bachrach, Edan Toledo, Karen Ham-bardzumyan, Despoina Magka, Martin Josi-foski, Minqi Jiang, Jakob N. Foerster, Roberta Raileanu, Tatiana Shavrina, Nicola Cancedda, Avraham Ruderman, Katie Millican, Andrei Lupu, and Rishi Hazra. 2025. Combining code generating large language models and self-play to iteratively refine strategies in games. In 
+
+Proceedings of the Thirty-Fourth International Joint Conference on Artificial Intelligence, IJCAI 2025, Montreal, Canada, August 16-22, 2025 ,pages 10999–11003. ijcai.org. Marc G. Bellemare, Yavar Naddaf, Joel Veness, and Michael Bowling. 2013. The arcade learning environment: An evaluation platform for general agents. J. Artif. Intell. Res. 
+
+Jiangjie Chen, Qianyu He, Siyu Yuan, Aili Chen, Zhicheng Cai, Weinan Dai, Hongli Yu, Qiy-ing Yu, Xuefeng Li, Jiaze Chen, Hao Zhou, and Mingxuan Wang. 2025. Enigmata: Scal-ing logical reasoning in large language mod-els with synthetic verifiable puzzles. CoRR ,abs/2505.19914. Sixing Chen, Ji-An Li, Saner Cakir, Sinan Ak-cali, Kayla Lee, and Marcelo G. Mattar. 2026. Extracting search trees from LLM reason-ing traces reveals myopic planning. CoRR ,abs/2605.06840. Zixiang Chen, Yihe Deng, Huizhuo Yuan, Kaix-uan Ji, and Quanquan Gu. 2024. Self-play fine-tuning converts weak language models to strong language models. In Forty-first Interna-tional Conference on Machine Learning, ICML 2024, Vienna, Austria, July 21-27, 2024 , Pro-ceedings of Machine Learning Research, pages 6621–6642. PMLR / OpenReview.net. Paul F. Christiano, Jan Leike, Tom B. Brown, Mil-jan Martic, Shane Legg, and Dario Amodei. 2017. Deep reinforcement learning from human preferences. In Advances in Neural Information Processing Systems 30: Annual Conference on Neural Information Processing Systems 2017, December 4-9, 2017, Long Beach, CA, USA ,pages 4299–4307. Karl Cobbe, Christopher Hesse, Jacob Hilton, and John Schulman. 2020. Leveraging procedural generation to benchmark reinforcement learn-ing. In Proceedings of the 37th International Conference on Machine Learning, ICML 2020, 13-18 July 2020, Virtual Event , Proceedings of Machine Learning Research, pages 2048–2056. PMLR. Marc-Alexandre Côté, Ákos Kádár, Xingdi Yuan, Ben Kybartas, Tavian Barnes, Emery Fine, James Moore, Matthew J. Hausknecht, Layla El Asri, Mahmoud Adada, Wendy Tay, and Adam Trischler. 2018. Textworld: A learning environ-ment for text-based games. In CGW@IJCAI .Michael Dennis, Natasha Jaques, Eugene Vinitsky, Alexandre M. Bayen, Stuart Russell, Andrew Critch, and Sergey Levine. 2020. Emergent com-plexity and zero-shot transfer via unsupervised environment design. In NeurIPS .Jinhao Duan, Renming Zhang, James Diffenderfer, Bhavya Kailkhura, Lichao Sun, Elias Stengel-Eskin, Mohit Bansal, Tianlong Chen, and Kaidi Xu. 2024. Gtbench: Uncovering the strategic reasoning limitations of llms via game-theoretic evaluations. CoRR , abs/2402.12348. Xidong Feng, Yicheng Luo, Ziyan Wang, Hongrui Tang, Mengyue Yang, Kun Shao, David Mguni, Yali Du, and Jun Wang. 2023. Chessgpt: Bridg-ing policy learning and language modeling. In 
+
+NeurIPS .Kanishk Gandhi, Denise Lee, Gabriel Grand, Muxin Liu, Winson Cheng, Archit Sharma, and Noah D. Goodman. 2024. Stream of search (sos): Learning to search in language. CoRR ,abs/2404.03683. Leon Guertler, Bobby Cheng, Simon Yu, Bo Liu, Leshem Choshen, and Cheston Tan. 2025. Textarena. CoRR , abs/2504.11442. Hongyi Guo, Zhihan Liu, Yufeng Zhang, and Zhao-ran Wang. 2024. Can large language models play games? A case study of A self-play ap-proach. CoRR , abs/2403.05632. Qianyue Hao, Sibo Li, Jian Yuan, and Yong Li. 2025. RL of thoughts: Navigating LLM reason-ing with inference-time reinforcement learning. 
+
+CoRR , abs/2505.14140. Geoffrey E. Hinton, Oriol Vinyals, and Jeffrey Dean. 2015. Distilling the knowledge in a neural network. CoRR , abs/1503.02531. Lanxiang Hu, Mingjia Huo, Yuxuan Zhang, Haoyang Yu, Eric P. Xing, Ion Stoica, Tajana Rosing, Haojian Jin, and Hao Zhang. 2025. lmgame-bench: How good are llms at playing games? CoRR , abs/2505.15146. Adam Karvonen. 2024. Emergent world models and latent variable estimation in chess-playing language models. CoRR .Joongwon Kim, Anirudh Goyal, Liang Tan, Han-naneh Hajishirzi, Srinivasan Iyer, and Tianlu Wang. 2025. ASTRO: teaching language mod-els to reason by reflecting and backtracking in-context. CoRR , abs/2507.00417. Wai-Chung Kwan, Aryo Pradipta Gema, Joshua Ong Jun Leang, and Pasquale Minervini. 2026. Scope: Self-play via co-evolving poli-cies for open-ended tasks. arXiv preprint arXiv:2605.31433 .Wai-Chung Kwan, Joshua Ong Jun Leang, Pav-los Vougiouklis, Jeff Z. Pan, Marco Valentino, and Pasquale Minervini. 2025. Opensir: Open-ended self-improving reasoner. Preprint ,arXiv:2511.00602. Marc Lanctot, Edward Lockhart, Jean-Baptiste Lespiau, Vinícius Flores Zambaldi, Satyaki Upadhyay, Julien Pérolat, Sriram Srinivasan, Finbarr Timbers, Karl Tuyls, Shayegan Omid-shafiei, Daniel Hennes, Dustin Morrill, Paul Muller, Timo Ewalds, Ryan Faulkner, János Kramár, Bart De Vylder, Brennan Saeta, James Bradbury, and 8 others. 2019. Openspiel: A framework for reinforcement learning in games. 
+
+CoRR , abs/1908.09453. Michael Laskin, Luyu Wang, Junhyuk Oh, Emilio Parisotto, Stephen Spencer, Richie Steigerwald, DJ Strouse, Steven Stenberg Hansen, Angelos Filos, Ethan Brooks, Maxime Gazeau, Himan-shu Sahni, Satinder Singh, and Volodymyr Mnih. 2023. In-context reinforcement learning with algorithm distillation. In The Eleventh Interna-tional Conference on Learning Representations, ICLR 2023, Kigali, Rwanda, May 1-5, 2023 .OpenReview.net. Kenneth Li, Aspen K. Hopkins, David Bau, Fer-nanda B. Viégas, Hanspeter Pfister, and Martin Wattenberg. 2023. Emergent world representa-tions: Exploring a sequence model trained on a synthetic task. In ICLR . OpenReview.net. Bo Liu, Leon Guertler, Simon Yu, Zichen Liu, Penghui Qi, Daniel Balcells, Mickel Liu, Che-ston Tan, Weiyan Shi, Min Lin, Wee Sun Lee, and Natasha Jaques. 2025a. Spiral: Self-play on zero-sum games incentivizes reasoning via multi-agent multi-turn reinforcement learning. 
+
+CoRR , abs/2506.24119. Bo Liu, Simon Yu, Yiding Jiang, Ao Qu, Andrew Zhao, Zichen Liu, Junsu Kim, Zijian Zhou, Seun-gone Kim, Tongzheng Ren, Mickel Liu, Hanfei Yu, Zhaorun Chen, Weiyan Shi, Paul Pu Liang, Luke Zettlemoyer, Yejin Choi, and Natasha Jaques. 2026. SPADE: Self-play in adaptive synthetic executable environments. Preprint ,arXiv:2608.19197. Mingjie Liu, Shizhe Diao, Ximing Lu, Jian Hu, Xin Dong, Yejin Choi, Jan Kautz, and Yi Dong. 2025b. Prorl: Prolonged reinforcement learning expands reasoning boundaries in large language models. CoRR , abs/2505.24864. Neel Nanda, Andrew Lee, and Martin Wattenberg. 2023. Emergent linear representations in world models of self-supervised sequence models. In 
+
+BlackboxNLP@EMNLP .Yazhe Niu, Yuan Pu, Zhenjie Yang, Xueyan Li, Tong Zhou, Jiyuan Ren, Shuai Hu, Hongsheng Li, and Yu Liu. 2023. Lightzero: A unified benchmark for monte carlo tree search in gen-eral sequential decision scenarios. In Advances in Neural Information Processing Systems 36: Annual Conference on Neural Information Pro-cessing Systems 2023, NeurIPS 2023, New Or-leans, LA, USA, December 10 - 16, 2023 .Long Ouyang, Jeffrey Wu, Xu Jiang, Diogo Almeida, Carroll L. Wainwright, Pamela Mishkin, Chong Zhang, Sandhini Agarwal, Kata-rina Slama, Alex Ray, John Schulman, Jacob Hilton, Fraser Kelton, Luke Miller, Maddie Simens, Amanda Askell, Peter Welinder, Paul F. Christiano, Jan Leike, and Ryan Lowe. 2022. Training language models to follow instructions with human feedback. In Advances in Neural In-formation Processing Systems 35: Annual Con-ference on Neural Information Processing Sys-tems 2022, NeurIPS 2022, New Orleans, LA, USA, November 28 - December 9, 2022 .Jack Parker-Holder, Minqi Jiang, Michael Dennis, Mikayel Samvelyan, Jakob N. Foerster, Edward Grefenstette, and Tim Rocktäschel. 2022. Evolv-ing curricula with regret-based environment de-sign. In International Conference on Machine Learning, ICML 2022, 17-23 July 2022, Balti-more, Maryland, USA , Proceedings of Machine Learning Research, pages 17473–17498. PMLR. Éric Piette, Dennis J. N. J. Soemers, Matthew Stephenson, Chiara F. Sironi, Mark H. M. Winands, and Cameron Browne. 2020. Ludii - the ludemic general game system. In ECAI 2020 - 24th European Conference on Artificial Intelligence, 29 August-8 September 2020, San-tiago de Compostela, Spain, August 29 - Septem-ber 8, 2020 - Including 10th Conference on Prestigious Applications of Artificial Intelligence (PAIS 2020) , Frontiers in Artificial Intelligence and Applications, pages 411–418. IOS Press. Rafael Rafailov, Archit Sharma, Eric Mitchell, Christopher D. Manning, Stefano Ermon, and Chelsea Finn. 2023. Direct preference opti-mization: Your language model is secretly a reward model. In Advances in Neural Informa-tion Processing Systems 36: Annual Conference on Neural Information Processing Systems 2023, NeurIPS 2023, New Orleans, LA, USA, Decem-ber 10 - 16, 2023 .Anian Ruoss, Grégoire Delétang, Sourabh Meda-pati, Jordi Grau-Moya, Li Kevin Wenliang, El-liot Catt, John Reid, and Tim Genewein. 2024. Grandmaster-level chess without search. CoRR ,abs/2402.04494. Julian Schrittwieser, Ioannis Antonoglou, Thomas Hubert, Karen Simonyan, Laurent Sifre, Simon Schmitt, Arthur Guez, Edward Lockhart, Demis Hassabis, Thore Graepel, Timothy P. Lillicrap, and David Silver. 2020. Mastering atari, go, chess and shogi by planning with a learned model. Nat. , 588(7839):604–609. John Schultz, Jakub Adámek, Matej Jusup, Marc Lanctot, Michael Kaisers, Sarah Perrin, Daniel Hennes, Jeremy Shar, Cannada A. Lewis, Anian Ruoss, Tom Zahavy, Petar Velickovic, Laurel Prince, Satinder Singh, Eric Malmi, and Nenad Tomasev. 2025. Mastering board games by exter-nal and internal planning with language models. In ICML , Proceedings of Machine Learning Re-search. PMLR / OpenReview.net. Zhihong Shao, Peiyi Wang, Qihao Zhu, Runxin Xu, Junxiao Song, Mingchuan Zhang, Y. K. Li, Y. Wu, and Daya Guo. 2024. Deepseekmath: Pushing the limits of mathematical reasoning in open language models. CoRR , abs/2402.03300. Idan Shenfeld, Mehul Damani, Jonas Hübotter, and Pulkit Agrawal. 2026. Self-distillation enables continual learning. CoRR , abs/2601.19897. Jiajun Shi, Jian Yang, Jiaheng Liu, Xingyuan Bu, Jiangjie Chen, Junting Zhou, Kaijing Ma, Zhou-futu Wen, Bingli Wang, Yancheng He, Liang Song, Hualei Zhu, Shilong Li, Xingjian Wang, Wei Zhang, Ruibin Yuan, Yifan Yao, Wenjun Yang, Yunli Wang, and 10 others. 2025. Korgym: A dynamic game platform for LLM reasoning evaluation. CoRR , abs/2505.14552. David Silver, Aja Huang, Chris J. Maddi-son, Arthur Guez, Laurent Sifre, George van den Driessche, Julian Schrittwieser, Ioannis Antonoglou, Vedavyas Panneershelvam, Marc Lanctot, Sander Dieleman, Dominik Grewe, John Nham, Nal Kalchbrenner, Ilya Sutskever, Timothy P. Lillicrap, Madeleine Leach, Koray Kavukcuoglu, Thore Graepel, and Demis Hass-abis. 2016. Mastering the game of go with deep neural networks and tree search. Nat. 
+
+David Silver, Thomas Hubert, Julian Schrittwieser, Ioannis Antonoglou, Matthew Lai, Arthur Guez, Marc Lanctot, Laurent Sifre, Dharshan Kumaran, Thore Graepel, Timothy P. Lillicrap, Karen Si-monyan, and Demis Hassabis. 2017a. Master-ing chess and shogi by self-play with a gen-eral reinforcement learning algorithm. CoRR ,abs/1712.01815. David Silver, Julian Schrittwieser, Karen Si-monyan, Ioannis Antonoglou, Aja Huang, Arthur Guez, Thomas Hubert, Lucas Baker, Matthew Lai, Adrian Bolton, Yutian Chen, Tim-othy P. Lillicrap, Fan Hui, Laurent Sifre, George van den Driessche, Thore Graepel, and Demis Hassabis. 2017b. Mastering the game of go with-out human knowledge. Nat. 
+
+Avi Singh, John D. Co-Reyes, Rishabh Agarwal, Ankesh Anand, Piyush Patil, Xavier Garcia, Pe-ter J. Liu, James Harrison, Jaehoon Lee, Kelvin Xu, Aaron T. Parisi, Abhishek Kumar, Alexan-der A. Alemi, Alex Rizkowsky, Azade Nova, Ben Adlam, Bernd Bohnet, Gamaleldin Fathy Elsayed, Hanie Sedghi, and 22 others. 2024. Beyond human data: Scaling self-training for problem-solving with language models. Trans. Mach. Learn. Res. , 2024. Zafir Stojanovski, Oliver Stanley, Joe Sharratt, Richard Jones, Abdulhakeem Adefioye, Jean Kaddour, and Andreas Köpf. 2025. REA-SONING GYM: reasoning environments for reinforcement learning with verifiable rewards. 
+
+CoRR , abs/2505.24760. Trieu H. Trinh, Yuhuai Wu, Quoc V. Le, He He, and Thang Luong. 2024. Solving olympiad ge-ometry without human demonstrations. Nat. ,625(7995):476–482. Karthik Valmeekam, Matthew Marquez, Al-berto Olmo Hernandez, Sarath Sreedharan, and Subbarao Kambhampati. 2023a. Planbench: An extensible benchmark for evaluating large lan-guage models on planning and reasoning about change. In Advances in Neural Information Processing Systems 36: Annual Conference on Neural Information Processing Systems 2023, NeurIPS 2023, New Orleans, LA, USA, Decem-ber 10 - 16, 2023 .Karthik Valmeekam, Matthew Marquez, Sarath Sreedharan, and Subbarao Kambhampati. 2023b. On the planning abilities of large language mod-els - A critical investigation. In Advances in Neu-ral Information Processing Systems 36: Annual Conference on Neural Information Processing Systems 2023, NeurIPS 2023, New Orleans, LA, USA, December 10 - 16, 2023 .Rui Wang, Joel Lehman, Jeff Clune, and Kenneth O. Stanley. 2019. Paired open-ended trailblazer (POET): endlessly generat-ing increasingly complex and diverse learn-ing environments and their solutions. CoRR ,abs/1901.01753. Shu Wang, Lei Ji, Renxi Wang, Wenxiao Zhao, Haokun Liu, Yifan Hou, and Ying Nian Wu. 2025. Explore the reasoning capability of llms in the chess testbed. In NAACL .Yizhong Wang, Yeganeh Kordi, Swaroop Mishra, Alisa Liu, Noah A. Smith, Daniel Khashabi, and Hannaneh Hajishirzi. 2023. Self-instruct: Align-ing language models with self-generated instruc-tions. In Proceedings of the 61st Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers), ACL 2023, Toronto, Canada, July 9-14, 2023 , pages 13484–13508. Association for Computational Linguistics. Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten Bosma, Brian Ichter, Fei Xia, Ed H. Chi, Quoc V. Le, and Denny Zhou. 2022. Chain-of-thought prompting elicits reasoning in large language models. In Advances in Neural Infor-mation Processing Systems 35: Annual Confer-ence on Neural Information Processing Systems 2022, NeurIPS 2022, New Orleans, LA, USA, November 28 - December 9, 2022 .Zhen Hao Wong, Jingwen Deng, Runming He, Zirong Chen, Qijie You, Hejun Dong, Hao Liang, Chengyu Shen, Bin Cui, and Wentao Zhang. 2025. Logicpuzzlerl: Cultivating robust math-ematical reasoning in llms via reinforcement learning. CoRR , abs/2506.04821. Haoyuan Wu, Xueyi Chen, Rui Ming, Jilong Gao, Shoubo Hu, Zhuolun He, and Bei Yu. 2025. Totrl: Unlock LLM tree-of-thoughts reason-ing potential through puzzles solving. CoRR ,abs/2505.12717. Mengjiao Yang, Dale Schuurmans, Pieter Abbeel, and Ofir Nachum. 2022. Chain of thought imita-tion with procedure cloning. In NeurIPS .Shunyu Yao, Dian Yu, Jeffrey Zhao, Izhak Shafran, Tom Griffiths, Yuan Cao, and Karthik Narasimhan. 2023. Tree of thoughts: Deliberate problem solving with large language models. In 
+
+NeurIPS .Weirui Ye, Shaohuai Liu, Thanard Kurutach, Pieter Abbeel, and Yang Gao. 2021. Mastering atari games with limited data. In Advances in Neu-ral Information Processing Systems 34: Annual Conference on Neural Information Processing Systems 2021, NeurIPS 2021, virtual , pages 25476–25488. Thomas Zeng, Shuibai Zhang, Shutong Wu, Chris-tian Classen, Daewon Chae, Ethan Ewer, Minjae Lee, Heeju Kim, Wonjun Kang, Jackson Kunde, Ying Fan, Jungtaek Kim, Hyung Il Koo, Kan-nan Ramchandran, Dimitris Papailiopoulos, and Kangwook Lee. 2025. Versaprm: Multi-domain process reward model via synthetic reasoning data. CoRR , abs/2502.06737. Yinqi Zhang, Xintian Han, Haolong Li, Kedi Chen, and Shaohui Lin. 2025. Complete chess games enable LLM become A chess master. In Pro-ceedings of the 2025 Conference of the Nations of the Americas Chapter of the Association for Computational Linguistics: Human Language Technologies, NAACL 2025 - Volume 2: Short Papers, Albuquerque, New Mexico, April 29 -May 4, 2025 , pages 1–7. Association for Com-putational Linguistics. Andrew Zhao, Yiran Wu, Yang Yue, Tong Wu, Quentin Xu, Yang Yue, Matthieu Lin, Shen-zhi Wang, Qingyun Wu, Zilong Zheng, and Gao Huang. 2025. Absolute zero: Reinforced self-play reasoning with zero data. CoRR ,abs/2505.03335. A Grounded MCTS Linearization 
+
+To distill search reasoning abilities into the LLM, we linearize the records that the trained SPSD MuZero experts produce. For each decision state, a non-terminal board position with the player to move and the legal actions available in it, the experts export one record. We state the recorded decision, its retained alternatives, and their consequences in natural language. Replay restores the recorded state and follows each retained branch, so every statement in the resulting trace follows from an observed transition. A record m(s) stores the serialized environment state s, its legal-action set, the recorded target, the root policy and value outputs, and, for each exported root action, its canonical handle, visit count, export index, action-specific edge value or missing-value marker, and retained branch prefix. Numerical search telemetry selects which evidence to retain and never enters the trace. The record pairs the trace with the action sequence it replays, and only the trace reaches the student, ending with exactly one boxed legal handle. 
+
+Replay validation. Restoring s in the executable environment recomputes the board, active player, legal actions, and phase-specific fields. A record is retained only when these fields agree with their serialized values and a⋆ ∈ A (s). Failure to replay a⋆ rejects the record, whereas failure to replay an optional alternative or reply removes only that branch from the trace. For every retained branch, replay records the legal action prefix, the recomputed successor states, and any terminal flag and outcome reached along the prefix. 
+
+Branch selection and evidence gates. Each export contains at most eight root-action records. After excluding a⋆, the exported legal action with the greatest visit count becomes aalt , with ties broken by export order. The corresponding edge value is 
+
+Q(a) = r(s, a ) + γσV (T (s, a )) ,
+
+expressed from the current root player’s perspective, where γ = 1 in this corpus, σ = −1 when the child changes player, and σ = +1 otherwise. Values are not rescaled across states or games, and a missing exported value is represented by ⊥. If the exported subset contains no other legal action, it sets 
+
+aalt = ⊥ and Q(⊥) = ⊥ and omits the contrast. Target-only detail requires either a numeric Q(a⋆) or a replayed terminal win. A target–alternative contrast additionally requires a retained alternative and either 
+
+Q(a⋆) − Q(aalt ) ≥ ∆, with ∆ = 0 .05 , or a better replayed terminal outcome for the target. Terminal outcomes are ordered win > draw > loss from the root player’s perspective. 
+
+Trace modes. Fallback mode states only replay-supported target facts and the required final action. Target-only mode adds detail about the selected action when the detail gate is satisfied, while contrast mode compares it with aalt only when the contrast gate is satisfied. Illegal replies are omitted, and non-terminal prefixes are described without outcome language. Retained facts take a stable surface form across states and games. 
+
+B Corpus Materialization 
+
+To build supervised rows from the exported records, materialization produces one move-choice family and six state-QA families. Each row is retained only when it passes the executable checks in Table 2. 
+
+Record interface and source identity. Each stored row is written as (x, y ; e), where x contains the state and task prompt, y the reference response, and e teacher-side reasoning or verifier context hidden from the student input. The selected move, reference answer, search telemetry, and replay context remain in y or e, never in x. The source-state identifier is a SHA-256 digest of a deterministic family-specific representation containing the board, active player, legal actions, and the rule or phase metadata required to reconstruct the state. The same identifier is carried by the move-choice and state-QA families. 
+
+Allocation and trajectory generation. Materialization first reserves an equal number of rows for each of the six state tasks, then draws move-choice rows from the remaining decision states. Each game contributes 100 trajectories, each opening with a non-terminal prefix of at most eight moves drawn Algorithm 1 Grounded MCTS linearization. Replay validates the selected action, any retained alterna-tive, and any bounded reply before emitting a fallback, target-only, or contrast trace ending in exactly one boxed legal handle. 
+
+Require: Search record m(s) with serialized state s, legal set A(s), target a⋆, up to eight exported root-action records, replay depth D = 1 , separation threshold ∆ = 0 .05 
+
+1: Restore s and recompute its state fields and A(s); reject if any field disagrees with the serialized record or a⋆ /∈ A (s).
+
+2: Replay a⋆; reject on failure, otherwise record its state effect and any observed terminal outcome. 
+
+3: if an exported legal alternative exists then 
+
+4: Choose aalt ̸ = a⋆ with greatest visit count, preserving export order for ties. 
+
+5: Replay its retained branch prefix from s; if any action is illegal, set aalt ← ⊥ and Q(aalt ) ← ⊥ ,otherwise record the recomputed states and any terminal outcome. 
+
+6: else 
+
+7: Set aalt ← ⊥ and Q(aalt ) ← ⊥ .
+
+8: end if 
+
+9: Set the detail gate d ← [Q(a⋆) exists ] ∨ [the target replays to a win ].
+
+10: Set the contrast gate c ← [aalt ̸ = ⊥] ∧ ([ Q(a⋆) − Q(aalt ) ≥ ∆] ∨
+
+[the target has a better replayed terminal outcome ]) , with the numeric test false when either value is missing. 
+
+11: Retain target facts from replay; select contrast mode if c, target-only mode if ¬c ∧ d, and fallback mode otherwise. 
+
+12: if the target is non-terminal and d is true then 
+
+13: Follow at most D replayed opponent replies on the target branch. 
+
+14: Drop the reply walk if any action is illegal; otherwise retain only facts recomputed from the replayed states. 
+
+15: end if 
+
+16: Attach win, loss, or draw language only when replay reaches the corresponding terminal outcome. 
+
+17: Write the selected mode from the recomputed facts, including any retained reply and the commitment to a⋆.
+
+18: Append exactly one final line containing a⋆ .
+
+19: return the trace and replayed action sequence.                 
+
+> Row family Reference output Executable criterion
+> Move choice One boxed legal handle The recomputed legal set contains the target; every narrated branch replays legally; any outcome statement follows an observed terminal state Occupancy Piece or empty-cell identity Board value at the queried coordinate after state restoration Legality Boolean action status Membership in the legal-action set recomputed from the restored state Threat count Integer count Environment-specific winning threats enumerated from legal successors Legal-action count Integer count Cardinality of the recomputed legal-action set Legal-action enumeration Complete handle set Exact set equality with the legal-action handles enumerated from the restored state Successor state Next-state board text One legal action replayed through the environment transition function
+
+Table 2: Executable criteria for supervision rows. Each reference output is checked against a restored state or replayed successor. Move-choice rows additionally require legal replay of every narrated branch and terminal evidence for every outcome claim. uniformly at random from the legal actions of each state, after which the expert controls both seats. Prefix actions provide state diversity and are excluded from the training rows. 
+
+Canonicalization and provenance. After every environment operation, legal handles and answer formats are canonicalized. We then order candidate states by a seed-keyed hash of the source identity, move index, and decision-state identity, and assign them to task families and split groups in that order. Move-choice rows are drawn last. RuleBot-Distill draws from rule-bot trajectories, whereas SPSD draws Component Setting Selected value 
+
+Expert Family / search procedure EfficientZero-trained MuZero experts / full-tree search Expert search Simulations per retained move 50 
+
+State sampling Opening diversification Uniformly sampled legal prefix of at most 8 moves (seed 0); prefix actions excluded from training rows State sampling Expert control The expert controls both seats after the prefix Move choice Exported roots / retained alternatives At most 8 / at most 1 Move choice Reply depth D = 1 
+
+Move choice Root separation ∆ = 0 .05 
+
+Move choice Surface content Legal targets; retained alternatives and replies; replay-observed terminal outcomes Corpus Source games Connect4, Domineering, Simplified Othello, Tic-Tac-Chess Corpus Row-family separation Move-choice and state-QA rows use disjoint unique decision states State tasks Balance rule Equal quotas for occupancy, legality, threat count, legal-action count, legal-action enumeration, and successor state 
+
+Table 3: Expert-data configuration. Search, state-sampling, move-choice, and allocation settings used to materialize the SPSD corpus. 
+
+Stage Setting Selected value 
+
+Reasoning-chain SFT Sequence length / learning rate 4,096 tokens / 2 × 10 −5
+
+Reasoning-chain SFT Epochs / effective batch 2 / 128 examples OPSD Base learning rate / schedule 5 × 10 −6 / constant OPSD Distillation objective / teacher update Full-vocabulary forward KL / fixed teacher OPSD Optimizer / steps / effective batch AdamW / 1,000 / 16 OPSD Completion / sequence limit 1,024 tokens / 20,000 tokens OPSD Gradient norm / divergence clip 0.1 / 0.06 OPSD Distillation weight / rollout sampling λ = 1 .0 / T = 1 .1, p = 0 .95 , k = 20 
+
+OPSD LoRA adapter r = 64 , α = 128 , dropout = 0 
+
+OPSD Student / teacher thinking Disabled / enabled OPSD Seed 42 Game benchmark Prompt / answer contract Rules, state, side to move, and legal handles; exact boxed-answer format; thinking disabled by default and enabled for the native-thinking row Game benchmark Sampling / limits / failures T = 0 .7, p = 0 .9; 16,384-token output and 24,576-token model limits; request retry limit 2; invalid or truncated actions score zero Mathematics Suites Pass@1: MATH500, OlympiadBench, Minerva Math; AVG@32: AIME24, AIME25, AMC23 Mathematics Decoding / stopping Boxed-answer decoding with constrained continuation; T = 0 .6, p = 0 .95 ;8,192-token limit; seed 0; tokenizer EOS and template terminators; unresolved format failures remain incorrect Compute Hardware Expert training: 1 H200 GPU 
+
+Table 4: Post-training, decoding, and compute configuration. Selected reasoning-chain SFT and OPSD hyperparameters, fixed game and mathematics decoding contracts, and hardware allocation. from randomized-prefix self-play. The two sources share the same row interface and keep distinct teacher and decision-state provenance. 
+
+C Experimental Configuration 
+
+Tables 3–4 report the settings for expert-data generation, language-model post-training, benchmark decoding, and hardware allocation. Replay geometry is evaluated with 50-simulation Q50 estimates. 
+
+C.1 MuZero-family Expert Training 
+
+The language-data teachers are EfficientZero agents, a MuZero-family algorithm, trained by self-play. Table 5 reports the settings that determine the four experts. The training runs use undiscounted board-game returns ( γ = 1 ), deterministic argmax evaluation, and no reanalysis. Root noise and temperature affect collection only through the LightZero defaults. Data generation then applies the trained expert’s deterministic 50-simulation policy after the randomized opening prefix. Game Setting Value                         
+
+> All four Algorithm / mode EfficientZero / self-play for both seats All four Search / batch / updates 50 simulations per move / batch 256 / 50 learner updates per collection All four Optimizer / learning rate / seed Adam / 0.003 constant learning rate / 0 All four Unroll / reanalyse / replay 5 steps / ratio 0 / replay capacity 100,000 segments All four Model One residual block, 64 channels All four Environment workers 8 collectors, 5 evaluators, 5 evaluation episodes All four Evaluation Rule-bot action interface; evaluation every 2,000 training iterations Connect4 Environment steps / segment geometry 500,000 / LightZero default segment and TD geometry Domineering Environment steps / scheduler 500,000 / piecewise-decay scheduler disabled Simplified Othello Environment steps / segment geometry / collectors 1,000,000 / segment length 64 and TD horizon 64 / 32 collectors Tic-Tac-Chess Environment steps / scheduler 500,000 / piecewise-decay scheduler disabled
+
+Table 5: EfficientZero expert-training configuration. The four teachers share the common profile unless a game-specific override is shown. The retained data comes from a separate 50-simulation search run from each expert. 
+
+C.2 Replay-Geometry Expert Selection 
+
+We evaluate the four experts at training steps 50, 100, 200, and 400 on a shared set of scenario indices. Game-macro oracle agreement selects the expert, with game-macro Q50 breaking ties. The selected expert defines the replay surface used in Figure 4. Scoreable turns are averaged by episode and episodes with missing Q50 are omitted. 
+
+D Controlled Variants 
+
+The controlled-diversity intervention compares two curricula under the same 1,000-step optimization budget. Each rule family contributes 9 variants that alter local rules while preserving the observation shape, board topology, and action space size. Controlled variants mutate one local factor at a time along the axes listed in Table 6, so that transfer can be attributed to a specific perturbation. This rule-family roster is reported separately from the four-game main corpus in Table 3.       
+
+> Parent family Controlled rule axes
+> 3 6 9 Scoring thresholds and weights; orthogonal versus diagonal scoring; center or corner locks Connect4 Exact versus gapped four; legal winning directions; opening restrictions; locked columns Domineering Player orientations; shared modes; contact and opening constraints; blocked-state outcome First Attack Forbidden-neighbor geometry; opening locks; normal versus misere last move; move offsets Tic-Tac-Chess Placement timing; winning-line direction; piece movement; hop or capture behavior; locks
+
+Table 6: Controlled rule axes. Each row lists the local rule factors varied within one family. Every admitted variant preserves the parent observation shape and legal-handle space. The model architecture, optimizer, training schedule, prompt contract, and evaluation protocol remain fixed across both curricula. A variant is admitted only when it preserves the parent observation shape and legal-handle space and passes the executable-state checks. 
+
+E Game Corpus 
+
+The controlled-diversity corpus comprises five base games and 15 held-out games, and the held-out set supplies the main-text evaluation. We selected the games from the Ludii collection (Piette et al., 2020), keeping finite two-player games with compact board states, discrete legal actions, and terminal outcomes that the SPSD game interface can write and check. Each selected game became a language-facing environment with a normalized board form, legal-action enumerator, transition function, terminal predicate, and outcome function. GPT-5.6-sol and Opus 4.8 generated the rule descriptions and the environment code in cooperation, and each model’s output was cross-validated against the other’s before the game entered the corpus. For each game the generated environment normalizes the rule text, defines the prompt-facing state notation, enumerates legal actions, implements deterministic transition and terminal checks, and verifies that its rollouts match the intended rules. A candidate enters the library only after it passes schema validation, legality checks, invariant rollouts, and smoke training. The five SPSD base games are Connect4, Tic-Tac-Chess, 3 6 9, Domineering, and First Attack. 
+
+E.1 Game Cards 
+
+Each card shows the prompt-facing rules of one game and a representative board sketch. 
+
+3 6 9 
+
+Shared-stone scoring game over lines of length three, six, and nine.   
+
+> ACTION shared placement
+> GOAL higher score
+> +3 +2 +1
+
+Players share an empty 9 × 9 board; stones do not belong to either player after placement. On each turn, place one shared stone on any empty cell. The mover scores from non-contiguous occupied lines through the placed cell. Lines of exactly three, six, or nine occupied cells score one, two, or three points; the higher final score wins. 
+
+Variation axes: scoring thresholds and weights, orthogonal versus diagonal scoring, and center or corner locks. 
+
+A Simple Game 
+
+Orthogonal movement game with a three-in-a-row objec-tive.   
+
+> ACTION orthogonal steps
+> GOAL line of three
+
+Each player starts with four stones on alternating cells along the top and bottom edges. Move one own stone exactly one orthogonal step into an adjacent empty cell. Diagonal movement is not allowed, and there are no captures. A player wins immediately after forming a horizontal, vertical, or diagonal line of three stones. Agapi 
+
+Bishop movement followed by a permanent orthogonal blocker shot.   
+
+> ACTION bishop move + shot
+> GOAL immobilize
+
+# BBBB
+
+Each player has two bishops on a 4 × 4 board. A turn first moves one bishop diagonally to the farthest reachable empty cell. From the destination, the mover shoots a permanent blocker or-thogonally to the farthest reachable empty cell. If a player begins their move phase with no legal move-plus-shot option, the other player wins. 
+
+All Queens Chess 
+
+Queen-slide race to form a line before the board locks.   
+
+> ACTION queen slides
+> GOAL line of three
+
+# QQ Q QQ Q
+
+Each player controls three queens on a 4 × 4 board. Choose a queen and slide it orthogonally through empty cells to the farthest reachable square. The square the queen left becomes a permanent blocker that no queen may enter or cross. A player wins by forming three queens in a row, column, or diago-nal, or by leaving the opponent with no legal slide. 
+
+Alquerkonane 
+
+Checkers-like forward movement with orthogonal jump captures.   
+
+> ACTION diagonal moves/jumps
+> GOAL immobilize
+
+The game starts from a fixed pawn pattern on a 4 × 4 board. A pawn may move one step diagonally forward to an empty square. A pawn may instead jump orthogonally over an adjacent enemy pawn to the empty square beyond, removing it. There is no promotion; a player wins by leaving the opponent with no legal move. Aralzaa 
+
+Forward-leap race to occupy the opponent’s home row.   
+
+> ACTION forward leaps
+> GOAL opponent row
+
+# N NNN NN
+
+Each player starts with three horse-shaped pieces on their home row. A piece leaps two squares forward and one square sideways into an empty square. The forward knight-style leap does not capture; a player with no legal leap passes. A player wins immediately after occupying all three squares of the opponent’s starting row. 
+
+Bajr 
+
+Directional camp-race game on a compact square board.   
+
+> ACTION forward steps
+> GOAL opposite camp
+
+Player 1 starts in the lower-left camp and Player 2 starts in the upper-right camp. Move one stone one orthogonal step into an empty cell. Player 1 may move upward or sideways toward the right; Player 2 may move downward or sideways toward the left. A player wins by occupying all three cells of the opponent’s camp, or by leaving the opponent without a legal move. 
+
+Chains of Thought 
+
+Hex-chain game where legal moves depend on local group sizes.   
+
+> ACTION place/merge/capture
+> GOAL largest chain
+> 31
+
+Players use a radius-one hex board with seven cells. A turn either places a stone on a legal empty hex or moves one stone to an adjacent empty hex that merges friendly groups. Placement and movement legality depend on the relative sizes of adjacent friendly and opposing chains. After every move, smaller adjacent opposing chains can be cap-tured; if no legal move remains, chain-size signatures decide the winner. Connect 4 
+
+Vertical connection game on a 6 × 7 grid.   
+
+> ACTION column drop
+> GOAL connect four
+
+Players use a vertical 6 × 7 grid and Player 1 moves first. Choose one non-full column and drop a disc into it; gravity sends it to the lowest empty cell. A move is illegal if the chosen column is already full. A player wins immediately after connecting four own discs hori-zontally, vertically, or diagonally. 
+
+Variation axes: win patterns including exact or gapped four, legal winning directions, opening restrictions, and locked columns. 
+
+Domineering 
+
+Asymmetric domino-placement game of move exhaustion.   
+
+> ACTION domino placement
+> GOAL last move
+
+Players share an initially empty 6 × 6 grid. The mover places one domino on two adjacent empty squares. One player may place only horizontal dominoes, while the other may place only vertical dominoes. A placement may not overlap or extend off the board; the first player with no legal placement loses. 
+
+Variation axes: player orientation assignments, shared orientation modes, contact and opening constraints, and blocked-state outcomes such as win, loss, or draw. 
+
+Epelle 
+
+Adjacent-sliding alignment game where starting rows do not count.   
+
+> ACTION adjacent slides
+> GOAL new line of three
+
+Each player begins with three pieces already on opposite rows of a 
+
+3 × 3 intersection graph. Move one own piece to an adjacent connected empty intersection. Starting rows do not count as wins; the line must be created by play. A player wins by creating a line of three along the board lines. Feldja 
+
+Alignment-and-capture game on a three-ring point graph.   
+
+> ACTION place/slide/remove
+> GOAL capture
+
+Each player starts with nine reserve stones on a 24-point three-ring graph. Place reserve stones on empty points, then slide committed stones to adjacent empty points. A vacated point closes and cannot be reused; completing a marked line removes one opposing stone. A player wins by reducing the opponent to two or fewer total stones, or by leaving the opponent with no legal action. 
+
+First Attack 
+
+Non-attacking placement puzzle played as a last-move contest.   
+
+> ACTION non-attacking place
+> GOAL last move
+
+Players share a 6 × 6 board and all placed stones are neutral. Place one shared stone on an empty cell. A legal cell shares no row, column, or diagonal with any occupied cell. The player who makes the last legal placement wins. 
+
+Variation axes: forbidden-neighbor geometry, opening locks, and nor-mal versus misere last-move outcomes, including orthogonal, diagonal, and knight offsets. 
+
+Groups 
+
+Connection game where friendly jumps help assemble one group.   
+
+> ACTION move/jump
+> GOAL connected group
+
+The game starts from a fixed 8 × 8 position with seven Player 1 pieces and six Player 2 pieces. A piece either steps orthogonally to an adjacent empty square or jumps one friendly piece to the empty square beyond. Jumps do not capture; the jumped piece remains on the board. A player wins immediately after at least six own pieces form a single orthogonally connected group. King’s Valley 
+
+Sliding-piece race to bring the king into the central throne.   
+
+> ACTION maximal slides
+> GOAL king to throne
+
+# K p p pppp K
+
+Each player starts with one king and three guards on a 4 × 4 board. Choose one piece and one orthogonal direction; the piece slides as far as possible through empty cells. The four central cells form the throne zone. A player wins when their king lands on a throne-zone cell, or by leaving the opponent with no legal slide. 
+
+Moxie 
+
+Compact placement, movement, and forced-jump align-ment game.   
+
+> ACTION place/move/jump
+> GOAL line or capture
+
+# ppppp
+
+Each player starts with four reserve stones on an empty 3 × 3 board. If no capture is available, place a reserve stone or move one stone one orthogonal step. If an orthogonal jump capture is available, the player must take one; captures do not chain. A player wins by forming three in a row, reducing the opponent to two or fewer total stones, or immobilizing the opponent. 
+
+Othello 
+
+Disc-flipping majority game with straight-line outflanks.   
+
+> ACTION outflank flips
+> GOAL disc majority
+
+The game uses a 6 × 6 board with the standard four-disc center start. Place a disc on an empty square that outflanks one or more straight lines of opposing discs. All outflanked discs immediately flip to the mover’s color; a player with no legal placement passes. When the board is full or both players are stuck, the higher disc count wins. Tapatan 
+
+Placement-then-sliding alignment game on a nine-point graph.   
+
+> ACTION place/slide
+> GOAL line of three
+
+Each player has three stones on a 3 × 3 point graph with diagonals. First place stones on empty intersections, then slide one stone to an adjacent connected empty intersection. Lines are checked along the board lines in both phases. A player wins immediately after forming a line of three. 
+
+Tic-Tac-Chess 
+
+Tic-tac-toe objective with queen movement after place-ment.   
+
+> ACTION place/queen moves
+> GOAL line of three
+
+# QQQQ Q Q
+
+Players first alternate placing three queen pieces each on empty cells of a 3 × 3 board. After all six pieces are placed, a queen may slide any distance in a straight line through empty cells. A queen may also hop over one adjacent enemy piece to the empty cell beyond; hops do not capture. A player wins immediately after forming a horizontal, vertical, or diagonal line of three pieces. 
+
+Variation axes: placement-phase timing, winning-line direction, piece movement, hop or capture behavior, and center or corner locks. 
+
+Tic-Tac-Toe 
+
+Classic mark-placement alignment game on a 3 × 3 grid.   
+
+> ACTION mark placement
+> GOAL line of three
+
+# XXXOO
+
+Player 1 uses X and moves first; Player 2 uses O. Place one mark on any empty cell. A move is legal only if the chosen cell is empty. A player wins by forming a line of three; a full board without a line is a draw. 
+
+F Corpus Statistics 
+
+The controlled-diversity pool is separate from the four-game corpus that supplies the main SPSD condi-tions, and its 15 held-out games never contribute training rows. Figure 5 groups the 45 variants by the rule family they edit, and Table 7 reports the structural range of the 50 environments. 0 2 4 6 8 10 12 14 16 
+
+> opening or locked-cell edits scoring or ob-jective edits movement or attack-rule edits directionality constraints
+> 14 11 614
+> variant count
+
+Figure 5: Controlled variant distribution. The 45 controlled variants grouped by edited rule family.                         
+
+> Statistic Min Median Mean Max
+> Max game length 12 42 50.2 81 Action-space size 736 47.0 81 Board cells 936 40.8 81 Board rows 366.0 9Board cols 366.2 9
+
+Table 7: Diversity-pool statistics. Min, median, mean, and max for the structural properties of the 50 environments. 
+
+G Training Hyperparameters 
+
+Table 8 reports the settings used to construct controlled game variants, train the ExIt planning experts, build search traces, and post-train the Qwen3-4B SPSD student. The controlled-diversity procedure constructs candidate games and variants for the held-out transfer study, whereas the four EfficientZero experts used to generate the main SPSD corpus are trained under the settings in Sections C and C.1. We keep trace-construction parameters fixed across ablations so that differences come from the source game, downstream training objective, or teacher MCTS budget.                                
+
+> Component Hyperparameter Value
+> Variant authoring Base games Connect4, Tic-Tac-Chess, 3 6 9, Domineering, First Attack Variant authoring Variants per base game 9Held-out evaluation Evaluation games 15 held-out games ExIt-trained planning expert MCTS simulations per move 32, 64, 128, 256 ExIt-trained planning expert Exploration constant cpuct = 1 .5
+> Trace construction Max retained root alternatives K= 3
+> Trace construction Max verbalized search depth D= 5
+> Student SPSD Base model Qwen3-4B Student SPSD Sequence length 4096 tokens Student SPSD Learning rate 2×10 −5
+> Student SPSD Epochs 2Student SPSD Effective batch size 128 examples
+
+Table 8: Training configuration. The table reports hyperparameters for variant authoring, ExIt planning experts, trace construction, and Qwen3-4B SPSD post-training. Table 9 records every scientific and optimization choice explored for OPSD. The asterisks identify the configuration used for the main matched experiments, and the daggers identify the configuration that reached the highest mathematics transfer in the search. Hardware topology and inference-server memory allocation are runtime settings and therefore remain outside the selection grid. 
+
+G.1 Teacher and Optimization Selection 
+
+Table 10 reports the outcome of the search on Qwen3-4B-Base, the condition with the widest training dynamic range. Every run uses the same corpus, prompt contract, decoding, seed, and 1,000-step budget. These runs use a single evaluation configuration that differs from the one behind Table 1, so their absolute values are not directly comparable to the main table. An exponential moving-average teacher outperforms Hyperparameter Search space                                              
+
+> Student model {Qwen3-4B-Base ∗† , Qwen3-8B ∗, Llama-3.1-8B-Instruct ∗, Qwen3-30B-A3B-Instruct} Learning rate {2×10 −6,3×10 −6†,5×10 −6∗,1×10 −5}Learning-rate schedule {constant ∗† , cosine with 0.03 warmup} Generalized-JSD β{0, 0.10, 0.25 ∗ † , 0.5, 1.0} Teacher update {fixed ∗, EMA †}EMA teacher decay {0.995, 0.996, 0.997, 0.998 †, 0.999} Distillation estimator {full-vocabulary ∗† , sampled-token reverse KL} Optimizer steps {400, 1,000 ∗ † , 2,000} Effective batch size {8, 16 ∗ † , 32} LoRA adapter {r=64 , α =128 ∗,r=128 , α =256 †,r=256 , α =512 }, dropout 0 Maximum completion length 1,024 tokens Maximum sequence length 20,000 tokens Gradient norm clip 0.1 Distillation weight λ1.0 Per-token divergence clip 0.06 Rollout sampling T= 1 .1,p= 0 .95 ,k= 20
+> Student / teacher thinking disabled / enabled Random seed 42
+
+Table 9: On-policy self-distillation hyperparameter search. The table reports every explored training choice and the settings held fixed. ∗ marks the matched main-experiment configuration and † the configuration with the highest mathematics transfer in Table 10.                                                                 
+
+> Teacher Varied factor Final
+> Fixed β= 0 .25 , lr 5×10 −6,r=64 (main experiments) 31.9 Fixed Cosine schedule 31.5 Fixed Forward KL ( β= 0 )4.0 Fixed lr 2×10 −634.5 EMA 0.999 lr 5×10 −6,r=64 35.0 EMA 0.999 lr 3×10 −634.2 EMA 0.999 lr 2×10 −632.5 EMA 0.995 lr 5×10 −635.0 EMA 0.999 lr 3×10 −6,r=128 35.6 EMA 0.999 r=256 35.5 EMA 0.999 Effective batch 32 34.7 EMA 0.999 β= 0 .10 34.5 EMA 0.996 r=128 35.7 EMA 0.997 r=128 36.2 EMA 0.997 r=256 35.4
+> EMA 0.998 †r=128 36.6
+> EMA 0.997 r=128 , 2,000 steps 33.2
+
+Table 10: Teacher and optimization selection on Qwen3-4B-Base. Mean accuracy over the six mathematics benchmarks at the end of training, for runs that differ from the row above the midrule only in the factor named in the Varied factor column. All EMA rows use β = 0 .25 and learning rate 3 × 10 −6
+
+unless stated. the fixed teacher used in the main experiments, and its decay follows an inverted U with an optimum at 0.998, which reaches 36.6 against 31.9 for the matched fixed-teacher run. Adapter capacity beyond 
+
+r=128 , larger batches, a weaker divergence anchor, and doubling the step budget all leave that level unreached, and forward KL alone collapses training. 
+
+H Prompt Templates 
+
+All training conversations follow the same contract. The system message contains the rules, the user message contains the board and the legal actions, and the assistant must end with a boxed legal move. In the replay analysis, that final boxed move is the selected action evaluated by the fresh 50-simulation MuZero MCTS search described in Section 6. Figure 6 shows the field order of the move prompt and the SPSD ASCII board format shared by every game. Move-prompt template. Each game supplies its own rules, state lines, board text, option handles, and option descriptions within this fixed field order. Line breaks in the figure are typographic. The non-
+
+Game-Playing Prompt Template                     
+
+> Game Rules: {rules_text} Player to move: Player {current_player} ({X_or_O}). Current State: {state_lines} Legend: {legend_lines} Current Board: {ascii_board} Legal Options: - {handle}: {human_description} Your objective is to choose the legal move that gives you the best game result: win if possible, otherwise draw rather than lose. Alegal handle is the exact text after ‘-’and before ‘:’ in one Legal Options bullet, or the full bullet text after ‘- ’ when that bullet has no ‘:’. Copy the legal handle verbatim, including leading words such as ‘place’ or ‘column’; do not abbreviate it to only a coordinate or number. Reason briefly, then choose exactly one legal handle from Legal Options. End with that legal handle inside \boxed{}.
+
+Figure 6: Game-playing prompt template. The prompt provides the optional game rules, current state and board representation, and the available legal actions. The model is instructed to reason briefly and return exactly one legal action using its full handle inside a boxed answer. reasoning contract keeps the same visible fields and replaces the final two lines with “Choose exactly one legal handle from Legal Options. Return only that legal handle inside .” For state questions we append a task-specific question instead of the move-selection instruction, and Table 11 lists the six question forms and answer types. Figure 7 instantiates the same contract for a single Connect4 position. 
+
+I RuleBot-Distill Example 
+
+RuleBot-Distill uses a rule-bot-verified target to provide a compact reference completion while keeping the student prompt target-hidden. Figure 8 separates the student-visible board task from the teacher-only rule-bot context and the resulting reference completion. The prompt alone is supplied at inference. The privileged context builds and verifies the reference completion during teacher-side construction and never enters the student input. This arm uses rule-bot supervision without MCTS search. 
+
+J Grounded MCTS Example 
+
+Figure 9 shows how a grounded record is presented. The student receives the board task in the visible prompt, while the grounded comparison and replay evidence remain in teacher-only context. The displayed teacher context uses the vocabulary of the trace without exposing raw search telemetry. Connect4 SPSD Training Example 
+
+System: Connect4 is a two-player connection game on a vertical 6x7 grid. Players choose anon-full column, the disc falls to the lowest empty cell, and the first player to connect four horizontally, vertically, or diagonally wins. User: Let’s play Connect4. I’ll be Player 2 and you be Player 1. Description: Gravity matters, central columns support more future lines, and the final answer must be a legal boxed move. Board: 6 . . . . . . . 5 . . . . . . . 4 . . . . . . . 3 X O X . . . . 2 O X O X . . . 1 X O X O X . . a b c d e f g Side to move: Player 1. Legal actions: column a, column b, column c, column d, column e, column f, column g. Choose the expert move and finish with \boxed{action}. Assistant: Column d is the cleanest continuation because the searched alternatives leave weaker replies: column c lets Player 2 answer in d and flatten the central threat, while column ekeeps material but does not create an immediate fork. After d, the retained rollout still leaves Player 1 with a horizontal threat on row 1 and a diagonal follow-up if Player 2 blocks only one line. Therefore the move is \boxed{column d}. 
+
+Figure 7: Representative Connect4 prompt. The example shows full rules in the system message, the board and legal actions in the user turn, and a move explanation ending with its boxed legal handle. RuleBot-Distill Connect4 Example 
+
+Student-visible prompt 
+
+Game: Connect4 on a vertical 6x7 grid. Player 2 (O) moves; a disc falls to the lowest empty cell in its chosen column. Current board, rows 6 through 1: 6 . . . X . . . 5 . . . O . . . 4 . . O X . . X 3 . . O O . X X 2 . . O O . X X 1 . . X X . O O Legal actions: column 1, column 2, column 3, column 5, column 6, column 7. Choose exactly one legal handle and end with the boxed answer. 
+
+Teacher-only RuleBot-Distill context 
+
+Verified action column 3 resolves to c5 while completing the unique vertical line of at least 4. 
+
+Reference completion 
+
+The verified action column 3 resolves to c5 while completing the unique vertical line of at least 4. Final answer: column 3 
+
+Figure 8: RuleBot-Distill record. The student receives rules, state, legal handles, and the answer contract but not the selected target. Teacher-only context verifies the target consequence, and the reference completion returns its boxed handle. Only the prompt is used at inference. The grounded context is available during teacher-side construction and checking, while the student must infer the target from the visible state and legal-action contract. Grounded MCTS Connect4 Example 
+
+Student-visible prompt 
+
+Game: Connect4 on a vertical 6x7 grid. Player 2 (O) moves; a disc falls to the lowest empty cell in its chosen column. Current board, rows 6 through 1: 6 . . . . . . . 5 . . . . . . . 4 . . . . . . . 3 X . . . . . . 2 O . . . . . . 1 X X O O X . . Legal actions: column 1, column 2, column 3, column 4, column 5, column 6, column 7. Choose exactly one legal handle and end with the boxed answer. 
+
+Teacher-only grounded context 
+
+The fresh root comparison retains target column 4 and the most tempting legal alternative, column 7. A bounded replay verifies opponent column 1 as a legal, non-terminal reply after the target, after which the turn returns to Player 2. 
+
+Reference completion 
+
+Column 4 is preferred to the tempting column 7. The verified opponent reply in column 1 remains non-terminal and returns the turn to Player 2. Final answer: column 4 
+
+Figure 9: Grounded MCTS record. The record shows the student receiving rules, state, legal handles, and the answer contract, while teacher-only context contrasts the target with an alternative through bounded replay. The reference completion ends with the boxed handle, and numerical search telemetry remains hidden. 
+
+K SPSD-dataset Task Taxonomy 
+
+The six state-question tasks use the same replay-backed answer contract while probing different state facts. 
+
+Task Question Verifier-backed evidence Expected answer 
+
+Occupancy What occupies a named cell? Replay reads the encoded occupant at the requested coordinate. Empty, or the encoded player value. Legality Is a named handle legal in this state? Membership in the replay-enumerated legal-action list. Yes or no. Threat count How many immediate winning ac-tions does the opponent have? Opponent replies are enumerated and checked for immediate terminal wins. A nonnegative integer. Legal-action count How many legal actions does the cur-rent player have? The replay-enumerated legal-action list is counted. An integer. Legal-action enumeration List every exact legal handle in dis-played order. The replay-verified legal handles are matched to the displayed list. A comma-separated list of exact han-dles. Successor state After a named action, what occupies a named successor cell? The action is replayed and the re-quested successor cell is inspected. Empty, or the encoded player value. 
+
+Table 11: State-task taxonomy. The table compares six SPSD tasks by question type, replay-computed evidence, and compact expected answer.
