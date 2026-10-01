@@ -6,35 +6,33 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-09-30
-- 运行时间：2026-09-30 22:48:32 UTC
+- 最新运行日期：2026-10-01
+- 运行时间：2026-10-01 23:25:47 UTC
 - 运行状态：成功
-- 本次总论文数：5
-- 精读区：1
+- 本次总论文数：4
+- 精读区：0
 - 速读区：4
 
 ### 今日简报（AI）
-今日共筛选 5 篇论文，精读 1 篇、速读 4 篇，重点锁定神经符号推理的可靠性控制。最值得看的是 9.0 分的《CPUNeSy: Controlling Model Writes for Reliable Neuro-Symbolic Reasoning》，它关注如何通过控制模型写入提升推理可靠性；速读部分则集中在 LLM 自我博弈搜索蒸馏、稠密语言模型的共享与专精、以及视觉语言模型推理内部动态三条 6.0 分线索。普通读者可先从 CPUNeSy 入手理解神经符号推理的可靠性思路，再按兴趣挑一篇速读扩展视野。
-- 详情：[/202609/30/README](/202609/30/README)
+今日速读4篇，聚焦LLM信念与形式化翻译评测，均分6.0。值得关注的是《User Model Extraction via Belief Self-Distillation》与《Toward a Graded Measure of Belief Stability in Large Language Models》两条围绕模型信念的线索。普通读者可优先了解大模型信念稳定性的度量思路，再顺带看看用户模型提取与NL→FOL评测指标。
+- 详情：[/202610/01/README](/202610/01/README)
 
 ### 精读区论文标签
-1. [CPUNeSy: Controlling Model Writes for Reliable Neuro-Symbolic Reasoning](/202609/30/2609.37490v1-cpunesy-controlling-model-writes-for-reliable-neuro-symbolic-reasoning)  
-   标签：评分：9.0/10、query:ns-xai
-   evidence：通过控制写入符号状态实现可靠的神经符号推理
+- 本次无精读推荐。
 
 ### 速读区论文标签
-1. [Self-Play Search Distillation for Large Language Model Reasoning](/202609/30/2609.30936v1-self-play-search-distillation-for-large-language-model-reasoning)  
+1. [User Model Extraction via Belief Self-Distillation](/202610/01/2609.31603v1-user-model-extraction-via-belief-self-distillation)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：自对弈搜索蒸馏生成超人类思维链以提升大模型推理
-2. [CORTEX: Learning to Share and Specialize in Dense Language Models](/202609/30/2609.34449v1-cortex-learning-to-share-and-specialize-in-dense-language-models)  
+   evidence：通过探针解读大模型内部信念
+2. [Quizzing the Translation: A Prover-Grounded Evaluation Metric for NL$\rightarrow$FOL](/202610/01/2609.33612v1-quizzing-the-translation-a-prover-grounded-evaluation-metric-for-nlrightarrowfol)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：通过可解释性分析理解语言模型内部模块
-3. [From Perception to Integration: Revisiting the Internal Dynamics of Reasoning in Vision-Language Models](/202609/30/2609.34809v1-from-perception-to-integration-revisiting-the-internal-dynamics-of-reasoning-in-vision-language-models)  
+   evidence：面向自然语言到一阶逻辑翻译的证明器接地指标，属神经符号推理流水线
+3. [Toward a Graded Measure of Belief Stability in Large Language Models](/202610/01/2609.34158v1-toward-a-graded-measure-of-belief-stability-in-large-language-models)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：模型内部推理动态与隐状态可解释性
-4. [Layer-Informed Fine-Tuning via Three-Stage Functional Segmentation of LLMs](/202609/30/2609.38027v1-layer-informed-fine-tuning-via-three-stage-functional-segmentation-of-llms)  
+   evidence：利用大模型内部表示度量信念稳定性以提升可解释性
+4. [Not All Thinking is Created Equal: Latent Reasoning Discovers a Recurrent Search Algorithm for Depth Generalization](/202610/01/2609.35643v1-not-all-thinking-is-created-equal-latent-reasoning-discovers-a-recurrent-search-algorithm-for-depth-generalization)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：解释大模型分层功能分工以支持推理与微调
+   evidence：比较潜在与词元推理机制及深度泛化，涉及大模型推理机制
 
 
 <div class="dpr-home-promo-card">

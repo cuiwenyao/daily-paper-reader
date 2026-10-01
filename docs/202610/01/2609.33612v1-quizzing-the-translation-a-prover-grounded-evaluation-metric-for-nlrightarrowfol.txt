@@ -1,0 +1,726 @@
+Title: Quizzing the Translation: A Prover-Grounded Evaluation Metric for NL→FOL
+
+URL Source: https://arxiv.org/pdf/2609.33612v1
+
+Published Time: Tue, 29 Sep 2026 02:13:02 GMT
+
+Number of Pages: 18
+
+Markdown Content:
+# Quizzing the Translation: A Prover-Grounded Evaluation Metric for NL →FOL 
+
+Pu Suo 
+
+Emory University 
+
+psuo2@emory.edu 
+
+Ali Emami 
+
+Emory University 
+
+aemami@emory.edu 
+
+Abstract 
+
+A standard pipeline for symbolic reasoning over natural-language problems translates them into first-order logic and invokes a theorem prover. The translation step is the bottleneck: swap “every” for “some” and every inference that follows is corrupted. Yet today’s metrics of-ten score more broken translations higher than less broken ones, because BLEU, BERTScore, and Smatch++ reward surface overlap that the worst errors happen to preserve. We introduce SIV, which derives two kinds of probes from the target formula and uses a theorem prover to verify the candidate translation against each. 
+
+Positive probes are statements the candidate must entail, which detect translations that drop content; contrastive probes are statements the candidate must not entail, which detect trans-lations that assert more than the original. On a controlled pool of perturbed FOLIO trans-lations, the severity of the error accounts for 
+
+80% of SIV’s score variance, compared with at most 17% for any prior metric. Across six error classes on a disjoint pool, SIV scores the reference above the perturbed candidate in over 
+
+99% of pairs. Because each probe is labeled with what it tests, the failure pattern also sup-plies a labeled error trace, recovering the pertur-bation class at macro-F1 0.638 , nearly double the score-only baseline. On 434 expert-audited real LLM translations, SIV attains the top AUC, uniquely detects and grades expert-labeled ma-jor errors, and abstains, rather than mis-scoring, on out-of-vocabulary translations. 
+
+1 Introduction 
+
+Translating natural language into first-order logic is the bottleneck of any system that combines natural language with symbolic inference, and the most visible recent context is the LLM-prover pipeline pursued by Logic-LM (Pan et al., 2023) and its suc-cessors (Olausson et al., 2023; Ye et al., 2023; Ryu et al., 2025). A single misplaced quantifier suffices                                                                          
+
+> NL. “Holding companies hold several companies.”
+> φ=∀x. HC (x)→ ∃ y. (C(y)∧H(x, y ))
+> ↓inner quantifier strengthened ( ∃ → ∀ )
+> φ′=∀x. HC (x)→∀y. (C(y)→H(x, y ))
+> What existing metrics return:
+> BLEU 0.76 ×
+> BERTScore 0.87 ×
+> Smatch++ 0.94 ×(rates near-perfect) LE 0.75 ×(no localization) LT 0.00 ✓(binary; no localization)
+> What SIV does. Derive probes from φ; adjudicate each with the prover.
+> Positives (candidate must entail):
+> φ′|=∀x. (HC (x)→ ∃ y. C (y)) ✓
+> φ′|=∀x. (HC (x)→ ∃ y. (C(y)∧H(x, y ))) ✓
+> Contrastives (candidate must not entail):
+> φ′|=∀x. (HC (x)→ ∀ y. (C(y)→H(x, y ))) ×
+> φ′̸|=∀x. ∃y. (C(y)∧H(x, y )) ✓
+> φ′̸|=∀x. (HC (x)→ ¬∃ y. (C(y)∧H(x, y ))) ✓
+> φ′|=∃y. (C(y)∧ ∀ x. (HC (x)→H(x, y ))) ×
+> SIV-F1 = 0 .667 (recall 2/2, precision 2/4)trace: two contrastives fired, flip_quantifier (inner ∃ → ∀ ) and
+> scope_swap (∀∃ → ∃∀ )
+
+Figure 1: An inner-quantifier-strengthened FOLIO trans-lation: “every holding company holds every company” rather than “some.” SIV is the only metric to both flag the error and name its structural axes. 
+
+to corrupt every inference that follows. Consider the FOLIO (Han et al., 2024) premise “Holding companies hold several companies,” whose expert formalization is φ = ∀x. HC (x) → ∃ y. (C(y) ∧
+
+H(x, y )) . Strengthening the inner existential to a universal converts “holds some company” into “holds every company”: downstream reasoning is now warranted by a claim the original never made. Detecting such errors is the job of a trans-lation metric, and the metrics currently used for NL →FOL fall short in a characteristic way. Surface-level metrics such as BLEU (Papineni et al., 2002) and BERTScore (Zhang et al., 2020) compare formulas as token strings or embeddings, and the graph-based Smatch++ (Opitz, 2023) com-pares them as graphs. The Logical Equivalence (LE) score of Yang et al. (2024) compares propo-sitional truth tables, and the logical-theory (LT) arXiv:2609.33612v1 [cs.CL] 27 Sep 2026 check of Brunello et al. (2026) returns a binary FOL-equivalence verdict via Z3. Figure 1 shows what each returns on the over-strengthened transla-tion above: most rate it nearly correct (Smatch++ at 0.94 ). The deeper problem, documented in §4, is that these failures are not random. On a controlled pool of perturbed translations, BLEU, BERTScore, and Smatch++ systematically score severely-broken translations higher than partially-broken ones, because the perturbations that damage meaning the most also tend to preserve the most surface content. More wrong is not more surface-different. We propose Structural Inference Verification 
+
+(SIV), a metric that evaluates a translation by quizzing it. SIV checks whether the candidate is logically equivalent to its reference: whether it as-serts neither more nor less than the reference does. A candidate can fail this in exactly two ways: by 
+
+understating the reference (asserting less; the refer-ence entails the candidate but not vice versa) or by 
+
+overstating it (asserting more; the candidate entails the reference but not vice versa). SIV catches both by deriving two kinds of probes from the reference and adjudicating each with the theorem prover Vampire (Kovács and Voronkov, 2013). Positive probes are statements the refer-ence itself entails; the candidate must entail them too, or it has understated. Contrastive probes 
+
+are statements stronger than the reference; the can-didate must not entail them, or it has overstated. SIV’s score is the F1 over both probe sets, and each failed probe is labeled with the structural feature it tested, yielding a per-translation diagnostic trace. The Method section (§3) gives worked examples of each probe type. We establish four findings: • Existing metrics do not track error sever-ity. On a stratified FOLIO pool, BLEU, BERTScore, and Smatch++ assign higher scores to severely-broken translations than to partially-broken ones, and LE collapses to chance (AUC = 0 .500 ) on quantifier flips. No prior NL →FOL metric tracks how broken a translation actually is. • SIV’s score tracks it precisely. Error sever-ity accounts for 80% of SIV’s score variance, compared with at most 17% for any baseline. Across six structural error classes on a dis-joint pool of 1,865 verified perturbation pairs, SIV ranks the reference above the perturbed                                          
+
+> Prover-grnd. Quant.-aware Graded Per-trans. Diagn. trace
+> BLEU ××✓✓×
+> BERTScore ××✓✓×
+> Smatch++ ××✓✓×
+> LE ∼×✓✓×
+> LT ✓✓×✓×
+> EPR ✓✓×××
+> SIV (ours) ✓✓✓✓✓
+> Table 1: Capability comparison of NL →FOL evaluation metrics. ✓supported; ×not supported; ∼partially supported. SIV is the only metric combining all five.
+
+candidate in over 99% of cases. This is the architectural payoff of the two-sided design: on strictly-stronger errors, positive probes are saturated by construction and the contrastive arm carries the entire detection signal. • SIV’s trace labels the structural error. Each failed probe is labeled with the structural fea-ture it tests, so the pattern of failures classi-fies the error type, a signal useful for debug-ging translators, ranking failures, or supplying class-conditional feedback in training loops. A deterministic, parameter-free rule classifier over the trace recovers the class at six-class macro-F1 = 0 .638 , nearly twice the 0.333 of the strongest score-only baseline. • SIV transfers to real translator outputs. 
+
+On 434 expert-audited LLM translations (§7), SIV attains the top AUC point estimate (0.841 ), is the only metric that both detects and grades expert-labeled major errors ( 0.20 
+
+vs. 0.80 on correct), and is the only metric with an out-of-vocabulary abstention flag (F1 
+
+0.87 ). We release the parser, the probe suites, the expert-audited real-translation pairs, and full re-production code. 1
+
+2 Related Work 
+
+2.1 NL →FOL translation and benchmarks 
+
+MALLS (Yang et al., 2024) and FOLIO (Han et al., 2024) anchor the NL →FOL benchmark land-scape. MALLS is GPT-4-generated at sentence    
+
+> 1Code and data: https://github.com/pu-suo/ siv-metric .
+
+scale and evaluated through the LE score on predi-cate truth tables; FOLIO is expert-written and eval-uated through downstream entailment classifica-tion. Thatikonda et al. (2026) provide a taxon-omy of translation errors and improve small-LM symbolic translation via error-aware fine-tuning. Brunello et al. (2026) decompose NL →FOL into ontology extraction and logical translation, show-ing that frontier dialogue-oriented LLMs perform the latter at over 0.90 accuracy when given a fixed signature. 
+
+2.2 Metrics for NL →FOL translation 
+
+Table 1 summarizes existing metrics along the ca-pability axes for per-translation evaluation. 
+
+Existing metric families. Surface metrics (BLEU, Papineni et al., 2002; BERTScore, Zhang et al., 2020) and the graph-based Smatch (Cai and Knight, 2013) and Smatch++ (Opitz, 2023) compare formulas at the token, embedding, or graph level, and cannot represent quantifier scope, binding, or polarity; Funakura et al. (2025) and Thatikonda et al. (2025) both show empirically that graph-overlap does not predict logical equiva-lence. The LE score (Yang et al., 2024) reduces FOL to propositional truth tables, discarding quantifier structure. The LT check (Brunello et al., 2026) adjudicates first-order equivalence via Z3 correctly, but returns only a binary verdict: no gradient, and no localization of the error. EPR, the Entailment Preservation Rate of Lee et al. (2025), is likewise prover-grounded but reference-free and corpus-level: it scores a translator by whether prover inference over the translated premise set reproduces gold entailment labels, and so provides neither a per-translation score nor a diagnostic. 
+
+Methodological precedent. Test-suite evalua-tion for SQL semantic parsing (Zhong et al., 2020; Wang et al., 2024) is the closest precedent: derive a suite of behavioral queries from the reference and grade each. We port the idea from SQL to FOL by replacing query execution with prover-adjudicated entailment. 
+
+Adjacent metrics on different problems. Tree-edit metrics with logical rewrites (GTED, Liu et al., 2025b; ASSESS, Liu et al., 2025a) target Lean autoformalization; edit distance cannot tell an over-claiming candidate from an equivalent one, the case SIV’s contrastive probes handle by design. Predi-cate alignment (Hosseini et al., 2018) and Jaccard         
+
+> Reference φ
+> Parser Positive probes P+
+> weakenings of φ
+> Contrastive probes P−
+> perturbations of φ
+> Vampire prover
+> φ′|=p?
+> Candidate φ′
+> SIV score
+> F1
+> Trace
+> verdict + label
+
+Figure 2: SIV pipeline. Vampire adjudicates the candi-date φ′ against positive and contrastive probes derived from φ; the verdicts produce an F1 score and a labeled trace. 
+
+partial correctness (Wong and Mooney, 2007) eval-uate vocabulary or clause-set overlap rather than prover-checked entailment. 
+
+Where SIV fits. SIV combines capabilities that prior metrics distribute across families: prover-grounded adjudication (as in LT and EPR), a graded score (as in surface and graph metrics), and a per-translation diagnostic trace that no prior metric provides. All three come from a single mecha-nism: decomposing the reference into a labeled set of probes and adjudicating each independently. A principled graded notion of logical similarity is difficult in general (Paris and Vencovská, 2015); SIV makes a reference-anchored version tractable by reducing gradation to counts over independently adjudicated, prover-certified probes. 
+
+3 The SIV Metric 
+
+3.1 Overview 
+
+A translation is correct when it is logically equiva-lent to its reference φ: it must entail what φ entails (otherwise it understates ), and must not entail what 
+
+φ does not (otherwise it overstates ). SIV catches each failure mode with its own probe set; Figure 2 sketches the full pipeline. We use a running ex-ample throughout: the sentence “Every car has a black, round wheel” with reference 
+
+φ = ∀x.  Car (x) → ∃ y. (Wheel (y)
+
+∧ HasWheel (x, y )
+
+∧ Black (y) ∧ Round (y)) .
+
+(1) The inner existential ∃y. (Wheel (y) ∧ . . . )
+
+has typing predicate Wheel (y) as its re-strictor , and the remaining body conjuncts HasWheel (x, y ), Black (y), Round (y) as its 
+
+nuclei ; this is the standard (restrictor, nucleus, scope) decomposition of generalized quantifiers (Barwise and Cooper, 1981). 2
+
+Positive probes (P+) catch understatement. Each is a formula entailed by φ that isolates one piece of its structure. For (1), P+ contains the ref-erence itself together with four further probes: the restrictor-only “every car has some wheel,” plus three probes that keep wheel-existence and add one further conjunct each, with the outer universal-implication scaffolding preserved at every step: 
+
+∀x. (Car (x) → ∃ y. Wheel (y)) ,
+
+∀x. (Car (x) → ∃ y. (Wheel (y) ∧ Black (y))) ,
+
+∀x. (Car (x) → ∃ y. (Wheel (y) ∧ Round (y))) ,
+
+∀x. (Car (x) → ∃ y. (Wheel (y)
+
+∧ HasWheel (x, y ))) .
+
+A correct candidate must entail all five. A failure on any one is a specific weakness: missing the wheel-existence commitment, missing blackness, missing roundness, or missing the having-relation. 
+
+Contrastive probes ( P−) catch overstatement. Each is a perturbation of φ that is either a strictly-stronger statement (entailing φ but not entailed by φ) or one incompatible with φ (jointly con-tradictory). A correct candidate must not entail any. Dropping the outer restrictor Car (x) from (1) yields a strictly-stronger contrastive, 
+
+∀x. ∃y. (Wheel (y) ∧ HasWheel (x, y )
+
+∧ Black (y) ∧ Round (y)) ,
+
+which asserts that every entity, not just every car, is associated with such a wheel. A candidate that entailed this would be making a structural commit-ment φ does not. How each probe set is built is the topic of §3.2 and §3.3; §3.4 defines the score. Every probe also carries a label naming the structural feature it tests, which feeds the per-translation diagnostic trace evaluated in §6. 
+
+Scope. SIV evaluates structural fidelity within an alignable logical vocabulary , not arbitrary se-mantic equivalence. Candidate predicates are aligned to the reference vocabulary where possible (Appendix E); pairs whose vocabulary cannot be grounded are flagged, not silently scored (§7).   
+
+> 2Produced by a deterministic CFG parser; round-trip pars-ing yields a logically equivalent formula on 99 .94% of FOLIO premises (Vampire-verified).
+
+3.2 Building positive probes 
+
+Positive probes are generated by recursive descent through φ. At each binder, implication, or con-junction, we emit one probe per droppable con-junct, preserving the surrounding context; disjunc-tions are never decomposed. A disjunction only ever enters P+ carried whole, as a single dropped conjunct of an enclosing conjunction, which is a sound weakening; dropping a disjunct strengthens a formula and therefore belongs to the contrastive inventory ( disjunct_drop , Appendix D). Con-cretely, for an existential-conjunction ∃y. (R(y) ∧
+
+N1(y) ∧ · · · ∧ Nk(y)) inside scope S[·], with re-strictor R and nuclei Ni, we emit the restrictor-only probe S[∃y. R (y)] and the restrictor-plus-one-nucleus probes S[∃y. (R(y) ∧ Ni(y))] for each i.Universal quantifications and implications decom-pose analogously. Preserving the surrounding scope is what makes the construction sound: every emitted probe is a syntactic weakening of φ, so φ |= p holds by con-struction for every p ∈ P +. In the cars example, the outer ∀x. (Car (x) → · ) is carried into every probe. Without it, the bare “ ∃y. Wheel (y)” would not be entailed by φ (a domain with no cars makes 
+
+φ vacuously true but says nothing about wheels), so this probe would not appear in P+. Every emitted probe is also Vampire-certified against its reference at suite-build time (zero-failure audit, Appendix H), so an unsound probe cannot enter the suite. 
+
+3.3 Building contrastive probes 
+
+Contrastive probes are generated in two steps: we apply structural operators to φ, then check each output against φ before admitting it into P−. We use ten operators, including 
+
+swap_binary_args (reversing relational argument order), flip_quantifier (swapping ∀ ↔ ∃ on a single binder), drop_restrictor_conjunct (the operator for the cars-example contrastive in §3.1), 
+
+negate_atom (flipping the polarity of an atomic predicate), and six others spanning quantifier scope, disjunct removal, connective change, and equal-ity (full inventory in Appendix D). Each opera-tor declares whether its output should be strictly-stronger than φ or incompatible with it, and a type-soundness check discards ill-formed outputs. The inventory was selected for systematic coverage of FOL’s structural axes rather than curated from er-rors observed during development; Appendix D documents per-operator provenance, the selection principle, and the inventory’s measured coverage boundary on real translator outputs (§7). Operators are only generators: an operator’s de-clared relation to φ is a prediction, not a guaran-tee. The theorem prover Vampire (Kovács and Voronkov, 2013) checks the prediction before ad-mission. A strictly-stronger ψ is admitted only if 
+
+ψ |= φ and φ̸ |= ψ; an incompatible ψ only if 
+
+φ ∧ ψ |= ⊥. The check runs under Vampire’s de-fault axioms plus per-predicate and per-restrictor existence witnesses derived from φ; for binary re-lations, asymmetry and symmetry axioms come from a frozen 427 -predicate label table, so that for 
+
+R labeled asymmetric, ∀x, y. R (x, y ) → ¬ R(y, x )
+
+certifies swap_binary_args as incompatible on ground-atom occurrences. A perturbation that turns out to be logically independent of φ (Vam-pire returns neither entailment nor contradiction) is dropped. The bias is conservative: we accept lost contrastive coverage rather than risk a probe whose declared relation does not hold. §6.3 returns to the model-theoretic limits of this regime. 
+
+3.4 Scoring 
+
+Let T + = {p ∈ P + : φ′ |= p} be the positive probes the candidate correctly entails, and F − =
+
+{p ∈ P − : φ′̸ |= p} the contrastive probes it correctly does not. Treating “should be entailed” as the positive class of a binary classifier, the SIV score is the corresponding F1: 
+
+SIV( φ′, φ ) = 2 |T +||T +| + |P +| + |P −| − | F −| . (2) Concretely, a candidate that omits the blackness commitment entails three of the five positive probes from §3.1 and fails two (Black and the reference itself); being strictly weaker than φ, it entails no contrastive, so |F −| = |P −| and SIV = 6 /8 = 0.75 , with the 0.25 drop localized to the two failed probes, both naming Blackness. Both probe arms are necessary. The positive arm alone treats a strictly-stronger candidate as equivalent to a correct one (both entail every posi-tive probe), so the contrastive arm is what catches overstatement. The contrastive arm alone treats a vacuous candidate (one that entails nothing) as equivalent to a correct one (neither entails any con-trastive), so the positive arm is what catches under-statement. We report the soft variant of SIV, which treats Vampire timeouts symmetrically (a 5-second per call timeout); a strict variant that treats timeouts as                       
+
+> Tier φ′vs. φSkeleton Example perturbation
+> REF equivalent —canonical re-serialization OS strictly stronger intact add a nucleus conjunct Pstrictly weaker intact drop a nucleus conjunct OW strictly weaker broken flip outer ∀ → ∃
+> Table 2: Severity tiers, ordered by structural distance from φ.Skeleton refers to the top-level quantifier-connective pattern. OW ranks below P because skeleton damage changes the formula’s structural meaning, not just its informational content. R EF candidates are logi-cally equivalent canonical re-serializations of the gold (Vampire-verified); their surface form differs from the FOLIO gold string (§4, Setup).
+
+“not entailed” produces identical drop magnitudes on §5’s perturbation pool. The full FOLIO probe suite contains 2,340 positive and 3,932 contrastive probes over 1,393 premises. 
+
+Cost. Probe construction and Vampire admission are paid once per reference (∼ 0.35 s) and reused across every candidate and system; the marginal cost of scoring one additional candidate is 67 ms single-core, 6.8 ms on 14 cores (zero timeouts in 
+
+14 ,293 calls on the §5 pool). Evaluating N sys-tems thus costs build-once plus N × seconds; the released pipeline ships prebuilt suites. Appendix K profiles cheaper variants and one pitfall. 
+
+4 Experiment 1: Severity tracking 
+
+This experiment tests whether SIV’s score is cali-brated to structural severity: candidates more dis-tant from the reference should receive lower scores, and the magnitude of the drop should track the magnitude of the structural change. 
+
+4.1 Setup Tiers. We sort candidates into four severity tiers by their logical relation to the reference φ (Table 2). REF candidates are not byte-identical copies of the gold: each is the reference’s own AST re-serialized to canonical ASCII FOL (predicate names pre-served). All 105 are Vampire-certified equivalent to their gold in both directions, and 104 /105 differ textually from the gold string, which is why sur-face metrics score R EF below 1.0 (Table 3). OS (overstrong) and P (partial) each represent one unit of structural change in opposite directions: OS preserves all of φ’s content but adds a strengthen-ing commitment, whereas P drops content from φ
+
+while preserving the top-level skeleton. OW (over-weak) is worse than P because the same weakening change additionally breaks the skeleton, changing what the formula structurally means rather than merely what it asserts. Appendix A gives full tier construction rules. 
+
+Pool. We apply 14 typed perturbation operators across five formula strata to FOLIO premises. Each operator declares its target tier; every generated candidate is bidirectionally verified by Vampire and retained only if its actual logical relation to the reference matches that declaration. The final pool contains 372 candidates ( 105 REF , 58 OS, 25 P, 
+
+184 OW) drawn from 128 FOLIO premises. 3
+
+Statistics. η2 from one-way ANOVA with sever-ity tier as the factor, candidate-level on the three non-R EF tiers ( n = 267 ), measures the score vari-ance attributable to severity; Cohen’s d on R EF -vs-OW measures the endpoint gap, aggregated to per-(premise, tier) means over the 53 -premise sub-set with ≥ 2 non-R EF tiers, with 1,000 -resample bootstrap CIs. We use magnitude statistics rather than rank correlation because OS/P share rank by design. 
+
+Baselines. BLEU (Papineni et al., 2002) (tok-enized at the formula level); BERTScore (Zhang et al., 2020) (F1 on stringified formulas); Smatch++ (Opitz, 2023) (graph-overlap F1 on a determin-istic FOL →Penman conversion with bound vari-ables anonymized); LE (Yang et al., 2024) (truth-table comparison with greedy literal binding); LT (Brunello et al., 2026) (Z3 binary FOL equiva-lence). LT is excluded from η2 because its binary range makes both statistics degenerate. 
+
+4.2 Results Severity tier explains 80% of SIV’s score vari-ance; at most 17% for any baseline. SIV reaches 
+
+η2 = 0 .80 ; the strongest baseline (BERTScore) reaches 0.17 . SIV’s R EF -vs-OW effect size is Co-hen’s d = 4 .71 , more than 2.5× the strongest base-line (Smatch++, 1.84 ), with non-overlapping CIs (Table 3). 
+
+Surface and graph metrics invert at P →OW. 
+
+BLEU, BERTScore, and Smatch++ each score the more-broken OW tier higher than P (Table 3, †;Figure 3). P weakens content inside an intact skele-ton; OW damages the skeleton yet often preserves more surface tokens (a quantifier flip changes one symbol; a nucleus drop deletes a whole conjunct),                                                                             
+
+> 3Train split. SIV is evaluated against synthetic perturba-tions rather than learned, so no test partition is held out.
+> Ref OS POW η2d
+> Metric 105 58 25 184
+> SIV 1.00 .929 .442 .052 .802 4.71
+> LE 1.00 .850 .796 .713 .075 1.50
+> LT (bin.) 1.00 .000 .000 .000 ——LT (graded) 1.00 .500 .500 .500 .000 ‡—Smatch++ 1.00 .806 .629 .740 †.072 1.84
+> BLEU .485 .396 .315 .397 †.027 1.09
+> BERTScore .872 .815 .729 .822 †.170 1.35
+> Table 3: Per-tier means and effect sizes. η2: variance explained by tier. d: Cohen’s don Ref-vs-OW. †: met-ric scores OW higher than P. LT binary; η2and dare degenerate. ‡: graded-LT (bidirectional prover entail-ment scored 1/0.5/0; §4.2) is constant across the three error tiers, so its between-tier variance is zero. Boot-strap 95% CIs on d: SIV [3 .96 ,6.04] , LE [1 .29 ,1.83] ,Smatch++ [1 .59 ,2.19] , BERTScore [1 .02 ,1.71] , BLEU
+> [0 .72 ,1.51] ; SIV’s interval does not overlap any base-line’s.
+
+so token overlap ranks OW above P, against sever-ity. More wrong is not more surface-different. 
+
+LE collapses to chance on quantifier operators. The per-operator AUC de-composition (Appendix B) localizes LE’s 
+
+η2 = 0.075 : on flip_outer_quantifier and 
+
+strengthen_quantifier , LE separates the perturbed tier from R EF at AUC = 0 .500 (chance), while SIV reaches 1.000 . This reproduces Brunello et al. (2026)’s propositional-collapse prediction operator by operator: LE’s truth-table representation discards quantifier structure. 
+
+BLEU charges half its range for re-serialization. BLEU scores the reference’s prover-verified logical twin at 0.485 ; re-serializing both sides through the same printer restores it to 1.000 
+
+on all 105 premises. A metric that spends half its range on notation is not measuring logical content. 
+
+The calibration is robust to design choices. 
+
+Four checks (Appendix C): (i) merging the equal-rank OS/P tiers leaves SIV at η2 = 0 .706 vs. at most 0.07 for any baseline, with zero severity-order reversals across all 372 candidates; (ii) restrict-ing to the pool operators structurally disjoint from SIV’s contrastive inventory leaves η2 = 0 .759 , d =4.37 [3 .76 , 5.49] , still ∼5× any baseline; (iii) the reference’s direct negation receives SIV 0.022 , be-low the lowest tier, while Smatch++ scores the same complement 0.864 , above every error tier; (iv) a graded LT (bidirectional entailment under SIV’s prover setup, scored 1/0.5/0) detects every §5 class yet is constant at 0.5 across all three error gold overstrong partial overweak 
+
+> Severity tier (left = closer to gold)
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> Mean metric score
+> 1.000 0.929 0.442 0.052
+> SIV Propositional-LE Smatch++ graded-LT BLEU BERTScore
+
+Figure 3: Mean metric score by severity tier (Table 3). SIV descends monotonically (R EF →OW: 1.00 →
+
+0.05 ); Smatch++, BLEU, and BERTScore invert at P→OW (red ×); graded-LT is constant at 0.5 across all error tiers (§4.2). Binary LT omitted. 
+
+tiers (Table 3, ‡) and yields no trace: the prover supplies detection; gradation and diagnosis come from the two-sided probe decomposition. 
+
+5 Experiment 2: Per-class detection 
+
+Experiment 1 measured aggregate calibration across error types. Experiment 2 disaggregates this by structural error class, testing whether SIV ranks the reference above the perturbed candidate and how large the score gap is. 
+
+5.1 Setup Pool. We apply six typed perturbation operators to a 642 -premise FOLIO reference set, disjoint by construction from Experiment 1’s 128 -premise de-sign pool. After Vampire bidirectional verification, 
+
+1,865 verified (reference, perturbed) pairs remain across six classes (Table 4). The classes span the three logical relations a perturbed candidate can have to its reference: incompatible (the candidate disagrees with the reference on some specific as-sertion), strictly stronger (the candidate makes ad-ditional commitments), and strictly weaker (the candidate drops a commitment). 
+
+Statistics. For each pair, we report drop mag-nitude (score (ref ) − score (perturbed ), with 95% 
+
+bootstrap CIs over the class) and within-pair de-tection rate (fraction of pairs in the class with score (ref ) > score (perturbed )). 
+
+5.2 Results SIV detects every class in over 99% of pairs. SIV-F1 mean drops range from 
+
+0.169 on restrictor_drop to 0.975 on 
+
+flip_outer_quantifier ; all 95% CIs ex-clude zero, and all detection rates exceed 0.99 
+
+(Table 4). Drop magnitudes calibrate to perturba-tion severity: large structural changes (a quantifier flip, a random predicate substitution) produce large drops; small structural changes (dropping a single restrictor conjunct) produce small drops. 
+
+On strictly-stronger classes, the contrastive arm carries the entire detection signal. A strictly-stronger candidate entails the reference, hence ev-ery positive probe by transitivity, so SIV-recall registers no drop at all on restrictor_drop or 
+
+strengthen_quantifier (Table 4, ⋆); their entire SIV-F1 drops ( 0.169 and 0.325 ; detection 0.996 
+
+and 1.000 ) are sourced from contrastive probes the prover certifies as strictly stronger than φ. Remov-ing the contrastive arm would drop detection on both classes to chance. Two points connect back to §4.2: 
+
+random_substitution (n=638 ) lies entirely outside SIV’s contrastive inventory yet is detected at 0.998 , and graded-LT detects every class here yet assigns flip_outer_quantifier and 
+
+restrictor_drop the same 0.5, where SIV’s drops separate them by a factor of six. 
+
+6 Experiment 3: Error-class recovery from the trace 
+
+The previous two experiments measured the SIV score. This experiment evaluates what its labeled trace adds: whether the pattern of per-probe ver-dicts identifies which structural error occurred. 
+
+6.1 Setup Classifier. A deterministic seven-rule classifier maps the (failed-positive-probes, fired-contrastive-probes) trace of each candidate to a perturbation class. Rules are applied in order; first match wins (Appendix G). Each rule implements a pre-registered prediction: each class declares its ex-pected trace signature, and the classifier checks for that signature. There are no learned parameters, no fitted thresholds, no per-class hyperparameters. 
+
+Baseline. A 5-fold stratified cross-validated de-cision tree on the single feature SIV-F1: the most the scalar score alone can extract about the pertur-bation class. The headline statistic is the recover-ability delta between trace classifier and score-only baseline. 
+
+Pool. Experiment 2’s 1,865 verified pairs, scored by the full SIV pipeline of §3. Drop magnitude [95% CI] Detection rate Class n Relation to ref. SIV-recall SIV-F1 recall F1                                           
+
+> arg_swap 494 incompatible .818 [ .796 , . 841] .757 [.731 , . 784] .998 .998
+> negation_drop 132 incompatible .861 [ .820 , . 899] .820 [.770 , . 868] 1.000 .992
+> random_substitution 638 incompatible .960 [ .949 , . 970] .942 [.928 , . 956] 1.000 .998
+> flip_outer_quantifier 355 strictly weaker .984 [ .975 , . 992] .975 [.961 , . 986] 1.000 .997
+> restrictor_drop ⋆231 strictly stronger .000 [ .000 , . 000] .169 [.163 , . 175] .000 ⋆.996
+> strengthen_quantifier ⋆15 strictly stronger .000 [ .000 , . 000] .325 [.232 , . 439] .000 ⋆1.000
+
+Table 4: Six perturbation classes with per-class drop magnitude (score (ref ) − score (perturbed ), mean with 95% 
+
+bootstrap CIs) and within-pair detection rate. ⋆: strictly-stronger classes saturate SIV-recall at 1.0 on both reference and perturbed candidates by construction, so SIV-F1’s signal on these classes comes entirely from the contrastive arm.                                     
+
+> Class nF1 PRR95% CI
+> restrictor_drop 231 .996 .996 .996 .976 –1.00
+> strengthen_q 15 .933 .933 .933 .681 –.998
+> negation_drop 132 .778 1.00 .636 .548 –.718
+> random_sub 638 .634 .464 1.00 .994 –1.00
+> arg_swap 494 .482 1.00 .318 .277 –.361
+> flip_outer_q 355 .006 1.00 .003 .000 –.016
+
+Table 5: Per-class trace classifier performance. R 95% CI :Clopper-Pearson interval. Analyses of arg_swap and 
+
+flip_outer_q in §6.3 and §6.4. 
+
+6.2 Results The trace nearly doubles diagnostic recovery over the score. The rule classifier reaches macro-F1 = 0 .638 at six-class granularity, against 0.333 
+
+for the score-only baseline. This is a +0 .305 recov-erability delta; the unrecognized rate (Rule 7 fires) is 0.05% .
+
+Per-class breakdown. Three classes are es-sentially solved (Table 5): restrictor_drop at F1 = 0 .996 , strengthen_quantifier at 0.933 ,and negation_drop at 0.778 (perfect precision; some negation-drops fall to the catch-all rule). 
+
+random_substitution , the catch-all destination when no operator-specific signature fires, reaches 
+
+0.634 . Two classes need analysis: arg_swap 
+
+at 0.482 (§6.3) and flip_outer_quantifier at 
+
+0.006 (§6.4). 
+
+6.3 arg_swap : ground atoms vs. universal bodies 
+
+arg_swap ’s aggregate F1 hides a clean bimodal pattern (Table 10): the trace recovers swaps reli-ably when the swapped relation occurs as a ground atom (stratum S5, recall 0.882 , n = 127 ) and fails when it is embedded in a universally-quantified body ( S2–S4, recall 0.08 –0.13 ). The failure is a logical limit, not an implementation artifact: the asymmetry axiom ∀x, y. R (x, y ) → ¬ R(y, x ) cer-tifies a swap only when the formulas jointly assert 
+
+R(a, b ) ∧ R(b, a ) for concrete a, b ; under a uni-versal, both formulas are vacuously satisfiable, so Vampire correctly returns “logically independent” and the contrastive is never admitted into P− (full account in Appendix G). 
+
+6.4 flip_outer_quantifier : detected, not named 
+
+flip_outer_quantifier ’s F1 of 0.006 is a cov-erage gap in the diagnostic layer, not in SIV’s score, which detects these flips reliably (Experi-ment 1 AUC = 1 .000 ; Experiment 2 mean drop 
+
+0.975 , detection 0.997 ). The layer cannot name the failure because the flip_quantifier contrastive is admitted on only 0.3% of these pairs, for the same vacuous-satisfaction reason as §6.3. Closing the gap requires richer witness machinery (e.g., restrictor-existence axioms that force witnesses into both scopes); we defer it to future work to avoid post-hoc tuning to the experimental pool. 
+
+7 Experiment 4: Real translator outputs 
+
+The controlled pools establish calibration; this ex-periment tests SIV on uncontrolled LLM translator outputs, measuring discrimination against expert correctness judgments, behavior on expert-labeled major errors, and behavior when the translator’s vocabulary diverges from the reference. 
+
+7.1 Setup 
+
+We sample 150 FOLIO premises (stratified across the §4 formula strata, seed 42 ) and translate each with three configurations spanning the quality range: GPT-4.1 (OpenAI, 2025) free-vocabulary, Metric AUC 95% CI SIV 0.841 [0 .707 , 0.935]                    
+
+> Smatch++ 0.814 [0 .715 ,0.899]
+> LE 0.799 [0 .650 ,0.922]
+> LT 0.791 [0 .754 ,0.826]
+> BLEU 0.708 [0 .533 ,0.857]
+> BERTScore 0.668 [0 .526 ,0.796]
+> Table 6: AUC for separating expert-labeled correct from incorrect translations on the compatible-vocabulary stratum ( n=185 , of which 10 incorrect; expert-adjudicated labels).
+
+GPT-4.1 with the reference predicate signature sup-plied (the high-accuracy regime of Brunello et al., 2026), and Qwen2.5-7B (Qwen Team, 2025) free-vocabulary. Of 450 outputs, 434 parse. Labels are expert-audited: an independent LLM screening judge (a different model family from all translators) flags candidate errors; an expert labels 121 pairs on blind sheets, including every flagged pair, so every “incorrect” label is human-verified; disputes were jointly adjudicated. Appendix I gives the full pro-tocol, agreement statistics, and per-configuration results. 
+
+7.2 Results Discrimination. SIV attains the top AUC point estimate ( 0.841 ; Table 6), though with only 10 in-correct pairs in this stratum the pairwise differences against Smatch++ and LE are not significant: on binary discrimination the prover- and graph-based metrics are at parity here. SIV’s advantages are the two capabilities the AUC does not measure. 
+
+SIV detects and grades major errors. Mean scores on expert-CORRECT vs. expert-MAJOR pairs: SIV 0.80 vs. 0.20 ; LE 0.89 vs. 0.62 ; BERTScore 
+
+0.89 vs. 0.82 (barely moved); binary LT 0.58 vs. 
+
+0.00 (detects, but grades nothing). SIV is the only metric that does both. 
+
+SIV knows its own scope. 71 –78% of free-vocabulary translations use predicate vocabulary divergent from the reference; alignment (Ap-pendix E) resolves 59 –65% of symbols, and SIV routes the genuinely out-of-vocabulary remainder to an abstention flag (F1 0.87 , precision 0.93 )rather than silently mis-scoring it; no baseline has an analogue. The trade-off is explicit: divergent-but-correct pairs receive a low raw score ( 0.29 ) plus the flag, whereas BERTScore assigns such pairs 
+
+0.81 and major errors 0.82 , “handling” divergence only by failing to distinguish it from error. With the signature supplied, 100% of predicates align exactly. 
+
+The inventory’s boundary, located. Of 29 
+
+adjudicated errors, 14 are vocabulary divergence (routed to abstention) and 15 are in-scope. One is a strict over-strengthening the inventory does not generate: a conditional rendered as a biconditional, which saturates the positive arm, fires no con-trastive, and scores 1.0. A verified eleventh opera-tor, implication_to_biconditional , closes the gap within the existing admission regime ( 1.00 →
+
+0.889 with a named trace label, no false fires on faithful conditionals; Appendix D.1). A trace spot-check on ten flagged translations is in Appendix I. 
+
+FOLIO gold errors. The audit independently surfaced 16 /150 premises ( ∼11% ) with erro-neous gold formulas, corroborating Olausson et al. (2023); excluding them, SIV’s AUC rises to 0.855 
+
+(still the top estimate). The 434 audited pairs are released with the code. 
+
+8 Conclusion 
+
+SIV evaluates an NL →FOL translation against two probe sets derived from the reference: positive probes the candidate must entail and contrastive probes it must not. The F1 over per-probe ver-dicts is the score; the labeled verdicts are the trace. On a stratified FOLIO pool, severity tier explains 
+
+80% of SIV’s variance against at most 17% for any baseline, and the calibration survives merged tiers, inventory-disjoint operators, and a root-negation boundary probe; on a disjoint per-class pool, SIV detects every error class in over 99% of pairs; the trace recovers the perturbation class at macro-F1 
+
+0.638 against 0.333 score-only. On 434 expert-audited real LLM translations, SIV attains the top AUC, uniquely detects and grades major er-rors, and abstains on out-of-vocabulary pairs; the score ports to MALLS with zero FOLIO metadata (Appendix J). A graded-LT ablation separates the credit: the prover supplies detection; gradation and diagnosis come from the probe decomposition. Three extensions follow: syntactic-signature ad-mission of arg_swap contrastives (§6.3); restrictor-existence axioms certifying outer-quantifier flips (§6.4); and the verified eleventh operator closing the audit’s single in-scope gap (§7, Appendix D). Limitations 
+
+Scope of the claim. SIV is a structural-fidelity 
+
+metric for FOL translations within an alignable log-ical vocabulary; it is not a general-purpose metric for arbitrary NL →FOL outputs, and we make no claim about arbitrary semantic equivalence. The metric’s edit-operation taxonomy is the one used by Brunello et al. (2026) and Thatikonda et al. (2025), and the test-suite methodology follows Zhong et al. (2020); probe inventory and perturbation pools therefore share structural axes, as is standard for test-suite evaluation, though §4.2 shows the cali-bration does not depend on that overlap. Our ex-periments demonstrate calibration under controlled perturbations and discrimination, grading, and ab-stention on real translator outputs (§7); they do not show dominance on arbitrary candidate distribu-tions. Errors outside the structural taxonomy, most prominently vocabulary divergence, are flagged by the abstention channel rather than scored (absten-tion F1 0.87 ); predicate-arity refactoring and al-ternative decomposition of compound concepts re-main undetected, and a complete evaluation would pair SIV with vocabulary- or term-level compo-nents. 
+
+Operator coverage. The ten-operator contrastive inventory is not complete, and no perturbation tax-onomy can be. The boundary is instead measured and extensible: on 434 real translations, exactly one in-scope error class fell outside the inventory (conditional-to-biconditional over-strengthening, scored 1.0), and a verified eleventh operator closes it within the existing admission regime (§7, Ap-pendix D). Users applying SIV outside its validated scope should treat high scores on structurally ex-otic candidates with care; the positive arm still catches any candidate that loses or contradicts ref-erence content, but overstatement detection is only as broad as the admitted contrastive set. 
+
+Equal probe weighting and human severity judg-ments. All probes carry equal weight in the F1. This is a deliberate first choice: any severity weight-ing embeds a downstream-task judgment we did not want to hard-code into a reference-based met-ric. The F1 already carries an implicit structural weighting, since an error in central content fails the reference-itself probe plus every probe down-stream of the damaged node, which is why Exper-iment 2’s drop magnitudes track severity ( 0.169 
+
+to 0.975 ); and because probes are labeled, a task-specific weighted SIV is a drop-in variant (weights over probe labels), which we leave to future work. Relatedly, our evidence for correspondence with 
+
+fine-grained human severity judgments is limited: the expert audit validates the binary half (all §7 statistics are measured against human correctness labels), but real errors were overwhelmingly major (2 in-scope minor errors in 434 pairs after adjudica-tion), so a graded correlation against expert sever-ity is underpowered on real data. The controlled Experiment-1 calibration remains the graded evi-dence, anchored at both ends by real-output behav-ior. 
+
+Auxiliary axioms and dataset-specific meta-data. Probe admission runs Vampire with de-fault axioms together with per-predicate and per-restrictor existence witnesses; for binary relations, asymmetry and symmetry axioms come from a frozen 427 -predicate label table built from FO-LIO’s vocabulary ( 850 of 877 observed predi-cate usages covered). The dependence is mea-sured (Appendix J): the table enters SIV at ex-actly one code path ( swap_binary_args admis-sion); disabling it leaves per-class detection un-changed to three decimals in all six classes, and on MALLS, with zero FOLIO metadata, the parser accepts 96 .6% of golds and per-class detection is 
+
+1.000 /0.969 /1.000 . What the table buys is diag-nostic naming : without it, arg-swap trace-F1 falls from 0.482 to 0.000 and macro-F1 from 0.638 to 
+
+0.550 (still +0 .189 over the score-only baseline). Porting SIV’s score requires no metadata; only the trace’s arg-swap axis needs a domain label table or the §6.4 witness extension. 
+
+FOLIO reference errors. FOLIO’s expert anno-tations contain approximately 11% errors (Olaus-son et al., 2023; Brunello et al., 2026); our real-output audit independently corroborated this rate (16 /150 premises, Appendix I), and excluding those premises raises SIV’s AUC to 0.855 . On a prior pool, manual correction of the top-30 most-suspect references shifted headline statistics by 
+
+±0.02 (Appendix F); we have not re-audited the present stratified pool and treat the prior stability as indicative. 
+
+Pool composition. Pool composition in Experiment 1 concentrates some tiers on a small set of operators (OS: 69% from 
+
+OS_add_nucleus_conjunct ; P: n = 25 , 72% 
+
+from P_drop_conjunct ). Per-operator AUC (Appendix B) shows the metric ordering is consistent across operators, so the headline statistics are not driven by any single operator. In Experiment 2, the strengthen_quantifier class yields 15 verified pairs after Vampire filtering; the architectural-payoff finding rests primarily on 
+
+restrictor_drop (n = 231 ). 
+
+Diagnostic admissibility ceiling. The diagnostic classifier names a structural failure only when the corresponding contrastive is admitted into P−. Un-der our admissibility regime, flip_quantifier 
+
+contrastives are admitted on 0.3% of outer-quantifier-flip pairs and swap_binary_args on 
+
+∼ 13% of universal-body swaps. Per-class diagnostic performance is correspondingly un-even (Table 5): restrictor_drop at F1 0.996 
+
+and strengthen_quantifier at 0.933 , against 
+
+flip_outer_quantifier at 0.006 . The score de-tects both perturbation types reliably (Experiments 1 and 2); only the diagnostic layer’s per-class nam-ing is affected. Closing these gaps requires extend-ing the witness machinery (§6.4). 
+
+References 
+
+Jon Barwise and Robin Cooper. 1981. Generalized quantifiers and natural language. Linguistics and Philosophy , 4(2):159–219. Andrea Brunello, Luca Geatti, Michele Mignani, An-gelo Montanari, and Nicola Saccomanno. 2026. Do LLMs really struggle at NL-FOL translation? Revealing their strengths via a novel benchmark-ing strategy. In Proceedings of the 40th Annual AAAI Conference on Artificial Intelligence (AAAI-26) . ArXiv:2511.11816. Shu Cai and Kevin Knight. 2013. Smatch: an evaluation metric for semantic feature structures. In Proceed-ings of the 51st Annual Meeting of the Association for Computational Linguistics (Volume 2: Short Pa-pers) , pages 748–752, Sofia, Bulgaria. Association for Computational Linguistics. Hayate Funakura, Hyunsoo Kim, and Koji Mineshima. 2025. A theorem-proving-based evaluation of neu-ral semantic parsing. In Proceedings of the 8th BlackboxNLP Workshop: Analyzing and Interpreting Neural Networks for NLP , pages 295–306, Suzhou, China. Association for Computational Linguistics. ArXiv:2510.11225. Simeng Han, Hailey Schoelkopf, Yilun Zhao, Zhent-ing Qi, Martin Riddell, Wenfei Zhou, James Coady, David Peng, Yujie Qiao, Luke Benson, Lucy Sun, Alexander Wardle-Solano, Hannah Szabó, Ekaterina Zubova, Matthew Burtell, Jonathan Fan, Yixin Liu, Brian Wong, Malcolm Sailor, et al. 2024. FOLIO: Natural language reasoning with first-order logic. In 
+
+Proceedings of the 2024 Conference on Empirical Methods in Natural Language Processing (EMNLP) ,pages 22017–22031. Association for Computational Linguistics. Mohammad Javad Hosseini, Nathanael Chambers, Siva Reddy, Xavier R. Holt, Shay B. Cohen, Mark John-son, and Mark Steedman. 2018. Learning typed en-tailment graphs with global soft constraints. Transac-tions of the Association for Computational Linguis-tics , 6:703–717. Laura Kovács and Andrei Voronkov. 2013. First-order theorem proving and Vampire. In Computer Aided Verification (CAV 2013) , volume 8044 of Lecture Notes in Computer Science , pages 1–35, Berlin, Hei-delberg. Springer Berlin Heidelberg. Jinu Lee, Qi Liu, Runzhi Ma, Vincent Han, Ziqi Wang, Heng Ji, and Julia Hockenmaier. 2025. Entailment-preserving first-order logic representations in natural language entailment. In Proceedings of the 63rd An-nual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 5729– 5742, Vienna, Austria. Association for Computa-tional Linguistics. Xiaoyang Liu, Tao Zhu, Zineng Dong, Yuntian Liu, Qingfeng Guo, Zhaoxuan Liu, Yu Chen, and Tao Luo. 2025a. ASSESS: A semantic and structural evalu-ation framework for statement similarity. Preprint, arXiv:2509.22246. Yuntian Liu, Tao Zhu, Xiaoyang Liu, Yu Chen, Zhaox-uan Liu, Qingfeng Guo, Jiashuo Zhang, Kangjie Bao, and Tao Luo. 2025b. Generalized tree edit distance (GTED): A faithful evaluation metric for statement autoformalization. In AI for Math Workshop at ICML 2025 . ArXiv:2507.07399. Theo Olausson, Alex Gu, Ben Lipkin, Cedegao Zhang, Armando Solar-Lezama, Joshua Tenenbaum, and Roger Levy. 2023. LINC: A neurosymbolic approach for logical reasoning by combining language models with first-order logic provers. In Proceedings of the 2023 Conference on Empirical Methods in Natural Language Processing (EMNLP) , pages 5153–5176, Singapore. Association for Computational Linguis-tics. OpenAI. 2025. Introducing GPT-4.1. https:// openai.com/index/gpt-4-1/ .Juri Opitz. 2023. SMATCH++: Standardized and ex-tended evaluation of semantic graphs. In Findings of the Association for Computational Linguistics: EACL 2023 , pages 1595–1607, Dubrovnik, Croatia. Association for Computational Linguistics. Liangming Pan, Alon Albalak, Xinyi Wang, and William Yang Wang. 2023. Logic-LM: Empower-ing large language models with symbolic solvers for faithful logical reasoning. In Findings of the Associ-ation for Computational Linguistics: EMNLP 2023 ,pages 3806–3824, Singapore. Association for Com-putational Linguistics. Kishore Papineni, Salim Roukos, Todd Ward, and Wei-Jing Zhu. 2002. BLEU: A method for automatic evaluation of machine translation. In Proceedings of the 40th Annual Meeting of the Association for Com-putational Linguistics , pages 311–318, Philadelphia, Pennsylvania, USA. Association for Computational Linguistics. Jeffrey Paris and Alena Vencovská. 2015. Pure Induc-tive Logic . Perspectives in Logic. Cambridge Univer-sity Press. Qwen Team. 2025. Qwen2.5 technical report. ArXiv:2412.15115. Hyun Ryu, Gyeongman Kim, Hyemin S. Lee, and Eunho Yang. 2025. Divide and translate: Compo-sitional first-order logic translation and verification for complex logical reasoning. In The Thirteenth In-ternational Conference on Learning Representations (ICLR 2025) . ArXiv:2410.08047. Ramya Keerthy Thatikonda, Wray Buntine, and Ehsan Shareghi. 2025. Assessing the sensitivity and align-ment of FOL closeness metrics. In Findings of the Association for Computational Linguistics: EMNLP 2025 , pages 16775–16785. Association for Computa-tional Linguistics. ArXiv:2501.08613. Ramya Keerthy Thatikonda, Jiuzhou Han, Wray Bun-tine, and Ehsan Shareghi. 2026. Improving symbolic translation of language models for logical reasoning. Preprint, arXiv:2601.09446. Zhongyuan Wang, Richong Zhang, Zhijie Nie, and Jaein Kim. 2024. Tool-assisted agent on SQL inspection and refinement in real-world scenarios. Preprint, arXiv:2408.16991. Yuk Wah Wong and Raymond Mooney. 2007. Learn-ing synchronous grammars for semantic parsing with lambda calculus. In Proceedings of the 45th Annual Meeting of the Association of Computational Lin-guistics , pages 960–967, Prague, Czech Republic. Association for Computational Linguistics. Yuan Yang, Siheng Xiong, Ali Payani, Ehsan Shareghi, and Faramarz Fekri. 2024. Harnessing the power of large language models for natural language to first-order logic translation. In Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 6942– 6959, Bangkok, Thailand. Association for Computa-tional Linguistics. Xi Ye, Qiaochu Chen, Isil Dillig, and Greg Durrett. 2023. SatLM: Satisfiability-aided language models using declarative prompting. In Advances in Neural Information Processing Systems 36 (NeurIPS 2023) .Tianyi Zhang, Varsha Kishore, Felix Wu, Kilian Q. Weinberger, and Yoav Artzi. 2020. BERTScore: Evaluating text generation with BERT. In 8th International Conference on Learning Representa-tions (ICLR 2020) , Addis Ababa, Ethiopia. OpenRe-view.net. Ruiqi Zhong, Tao Yu, and Dan Klein. 2020. Semantic evaluation for text-to-SQL with distilled test suites. In Proceedings of the 2020 Conference on Empirical Methods in Natural Language Processing (EMNLP) ,pages 396–411. Association for Computational Lin-guistics. 
+
+A Severity Tier Construction 
+
+The Experiment 1 candidate pool is constructed via a stratified, pre-registered design. The design predates generation and was not revised against observed metric outcomes; the configuration is in-cluded in the reproduction package (Appendix L). 
+
+Tier definitions. The four severity tiers are de-fined in Table 2 of the main text. Tier labels are determined by Vampire-verified logical relation plus a structural skeleton check, not by LLM self-assessment. The P/OW boundary is operational-ized as a structural AST property: walking the candidate and reference ASTs, we compare the top-level quantifier and connective sequence (ignoring predicate names, argument lists, and inner-clause content). A candidate that preserves this sequence is classified P; otherwise OW. 
+
+Generation. Candidates are generated by applying 14 typed perturbation operators across the five formula strata {S1, . . . , S 5}. Each operator declares its target tier (OS/P/OW) and an applicability predicate; the design specifies a per-(operator × stratum) cell tar-get. Operators include OS-tier strengthen-ing operators (OS_add_nucleus_conjunct ,
+
+OS_narrow_consequent ,
+
+OS_strengthen_predicate ,
+
+OS_strengthen_quantifier ,
+
+OS_drop_conjunctive_restrictor ), P-tier weakening operators (P_drop_conjunct , P_weaken_predicate ,
+
+P_drop_disjunctive_restrictor ), and OW-tier scaffolding-damage op-erators (OW_flip_outer_quantifier ,
+
+OW_de_quantify_to_c0 ,
+
+OW_weaken_to_existential ,
+
+OW_overrestrict_antecedent ,
+
+OW_drop_consequent_severely ,
+
+OW_weaken_predicate_severely ). 
+
+Verification. Each generated candidate is veri-fied by Vampire in both directions ( CAND |= REF 
+
+and REF |= CAND ) and, where applicable, by the structural skeleton-match check. A candidate is retained iff its verdict matches its declared tier. Verification retention: 547 generated, 529 retained (96 .7% ). 
+
+Cell-target outcomes. Several (operator × stra-tum) cells have target 8 but 0 retained, because Vampire dropped all generated candidates when the operator’s applicability predicate did not fire on the stratum (e.g., OS_strengthen_predicate on 
+
+S4 nested-quantifier; P_weaken_predicate on S2
+
+universal-simple). These outcomes are disclosed pool composition. 
+
+Pre-registration discipline. Three S2-cell operators (OW_weaken_to_existential ,
+
+OW_overrestrict_antecedent ,
+
+P_drop_disjunctive_restrictor ) were initially excluded by a bookkeeping error; their applicability predicates do fire on ∀-implications with non-atomic consequents. The 56 affected candidates were correctly generated and Vampire-verified before this was caught, and no scoring had occurred when they were added back. We disclose this because pre-registration discipline depends on noting late changes to the design. 
+
+The absent stronger-and-skeleton-breaking cell. 
+
+The design space contains a cell the tier system does not instantiate: perturbations that are strictly 
+
+stronger and also break the top-level skeleton. The tiers order structural distance for single typed edits, the errors translators actually make, and a strength-ening edit that also breaks the top-level skeleton requires compound edits; the cell is correspond-ingly rare as a single-edit translation error, which is why the pool lacks it. The root-negation boundary probe of §4.2 tests the adjacent extreme (whole-formula complements) directly. 
+
+B Per-Operator AUC Decomposition 
+
+We report per-operator AUC for separating R EF 
+
+from each operator’s candidate set, per metric. Two operators localize the LE propositional collapse documented in §4:         
+
+> Operator LE AUC SIV AUC
+> OW_flip_outer_quantifier 0.500 1.000
+> OS_strengthen_quantifier 0.500 1.000
+> Table 7: LE is at chance on both quantifier-manipulation operators; SIV saturates at 1.000 .This reproduces Brunello et al. (2026)’s propositional-collapse predic-tion operator by operator on the stratified pool.
+
+LE’s AUC values on the remaining operators range from 0.66 to 1.00 . The chance behavior is specific to operators that manipulate quantifier scope or type without altering predicate vocabu-lary: LE’s truth-table representation cannot detect changes that do not register at the propositional level. 
+
+C Robustness Checks for Experiment 1 
+
+This appendix details the four checks summarized in §4.2. 
+
+Merging the equal-rank tiers. OS and P share severity rank by design (§4), so one may ask whether the headline η2 depends on splitting tiers the design calls equal. Recomputing η2 with OS and P merged into a single level, giving the statis-tic zero credit for separating them, yields SIV 
+
+η2 = 0 .706 , against at most 0.07 for every base-line, a roughly 10 × margin that survives the merge entirely. The score asymmetry between OS and P is itself informative rather than inconsistent: an OS candidate still asserts everything the reference asserts (it errs by adding), while a P candidate fails to assert the reference’s content (it errs by losing), and a recall-bearing F1 prices lost content more heavily. At the per-premise level, SIV produces zero severity-order reversals across all 372 candi-dates: it never ranks a more-broken tier above a less-broken one, and where it does not strictly sep-arate, it ties. 
+
+Operators disjoint from SIV’s inventory. Only 
+
+3 of SIV’s 10 contrastive operators are exercised by Experiment 1’s 14 pool operators at all; 9–10 
+
+of the 14 are structurally disjoint from the inven-tory (conjunct addition, predicate-hierarchy sub-stitution, quantifier elimination, and others on no contrastive axis). Restricting Experiment 1 to the disjoint operators leaves SIV at η2 = 0 .759 (vs. 
+
+0.802 on the full pool) and Cohen’s d = 4 .37 [3 .76 , 5.49] , against at most 0.16 for every base-line, with non-overlapping CIs and AUC = 1 .00 
+
+on every disjoint severe-tier operator. Experiment 2’s random_substitution class ( n = 638 ) is like-wise out-of-inventory and detected at 0.998 . SIV’s validation was already mostly outside its own tax-onomy. 
+
+A root-negation boundary probe. The tiers or-der structural distance for single typed edits, the errors translators actually make, so whole-formula complements were not a tier; the direct negation Candidate SIV LE LT Sm++ BLEU BS                 
+
+> root negation .022 .000 .000 .864 .419 .858
+> (OW mean) .052 .713 .000 .740 .397 .822
+> Table 8: Root-negation boundary probe: the direct nega-tion of the reference, scored for all 105 Experiment-1 premises (Vampire-verified incompatible, 105 /105 ), with the OW-tier means for comparison. Sm++: Smatch++; BS: BERTScore.
+
+of the reference is the natural boundary probe. We score it for every Experiment-1 premise (Table 8). SIV places the negation below its lowest defined tier ( 0.022 ; the bootstrap CI’s upper bound, 0.048 ,is itself below the OW mean of 0.052 ), so the hier-archy’s endpoints extrapolate in the right direction without having been designed for this case. LE and LT also correctly score the negation at 0: a root negation is exactly what a truth-table representa-tion catches; this row is not evidence against them. The surface and graph metrics do not: Smatch++ scores the reference’s logical complement above every error tier, including over-strengthened but content-preserving translations. 
+
+Graded-LT construction. The graded LT of §4.2 is the strongest we could build: bidirec-tional entailment under SIV’s exact prover setup (Vampire, same axioms and timeout), scored 
+
+1.0/0.5/0.0 for equivalent / one-directional / nei-ther, run on both experimental pools. It detects every Experiment-2 perturbation class in 100% of pairs: the prover’s strength is real. But it is a three-valued function of the logical relation , so it scores the mildest error tier (OS) and the most severe, skeleton-broken tier (OW) identically at 
+
+0.5; on Experiment 2 its only two drop values track relation type rather than severity, assign-ing flip_outer_quantifier (SIV’s largest drop, 
+
+0.975 ) the same 0.5 as restrictor_drop (SIV’s smallest, 0.169 ); and it produces no trace. 
+
+D Contrastive Operator Inventory 
+
+The contrastive probe set P−(φ) is generated by applying ten operators at all valid sites of the ref-erence. Each operator produces either a strictly-stronger contrastive ( ψ |= φ but φ̸ |= ψ, used to detect under-constraining translations) or an incom-patible contrastive ( φ ∧ ψ |= ⊥, used to detect drift along a specific structural axis). • negate_atom : flips negation on a single atomic predicate. Incompatible. • swap_binary_args : reverses argument order in binary predicates ( R(a, b ) → R(b, a )). In-compatible; admissibility requires asymmetry-axiom certification (§3.3). • flip_quantifier : swaps ∀ ↔ ∃ on a single binder. Strictly-stronger when changing ∃ to ∀
+
+inside an implication; incompatible otherwise. Admissibility on outer-quantifier flips is the disclosed coverage limit of §6.4. • drop_restrictor_conjunct : removes a sin-gle conjunct from a restrictor. Strictly-stronger. • flip_connective : swaps ∧ ↔ ∨ at a single junction. Incompatible. • replace_subformula_with_negation :wraps a subformula in negation. Incompati-ble. • disjunct_drop : removes a disjunct from a disjunction. Strictly-stronger. • converse : reverses an implication’s direction (α → β 7 → β → α). Incompatible. • scope_swap : permutes adjacent quantifiers of opposite type. Strictly-stronger. • equality_drop : removes an equality literal from a conjunction. Strictly-stronger. Each operator validates its output with a type-soundness check; ill-formed candidates are dis-carded. The full FOLIO suite contains 1,678 
+
+strictly-stronger and 2,254 incompatible generated contrastives across 1,393 premises (mean 2.82 per premise). The fraction admitted into P− depends on the active axiom set; admissibility rates per class and per operator are reported with the diagnostic experiment (§6). 
+
+Asymmetry-axiom label table. The frozen 427 -predicate asymmetry/symmetry/unknown label ta-ble used to admit swap_binary_args contrastives is released alongside the code. The table covers 
+
+850 of 877 predicate usages observed in the exper-imental pools; the remaining 27 usages map to the 
+
+21 unknown -labeled predicates and contribute no axiom. 
+
+D.1 Provenance, selection principles, and extensibility 
+
+Table 9 records, for each operator, the structural axis it targets and whether it comes directly from Operator Axis Provenance                       
+
+> negate_atom polarity (atom) prior a,b
+> flip_quantifier quantifier type prior a,b
+> flip_connective connective prior a,b
+> replace_subf._w_neg. polarity (subf.) adapted c
+> swap_binary_args argument order new
+> drop_restrictor_conj. restrictor new d
+> disjunct_drop disjunction new
+> converse implication dir. new
+> scope_swap quantifier scope new
+> equality_drop equality new
+> implic._to_bicond. implication str. new e
+
+Table 9: Contrastive-operator provenance. aBrunello et al. (2026); bThatikonda et al. (2025); cliteral-level negation generalized to subformulas; dderived from the Barwise–Cooper decomposition (Barwise and Cooper, 1981), not from an error taxonomy; epost-audit exten-sion operator, verified but not used in the §4–§7 experi-ments (see below). 
+
+a prior error inventory, is adapted from one, or is newly introduced here. 
+
+Selection principle. The inventory was selected for systematic coverage of FOL’s structural axes (quantifier type, scope, polarity, argument order, connective, restrictor, equality, implication direc-tion), one operator per axis and two where granu-larities differ. The operators were not curated from observed errors: none was added or shaped in re-sponse to errors seen during development. Each operator is only a generator; its declared relation to the reference must be certified by Vampire be-fore admission (§3.3), so the inventory is a closed, axis-motivated, prover-filtered set. 
+
+Measured boundary and a verified extension. 
+
+The real-output audit (§7) located the inventory’s boundary concretely: of 15 in-scope structural er-rors, 1 was a strict over-strengthening no current operator generates, a conditional rendered as a bi-conditional ( ∀x. (R(x) → N (x)) translated with 
+
+↔), which saturates the positive arm, fires no con-trastive, and receives SIV 1.0. The fix stays inside the architecture, and we verified it: an eleventh op-erator, implication_to_biconditional , is ad-mitted as strictly-stronger by Vampire under the existing witness regime, fires on the audited can-didate (SIV falls from 1.00 to 0.889 with the trace naming the axis), and does not fire on the reference or on faithful conditional translations. We report it as a verified extension rather than folding it into the experimental inventory, so that every number in §4–§7 reflects the pre-registered ten-operator set. The taxonomy is not complete; its boundary is measurable and extensible. 
+
+E Predicate Alignment Procedure 
+
+Candidate translations may use predicate vo-cabulary that differs from the reference (e.g., 
+
+HasWheels vs. HasWheel ). We perform determin-istic alignment via a similarity threshold of 0.6,applied to embedding-based symbol matching with a layered fallback over exact match, lemma match, and substring match. Aligned candidate predi-cates are rewritten to the reference vocabulary be-fore scoring; unaligned predicates are adjudicated against the candidate’s original symbol. 
+
+Sensitivity. On the operator-driven Experiment 1 pool used for the headline statistics, alignment is effectively the identity map because candidates in-herit canonical predicate names from the SIV in-ventory by construction. The threshold of 0.6 was set during initial development and was not tuned against evaluation outcomes. 
+
+Behavior on real translator outputs. On the §7 pool, alignment behavior splits cleanly by trans-lator configuration. With the reference signature supplied, 100% of candidate predicates align ex-actly. Free-vocabulary translators diverge heavily (71 –78% of pairs contain divergent vocabulary), and the layered alignment resolves 59 –65% of di-vergent symbols, leaving a remainder that is gen-uinely out of vocabulary. 
+
+Out-of-vocabulary abstention. When alignment leaves reference-critical predicates unresolved, SIV emits an out-of-scope abstention flag for the pair instead of a confident score. On the §7 pool the flag identifies vocabulary-divergent pairs at F1 0.87 
+
+(precision 0.93 ). This is deliberate: on divergent-but-correct pairs SIV’s raw score is low ( 0.29 ), and the flag marks the score as ungrounded rather than pretending to adjudicate vocabulary the prover can-not align. 
+
+F Reference Correction Sensitivity 
+
+We surface candidate reference errors via aweighted score combining four signals: SIV-soft recall < 1.0 on the reference (weight 100 ×), SIV-strict recall < 1.0 on the reference (weight 10 ×), predicate-Jaccard between SIV canonical and FO-LIO gold < 0.8 (weight 5×), and SIV-soft F1 
+
+< 1.0 on the reference (weight 1×). On the prior submission’s pool of 368 premises, 69 triggered at Reference stratum n Recall                        
+
+> S5ground-atom relations 127 0.882
+> S8other 90.667
+> S6negation 16 0.250
+> S3universal-multi-restrictor 176 0.125
+> S2universal-simple 49 0.082
+> S4nested-quantifier 86 0.081
+> S7existential 31 0.065
+> Table 10: arg_swap recovery by reference stratum (dis-cussed in §6.3).
+
+least one signal; the top 30 by weighted score were inspected manually. Five confirmed transcription errors (entity mismatches between NL and gold formula, missing negations, reversed implications) were corrected and one premise with a typo in the source NL was excluded. Recomputing the prior submission’s headline statistic on the corrected sub-set and on the full corpus with corrections applied yielded a stability of ±0.02 . We have not re-run this correction pass on the new stratified Experi-ment 1 pool; the prior result is indicative of the FOLIO reference-error magnitude but not a direct sensitivity check for the new design. The §7 audit independently corroborates the magnitude: 16 of 
+
+150 stratified premises ( ∼11% ) carried erroneous gold formulas, matching the rate reported by Olaus-son et al. (2023), and excluding them raises SIV’s real-output AUC from 0.841 to 0.855 .
+
+G Diagnostic Classifier Rules 
+
+Why universal bodies defeat the asymmetry route (§6.3). Ground-atom occurrences trigger the axiom directly: the reference asserts R(a, b ),the swap asserts R(b, a ), asymmetry forbids the conjunction, and Vampire admits the swap as in-compatible. In a universally-quantified body, nei-ther formula asserts a specific R-fact: both are con-ditional and vacuously satisfied in any model where the antecedent is empty, so asymmetry never fires and the classifier loses its signal. This is a limit of asymmetry axioms under standard FOL semantics, not a Vampire timeout or a missing predicate-label entry. The diagnostic classifier (§6) maps the labeled trace (failed_positives , fired_contrastives ) to a per-turbation class via the following rules, applied in order; first match wins. 1. drop_restrictor_conjunct fired AND failed_positives empty → restrictor_drop .2. flip_quantifier fired AND failed_positives empty →
+
+strengthen_quantifier .3. flip_quantifier fired AND failed_positives non-empty →
+
+flip_outer_quantifier .4. swap_binary_args fired → arg_swap .5. negate_atom OR replace_subformula_ with_negation fired → negation_drop .6. failed_positives non-empty AND no con-trastives fired → random_substitution .7. Otherwise → unrecognized .The rule table implements a pre-registered pre-diction pattern per class (declared in advance of any scoring): each class names its expected (failed_positives, fired_contrastives) signature, and the classifier checks for that signature. There are no learned parameters, fitted thresholds, or per-class hyperparameters. 
+
+H Detailed Probe Statistics 
+
+The full FOLIO evaluation suite contains 1,393 of 
+
+1,471 premises with at least one well-formed probe (94 .7% ); 2,340 positive probes (mean 1.68 per premise); and 3,932 generated contrastive probes (mean 2.82 per premise; 2,254 incompatible, 1,678 
+
+strictly-stronger). Total: 6,272 structural probes generated. The admitted-into-P− count depends on the active axiom set (§3.3, §6). Full suite con-struction includes additional audit calls reaching 
+
+7,934 Vampire invocations, with 0 hard failures across the audit. Of the 156 references contain-ing a disjunction, none contributes a positive probe by disjunct removal; disjunctions enter P+ only carried whole (§3.2). 
+
+I Real-Translator Audit: Protocol and Detailed Results 
+
+Translator configurations. The three configura-tions of §7 span the quality range documented by Brunello et al. (2026): GPT-4.1 with free predicate vocabulary, GPT-4.1 with the reference predicate signature supplied in the prompt (the high-accuracy regime of that study), and Qwen2.5-7B with free vocabulary. Each translates the same 150 strati-fied FOLIO premises (seed 42 ). Of 450 outputs, 
+
+434 parse; the malformed counts are 3, 0, and 13 
+
+respectively. Labeling protocol. An independent LLM screen-ing judge, drawn from a different model family than all three translators, first flags candidate er-rors. An expert annotator then labels 121 pairs directly on blind sheets (translator identity and metric scores hidden), including every pair the judge flagged as incorrect, so the entire “incor-rect” class in the analysis is human-verified. Asecond human annotator double-annotated a 50 -pair overlap: human–human agreement on the bi-nary correct/error boundary is κ = 0 .68 (84% raw agreement), identical to expert–judge agreement (κ = 0 .68 , 87% raw). Agreement on the MA -
+
+> JOR
+
+/MINOR severity boundary is lower ( κ = 0 .57 ), so every pair with a disputed label was jointly ad-judicated before analysis. 
+
+Error composition. After adjudication, the au-dit contains 29 confirmed errors: 14 vocabulary-divergence errors, which SIV routes to the ab-stention flag (Appendix E), and 15 in-scope struc-tural errors, of which 2 are minor and 1 is the conditional-to-biconditional over-strengthening outside the ten-operator inventory (Appendix D.1). The scarcity of in-scope minor errors ( 2 in 434 
+
+pairs) is why a graded correlation against expert severity is underpowered on real data (Limitations). 
+
+Compatible-vocabulary stratum. The AUC comparison of Table 6 is computed on the stra-tum where all metrics are defined without vocab-ulary confounds: n = 185 pairs with compatible vocabulary, of which 10 are expert-labeled incor-rect. With 10 positives, pairwise AUC differences against Smatch++ and LE are not significant; SIV’s mean-score separation on expert-MAJOR vs. expert- 
+
+> CORRECT
+
+pairs ( 0.20 vs. 0.80 ) and its abstention flag are the capabilities the AUC comparison does not capture. 
+
+Trace spot-check. We spot-checked the diagnos-tic trace on 10 flagged translations. Two proved correct on adjudication; one of these was a con-firmed FOLIO gold error, on which SIV had scored 
+
+1.00 and stayed silent, consistent with that label. Of the 8 confirmed errors, the trace named the exact structural axis in 1, localized the broken con-tent through failed positive probes in 6, and was silent in 1, the biconditional coverage gap now closed by the verified eleventh operator. The axis-naming case is instructive: for the FOLIO premise “In Love City, everyone is scared of animals, or loves animals, or both,” GPT-4.1 dropped the an-tecedent restricting the rule to Love City, turning it into a claim about everyone , and the trace fired a single contrastive, drop_restrictor_conjunct ,naming exactly that error. 
+
+Released artifacts. The 434 audited (premise, translation, label) triples, the blind annotation sheets, and the per-pair metric scores are released with the code. 
+
+J Metadata Ablation and MALLS Portability 
+
+We tested the dependence on FOLIO-specific meta-data from two directions: in-domain, by disabling the 427 -predicate table on our own pools and mea-suring what breaks, and cross-domain, by running SIV on MALLS (Yang et al., 2024), where the table barely applies. The two agree. 
+
+In-domain ablation (FOLIO, table disabled). 
+
+The 427 -predicate table enters SIV at exactly one code path: swap_binary_args admission. Remov-ing it deletes 336 of 2,553 admitted contrastives, all on that one operator, and per-class detection is unchanged to three decimals in all six §5 classes (arg_swap 0.998 with or without the table; SIV-recall exactly invariant across all 2,505 scored can-didates). What the table buys is diagnostic nam-ing : arg-swap trace-F1 falls from 0.482 to 0.000 
+
+(misrouting to the catch-all class), and macro-F1 from 0.638 to 0.550 , though the trace still beats the score-only baseline by +0 .189 with zero metadata. 
+
+Cross-domain probe (MALLS, zero FOLIO metadata). With no domain adaptation of any kind, the parser accepts 96 .6% of MALLS gold formulas. Probe density is higher than on FOLIO (5.65 vs. 2.82 admitted contrastives per premise), so the mechanism does not thin out without meta-data. Per-class detection on the three ported classes is 1.000 / 0.969 / 1.000 (negation-drop / restrictor-drop / outer-quantifier-flip), with restrictor-drop reproducing the architectural-payoff finding of §5 on a new domain: recall saturates and the con-trastive arm alone carries detection. Enabling the full FOLIO table on MALLS changes admission by 2 probes out of 565 ; it covers 8% of MALLS’s binary predicates and is genuinely FOLIO-specific, but nothing that carries detection depends on it. 
+
+Summary. Porting SIV’s score requires no meta-data at all; only the trace’s arg-swap axis needs a domain label table or the witness extension of §6.4. K Runtime Profile 
+
+Decomposition. Profiling on the §5 pool (14-core workstation): probe construction plus Vam-pire admission is paid once per reference ( ∼ 0.35 s, 
+
+∼24 prover calls) and reused across every candi-date and every system evaluated. The marginal cost of scoring one additional candidate is 67 ms single-core and 6.8 ms parallel ( ∼5.7 prover calls, median 
+
+12 ms, zero timeouts in 14 ,293 calls). Evaluating 
+
+N systems on a benchmark costs build-once plus 
+
+N × seconds, which is how the released pipeline already works: suites are prebuilt and loaded. 
+
+Cheaper variants, and a pitfall. For iterative loops we profiled two cost reducers. Reducing the per-call timeout is inert: no call approaches it. A naive one-probe-per-axis cap buys 1.8×
+
+but silently breaks the restrictor_drop detection class ( 0.996 → 0.017 ), because it discards all but one probe of each restrictor group; a corrected cap that keeps restrictor groups intact restores detection above 0.99 at about 1.6×.
+
+L Reproducibility 
+
+Theorem prover. All probe adjudication uses Vampire v 5.0.1 with a per-call timeout of 5 sec-onds. The release script auto-downloads the pinned binary; CI verifies binary checksum. Timeouts are treated as “not entailed” for both positive and con-trastive probes in the strict variant, and symmetri-cally in the soft variant; we report the soft variant in the main text (§3). 
+
+Reproduction snapshot. All experiments are reproduced from the single code release linked in §1. Each is a one-command invo-cation against its design artifact: configs/ severity_correlation_v1.yaml for Exper-iment 1, run_perturbation_detection.py 
+
+for Experiment 2, run_diagnostic_trace.py 
+
+for Experiment 3, and run_real_translator_ audit.py for Experiment 4, alongside orches-trators for the robustness checks of §4.2 and the ablations of Appendices J and K. The 427-predicate asymmetry/symmetry label table used by the diagnostic experiment is shipped with the code as siv/asymmetry_axioms.py ; the 434 
+
+expert-audited real-translation pairs ship under 
+
+data/audit/ . Per-experiment artifacts (per-tier means, drop magnitudes, classifier predictions, contrastive-firing matrix) are regenerated by re-running the orchestrators; reference outputs are included under reports/experiments/ for direct comparison. 
+
+Random seeds. All deterministic experiments are seed-independent given fixed Vampire output. Pool construction uses seed 42 for within-cell or-dering and for any tie-breaking; bootstrap CIs use 
+
+1,000 resamples with seed 42 . The diagnostic clas-sifier (§6) is rule-based and has no random compo-nent; the score-only baseline uses 5-fold stratified cross-validation with seed 42 .
+
+Alignment threshold. The predicate-alignment threshold (Appendix E) is fixed at 0.6 across all experiments and was not tuned against evaluation outcomes.
