@@ -1,0 +1,801 @@
+Title: Neuro-Symbolic Computer Use: Learning Reusable Policies for Reliable and Efficient Execution
+
+URL Source: https://arxiv.org/pdf/2609.36927v1
+
+Published Time: Wed, 30 Sep 2026 01:12:35 GMT
+
+Number of Pages: 26
+
+Markdown Content:
+# Neuro-Symbolic Computer Use: Learning Reusable Policies for Reliable and Efficient Execution 
+
+Hyewon Suh †, Thanh Minh Nguyen, Chih-Lun Lee, Darrow Hartman ‡, Lizhao Liu, Xin Eric Wang, Ang Li, Jiachen Yang 
+
+Many computer tasks recur: the same workflow runs many times, with new inputs and from different starting states. Current computer-use agents re-plan every step of every run, which makes them costly and unreliable on such tasks. We introduce neuro-symbolic computer use , in which a recurring workflow is executed by a learned policy rather than re-derived by an agent on each run. The policy fixes the decisions that are stable across runs (ordering, variables, loops, and branches) in executable code, and delegates observation-dependent decisions, such as grounding and state checks, to neural models. We learn these policies with neuro-symbolic policy iteration : starting from one agent trajectory, it executes the policy, diagnoses failures with task-completion and step-level judges, and revises the code with a coding model informed by an agent’s continuation from the point of failure, without access to the benchmark evaluator. Iterating on generated parameter and initial-state variants makes the policy reusable, and a pre-action verifier guards each state-mutating step at deployment. On OSWorld-Verified and ScienceBoard, the learned policies achieve the highest Pass^3 of all methods in all four settings, 3.6–15.8 points above the base agent, while cutting per-run cost by 15–217 × and latency by 3.4–5.1 ×.On OSWorld-Verified, policies built only on variants transfer to the held-out original tasks, exceeding AutoRPA by 8.6–17.5 points in Pass^3. 
+
+Civilization advances by extending the number of important operations which we can perform without thinking about them. 
+
+— Alfred North Whitehead 
+
+## 1. Introduction 
+
+A person who files expense reports a thousand times does not rediscover the same procedure on the thousandth attempt. However, contemporary computer-use agents still do: they plan step-by-step on every run, as if it were the first (Agashe et al., 2025a,b; Gonzalez-Pumariega et al., 2026b; Sun et al., 2025; Xie et al., 2024). For economically-valuable recurring workflows (Patwardhan et al., 2026) where the same algorithmic procedure only needs limited decision-making, agents that plan from scratch on every step of every run face two critical problems: unreliability over repeated runs of the same task (Gonzalez-Pumariega et al., 2026a), and high cost and latency of frontier-model calls on long workflows (Yuan et al., 2026). How can an agent turn execution experience into a reusable procedure that stays reliable and efficient as inputs and states vary? Existing ways to automate such workflows sit at two extremes. At the neural extreme, computer-use agents decide every action from the current observation (Agashe et al., 2025b; Gonzalez-Pumariega et al., 2026b; Qin et al., 2025; Wang et al., 2025a). They are flexible, but re-decide steps that never change, so every run is costly and lacks reliability. At the symbolic extreme, robotic process automation (RPA) runs a recorded or hand-written script (Van der Aalst et al., 2018), which is cheap  
+
+> †Georgia Institute of Technology, ‡Stanford University; work done at Simular. Please send correspondence to {hyewon, jiachen}@simular.ai.
+> © 2026 Simular. All rights reserved arXiv:2609.36927v1 [cs.AI] 29 Sep 2026 Neuro-Symbolic Computer Use: Learning Reusable Policies for Reliable and Efficient Execution
+
+to repeat but breaks when a states changes and does not generalize beyond anticipated cases. To solve this dilemma, we introduce the paradigm of Neuro-Symbolic Computer Use , in which a recurring workflow is executed by a learned neuro-symbolic policy instead of being re-derived by an agent on every run. Our core insight is that recurring workflows contain a mixture of deterministic transitions and state-dependent decisions, and that neuro-symbolic programs are reliable and efficient 
+
+representations of such workflows. In expense reporting for example, form fields almost never change, but the location of a “submit” button may vary and a check for login may be needed. We therefore represent the procedure as a neuro-symbolic policy: code fixes the stable decisions (algorithm, variables, and control flow), while neural primitives make state-dependent decisions at run time. To learn such policies, we introduce Neuro-Symbolic Policy Iteration (NSPI) , which synthesizes an initial policy from a base neural agent’s demonstration trajectories and refines it by iterating between policy evaluation and policy improvement without ground truth rewards (Figure 1). A task-completion judge checks the end state of each iteration’s policy rollout, and a step-level judge locates the first step that went wrong. Upon a failure verdict, an agent continues the task from the failed state, and a coding model revises the policy using this continuation and the judges’ diagnosis. This execute–diagnose–explore–revise loop repeats until every rollout in an iteration passes or the budget runs out. At convergence, the policy itself represents a summary of the learned experience, and only here does it receive feedback from the benchmark evaluator. To test generalizability we also refine it on task variants, before its deployment along with a pre-action verifier guarding each state-mutating action against environment drift. We evaluate NSPI on three properties that recurring workflows require: reliability across repeated runs, reuse on similar task instances, and efficiency. On OSWorld-Verified (henceforth OSWorld) (Xie et al., 2024) and ScienceBoard (Sun et al., 2025) with GPT-5.6 Terra and Claude Opus 5 as base agent models, the learned policies achieve the highest Pass^3 (the share of tasks solved in all three runs) of all methods in all four settings, 4.5–13.9 points above the base agent. We also learn policies only on synthetic OSWorld variants that change a task’s parameters or its starting state, and evaluate them on the held-out original tasks, where they exceed AutoRPA (Chen et al., 2026) on the same task families by 8.6-17.5 points in Pass^3. Because a learned policy does not re-derive the workflow, it runs 15–217 × cheaper and 3.4–5.1 × faster than the base agent, and the one-time cost of learning it is recovered after 3–27 runs. 
+
+## 2. Neuro-Symbolic Computer Use 
+
+2.1. Problem statement: recurring workflows and reusable policies 
+
+We consider recurring parametric computer tasks on open-world desktop environments, a common setting in personal logistics and business processes. A task 𝑔 is a natural-language instruction to be completed in a digital environment (a desktop application or a website) with transition function 𝑇 
+
+and initial state distribution 𝜌 . Executing a policy 𝜋 from an initial state 𝑠 0 ∼ 𝜌 produces a trajectory  
+
+> 𝜏
+
+= (𝑜 0, 𝑎 0, 𝑜 1, . . . , 𝑜 |𝜏 | ) of observations and actions. A held-out success indicator 𝑅 (𝜏 ; 𝑔 ) ∈ { 0, 1}
+
+(e.g., the evaluation script of a benchmark or a user’s unknown preferences) determines whether  
+
+> 𝜏
+
+completed 𝑔 . We require a policy for each 𝑔 to succeed across a parameterized family G of task instances similar to 𝑔 (e.g., “book a flight on {date}”) and across initial states 𝑠 0 ∼ 𝜌 .
+
+Objective and reliability metric. We seek a policy that maximizes reliability over the task family: max  
+
+> 𝜋
+
+𝔼 𝑔 ∼G 
+
+Pass^k (𝜋 ; 𝑔 ), (1)       
+
+> 2Neuro-Symbolic Computer Use: Learning Reusable Policies for Reliable and Efficient Execution Problem Learn the policy once Run-time: reuse it
+> Recurring work fl ows
+> Same work fl ow, new instances
+> Mon Tue Wed ···
+> $$$
+> Agent re-plans every run
+> $
+> One reusable policy
+> Neuro-Symbolic Policy Iteration
+> evaluate improve
+> Agent
+> π(i)
+> Run ×K Dual judge Explore Heal
+> Conv. Fail
+> π(i+1)
+> Neuro-Symbolic Policy
+
+π   
+
+> Reusable Policy pass
+> Guarded deployment
+> Invoice Pop-up Delay Pre-action veri fi er Pass Block
+> Re fi ned Policy
+
+Figure 1 | Recurring computer workflows require reliable repeated execution with generalizability at low cost. In Neuro-Symbolic Policy Iteration : a baseline agent’s exploration seeds an initial neuro-symbolic policy, which preserves the workflow’s stable structure in code while retaining neural primitives for observation-dependent decisions. Our framework iteratively executes, evaluates, diagnoses, and improves the policy with additional agent continuation. The resulting policy is reused across workflows and guarded with pre-action verifiers during run-time deployment. where Pass^k (Yao et al., 2024) is the probability that all 𝑘 independent executions of 𝜋 on 𝑔 succeed: Pass^k (𝜋 ; 𝑔 ) := ℙ𝑅 (𝜏 1; 𝑔 ) = · · · = 𝑅 (𝜏 𝑘 ; 𝑔 ) = 1 = 𝑝 𝜋 (𝑔 )𝑘 , (2) 
+
+𝑝 𝜋 (𝑔 ) := 𝔼 𝑠 0∼𝜌, 𝜏 ∼( 𝜋,𝑇 )
+
+𝑅 (𝜏 ; 𝑔 ),
+
+Given 𝑛 executions with 𝑐 successes,  𝑐 𝑘 
+
+/ 𝑛 𝑘 
+
+ is the unbiased estimator of Pass^k for any 𝑘 ≤ 𝑛 .
+
+Amortized cost metric. Let 𝐶 𝜋 be the one-time cost (in dollars or wall-clock time) of constructing 𝜋 
+
+and 𝑐 𝜋 its cost per execution; the amortized cost per execution over 𝑛 executions is ¯𝑐 𝜋 (𝑛 ) := 𝐶 𝜋 
+
+𝑛 + 𝑐 𝜋 . (3) A pure neural agent 𝜇 has 𝐶 𝜇 = 0 (ignoring the costs of model training) but a high 𝑐 𝜇 if it calls an expensive LLM to plan every step. In general, a policy 𝜋 with 𝐶 𝜋 > 0 and a lower 𝑐 𝜋 would have lower amortized cost once 𝑛 exceeds the break-even point 𝑛 ∗ = 𝐶 𝜋 /( 𝑐 𝜇 − 𝑐 𝜋 ).
+
+2.2. Neuro-symbolic policies 
+
+A neuro-symbolic policy is a program 𝑃 in a scripting language whose statements are control flow (loops, conditionals, variable assignment, and recursion) and calls to primitives from a set A =
+
+Asym ∪ A neu (detailed in Section A.1). We write Π for the class of policies defined by such programs. Symbolic primitives in Asym , such as keyboard shortcuts, shell commands, and file operations, execute without a model call. Neural primitives in Aneu call a model on the current observation 𝑜 𝑡 ,and our work includes: 1) GUI grounding actions (e.g., click(description)) map natural-language element descriptions to screen coordinates using a visual grounding model; 2) a condition check 
+
+𝑄 (𝜙, 𝑜 𝑡 ) ∈ { 0, 1}, e.g., stateSatisfies(condition) → { 0, 1}, returns whether 𝑜 𝑡 satisfies a natural-language condition 𝜙 , and the control flow of 𝑃 can branch on its output. All neural primitives include the accessibility tree and the screenshot in 𝑜 𝑡 as input by default, so the policy only needs to represent natural language inputs. Figure 2 shows an example policy before and after refinement. At deployment, the program runtime applies each state-mutating primitive with the pre-action verifier of Section 3.2.2. 
+
+> 3
+
+Neuro-Symbolic Computer Use: Learning Reusable Policies for Reliable and Efficient Execution Task (OSWorld, LibreOf fi ce Impress): “Please make the background blue on all my slides.”                                                 
+
+> Base agent trajectory τ μ
+> 12 steps: pixel actions and re fl ections
+> 1click(156, 264) 2hotkey('ctrl', 'a') 3click(1686, 307) 4click(1686, 360)
+> ↳“affected only slide 1”
+> ⋯10 call_code_agent()
+> ↳pixel clicks, Ctrl+A retries, RGB probes
+> ↳rewrites every slide's XML to blue
+> Initial code plan π (0)
+> converted from steps 1–4 only
+> click ("slide 1thumbnail") hotkey("ctrl", "a")
+> click ("Background drop-down")
+> click ("Color option")
+> click ("solid blue swatch") hotkey("ctrl", "s")
+> Judge: “ctrl+a had no observable effect” →only slide 1 turns blue
+> Final code plan π (2)
+> after 2 iterations
+> execPython(SET_ALL_SLIDE_BGS) #every slide's XML: bg=0000FF
+> click ("File menu")
+> if stateSatisfies ("menu shows Reload"):
+> click ("Reload")
+> if not stateSatisfies ("slide is solid blue"):
+> click ("File menu") …
+> Result: all slides blue in 3/3 rollouts ✘✔
+> convert
+> Φconv
+> judge + heal
+> Φheal ×2 abstracted by the converter fails in rollouts agent's fi x, restored by the healer click neural primitive hotkey symbolic primitive
+
+Figure 2 | Example of NSPI converting agent trajectory into a reusable, abstracted neuro-symbolic policy and using judge feedback to identify and heal failures. The resulting policy combines state-dependent control flow, task parameters in code, and neural primitives for grounding (Section 4.1). 
+
+## 3. Neuro-Symbolic Policy Iteration 
+
+NSPI first learns a policy that solves a task reliably (Section 3.1) and then generalizes it beyond the instance it was learned on (Section 3.2); Figure 1 shows both parts. 
+
+3.1. Policy learning 
+
+3.1.1. Synthesis and iterative refinement 
+
+Policy iteration. We search Π for a policy that maximizes Equation (1) by policy iteration (Howard, 1960; Sutton and Barto, 2018), which alternates between policy evaluation and policy improvement. A dual judge evaluates the policy (Section 3.1.2), and a code healer improves it (Section 3.1.3). Together, the two judges are the analog of the critic in policy iteration. Despite not being fit to ground-truth rewards like a classical critic, they rely on the knowledge of the underlying LLMs to produce an evaluation of the current policy in natural language. 
+
+Initialization. Given a task 𝑔 , a base agent 𝜇 produces a trajectory 𝜏 𝜇 , which need not be successful. A converter Φconv turns 𝜏 𝜇 into the initial policy 𝜋 (0) : it concatenates the agent’s actions into a single program, replaces pixel coordinates with natural-language descriptions of the target elements that the runtime grounds at execution time, and replaces values specific to 𝑔 with task parameters. 
+
+Iteration. At iteration 𝑖 , we execute 𝜋 (𝑖 ) up to 𝐾 times, each from a freshly reset initial state, and judge each rollout 𝜏 (𝑖 ) 
+
+> 𝑗
+
+with the dual judge of Section 3.1.2 (policy evaluation). If all 𝐾 rollouts pass the judge, we return 𝜋 (𝑖 ) . Otherwise, we stop at the first failed rollout and produce 𝜋 (𝑖 +1) with the code healer of Section 3.1.3 (policy improvement). The loop runs for at most 𝑁 iterations and returns the last policy if no iteration passes. Note again that 𝑅 is not used; we apply it only the returned policy to measure Pass^k. Appendix A.3 gives further details of the loop. 
+
+3.1.2. Policy evaluation with a dual judge 
+
+We evaluate each policy rollout with two judges to detect and localize failures and provide diagnosis. 
+
+Task-completion judge. The task-completion judge 𝐽 task is a VLM agent that receives only the task 
+
+𝑔 (and the answer submitted by the policy, for question-answering tasks) and probes the end state of the machine with read-only tools, such as shell commands and file reads. It returns a verdict 
+
+𝑣 task ∈ { success , failure , abstain } with the evidence 𝑒 task it collected, and it abstains when success 
+
+4Neuro-Symbolic Computer Use: Learning Reusable Policies for Reliable and Efficient Execution 
+
+depends on transient states during task execution; an applicability gate skips it for tasks whose success cannot be checked from persistent state. 
+
+Step-level judge. The step-level judge runs on every rollout, in parallel with 𝐽 task , and has two stages. First, for each transition 𝑡 , an observer VLM describes the change between consecutive observations, 
+
+𝛿 𝑡 = 𝐽 obs (𝑜 𝑡 , 𝑜 𝑡 +1), without access to the task, the code, or the stated intent of the step, so that each description is based only on observable evidence. Second, a localizer VLM reads the task, the policy, and all observer outputs, and returns a verdict, the first step at which the rollout diverged from the task, and a named failure mode, (𝑣 loc , 𝑡 ∗, 𝑚 ) = 𝐽 loc (𝑔, 𝜋, 𝛿 0: |𝜏 | − 1).
+
+Verdict and diagnostic. A rollout passes only if 𝑣 loc is success and 𝑣 task is success or 𝐽 task was skipped by the applicability gate, so an abstention by 𝐽 task counts as a failure. An aggregator LLM composes the outputs of both judges, (𝑣 task , 𝑒 task ) and (𝑣 loc , 𝑡 ∗, 𝑚 ), into a diagnostic 𝑑 for the healer. We measure how often the judges agree with the benchmark evaluation scripts in Section 4.7. Algorithm 1 states the procedure, and Appendix A.4 gives the details of both judges. 
+
+3.1.3. Policy improvement with a code healer 
+
+When rollout 𝜏 (𝑖 ) 
+
+> 𝑗
+
+fails, the base agent 𝜇 continues the task from the end state of 𝜏 (𝑖 ) 
+
+> 𝑗
+
+, given 𝑔 , the policy 𝜋 (𝑖 ) , its execution log, and the diagnostic 𝑑 , and produces a continuation 𝜏 cont . A summarizer LLM Φsum condenses it into a short description of the actions that made progress. The healer Φheal , a coding LLM, then rewrites the policy: 
+
+𝜋 (𝑖 +1) = Φheal 
+
+ 𝜋 (𝑖 ) , 𝜏 (𝑖 ) 
+
+> 𝑗
+
+, 𝑑, Φsum (𝜏 cont ); 𝑔 , (4) where 𝜏 (𝑖 ) 
+
+> 𝑗
+
+enters as its execution log, error message, and a subset of its screenshots. Upon execution errors, we skip the judges and agent continuation, giving the error directly to the healer. 
+
+3.2. Policy generalization 
+
+NSPI generalizes to anticipated task variations by running policy iteration on generated variants that perturb the task’s parameters and initial state, so that the healer must write code that reads the parameters of the instance and handles each initial state (Section 3.2.1). Section 4.3 tests generalization to held-out tasks. Unanticipated environment nonstationarity are caught at deployment by a pre-action verifier, which can hand the task to a general agent or escalate it for human review in sensitive domains such as healthcare and finance (Section 3.2.2). 
+
+3.2.1. Robust learning under workflow perturbations 
+
+Given a target task 𝑔 , we construct variants of 𝑔 in two categories of workflow variation, run policy iteration on the variants, and hold out 𝑔 itself for evaluation (Figure 7). Initial-state variants keep the instruction of 𝑔 and start the environment in a different realistic state, e.g., the target document is closed, a dialog blocks the window, or the output file already holds stale values. We run the base agent on natural language instructions to set up such initial states. Parameter variants keep the initial state of 𝑔 and change the argument values in its instruction, e.g., a date, a count, a file name, or a setting value. An LLM proposes multiple variants per category, and a validator rejects any that changes the goal of the task or the content of taks setup files. Task variants are presented to NSPI sequentially, thereby exposing hard-coded values and unhandled states, forcing the policy to avoid overfitting any single variant. Section 4.1 describes the variants we construct for each benchmark. 
+
+> 5Neuro-Symbolic Computer Use: Learning Reusable Policies for Reliable and Efficient Execution
+
+3.2.2. Pre-action verification 
+
+We check the precondition (Fikes and Nilsson, 1971) of every state-mutating primitive using a fast and calibrated VLM classifier before deploying the final policy (Figure 6 in Appendix A.5). 
+
+Inputs and outputs. The verifier 𝑉 𝜃 receives the task, the primitive action (function call with inputs), a natural-language explanation of the step from the policy’s in-line comments at (or before) the action, current observation, and the primitives already executed in this run (Equation (5) in Appendix A.5), and it either passes or blocks the primitive. On a block, the particular application setting may choose among handing the task to a stateful agent to continue, running NSPI, or escalating to a human. 
+
+Decision rule. We prompt a VLM to answer with one token, yes if the action should run now and no otherwise, following a fixed rubric (Appendix A.5). The verifier blocks when 𝑝 no , the renormalized probability mass of the no answers among the 20 most likely tokens, reaches a threshold 𝜃 set on a calibration set (Equation (6) in Appendix A.5). Using 𝑝 no instead of the greedy answer turns the trade-off between wrong blocks and wrong passes into a single parameter 𝜃 .
+
+## 4. Experiments and Results 
+
+4.1. Experimental setup 
+
+Benchmarks We evaluate on OSWorld-Verified (Xie et al., 2024) and ScienceBoard (Sun et al., 2025). We use 361 OSWorld tasks, excluding Google Drive tasks that require unavailable credentials, and 169 ScienceBoard tasks spanning six scientific desktop applications. Further evaluation settings are detailed in Appendix B.1. We also explore longer workflows on OSWorld-V2 (Yuan et al., 2026) as a separate extension (Section 4.5). 
+
+Compared methods Using GPT-5.6 Terra (OpenAI, 2026) and Claude Opus 5 (Anthropic, 2026) as backbone models, we compare our method with three baselines. The base agent plans each action from the current observation and solves each task anew on every run, without retaining experience across runs. Batch2Code is a conversion-only variant of NSPI that uses the same code-policy without iterative refinement. It constructs the policy from multiple base-agent trajectories, giving it more initial trajectory evidence than our single-trajectory initialization. ASI (Wang et al., 2025b) acquires reusable programmatic skills while retaining an agent to select and execute them. For reuse across parameter and initial-state variations, we compare with AutoRPA (Chen et al., 2026), adapted to learn reusable computer-use workflows from natural-language requests and execution experience, without benchmark-supplied task templates, parameter schemas, or oracle feedback. Further details on experiment setups and configurations are included in Appendix B.1. 
+
+Workflow variation We evaluate whether a learned policy transfers to a held-out instance of the same workflow. We constructed the workflow variations of the subset of OSWorld tasks. Parameter variants change request arguments, while initial-state variants preserve the request but alter the starting environment. We study 40 parameter and 35 initial-state families with up to three admitted variants. NSPI and AutoRPA both use GPT-5.6 Terra and a shared domain setup, without access to the benchmark evaluator. They process the same variants sequentially, refining a single policy as new instances expose task-specific assumptions. We then freeze the policy and evaluate Pass^3 on the held-out original task without further adaptation. We include implementation details in Appendix B.2. 
+
+Metrics We report Pass^k for 𝑘 ∈ { 1, 2, 3}, estimated from three evaluation trials per task as defined in Section 2.1; Pass^3 measures success in all three trials. We average over the full task or family set, retaining construction failures in the denominator. We report per-execution cost and wall-clock 
+
+> 6Neuro-Symbolic Computer Use: Learning Reusable Policies for Reliable and Efficient Execution
+
+Success rate (%) ↑ Per run ↓
+
+Model Method Pass^1 Pass^3 Cost Time ScienceBoard (169 tasks) 
+
+Base agent 27.0 13.6 15 × 4.6 ×
+
+Batch2Code 15.4 11.8 1.1 × 1.0 ×
+
+ASI 24.3 11.8 16 × 5.1 ×
+
+GPT-5.6 Terra 
+
+NSPI (ours) 29.2 26.0 0.00536 40 
+
+Base agent 38.7 29.6 65 × 3.9 ×
+
+Batch2Code 12.8 9.5 0.9 × 0.9 ×
+
+ASI 39.8 26.0 68 × 3.8 ×
+
+Claude Opus 5 
+
+NSPI (ours) 48.7 42.6 0.00790 64 
+
+OSWorld (361 tasks) 
+
+Base agent 55.9 34.6 67 × 5.1 ×
+
+Batch2Code 51.5 47.1 0.9 × 0.8 ×
+
+ASI 53.1 31.9 62 × 6.2 ×
+
+GPT-5.6 Terra 
+
+NSPI (ours) 53.6 50.4 0.00716 56 Base agent 74.1 68.4 217 × 3.4 ×
+
+Batch2Code 46.7 45.2 0.6 × 0.5 ×
+
+ASI 73.8 67.6 381 × 4.2 ×
+
+Claude Opus 5 
+
+NSPI (ours) 72.9 72.0 0.00965 103 
+
+Table 1 | Reliability across repeated executions on ScienceBoard and OSWorld. Per-run cost (USD) and wall-clock latency for NSPI and as relative multiples ( ×) of NSPI for other methods. NSPI achieves the highest Pass^3 in all four settings while operating at substantially lower per-run cost. Batch2Code, a conversion-only variant of our framework is also efficient, but with substantially lower Pass^k. latency separately from one-time construction cost and time, and analyze their amortization over repeated use (Section 4.4). 
+
+4.2. Reliability across repeated executions 
+
+Table 1 shows a clear reliability gap under repeated execution. Averaged across the four benchmark– model settings, NSPI drops only 3.4 points from Pass^1 to Pass^3, compared with 12.4 points for the base agent, and achieves the highest Pass^3 in every setting, by 8.1 points on average over the next-best method. Its Pass^1 remains comparable to the base agent, so the flatter curve is not obtained by starting from a weaker policy. NSPI can also bootstrap from unsuccessful demonstrations. Across 356 tasks for which the base agent failed all three seed attempts, the final policy succeeds in Pass^3 on 62 tasks, including 32 of 89 on ScienceBoard with Opus (Figure 4). This recovery requires more refinement, with failed seeds incurring 18–31% higher healing cost and 17–38% longer healing time than successful seeds. We provide the full breakdown in Appendix C. The comparison with Batch2Code helps distinguish reliable execution from simply making execution more deterministic. Batch2Code uses the same executable policy representation without iterative refinement, and its Pass^k curve is similarly flat, but its Pass^3 remains 3.3–33.1 points below NSPI. Code therefore helps preserve a procedure across runs, while refinement makes it consistently correct. ASI, which instead retains an agent to select and execute learned programmatic skills, shows a decline with repeated execution closer to the base agent. Figure 3 illustrates the same trade-off   
+
+> 7Neuro-Symbolic Computer Use: Learning Reusable Policies for Reliable and Efficient Execution 123
+
+Repeated runs k
+
+> 010 20 30 40
+> pass k (%)
+> NSPI (ours) Batch2Code ASI Base agent
+
+(a) $0.01 $0.1 
+
+Cost per run (USD)  
+
+> 010 20 30
+> pass 3 (%)
+
+(b) 
+
+Figure 3 | Repeated-execution reliability and execution cost on ScienceBoard with GPT-5.6-Terra. (a) NSPI maintains high Pass^k as k increases, while agent-based baselines degrade more sharply and the Batch2Code conversion-only baseline remains consistent but less accurate. (b) NSPI achieves highest Pass^3 with efficient per-run execution cost over baselines. Policy-construction cost is analyzed separately in Section 4.4. Terra Opus Terra Opus 020 40 60 80 100            
+
+> pass 3 (%)
+> ScienceBoard OSWorld (a)
+> Terra Opus Terra Opus 020 40 60 80 100
+> Judge rejects (%)
+> ScienceBoard OSWorld (b) Terra Opus Terra Opus 0246
+> Healing cost (USD)
+> ScienceBoard OSWorld (c)
+> Seed succeeded Seed failed Base agent, same tasks
+
+Figure 4 | NSPI can recover reliable policies even from unsuccessful seed trajectories, but at higher cost. (a) Pass^3, with base-agent performance on the same tasks. (b) Judge rejection rate during policy iteration. (c) One-time healing cost with the relative increase when initialization uses failed seeds. on ScienceBoard with GPT-5.6 Terra. NSPI maintains its success rate as 𝑘 increases while moving execution to a much lower-cost regime. Across all four settings, the resulting policies reduce per-run cost by 15-217x and run 3.4–5.1× faster than the corresponding base agents. 
+
+4.3. Policy generalization across workflow instances 
+
+We evaluate reuse across workflow instances on OSWorld with GPT-5.6 Terra, refining one policy on generated variants and evaluating the frozen policy on the held-out original task. As shown in Table 2, NSPI reaches 55.0% Pass^3 on parameter variations and 60.0% on initial-state variations, compared with 37.5% and 51.4% for AutoRPA. Both methods degrade a little from Pass^1 to Pass^3, suggesting that the dominant challenge is whether a learned policy transfers to a workflow instance at all, rather than stochastic failure once it does. NSPI’s advantage comes primarily from transferring successfully to more workflow instances. Figure 5 examines which policy structures are associated with successful transfer. For parameterized workflows, policies that read changing values from the request transfer much more often than policies that retain training values, supporting the need to separate stable workflow structure from instance-specific inputs. For initial-state variation, policies that modify application files or use command-line                 
+
+> 8Neuro-Symbolic Computer Use: Learning Reusable Policies for Reliable and Efficient Execution
+> Success rate (%) Setting Method Pass^1 Pass^2 Pass^3
+> Parameters (40) AutoRPA 37.5 37.5 37.5
+> NSPI (ours) 60.0 57.5 55.0
+> Initial states (35) AutoRPA 55.2 52.4 51.4
+> NSPI (ours) 61.0 60.0 60.0
+
+Table 2 | Effectiveness of policy built across parame-ter and initial state variations to held-out instances of OSWorld workflows. Figure 5 | Policy structures associated with successful reuse across workflow instances. Labels show the number of successful policies out of total applicable policies. Table 3 | Cost and wall-clock latency amortization of learning a reusable NSPI in the terms of Equation (3). 𝐶 𝜋 is the one-time policy-construction cost, 𝑐 𝜇 the per-run cost of the base agent, 𝑐 𝜋 the per-run cost of executing the learned policy, and 𝑛 ∗ is the break-even count. Values are means over tasks. 
+
+Cost (USD) Wall-clock time Benchmark Base model 𝐶 𝜋 𝑐 𝜇 𝑐 𝜋 𝑛 ∗ 𝐶 𝜋 (min) 𝑐 𝜇 (s) 𝑐 𝜋 (s) 𝑛 ∗
+
+ScienceBoard GPT-5.6 Terra 2.03 0.081 0.0054 26.8 40 183 40 16.9 Claude Opus 5 5.68 0.52 0.0079 11.2 49 251 64 15.8 OSWorld v1 GPT-5.6 Terra 3.09 0.48 0.0072 6.5 33 286 56 8.6 Claude Opus 5 6.45 2.1 0.0097 3.1 43 353 102 10.3 
+
+interfaces transfer more often than GUI-only policies for both methods, consistent with being less dependent on the precise starting GUI state. AutoRPA relies on these script-based paths more heavily, yet NSPI performs better within both execution styles, so its advantage is not simply due to bypassing the GUI. Overall, successful reuse appears to depend on preserving the procedure while rebinding the parts that vary with the current request or environment. 
+
+4.4. Efficient repeated execution and cost amortization 
+
+We analyze the economics of neuro-symbolic policies using Eq. (3). Table 3 reports the resulting costs. Across different configurations, neuro-symbolic policy’s per-execution cost ratio 𝑐 𝜇 /𝑐 𝜋 ranges from roughly 15 × to roughly 217 ×, and policies recover their construction cost between 3.1 and 26.8 executions. The break-even points in wall-clock time range between 8.6 and 16.9 executions. The results also indicate that the benefit of NSPI scales with task complexity. Moving from ScienceBoard to OSWorld increases the agent’s per-run dollar cost by four to six times, while construction cost increases by only 14% to 52%. The break-even point drops nearly 75% in dollar value. The choice of a base model has a similar effect in dollar value. Claude Opus 5 incurs two to three times the construction cost of GPT-5.6 Terra, but its per-run agent cost is four to six times higher, so in dollars it breaks even roughly 2 to 2.4 times sooner. In wall-clock time, the two models are much closer. We note that these comparisons span only two benchmarks and two base models, so task complexity is partially confounded with other differences between benchmarks. 
+
+> 9Neuro-Symbolic Computer Use: Learning Reusable Policies for Reliable and Efficient Execution
+
+4.5. Extension to long workflows on OSWorld-V2 
+
+We stress-tested NSPI on OSWorld-V2 (Yuan et al., 2026), where tasks take skilled humans more than an hour on average and cost frontier-model agents up to $76 and 50 minutes per task. Table 4 shows that the learned policies are more consistent than the base agent but less successful. On strict success, NSPI keeps 96% of its Pass^1 at 𝑘 =3, whereas the base agent keeps only 80%. However, NSPI trails the base agent at 𝑘 =3 by 5.6 points in strict success and by 18.5 points in partial credit. The gap in performance arises from a loss of information in                
+
+> Method Pass^1 Pass^2 Pass^3
+> Partial credit
+> Base agent 72.79 69.10 63.09
+> NSPI 45.37 44.83 44.60
+> Strict success
+> Base agent 28.04 25.23 22.43
+> NSPI 17.45 17.13 16.82
+
+Table 4 | Pass^k performance on OSWorld-V2. converting a long agent trajectory to initial policy: agent trajectories averaged 158 steps and scripts averaged 970 lines, leading to mistakes when the script recomputes every value the agent read from the screen. Implementation details are available in Section B.5. 
+
+4.6. Pre-action verification under environment variation 
+
+We evaluate the pre-action verifier (Section 3.2.2) with the injected intent comments and rubric additions of Appendix B.4 at 𝜃 = 0.78. The wrong-block rate (WBR) is the fraction of rollouts of correct policies in which the verifier incorrectly blocks at least one primitive. The wrong-pass rate 
+
+(WPR) is the fraction of primitives that should be blocked but that the verifier passes. We simulate an unexpected environment change by running the correct policies of original OSWorld tasks but starting from the perturbed initial states of the generalization experiment (Section 4.3), which yields 24 primitives that should be blocked. Figure 8 shows that Qwen3.6-35B-A3B wrongly blocks at most 8.4% of correct rollouts in every setting, while Qwen3.8-27B wrongly blocks 9.4–25.0%. The trade-off reverses on the perturbed initial states: Qwen3.6-35B-A3B has WPR 70.8% (17 of 24 primitives passed), while Qwen3.8-27B has WPR 25.0% (6 of 24). Median verifier latency is 1 .5s ± 0.5 (p95 2.3s) for Qwen3.6-35B-A3B and 1 .6s ± 1.2 (p95 3 .7s) for Qwen3.8-27B. 
+
+4.7. Judge Analysis 
+
+Table 5 compares our judges with the benchmark evaluator on each task’s final policy, where a policy is reliable only if it succeeds in all three runs. The judges reject 69.3–94.4% of unreliable policies but accept only 11.4–40.1% of reliable ones. They are therefore conservative, which increases construction cost without hurting reliability. A better-calibrated judge could lower this cost and potentially improve performance, which we leave to future work. We also annotate 19 OSWorld policies rejected by 𝐽 task and compare both judges with human labels (Section B.3). Table 6 shows 𝐽 task agrees closely with human annotators, and so does 𝐽 loc on divergence localization when the evidence is visible on screen. We discuss four limitations of the judges in the same appendix. 
+
+## 5. Related work 
+
+Prior methods on learning skills from experience enable an agent to accumulate a library of reusable APIs, represented either in natural language (Wang et al., 2025c; Zheng et al., 2025) or as short programs (Meng et al., 2025; Ning et al., 2026; Wang et al., 2023, 2025b). We take this approach                        
+
+> 10 Neuro-Symbolic Computer Use: Learning Reusable Policies for Reliable and Efficient Execution
+> Benchmark Models Prec. Rec. Spec.
+> ScienceBoard Terra 41.7 11.4 94.4 Opus 5 69.6 22.2 92.7 OSWorld Terra 76.8 40.1 87.6 Opus 5 76.7 35.3 69.3
+> Judge output Agreement
+> 𝐽 task verdict 84% (16/19)
+> 𝑡 ∗, visible failures 90% (9/10)
+> 𝑡 ∗, invisible failures 0% (0/6)
+
+Table 5 | Agreement between NSPI judges and the benchmark evaluator on final policies. Table 6 | Agreement of NSPI judges with human annotations on 19 OSWorld tasks. to the limit by aiming for a single robust code policy that solves each equivalence set of parametric tasks in full. While the neural agent is the primary driver that invokes skills in prior work, our neuro-symbolic policy is primary while the agent is an expensive fallback. Programs with perceptual inputs have long served as policies, from programmatic reinforcement learning (Verma et al., 2018) to LLM-generated robot code (Liang et al., 2023; Santos et al., 2026). The LLM-generated policies were produced from human natural language instructions and few-shot examples, instead of from a strong agent exploration as in our work. They were also static, whereas our neuro-symbolic iterative refinement method allows the policy to improve over time based on execution feedback and continual agent exploration. The most similar prior work is AutoRPA (Chen et al., 2026), which converts ReAct-style agent exploration into replayable RPA scripts with iterative refinement, demonstrating substantial cost reduction while maintaining baseline pass@1 success rate. Our work differs in that our method explicitly optimizes Pass^k success rate and realistic intra-task generalization to different task parameters and initial states, along with a precondition check for practical deployment. 
+
+## 6. Conclusion 
+
+We introduced neuro-symbolic computer use as a way to turn execution experience into reusable policies for recurring workflows, preserving stable procedure in code while leaving state-dependent decisions to neural primitives. Neuro-Symbolic Policy Iteration learns these policies from agent trajectories through execution, diagnosis, exploration, and revision, and further refines them across task-parameter and initial-state variations. Across OSWorld and ScienceBoard, the resulting policies improve reliability under repeated execution while substantially reducing per-run cost and latency, and they transfer more successfully than AutoRPA to held-out instances of the same workflow. Results on longer-horizon tasks and our judge and verifier analyses also expose remaining bottlenecks in trajectory-to-policy conversion and policy evaluation, suggesting that better acquisition and verification could further extend this approach to more complex recurring workflows. 
+
+## References 
+
+S. Agashe, J. Han, S. Gan, J. Yang, A. Li, and X. Wang. Agent s: An open agentic framework that uses computers like a human. In International Conference on Learning Representations , volume 2025, pages 22924–22946, 2025a. S. Agashe, K. Wong, V. Tu, J. Yang, A. Li, and X. E. Wang. Agent s2: A compositional generalist-specialist framework for computer use agents. arXiv preprint arXiv:2504.00906 , 2025b. 
+
+> 11 Neuro-Symbolic Computer Use: Learning Reusable Policies for Reliable and Efficient Execution
+
+Anthropic. Claude opus 5 system card. https://www.anthropic.com/news/claude-opus-5 ,2026. M. Chen, X. Hu, Z. Yu, and Y. Yin. AutoRPA: Efficient GUI automation through LLM-driven code synthesis from interactions. In Forty-third International Conference on Machine Learning , 2026. URL 
+
+https://openreview.net/forum?id=RbGLc4sk9s .R. E. Fikes and N. J. Nilsson. STRIPS: A new approach to the application of theorem proving to problem solving. Artificial Intelligence , 2(3-4):189–208, 1971. G. Gonzalez-Pumariega, S. Agashe, J. Yang, A. Li, and X. E. Wang. On the reliability of computer use agents. arXiv preprint arXiv:2604.17849 , 2026a. G. Gonzalez-Pumariega, V. Tu, C.-L. Lee, J. Yang, A. Li, and X. E. Wang. Scaling agents for computer use, 2026b. URL https://arxiv.org/abs/2510.02250 .R. A. Howard. Dynamic programming and markov processes. 1960. J. Liang, W. Huang, F. Xia, P. Xu, K. Hausman, B. Ichter, P. Florence, and A. Zeng. Code as policies: Language model programs for embodied control. In 2023 IEEE International conference on robotics and automation (ICRA) , pages 9493–9500. IEEE, 2023. Y. Meng, Z. Sun, M. Fest, X. Li, Z. Bing, and A. Knoll. Growing with your embodied agent: A human-in-the-loop lifelong code generation framework for long-horizon manipulation skills. arXiv preprint arXiv:2509.18597 , 2025. Microsoft. Playwright: Fast and reliable end-to-end testing for modern web apps. https://github .com/microsoft/playwright , 2020. Open-source library. X. Ning, K. Tieu, D. Fu, T. Wei, Z. Li, Y. Bei, J. Zou, M. Ai, Z. Liu, T.-W. Li, et al. Code as agent harness. 
+
+arXiv preprint arXiv:2605.18747 , 2026. OpenAI. GPT-5 release notes. https://openai.com/index/gpt-5-6/ , 2026. Accessed: 2026-07-25. T. Patwardhan, R. Dias, E. Proehl, G. Kim, M. Wang, O. Watkins, S. Fishman, M. Aljubeh, P. Thacker, L. Fauconnet, et al. Gdpval: Evaluating ai model performance on real-world economically valuable tasks. In International Conference on Learning Representations , volume 2026, pages 24005–24040, 2026. Y. Qin, Y. Ye, J. Fang, H. Wang, S. Liang, S. Tian, J. Zhang, J. Li, Y. Li, S. Huang, et al. Ui-tars: Pioneering automated gui interaction with native agents, 2025. URL https://arxiv.org/abs/ 2501.12326 .V. G. d. Santos, I. Khadraoui, I. Farhat, H. Yous, S. Teffahi, and H. Hacid. Alrm: Agentic llm for robotic manipulation. arXiv preprint arXiv:2601.19510 , 2026. Simular AI. Simulang: A scripting language for desktop and web automation. https://github.c om/simular-ai/simulang , 2026. Open-source repository, accessed 2026. Q. Sun, Z. Liu, C. Ma, Z. Ding, F. Xu, Z. Yin, H. Zhao, Z. Wu, K. Cheng, Z. Liu, et al. Science-board: Evaluating multimodal autonomous agents in realistic scientific workflows. arXiv preprint arXiv:2505.19897 , 2025. R. S. Sutton and A. G. Barto. Reinforcement Learning: An Introduction . MIT Press, Cambridge, MA, 2nd edition, 2018. 
+
+> 12 Neuro-Symbolic Computer Use: Learning Reusable Policies for Reliable and Efficient Execution
+
+A. Sweigart. PyAutoGUI: Cross-platform gui automation python module for human beings. https: //github.com/asweigart/pyautogui , 2014. Open-source library. V. Team, C. Gao, Z. Gu, Y. Liu, X. Qiu, S. Shen, Y. Wen, T. Xia, Z. Xu, Z. Zeng, et al. Ui-venus-1.5 technical report. arXiv preprint arXiv:2602.09082 , 2026. W. M. Van der Aalst, M. Bichler, and A. Heinzl. Robotic process automation. Business & information systems engineering , 60(4):269–272, 2018. A. Verma, V. Murali, R. Singh, P. Kohli, and S. Chaudhuri. Programmatically interpretable rein-forcement learning. In International conference on machine learning , pages 5045–5054. PMLR, 2018. G. Wang, Y. Xie, Y. Jiang, A. Mandlekar, C. Xiao, Y. Zhu, L. Fan, and A. Anandkumar. Voyager: An open-ended embodied agent with large language models. arXiv preprint arXiv:2305.16291 , 2023. X. Wang, B. Wang, D. Lu, J. Yang, T. Xie, J. Wang, J. Deng, X. Guo, Y. Xu, C. H. Wu, et al. Opencua: Open foundations for computer-use agents, 2025a. URL https://arxiv.org/abs/2508.09123 .Z. Z. Wang, A. Gandhi, G. Neubig, and D. Fried. Inducing programmatic skills for agentic tasks. In 
+
+Second Conference on Language Modeling , 2025b. URL https://openreview.net/forum?id= lsAY6fWsog .Z. Z. Wang, J. Mao, D. Fried, and G. Neubig. Agent workflow memory. In Forty-second International Conference on Machine Learning , 2025c. URL https://openreview.net/forum?id=NTAhi2 JEEE .T. Xie, D. Zhang, J. Chen, X. Li, S. Zhao, R. Cao, T. J. Hua, Z. Cheng, D. Shin, F. Lei, et al. Osworld: Benchmarking multimodal agents for open-ended tasks in real computer environments, 2024. S. Yao, N. Shinn, P. Razavi, and K. Narasimhan. 𝜏 -bench: A benchmark for tool-agent-user interaction in real-world domains, 2024. URL https://arxiv.org/abs/2406.12045 .M. Yuan, Z. Zhou, X. Xiong, W. Wu, J. Sun, J. Song, K. Cui, B. Wang, H. Wu, Y. Li, et al. Os-world2. 0: Benchmarking computer use agents on long-horizon real-world tasks. arXiv preprint arXiv:2606.29537 , 2026. B. Zheng, M. Y. Fatemi, X. Jin, Z. Z. Wang, A. Gandhi, Y. Song, Y. Gu, J. Srinivasa, G. Liu, G. Neubig, et al. Skillweaver: Web agents can self-improve by discovering and honing skills. arXiv preprint arXiv:2504.07079 , 2025. 
+
+## A. Method details 
+
+A.1. Primitive action space 
+
+We instantiate policies in Simulang (Simular AI, 2026), a scripting language for desktop and web automation in the style of PyAutoGUI (Sweigart, 2014) and Playwright (Microsoft, 2020) that also provides the neural primitives above. Table 7 lists the primitives that the converter and the healer can use on ScienceBoard. The healer can combine them with Python control flow, e.g., a loop that retries a click or a branch on state_satisfies .
+
+> 13 Neuro-Symbolic Computer Use: Learning Reusable Policies for Reliable and Efficient Execution
+
+A.2. Initialization 
+
+The base agent 𝜇 runs on 𝑔 in exploration mode, in which actions may be arbitrary code, and we record its trajectory 𝜏 𝜇 . The converter Φconv first extracts the discrete actions of 𝜏 𝜇 into a single contiguous script (Section 4.1). It then replaces pixel coordinates, which were recorded on a different machine and are unreliable, with natural-language descriptions of the target elements that the runtime grounds at execution time, and it replaces values specific to 𝑔 with task parameters. On ScienceBoard, this second step is one LLM call that receives the task, the extracted script, and a screenshot and accessibility tree of the initial state. On OSWorld, the base agent trajectory was based on Agent-S3 (Gonzalez-Pumariega et al., 2026b) which already encodes the trajectory in semantic-level rather than pixel-level, then calls an LLM for the final conversion. Conditioning Φconv 
+
+on 𝑔 lets it drop incidental actions in 𝜏 𝜇 , such as backtracking, exploratory clicks, and redundant verifications, so that they are not transcribed into the code policy that will be refined. 
+
+A.3. Iteration 
+
+The rollouts within an iteration run in a random order, and the iteration stops at the first rollout that fails the judge, so the agent continuation runs at most once per iteration. Every code rollout and every agent continuation is capped at the task’s step budget, i.e., the maximum number of state-mutating actions, which matches the budget of the baseline agent; the localizer and the healer are told the budget so that their suggestions fit within it. The agent continuation can use GUI actions and run Python or shell commands on the machine, and it receives the output of those commands in later turns. The continuation is not judged and does not change the verdict of the code rollout; it serves only as experience for the healer. A rollout that raises a code execution error (a syntax error, an undefined name, a failed import, etc.) produces no trajectory for the judges to grade, so we skip the judges and the continuation and give the traceback to the healer. The healer receives at most five screenshots of the failed rollout, sampled evenly over the trajectory, and it rewrites the whole code policy. The converter and the healer are instructed to prefer programmatic actions (shell commands, Python, and application command lines) over long sequences of GUI actions, which replaces neural primitives with symbolic ones and lowers the cost per execution 𝑐 𝜋 , although our method does not optimize cost directly. 
+
+A.4. Dual judge 
+
+Motivation for two judges. Evaluating a computer-use rollout is harder than reading an exit code, for two reasons. First, an agent’s own report of what it did is often optimistic, e.g., it may report that it clicked a button while the screen shows that the click missed, or that it entered a value into a spreadsheet cell while it edited the wrong cell, so an evaluator that trusts the actor’s narrative inherits its errors. Second, benchmark evaluation scripts such as those of OSWorld check the end state of the environment (the contents of a saved spreadsheet, an exported image, the browser’s bookmarks, etc.), which an evaluator that only watches the trajectory cannot see. For example, a LibreOffice Calc plan that types the correct formula but closes the window before the file is saved, a GIMP plan whose edit is never exported to the target file, and a Chrome plan whose bookmark fails to persist all look correct frame by frame, yet all fail the evaluation script. The task completion judge addresses the second problem, and the step-level judge addresses the first while also localizing the error for the healer. We ablate the two judges in Section 4.7. 
+
+Task completion judge. 𝐽 task is a VLM agent with read-only probes of the live machine: shell commands, file reads, directory listings, SQL queries over application databases, and screenshots. Mutating shell commands are rejected by a deny-list, and databases are opened read-only. 𝐽 task 14 Neuro-Symbolic Computer Use: Learning Reusable Policies for Reliable and Efficient Execution 
+
+Algorithm 1 Rollout diagnosis with the dual judge (policy evaluation) 
+
+Require: rollout 𝜏 = (𝑜 0, 𝑎 0, . . . , 𝑜 |𝜏 | ); task 𝑔 ; policy 𝜋 ; task-completion judge 𝐽 task ; observer 𝐽 obs ;localizer 𝐽 loc ; applicability gate Applicable; aggregator Aggregate  
+
+> 1:
+
+procedure Diagnose( 𝜏, 𝑔, 𝜋 ) 
+
+> 2:
+
+(𝑣 task , 𝑒 task ) ← ( skipped , ∅)  
+
+> 3:
+
+if Applicable (𝑔 ) then ⊲ is success checkable from persistent state?  
+
+> 4:
+
+(𝑣 task , 𝑒 task ) ← 𝐽 task (𝑔 ) ⊲ read-only probes of the end state, in parallel with the step-level judge  
+
+> 5:
+
+end if  
+
+> 6:
+
+for 𝑡 = 0, 1, . . . , |𝜏 | − 1 do in parallel ⊲ blind to 𝑔 , 𝜋 , and step intent  
+
+> 7:
+
+𝛿 𝑡 ← 𝐽 obs (𝑜 𝑡 , 𝑜 𝑡 +1) 
+
+> 8:
+
+end for  
+
+> 9:
+
+(𝑣 loc , 𝑡 ∗, 𝑚 ) ← 𝐽 loc (𝑔, 𝜋, 𝛿 0: |𝜏 | − 1) ⊲ verdict, first divergent step, failure mode  
+
+> 10:
+
+𝑣 ← success if 𝑣 loc = success and 𝑣 task ∈ { success , skipped } else failure ⊲ abstain counts as failure  
+
+> 11:
+
+return  𝑣, Aggregate (𝑣 task , 𝑒 task , 𝑣 loc , 𝑡 ∗, 𝑚 ) ⊲ verdict and diagnostic 𝑑  
+
+> 12:
+
+end procedure 
+
+receives only the task description (and the submitted answer for question-answering tasks), and never another judge’s verdict or the benchmark’s verdict. It decomposes the goal into verifiable sub-conditions, probes the machine until it can settle each one (preferring filesystem and database probes over screenshots), and returns a verdict with supporting evidence within a budget of 30 tool calls and 300 seconds. It abstains ( cannot_verify ) when the state needed to check success is transient or depends on context that is not persisted, e.g., for “move the file back where it used to be”, the original path no longer exists. 𝐽 task is not a ground-truth oracle, because its verdict is only as good as the probes it chooses to run; this is why an abstention falls back to the step-level judge. 
+
+Applicability gate. One VLM call on the task instruction, cached per task, decides whether success can be checked from persistent machine state. If not, 𝐽 task is skipped and the verdict comes from the step-level judge alone, which spends no probe budget on a question 𝐽 task could not answer. 
+
+Observers. For GUI primitives, the evidence for transition 𝑡 is the pair of screenshots before and after the step, together with the difference between accessibility trees when available. For primitives that leave no visual trace, e.g., API calls, background shell commands, or functions executed inside the code runtime, the evidence is the return value, exit code, and captured output, and no screen change is expected. Each observer returns an objective description of what the step produced and an anomaly grade. Observers do not see the task, the code, or the stated intent of the step, because an observer told that the agent intended to save a file can no longer distinguish “the agent believes it saved” from “the file was saved”, which is the distinction the evaluation script checks. The |𝜏 | observer calls are independent and run in parallel. 
+
+Localizer. The localizer is one VLM call that receives the task, the executed code, and the ordered observer outputs, but not the actor’s narrative. It enumerates the sub-goals of the task and checks each against the observer evidence. It also screens for composition failures, i.e., sequences of individually plausible steps that together are incoherent or destructive, such as an action that is immediately undone, a target value that is overwritten, or a save followed by closing the application before the write completed. It returns the verdict, the first divergent step 𝑡 ∗, and a name for the failure mode, which the healer uses when rewriting the code policy. 
+
+Diagnostic. An LLM composes the outputs of both judges into the diagnostic 𝑑 . 𝑑 lists each judge’s 
+
+> 15
+
+Neuro-Symbolic Computer Use: Learning Reusable Policies for Reliable and Efficient Execution Task variations Policy iteration Code plan Verifier 
+
+Code plan                 
+
+> 12345678for fin params.files: #open the File menu click("File menu") click("Export as PDF") type_text(f.name) if stateSatisfies( "overwrite prompt"): click("Replace")
+> step t
+> every state-mutating primitive is gated; read-only primitives run directly
+> precondition check click("Export as PDF")
+> runs on the computer
+
+Pre-action verifier       
+
+> invoke
+> Input xt
+> Task g
+> Primitive call and its target element from the a11y tree Step explanation from the plan’s in-line comment Observation: screenshot and/or a11y tree History of executed primitives in this run
+> Verifier VLM
+> “Should this action run now?” answers yes / no
+> pno ≥θ?
+> pno : share of “no” among the top-20 answer tokens
+> no: pass
+> fail-open
+> if the call fails or no observation exists
+> yes: block Script error at this line
+> Escalation
+> 1. hand off to a stateful agent 2. queue the plan for healing 3. halt and alert a human
+
+Figure 6 | A learned binary-output pre-action verifier 𝑉 runs before every state-mutating primitive during policy deployment. Reusing the plan’s most recent stashed screenshot and accessibility tree, 𝑉 
+
+emits top-20 answer-token logprobs; the yes/no log-mass is renormalized to 𝑝 no and the action is blocked iff 𝑝 no ≥ 𝜃 . A block raises a script-level error at the offending line, triggering the fallback hierarchy (agent hand-off, code repair, halt). observations (the probe results of 𝐽 task and the observer descriptions) separately from its interpreta-tions (verdicts, failure hypotheses, and suggested focus), and it tells the healer that observations are facts about the machine while verdicts can be wrong. 
+
+A.5. Pre-action verifier 
+
+Verifier and safety guardrails. A safety guardrail confirms that an irreversible action is intended, e.g., a final click({concept: "Pay now"}) , and is invoked at a small number of known points. The pre-action verifier gates every state-mutating primitive, including reversible ones, against the implicit assumptions under which the line of code was written. A click on an email field is reversible, but if a cookie-consent banner is absorbing pointer events, the click is lost and every later step operates on an unchanged page. We therefore do not skip the check for reversible actions, since a downstream component that could undo a wrong execution may not exist. 
+
+Verifier and in-code state checks. A code policy may also contain its own state checks, e.g., a 
+
+stateSatisfies({condition}) line inserted where the planner expects a particular state. Three properties separate these from the verifier. First, in-code checks run only where the planner placed them, whereas the verifier runs before every gated primitive. Second, an in-code check carries whatever condition string the planner wrote, which differs across plans and cannot be improved without rewriting the plan, whereas the verifier uses one fixed prompt that we version separately from any code policy. Third, the verifier exposes the threshold 𝜃 , whereas an in-code check returns a hard yes or no. We treat in-code checks as a planner affordance for control flow, and they do not replace the verifier. 
+
+Pre-action and post-action checks. Any error that a post-action check on 𝑎 𝑡 could detect, i.e., a primitive that returned successfully without its intended effect, is also detectable by the pre-action check on 𝑎 𝑡 +1, because the precondition of 𝑎 𝑡 +1 was written against the intended post-state of 𝑎 𝑡 .A pre-action check therefore covers post-action checking up to a lag of one step, uses the same observation as the next action, and leads directly to the fallback, since the response to a failed check is to not execute the next primitive. The final primitive of a plan has no successor to catch its failed effect; 
+
+16 Neuro-Symbolic Computer Use: Learning Reusable Policies for Reliable and Efficient Execution 
+
+the runtime reserves a post-action slot for an outcome check there, and end-of-rollout verification is provided by the task completion judge. 
+
+Gated primitives. We gate primitives that write to the state of the computer: pointer and keyboard in-put, form mutation, navigation, filesystem and clipboard writes, integration writes such as spreadsheet cell updates, and in-page script execution, whether called directly or as a method on an application or page handle. In the ScienceBoard and OSWorld runtime these are click , double_click , type ,
+
+scroll , hotkey , hold_and_press , open , drag_and_drop , set_cell_values , and Python and shell execution. We gate reversible write primitives too, because an undo path may not exist (e.g., a click that triggers an analytics event), and because a skilled human operator would not execute a step against an obviously wrong state regardless of whether the step is reversible. We do not gate read-only primitives (screenshots, accessibility snapshots, reading page content or the clipboard), because they cannot corrupt external state and their outputs are the observations that the verifier consumes. We also do not gate primitives confined to the runtime (variable assignment, control flow, in-memory list operations), whose outcome is determined by the code and cannot disagree with the external world, or window and tab lifecycle operations, which typically run before any observation exists. When membership is ambiguous we gate the primitive, because a spurious check costs one verifier call that usually passes at a low wrong-block operating point. Writes issued through headless APIs, e.g., sending mail through a mail-service API, present no on-screen state to verify against and need a separate safeguard. 
+
+Inputs. Before executing a gated primitive at step 𝑡 , the runtime builds the input  
+
+> 𝑥 𝑡
+
+= (𝑔, 𝑐 𝑡 , 𝑒 𝑡 , 𝑜 𝑡 , ℎ 𝑡 ), (5) where 𝑐 𝑡 is the code of the primitive call; 𝑒 𝑡 is a natural-language explanation of the step taken from the in-line comments of the code policy; 𝑜 𝑡 is the current observation, as a screenshot, an accessibility tree, or both; and ℎ𝑡 lists the primitives already executed in this run. The verifier 𝑉 𝜃 maps 𝑥 𝑡 to a decision in {pass , block }. The explanation 𝑒 𝑡 is the trailing comment on the statement that contains the call, otherwise the comment block directly above it, otherwise the first line of the enclosing function’s docstring, and otherwise a literal restatement of the call. A verifier note supplies instance-specific knowledge that the verifier cannot infer, e.g., a machine-specific path or the operating system; the note is presented as a fact about the environment and not as approval, so the rubric still applies. The history ℎ𝑡 is a compact list of the steps completed so far in the run, which lets the verifier distinguish a repeated action from its first occurrence without a full transcript. 
+
+Log-probability aggregation. We request the 20 most likely next tokens with their log-probabilities at the answer position, skipping any reasoning block that precedes the answer. Let ℓ𝑡 (𝑤 ) be the log-probability of token 𝑤 at the answer position, restricted to the 20 most likely tokens, and let Wyes 
+
+and Wno be the surface forms of each answer (e.g., yes , Yes , Y). The probability of blocking is the renormalized mass of the no forms, and the verifier blocks when it reaches a threshold 𝜃 that is set by a calibration set (see Calibration below):  
+
+> 𝑝 no
+
+(𝑥 𝑡 ) =
+
+Í𝑤 ∈ W no exp ℓ𝑡 (𝑤 )
+
+Í𝑤 ∈ W yes ∪W no exp ℓ𝑡 (𝑤 ) , 𝑉 𝜃 (𝑥 𝑡 ) =
+
+(
+
+block if 𝑝 no (𝑥 𝑡 ) ≥ 𝜃, 
+
+pass otherwise . (6) The yes forms are yes , Yes , YES , y, Y and their variants with a leading space, and the no forms are defined likewise. We compute the mass of each class with a log-sum-exp over its forms and renormalize over the two classes to obtain 𝑝 no (Equation (6)). If neither class appears among the 20 tokens, we use the greedy answer, and if the completion contains neither answer, the verifier fails open. 
+
+> 17 Neuro-Symbolic Computer Use: Learning Reusable Policies for Reliable and Efficient Execution
+
+Calibration. A user who automates a repetitive task expects a working code policy to run without interruption, so a wrong block (stopping a correct primitive) costs more than a wrong pass (running an incorrect primitive), as long as safety guardrails are in place. We therefore set 𝜃 in a calibration phase before any block is enforced. We run the verifier in shadow mode, which computes and logs 𝑝 no 
+
+for every gated primitive without enforcing blocks, on a calibration set of rollouts of final policies, and we label each rollout with its task outcome. We treat every primitive of a successful rollout as correct, so any block within a successful rollout is a wrong block. Let WBR (𝜃 ) be the fraction of successful rollouts in which at least one primitive has 𝑝 no ≥ 𝜃 , and DR (𝜃 ) the fraction of failed rollouts in which at least one primitive has 𝑝 no ≥ 𝜃 . Both rates are non-increasing in 𝜃 , so for a wrong-block budget  
+
+> 𝜖
+
+chosen by the deployment, the threshold with the highest detection rate within the budget is the smallest feasible threshold on a grid Θ: 
+
+> 𝜃 ∗
+
+= min {𝜃 ∈ Θ : WBR (𝜃 ) ≤ 𝜖 }. (7) 
+
+## B. Experiment details 
+
+B.1. Main experiment configuration 
+
+Methods. Both backbones, GPT-5.6 Terra and Claude Opus 5, are called through OpenRouter, and every method on a benchmark uses the same backbone in every LLM role except the judges, the 
+
+state_satisfies checker, and the continuation summarizer (Table 8). The base agent is Agent-S3 (Gonzalez-Pumariega et al., 2026b) on OSWorld, with UI-Venus-1.5-30B (Team et al., 2026) as its grounding model, and ScienceBoard’s own screenshot agent on ScienceBoard. NSPI starts from one base-agent trajectory per task (Section A.2) and runs policy iteration with 𝑁 =5 iterations of up to 
+
+> 𝐾
+
+=5 rollouts. Batch2Code converts three base-agent trajectories per task into a policy with one call of the same converter and no refinement. ASI (Wang et al., 2025b) builds its skill library in one online pass over the tasks on top of the same base agent; its later trials replay the agent with the library frozen after that task. Code policies of NSPI and Batch2Code share the grounding model and run under the same step limits. 
+
+Scoring. Each method gets three fresh trials per task, from which we estimate Pass^k for 𝑘 ∈ { 1, 2, 3}
+
+over the full task set. Cost is the provider-billed model cost plus the grounding model at $3.25 per GPU-hour of call time. One-time construction cost covers conversion and policy iteration (NSPI), conversion (Batch2Code), or the online library-building pass (ASI); per-run cost covers one final trial. 
+
+B.2. Workflow Variation 
+
+B.2.1. Task variant generation 
+
+We generate the variants of each task with one LLM call followed by a deterministic validator (Figure 7). The LLM receives the full task specification, i.e., the instruction, the environment setup, and the evaluation script, together with notes that we extract from the evaluation script, e.g., whether it compares the output against a pre-rendered reference file or against inline constants. It first decides for each category whether the task admits variants at all, and then proposes up to three variants per admissible category. An initial-state variant keeps the instruction and adds a setup instruction that a general GUI agent executes before the policy runs, e.g., “Close the spreadsheet window entirely, leaving only the file manager open.” The setup instruction may only change transient application state (open windows, selected tabs, dialogs, etc.) or pre-fill the region that the task writes to, so the files provided by the task setup and the original solution stay unchanged. A parameter variant rewrites the instruction with new argument values and rebinds the constants in the evaluation script 
+
+> 18
+
+Neuro-Symbolic Computer Use: Learning Reusable Policies for Reliable and Efficient Execution Task variations Policy iteration Code plan Verifier 
+
+Target task g
+
+> Instruction Initial state Evaluation script
+> held out for evaluation
+
+Variant generation 
+
+> LLM proposes variants
+> Initial-state variants
+> same instruction; a GUI agent sets up the new state after reset
+> same instruction
+> document is closed
+> same script same instruction
+> dialog blocks window
+> same script same instruction
+> stale output file
+> same script
+> Parameter variants
+> same start state; the script is adjusted so a correct solution still passes
+> another date
+> same start state
+> adjusted script another count
+> same start state
+> adjusted script another file name
+> same start state
+> adjusted script
+> Deterministic validator
+> rejects changes to the goal, provided files, or scoring
+
+Policy iteration  
+
+> accepted
+> evaluation improvement refine one code plan on the accepted variants
+> (Fig. 2)
+
+Evaluation    
+
+> run the returned code plan on held-out gand report pass k
+> gis held out: it is never used during policy iteration
+
+Figure 7 | Given an original target task and environment configuration (initial state and evaluation script), we call an LLM to generate synthetic task variants that differ in the initial state and task parameters to match. The validator rejects a parameter variant if its instruction is unchanged, if the rebound evaluation script uses a different scoring function, or if the script still compares a changed output against the original reference file, because a correct solution could never match that file. It marks variants that pass but carry a warning, e.g., an edited evaluation script on an initial-state variant, for human review. Because the LLM may decline a category, parameter variants are much rarer than initial-state variants: on OSWorld, 332 of 369 tasks pass a pre-filter that removes infeasible tasks, all 332 admit initial-state variants, and only 93 admit parameter variants, mainly because 161 of the other 239 evaluation scripts compare against reference files that we cannot regenerate. We manually review the generated variants and remove infeasible cases. We retain only families whose original task was solved at least once by the Terra or Opus 5 base agent, so failures measure transfer rather than task infeasibility. The resulting benchmark contains 40 parameter families and 35 initial-state families across ten OSWorld domains, generally with three variants per family. 
+
+Construction protocol. Both methods use GPT-5.6 Terra for all construction roles and the same grounding model with UI-Venus-1.5-30B Team et al. (2026). Variants are processed sequentially while carrying a single policy across the family. Construction starts from each method’s own exploration and never exposes the original task. Only model-judge feedback is available during construction and benchmark evaluators are reserved for final evaluation. NSPI performs up to three refinement iterations with up to three judged rollouts per variant. 𝐽 task determines rollout success, while 𝐽 loc 
+
+provides failure localization for healing. This gated setup was adapted due to the sequential aspect of the experiment meant that lenient judges are more appropriate over strict judges due to the chained dependency. 
+
+AutoRPA adaptation. We adapt the AutoRPA reference implementation (Chen et al., 2026) to computer-use environments while preserving its exploration, reflection, breakpoint continuation, newest-first verification, and rollback logic. We remove inputs unavailable from a normal user request— the task template, named parameter schema, and benchmark reward. Both methods instead read the current request at execution time, use 𝐽 task in place of reward, and share the same visual grounding model. 
+
+Evaluation. After construction on all variants, the policy is frozen and evaluated three times from fresh environments on the original task. If 𝑐 of the three runs succeed, the family contributes  𝑐 𝑘 
+
+/ 3
+
+𝑘 
+
+
+
+to Pass^k; results are averaged across families, with construction failures assigned zero. 
+
+19 Neuro-Symbolic Computer Use: Learning Reusable Policies for Reliable and Efficient Execution 
+
+B.3. Judge analysis details 
+
+Annotation. We annotate 19 OSWorld tasks whose initial code policy failed according to 𝐽 task , one rollout per task (Table 9). We leave out tasks that fail because a Python library is missing in the guest; these are the most common failures, and the step-level judge cannot see them (see the first limitation). One annotator labels each rollout. The annotator sees the task, the benchmark evaluator, the code policy, one screenshot per step, and the output of every shell command and script. For each rollout, the annotator records five labels: 1) whether the rollout really failed; 2) the divergence step; 3) the first visible divergence, i.e., the first step at which a person who sees only the screenshots can tell that the rollout went wrong, or none if the failure never shows on screen; 4) the type of failure; 5) the cause, in one or two sentences. The annotator then sees the output of the step-level judge and rates it: whether 𝑡 ∗ is correct, adjacent (within the same sub-goal), or wrong; whether the narrative names the real cause; whether the suggested focus would steer the healer to the right fix; and whether the observer described the divergence step correctly. 
+
+Ground truth. The annotator judges success against the task instruction and uses the benchmark evaluator as a reference. The two disagree on one rollout, in which the plan wrote network speeds from a command-line tool instead of copying them from the web page that the task names. The evaluator only checks that the file names the three metrics, so it passes the rollout, but the annotator counts it as a failure. 
+
+Task completion judge. 𝐽 task is correct on 16 of the 19 tasks. The annotator judges the other 3 tasks as successful, so 𝐽 task gave false alarms on them. In two of the false alarms, 𝐽 task read outdated values from saved files; in the third, it read a default value written by a web tool as a violation of the instruction. 
+
+Step-level judge. We compare 𝑡 ∗ with the first visible divergence on the 16 confirmed failures. In 6 of them, the failure happens only inside a script and is never visible to the step-level judge; 𝑡 ∗ is wrong in all 6. In the other 10, the failure becomes visible on screen at some step. Against the first visible divergence, 𝑡 ∗ is correct in 7 of these 10, adjacent in 2, and wrong in 1. The narrative names the real cause in 4 of the 10, names it in part in 4, and is wrong in 2. The suggested focus would steer the healer to the right fix in 7 of the 10. 
+
+Errors in visible failures. Of the 10 visible failures, 𝑡 ∗ misses the first visible divergence in 3. In one, the observer reported no change although a menu failed to open, so 𝑡 ∗ points four steps later, where the menu closes. In another, the plan fell one step behind; the judge named the step next to the divergence in its suspect chain but reported a later step as 𝑡 ∗. In the third, the judge matched a condition check to a click in the code, because condition checks write no step-log entry, and placed 𝑡 ∗
+
+three steps before the failure shows on screen. 
+
+Limitations. We find four limitations. First, the step-level judge receives no return values from the primitives. It sees the code policy and the screenshots, but not the output of shell commands and scripts or the answers of condition checks, and condition checks appear as screen transitions with no action. This limitation also hides the most common failure, a missing library, because the error appears only in the script output; our sample leaves these failures out, so the counts above are more favorable to the step-level judge. Second, when a click misses or registers late, the code policy falls one step behind, and each later action hits the wrong target. The step-level judge then places 𝑡 ∗ at the later symptom instead of the step that the healer needs to fix. For instance, a short wait causes the next click to fire before the target has loaded. Third, neither judge recognizes an infeasible task. Both infeasible tasks in the sample ask for something      
+
+> 20 Neuro-Symbolic Computer Use: Learning Reusable Policies for Reliable and Efficient Execution Terra Opus 5 Terra Opus 5 010 20 30
+> Wrong-block rate (%)
+> ScienceBoard OSWorld Qwen3.6-35B-A3B Qwen3.8-27B
+
+Figure 8 | Pre-action verifier error rates at 𝜃 = 0.78. Rollout-level wrong-block rate on correct policies, by environment, base model used for initial trajectory seed, and verifier model. that does not exist: a “Blue” theme in GIMP and a photo in a folder that has none. Both judges suggest how to complete the task instead of reporting that it is infeasible. Fourth, 𝐽 task trusts saved files and the output of its own tools more than the running application. Saved files can lag the state of the application, and tool output can contain text that is not in the file. 
+
+B.4. Precondition checks 
+
+The verifier receives a natural-language explanation of each primitive alongside its code. At deploy-ment, the runtime takes this explanation from the comments of the code policy: a trailing comment on the statement that contains the call, otherwise the block of comment lines directly above that statement, otherwise the first line of the docstring of the enclosing function, and otherwise a literal restatement of the call (e.g., “press ctrl+q”, “run a shell command on the VM”). The final code policies produced by policy iteration carry few such comments: on OSWorld with the Terra converter, 99.9% of gated primitives fall back to the literal restatement. A literal restatement gives the verifier no reason for steps that are correct within the plan’s strategy but look destructive in isolation, such as closing an application so that a later step can edit its file on disk. We therefore inject one comment per gated primitive that states the intent of the step within the overall code policy, using the following procedure. 
+
+Targets. We parse each plan and find every call to a gated primitive ( click , type , hotkey , open ,
+
+scroll , drag_and_drop , set_cell_values , shell and Python execution, etc.). We group calls by the statement that the runtime uses to look up the explanation, and we leave a statement unchanged if it already has a trailing comment or a comment on the line directly above it, so that existing comments written during refinement are preserved. 
+
+Intent generation. For each plan we make one call to Gemini 3.8 Flash (low thinking level) with the task instruction, the plan with line numbers, and the target statements, and the model returns one comment per target as JSON. Each comment starts with the action and its target in the words of the code, then explains why the plan takes the step at that point in its strategy. For a step that could look wrong out of context, e.g., closing or killing an application, saving, or running shell code instead of using the GUI, the comment says why the step is needed, and for a close, kill, or save it names the later step that depends on it. A step inside a retry branch is described as retrying an attempt that the preceding check found did not take effect. The comment must not rename or correct the target, claim facts the plan does not establish (e.g., that a file was already saved), or merely restate the call, 
+
+> 21 Neuro-Symbolic Computer Use: Learning Reusable Policies for Reliable and Efficient Execution
+
+and it fits on one line of at most 220 characters. 
+
+Insertion and verification. The model writes only comments, and a script inserts each one at a fixed position: on the line above the statement for shell and Python execution, whose code argument is usually long or spans several lines, and at the end of the line that ends the call for all other primitives. A call in the condition of an if or while statement gets its comment at the end of the header line, because the runtime’s lookup treats the whole compound statement as the call’s statement and would otherwise find a comment from the body first. We accept the annotated plan only if its abstract syntax tree is unchanged and the runtime’s lookup returns the new comment for every annotated call; otherwise we call the model again, up to four attempts in total, and keep the original plan if none passes. We ran this procedure on the final code policies of OSWorld with the Terra converter (348 plans) and of ScienceBoard with the Opus 5 and Terra converters (159 and 167 plans), and it annotated 673 of the 674 plans with 4,321 comments; the remaining plan does not parse as Python. 
+
+Verifier inputs. All runs send a fixed note stating that the machine runs Ubuntu with GNOME, where Ctrl- and Alt-based shortcuts are native, because the task instructions given to the verifier do not name the operating system and the rubric blocks shortcuts meant for the wrong operating system. We also evaluate two optional additions to the production rubric. The exemptions address correct plans, whose close, kill, save, and retry steps the production rubric reads as destructive or already done. They state that the following are not by themselves reasons to block: opening or focusing an application, window, or file that is already open; closing or killing an application when the explanation gives a task-related reason, unless the screen shows unsaved work that the step would discard; saving the open document; and repeating a step that the explanation says is a retry, or re-navigating to the page already shown. The blocked targets add two reasons to block that the production rubric missed on perturbed initial states: a shortcut or typed text meant for a specific application while that application is closed, minimized, not in front, or has no document loaded; and any input aimed at a window that a dialog, popup, or menu covers, unless the input is aimed at the dialog itself. With blocked targets, the rubric’s allowance for targets not visible in the screenshot no longer covers these two cases. We report results with and without these additions, since both change the rubric used in production. 
+
+B.5. OSWorld-V2 extension 
+
+This section records the details of the OSWorld-V2 experiment (Section 4.5) that differ from the OSWorld-Verified and ScienceBoard setup, together with the infrastructure events that affected the runs. 
+
+Benchmark version and task set. We use the June 2026 release of OSWorld-V2 ( v2026.06.24 ), with task definitions, evaluators, and assets unmodified. We report 107 of the 108 tasks. We exclude task 041 because its instruction hard-codes the benchmark authors’ GitLab instance, while setup and grading use the locally deployed one, so no run can be scored as intended. Task 093 is included as a zero for our method, because the converter did not produce a program for it. 
+
+Website hosting. 39 of the tasks use web applications that were originally hosted by the benchmark authors. During our experiments, the authors stopped serving the v2026.06.24 version of these applications and replaced it with a newer version at the same address. The switch happened between 2026-08-25 and 2026-09-10. 
+
+Base agent. The base agent is a custom harness driving Claude Opus 5 with maximum adaptive thinking and a budget of 500 steps per task, the budget that the benchmark protocol specifies for Claude models. Its seed trajectory for each task comes from run 1. 
+
+Policy construction. The loop follows the refinement algorithm with the settings in Table 10. It 
+
+> 22 Neuro-Symbolic Computer Use: Learning Reusable Policies for Reliable and Efficient Execution
+
+differs from the OSWorld and ScienceBoard runs in four ways. First, the converter is an agent (Claude Opus 5) that rewrites the seed trajectory into a program, replacing pixel coordinates with element descriptions and deriving task values at run time instead of copying them from the trajectory. Second, the continuation agent is the custom harness running DeepSeek-V4.1-Flash, with 500 steps and a three-hour wall-clock cap, instead of the base model. Third, the step-level judge receives each rollout as a single transition: the screenshots before and after execution, and the program’s output, capped at its last 50 log entries. It therefore returns a verdict and a failure mode but cannot localize the failure to a step. Fourth, the healer also rewrites the policy after a failure in the last iteration, and the rewritten policy is returned without being judged. As in the other benchmarks, the loop skips the judges and the continuation for rollouts that end in a code execution error. 
+
+Infrastructure reruns. We rerun a task only when an infrastructure fault affected its result, never because of a low score, and every completed rerun replaces the original score, including when the score goes down. Task instructions, rubrics, and score weights are unchanged. We ran 13 reruns on tasks with infra failures (004, 005, 010, 018, 021, 024, 025, 058, 061, 073, 089, 092, 100). Of these, four scores went up (004, 025, 092, 100), one went down (061), and eight were unchanged. Tasks whose reruns are still running keep their original scores. 
+
+Cost. Construction cost $8.2 per task on average in LLM calls (Opus 5 58%, Sonnet 4.6 30%, DeepSeek 9%, Gemini 3%) and a median of 2.9 VM-hours per task. Counting infrastructure reruns, total LLM spend was 1 .8× that amount. Grounding calls and LLM calls inside official evaluators are not metered. We estimate script costs during execution due to LLM calls to be $0.03–$0.08 on average. 
+
+## C. Constructing Policies from Unsuccessful Trajectories 
+
+To examine whether NSPI can build a working policy from an unsuccessful trajectory. We split the runs by whether the selected seed trajectory 𝜏 𝜇 succeeds under the benchmark evaluation script. A failed seed is from tasks on which the base agent fails all three attempts. The resulting split represents how NSPI behaves when it starts from a successful versus an unsuccessful demonstration of the task. We find that NSPI can construct reliable policies from unsuccessful trajectories to a substantial degree as shown in Figure 4. Across the 356 policies built from a failed seed, 62 succeed in all three final runs under the benchmark evaluator, reflecting policies that are consistently correct rather than occasionally lucky. On tasks with a successful seed, the final plan also improves over the base agent in three of the four settings, indicating that NSPI generally adds reliability even when a correct demonstration is already available. Recovering from a failed seed is more costly than refining a successful one. Failed seeds cost 18–31% more and take 17–38% longer to reach a policy than successful seeds, and in three of four settings they receive a larger share of judge rejections during policy iteration . This is consistent with the intuition that a failed trajectory contains more incorrect or missing steps that must be diagnosed and repaired before the resulting policy passes the judges. 
+
+> 23 Neuro-Symbolic Computer Use: Learning Reusable Policies for Reliable and Efficient Execution
+
+Table 7 | Primitive action space of policies on ScienceBoard. Each primitive is a method of an agent 
+
+object that the policy calls, e.g., agent.click("File menu") . Neural primitives call a model on the current observation 𝑜 𝑡 : the grounded actions use UI-Venus-1.5-30B-A3B (Team et al., 2026) with a consensus over three parallel calls, and the condition check uses Gemini 3 Flash. A check mark under Mut. marks a primitive that changes the state of the computer; these count toward the per-task step budget and are gated by the pre-action verifier. 
+
+Primitive Mut. Behavior 
+
+Neural: grounded GUI action 𝐺 (ℓ, 𝑜 𝑡 )
+
+click( ℓ, clicks, button, hold_keys) 
+
+✓ Grounds the element description ℓ to a screen coordi-nate and clicks it; clicks sets double or triple clicks and 
+
+hold_keys holds modifiers. 
+
+type( ℓ, text, enter, overwrite) 
+
+✓ Clicks the element grounded from ℓ if given, clears it if 
+
+overwrite , types text , and presses Enter if enter .
+
+scroll( ℓ, amount) ✓ Moves the pointer to the element grounded from ℓ and scrolls by amount .
+
+drag_and_drop( ℓstart , ℓend ,hold_keys) 
+
+✓ Grounds both descriptions and drags from the first element to the second. 
+
+Neural: condition check 𝑄 (𝜙, 𝑜 𝑡 )
+
+state_satisfies( 𝜙 ) → bool Returns whether the current screenshot satisfies the natural-language condition 𝜙 ; the plan can branch on the result. 
+
+Symbolic: keyboard and applications 
+
+hotkey(keys) ✓ Presses a key combination, e.g., ["ctrl", "s"] .
+
+hold_and_press(hold, press) ✓ Holds the keys in hold while pressing the keys in press .
+
+open(path) ✓ Opens a file with its default application, or launches an application by name. 
+
+Symbolic: programmatic 
+
+_exec_python(code) → str ✓ Runs Python on the computer and returns its standard output. 
+
+_exec_bash(cmd) → str ✓ Runs a shell command on the computer and returns its standard output. 
+
+Symbolic: control 
+
+wait(seconds) Waits for up to 30 seconds, e.g., for a dialog to open. 
+
+done() Ends the plan and reports the task as complete. 
+
+answer(x) Ends the plan and submits x, which the evaluator matches exactly, for question-answering tasks. 
+
+fail() Ends the plan and reports the task as infeasible. 
+
+> 24
+
+Neuro-Symbolic Computer Use: Learning Reusable Policies for Reliable and Efficient Execution 
+
+Setting ScienceBoard OSWorld 
+
+Base agent: output tokens, step limit 8192; task step limit 4096; 100 steps Code rollout step limit task limit ×5 (Terra), ×16 (Opus) 100 primitive calls Converter / healer / continuation tokens, Terra 2000 / 4096 / 1024 4096 / 8192 / 1024 Converter / healer / continuation tokens, Opus 5 4096 / 16384 / 2048 4096 / 16384 / 2048 Continuation turns 15 15 Observer / localizer ( 𝐽 loc ) Gemini 2.5 Flash / Gemini 2.5 Pro Task-completion judge 𝐽 task Claude Sonnet 4.6 (30 tool calls, 300 s) Applicability gate / judge combination Gemini 2.5 Pro / Gemini 2.5 Flash 
+
+state_satisfies , continuation summarizer Gemini 3 Flash 
+
+Table 8 | Main-experiment configuration. All judge roles use temperature 0. Table 9 | The 19 annotated rollouts. Step: true divergence step. Visible: first visible divergence (–, never). 𝑡 ∗ rating against the true step and the first visible divergence: C correct, A adjacent, W wrong. 
+
+ID App Step Visible 𝑡 ∗ Rating Cause R01 Chrome 27 27 27 C / C Site is sold out; plan should report the task as infeasible R02 Chrome 3 22 22 W / C date -d monday returns today, not next Monday R03 GIMP 9 9 13 A / A Click on Mode does not open the menu; next click reuses its point R04 GIMP 14 18 15 A / W Condition check returns empty; Export skipped; Replace dialog left open R05 GIMP 6 6 9 A / A Wait too short; click misses; plan falls one step behind R06 GIMP 2 5 5 W / C Infeasible: plan writes a “Blue” theme that does not exist R07 Calc 7 9 9 A / C Script turns numbers into text; formulas show 
+
+#VALUE! 
+
+R08 Impress 8 8 8 C / C Click reopens the background list; Pattern set; hex typed into slide R09 Multi 2 – 0 W / – Regex bug; script appends headings instead of filling placeholders R10 Multi 9 – 15 W / – Values from a command-line tool, not the web page R11 Multi 5 – 9 W / – Invoice month taken from the email send date R12 Multi – – 8 – Success; 𝐽 task reads a tool default as a violation R13 Multi 5 5 5 C / C Drag and drop does not move the sheet tabs R14 Multi 2 – 0 W / – Conversion to xlsx fails after the plan kills the open Calc R15 Multi 4 – 1 W / – Unlabeled column; script raises an error and writes nothing R16 OS – – 4 – Success; 𝐽 task reads an old dconf value R17 Thunderbird – – 12 – Success; 𝐽 task reads the mail file before the star is saved R18 VS Code 2 7 7 W / C Infeasible: plan uses a server screenshot as the photo R23 Impress 4 – 8 W / – Script underlines the title as well as the body 25 Neuro-Symbolic Computer Use: Learning Reusable Policies for Reliable and Efficient Execution 
+
+Table 10 | Settings of the OSWorld-V2 construction runs. 
+
+Setting Value Iterations 𝑁 / rollouts per iteration 𝐾 / final trials 5 / 3 / 3 Converter Φconv and healer Φheal Claude Opus 5 Continuation agent 𝜇 harness + DeepSeek-V4.1-Flash, 500 steps, 3 h cap Task-completion judge 𝐽 task Claude Sonnet 4.6, 60 tool calls, 900 s Observer / localizer Gemini 2.5 Flash / Gemini 2.5 Pro Screenshots per heal 5, evenly spaced Construction budget $60 per task (never reached; max $27.66) Task wall-clock limit 10 h (exceeding it counts as an infrastructure failure)
