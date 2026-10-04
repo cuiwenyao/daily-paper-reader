@@ -6,35 +6,32 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-10-03
-- 运行时间：2026-10-03 22:22:14 UTC
+- 最新运行日期：2026-10-04
+- 运行时间：2026-10-04 22:23:20 UTC
 - 运行状态：成功
 - 本次总论文数：4
-- 精读区：0
-- 速读区：4
+- 精读区：1
+- 速读区：3
 
 ### 今日简报（AI）
-今日4篇全部速读、精读挂零，已列出的3篇（SNIP++、NeuronEye、Certified Representer Landmarks）齐刷刷6.0分，整体中规中矩。
-值得一看的是"对齐/可解释"这条暗线：符号回归里做符号—数值细粒度对齐，视觉语言里用查询引导概念激活，本质都在让模型决策更可读。
-普通读者不妨先各花几分钟扫一眼这三篇摘要，挑"概念激活"或"符号回归"里最贴近自己场景的一篇再决定是否深挖。
-- 详情：[/202610/03/README](/202610/03/README)
+今日精读1篇、速读3篇，重点聚焦大模型思维链可解释性对齐。最值得看的是8.0分的《Making LLMs Say What They Think》，直击CoT与模型真实推理是否一致；速读中参数分解与论证推理场景工具也值得顺带一读。普通读者可先看精读那篇，理解“模型说的”和“模型想的”为何可能不一致。
+- 详情：[/202610/04/README](/202610/04/README)
 
 ### 精读区论文标签
-- 本次无精读推荐。
+1. [Making LLMs Say What They Think: Measuring and Improving CoT-Interpretability Alignment](/202610/04/2609.38972v1-making-llms-say-what-they-think-measuring-and-improving-cot-interpretability-alignment)  
+   标签：评分：8.0/10、query:ns-xai
+   evidence：衡量思维链与内部推理的一致性以提升大模型可解释性
 
 ### 速读区论文标签
-1. [SNIP++: Fine-Grained Symbolic-Numerical Alignment for Symbolic Regression](/202610/03/2609.31965v1-snip-fine-grained-symbolic-numerical-alignment-for-symbolic-regression)  
+1. [ABDA-NL: A Natural-Language Scenario Explorer for Argument-Based Reasoning](/202610/04/2610.00947v1-abda-nl-a-natural-language-scenario-explorer-for-argument-based-reasoning)  
+   标签：评分：7.0/10、query:ns-xai
+   evidence：以大模型桥接自然语言与符号论证推理以提升可解释性
+2. [Weights Read and Write Features: Scalable Parameter Decomposition Grounded in Activation Space](/202610/04/2609.37731v1-weights-read-and-write-features-scalable-parameter-decomposition-grounded-in-activation-space)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：面向符号回归的细粒度符号-数值对齐
-2. [NeuronEye: Query-Guided Visual Concept Activation for Vision-Language Reasoning](/202610/03/2609.38098v1-neuroneye-query-guided-visual-concept-activation-for-vision-language-reasoning)  
+   evidence：连接激活与权重的可解释性方法解析模型计算
+3. [Sufficient Reasons and Explanations for Reactive Systems](/202610/04/2610.02184v1-sufficient-reasons-and-explanations-for-reactive-systems)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：面向视觉语言推理的可解释概念神经元激活
-3. [Certified Approximation for Interpretable Representer Landmarks](/202610/03/2609.38901v1-certified-approximation-for-interpretable-representer-landmarks)  
-   标签：评分：6.0/10、query:ns-xai
-   evidence：可解释表示解释的认证近似
-4. [Targeted Retrieval, Compact Representations: How CoT Reasoning Improves Long-Context Counting](/202610/03/2609.38958v1-targeted-retrieval-compact-representations-how-cot-reasoning-improves-long-context-counting)  
-   标签：评分：6.0/10、query:ns-xai
-   evidence：对思维链推理提升大模型计数的内部机制分析
+   evidence：符号化时序表示的充分理由与对比解释
 
 
 <div class="dpr-home-promo-card">
