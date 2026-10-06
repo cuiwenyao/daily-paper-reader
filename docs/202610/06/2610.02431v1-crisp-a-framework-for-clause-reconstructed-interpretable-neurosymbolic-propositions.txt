@@ -1,0 +1,1127 @@
+CRISP: A Framework for Clause-Reconstructed
+Interpretable NeuroSymbolic Propositions
+Alex Chan∗, Shafi Muhtasim Chowdhury†, Ekin Can Erkus∗, Ole-Christoffer Granmo‡,
+Alex Yakovlev∗, and Rishad Shafik∗
+∗School of Engineering, Newcastle University, Newcastle upon Tyne, UK
+†Northumbria University, Newcastle upon Tyne, UK
+‡Centre for Artificial Intelligence Research, University of Agder, Grimstad, Norway
+{alex.chan, ekin.erkus, alex.yakovlev, rishad.shafik}@newcastle.ac.uk, shafi.chowdhury@northumbria.ac.uk, ole.granmo@uia.no
+Abstract—Deep neural networks achieve high accuracy through
+layered numerical transformations, yet their decisions remain
+difficult to audit because decision evidence is encoded in hidden
+activations rather than explicit rules. This paper introduces
+CRISP, a framework that reconstructs the last-layer activation
+vector (LLAV) of binary neural teachers as Tsetlin Machine
+(TM) clauses. CRISP sign-binarizes the teacher’s penultimate
+pre-logit activations, and assigns one Individual TM (ITM) to
+each LLAV neuron. Each reconstructed hidden bit is represented
+by propositional clauses over Booleanized input features, which
+gives a direct symbolic trace from named input thresholds
+to a named teacher neuron. CRISP is evaluated on MNIST,
+KMNIST, FashionMNIST (FMNIST), SVHN, and CIFAR10 using
+a BinaryConnect convolutional neural network (BCCNN) teacher
+and a fully binary neural network (BNN) teacher, with an
+additional study on binary thresholding, thermometer encoding,
+and quartile binning at multiple bit depths. The results show that
+LLAV sign-binarization does not reduce teacher-head accuracy
+in the tested BNN setting, while ITM reconstruction error is the
+main limiting factor. Quartile one-bit Booleanization gives the
+strongest reconstruction fidelity on SVHN at 87.52% test fidelity
+and is competitive on CIFAR10, and the reconstructed LLAV
+preserves 78.41% teacher-head accuracy on FMNIST. Pooled
+clause-evidence visualizations show that the learned ITM literals
+concentrate on the object region in centered benchmarks. CRISP
+therefore provides a clause-level route for inspecting the final
+hidden representation of binary neural teachers.
+Index Terms—Tsetlin Machine, Binary Neural Networks, Inter-
+pretability, Neural-Symbolic Integration, Symbolic Reconstruction,
+Booleanization
+I. INTRODUCTION
+Deep neural networks [1] are widely used for image
+classification, medical decision support, financial risk modeling,
+and other high-dimensional tasks [2], [3]. Their accuracy comes
+from hierarchical representation learning, where early layers
+extract local evidence, deeper layers compose this evidence into
+task-relevant abstractions, and final hidden states concentrate
+decision information into compact internal codes. However,
+this representational depth also creates an auditing problem, as
+the final prediction is not completely visible. This is because
+the path to that prediction is not human-understandable, as it
+is distributed across many hidden units and parameters that are
+expressed through arithmetic transformations. As a result, the
+Arxiv preprint version. This is an accepted paper for the International
+Symposium on the Tsetlin Machine (ISTM) 2026.
+learned model is difficult to inspect, verify, or translate into
+symbolic form [4], [5], [6].
+Structurally, a neural network is a composition of matrix
+multiplications, additions, normalizations, and nonlinearities [1].
+The final prediction emerges from the cumulative effect of
+these operations, while many intermediate states are difficult
+to assign direct semantic meaning [4], [7], [8]. The pre-
+logit activations in the final hidden layer are a natural target
+for symbolic reconstruction because they summarize the
+computation immediately before classification [9], [10]. Prior
+work shows that deeper layers capture more class-discriminative
+features [11], final-layer visualizations reveal structured seman-
+tic transformations [12], and final hidden representations often
+contain linearly separable class information [10]. Decoding
+this layer in terms of the original input therefore offers a
+focused way to study what the network has learned without
+reconstructing every intermediate operation.
+This paper proposes CRISP, a framework that pairs a binary
+neural teacher with a bank of Tsetlin Machines (TMs) [13].
+Each Individual Tsetlin Machine (ITM) reconstructs one
+coordinate of the teacher’s binary last-layer activation vector
+(LLAV) from a Boolean encoding of the original input. Each
+reconstructed LLAV bit is expressed by propositional clauses
+over binarized input features. The resulting surrogate preserves
+neuron identity because every hidden coordinate remains tied
+to its assigned ITM, and it provides an inspection path because
+each ITM exposes the literals that support or oppose the
+reconstructed firing state.
+CRISP tests the hypothesis that the internal firing pattern
+of a black-box binary neural network can be approximated
+by symbolic clauses over the original input. This hypothesis
+leads to three research questions. RQ1) Can symbolic LLAV
+surrogates reconstruct a teacher network’s pre-logit activations
+despite the cumulative effect of successive filtering and
+transformations? RQ2) How does the input Booleanization
+strategy affect reconstruction quality? RQ3) How does teacher
+architecture affect symbolic reconstruction fidelity?
+To answer these questions, CRISP is evaluated with two
+binary teacher architectures, a fully binarized neural network
+(BNN) [14], [15], [16] and a BinaryConnect Convolutional
+Neural Network (BCCNN) [17]. The main experimental flow
+spans five image classification datasets, namely, MNIST [18],
+arXiv:2610.02431v1  [cs.LG]  1 Oct 2026
+
+
+KMNIST [19], FashionMNIST (FMNIST) [20], SVHN [21],
+and CIFAR10 [22], to provide broader validity of the results.
+A Booleanization study then compares binary thresholding,
+thermometer encoding, and quartile binning at multiple bit
+depths on SVHN and CIFAR10.
+Thus, this paper makes three contributions. First, it defines a
+neuron-wise symbolic surrogate layer that aligns one ITM with
+one teacher hidden neuron and reconstructs the LLAV from
+Booleanized input. Second, it quantifies how input Booleaniza-
+tion and teacher architecture affect symbolic reconstruction
+fidelity. Third, it shows how reconstructed LLAV bits can
+be inspected as clauses over named pixel-threshold features,
+including pooled clause-evidence visualizations that link hidden-
+bit reconstruction to input regions. CRISP is intended as a
+representation-level audit tool rather than a classifier: it exposes
+the teacher’s final hidden interface as inspectable clauses rather
+than replacing the teacher head, and targets the LLAV since
+that is the representation the binary classifier head consumes.
+Such an LLAV reconstruction offers two benefits that are
+not usually available together in per-prediction explanation
+tools. First, the ITMs are fixed after training, so the same
+clauses can be inspected across samples, classes, and model
+variants. The surrogate is therefore a persistent audit object
+rather than a single local explanation. Second, because the
+reconstruction targets the exact binary interface the classifier
+head consumes, the reconstructed binary activations can be
+fed directly through the teacher’s own head to test whether it
+retains class-relevant information, without rerunning the full
+teacher. CRISP therefore evaluates both interpretability and
+representational sufficiency since clauses expose how hidden
+bits are reconstructed, while the injection test measures whether
+the reconstructed hidden states remain usable for classification.
+Section II defines CRISP and positions it relative to prior
+work. Section III describes the experimental protocol. Sec-
+tion IV presents baseline reconstruction results, the LLAV
+injection test, the Booleanization study, and clause-level
+interpretation examples. Section V concludes the paper.
+II. CRISP: PROPOSED FRAMEWORK
+Figure 1 depicts the CRISP workflow, which operates in
+two stages. The first stage trains a binary neural teacher on the
+classification task and extracts the binarized LLAV for each
+sample. The second stage trains one ITM per LLAV neuron,
+where each ITM learns to reconstruct its assigned neuron’s
+firing state from a Boolean encoding of the original input. The
+output is a symbolic surrogate of the teacher’s final hidden
+representation in which each reconstructed bit corresponds to
+inspectable clauses over input features.
+The teacher first maps the input to a pre-logit representation.
+This representation is converted into the LLAV and paired with
+a Booleanized version of the original input to build the training
+set for the ITM bank. Representational sufficiency is assessed
+by an injection test in Section IV-B, where the reconstructed
+LLAV is passed through the teacher’s own classification head
+fcout to measure whether the reconstructed neurons are usable
+for classification without introducing a separately trained
+classifier. The framework is therefore centered on symbolic
+hidden-state reconstruction. Input Booleanization defines the
+clause vocabulary, LLAV extraction defines the reconstruction
+targets, and the ITM bank defines the symbolic surrogate.
+Algorithm 1 summarizes the training and inference procedure.
+The teacher is trained first and then frozen. LLAV targets are
+extracted once for the training, validation, and test splits. Each
+ITM is trained independently against one LLAV coordinate, so
+the 256-neuron setting produces 256 binary symbolic recon-
+struction tasks. At inference time, a new input is Booleanized,
+passed through the ITM bank, and mapped to a reconstructed
+LLAV that can be inspected directly.
+Algorithm 1 CRISP Symbolic LLAV Reconstruction
+Require: Training data Dtr, validation data Dval, test data Dte, teacher fT ,
+Booleanizer ϕ, hidden size H
+Ensure: ITM bank {Mj}H
+j=1 and reconstructed LLAV ˆh(x)
+1: Train binary teacher fT on Dtr and select hyperparameters using Dval.
+2: Freeze fT and extract hT (x) from Equation (1) for all splits.
+3: Fit any data-dependent Booleanization parameters on Dtr only.
+4: Transform each input to ϕ(x) for training, validation, and test samples.
+5: for j = 1 to H do
+6:
+Train ITM Mj to predict hT,j(x) from ϕ(x).
+7: end for
+8: Form ˆh(x) using Equation (9).
+9: Evaluate reconstruction fidelity with Equation (2).
+A. Relation to Prior Work
+Interpretability methods for neural networks can be grouped
+by what they explain. Attribution and saliency methods assign
+importance to input features for a given prediction [23],
+[24]. Local surrogate methods approximate a model around
+a sample or a local neighborhood [25]. Concept-based ap-
+proaches connect predictions to user-defined concepts [26].
+Visualization methods inspect filters, activations, or internal
+representations [12]. These approaches can identify relevant
+associations, but they do not convert a named hidden coordinate
+into a persistent symbolic object, which can be reused across
+samples and directly tested as an input to the classifier head.
+TMs provide a different form of interpretability because their
+clauses are explicit conjunctions over Boolean literals [13].
+This property makes TMs well suited for rule-like symbolic
+representations, but standard TM classifiers operate directly on
+labels rather than on internal neural states. Related symbolic-
+transfer work has approximated final hidden activations with
+symbolic regression [27], and TM-based distillation has used
+teacher output distributions to guide TM students [28]. CRISP
+differs in target and granularity. It reconstructs the BNN’s
+pre-logit LLAV neuron by neuron, and each reconstructed
+bit is represented as a set of TM clauses over named input
+literals. In particular, unlike temperature-scaled logit distillation,
+CRISP reconstructs the hard, sign-binarized LLAV instead of a
+softened output distribution, so there is no softmax temperature
+to tune. The explanation is therefore tied to the teacher’s
+internal representation rather than only to the output label. This
+representation-level use of TM clauses also connects CRISP to
+the wider neural-symbolic integration literature, which argues
+
+
+Fig. 1: CRISP workflow. A binary neural teacher is trained on the image task, the teacher’s LLAV is extracted and sign-binarized,
+the original input is Booleanized, and one ITM is trained per LLAV coordinate to form a clause-based hidden-state surrogate.
+for learning systems whose internal reasoning remains legible
+as models scale [29].
+B. Problem Setting and Teacher Extraction
+Let x ∈X denote an input image and y ∈{1, . . . , C} denote
+its ground-truth class. A teacher fT produces a predicted label
+˜y(x) = arg maxk pT,k(x) and a binary hidden state hT (x) ∈
+{0, 1}H at the penultimate layer. The binary LLAV can be
+obtained as
+hT (x) = 1[gT (x) > 0],
+(1)
+where gT (x) ∈RH is the pre-threshold activation vector of
+the teacher’s penultimate layer, and the indicator is applied
+coordinate-wise. As shown in Figure 1b–c, hT (x) is extracted
+after the teacher has combined convolutional filtering, pooling,
+and fully connected binary transformations, so each LLAV
+coordinate can aggregate spatially extended evidence from the
+input [12]. In the reported experiments, H = 256.
+CRISP constructs a symbolic surrogate ˆh(x) that reproduces
+hT (x) while exposing a clause-level trace from each recon-
+structed bit to the input. Reconstruction quality for neuron j
+is measured by
+qj = 1
+N
+N
+X
+i=1
+1
+h
+ˆhj(xi) = hT,j(xi)
+i
+,
+(2)
+where N is the number of evaluation samples, hT,j(xi) is
+the teacher’s binary activation for neuron j, and ˆhj(xi) is
+the corresponding ITM reconstruction. The aggregate recon-
+struction fidelity is the mean of qj over all H neurons, and
+the reconstruction fidelity measures how well the symbolic
+bank reproduces the neural teacher’s binary activations, with
+an injection test in Section IV-B that separately determines if
+the reconstructed activations are usable for classification.
+The LLAV binarization in Equation (1) can discard activation
+magnitude. In the BNN injection experiment reported in
+Section IV-B, this loss does not reduce teacher-head accuracy
+because the final binary output layer applies a sign operation
+before classification. Thus, the tested BNN head already uses
+the LLAV sign pattern as its operative interface. CRISP takes
+this binary interface as the reconstruction target and asks
+whether it can be recovered by clauses over the original input.
+C. Input Booleanization
+ITM training requires each input to be expressed as a Boolean
+vector because TM clauses are defined over literals and their
+negations [13]. Let ϕ(x) ∈{0, 1}d denote the Booleanized
+input, where d is the encoded input dimension. The encoding
+scheme determines both the information retained from the
+raw input and the clauses that the ITM can form. CRISP
+evaluates three schemes at bit depths nbits ∈{1, 2, 4} in
+the Booleanization study: Binary thresholding, thermometer
+encoding, and quartile binning.
+For a normalized scalar feature u ∈[0, 1], binary threshold-
+ing produces one bit, which serves as a one-threshold baseline:
+b(u) = 1[u > 0.5].
+(3)
+Thermometer encoding first maps u to an integer level,
+ℓ(u) = min(⌊u nbits⌋, nbits −1) ,
+(4)
+where ℓ(u) is the quantized level. The encoded bits are then
+tm(u) =
+(
+1[u > 0.5],
+nbits = 1,
+1[ℓ(u) > m],
+nbits ≥2,
+(5)
+for m = 0, . . . , nbits −1, where tm(u) is the m-th thermometer
+bit. This representation preserves ordinal threshold information,
+so a clause can express that a feature exceeds a level using
+a single literal [30]. Note that the top thermometer bit m =
+nbits −1 evaluates 1[ℓ(u) > nbits −1], which is never satisfied
+due to ℓ(u) ≤nbits −1. Therefore, it is constant (always 0)
+and non-informative, so an nbits-bit thermometer code carries
+nbits −1 informative bits.
+Quartile binning replaces the uniform levels in Equation (4)
+with data-dependent quantile thresholds estimated from the
+training set only. Let q1, . . . , qnbits−1 denote the
+1
+nbits , . . . , nbits−1
+nbits
+empirical quantiles of a feature. The bin index is
+k(u) =
+nbits−1
+X
+r=1
+1[u > qr],
+(6)
+
+
+The final quartile bits are
+qm(u) =
+(
+1[u > q1],
+nbits = 1,
+1[k(u) > m],
+nbits ≥2,
+(7)
+for m = 0, . . . , nbits −1, where qm(u) is the m-th quartile bit
+and, for nbits = 1, no interior quantiles are defined, so q1 is
+taken as the training-set median of the feature to be consistent
+with the one-bit setting used in Section IV-C. Quartile binning
+adapts thresholds to the empirical feature distribution instead of
+assuming that intensities are uniformly spread over [0, 1] [31].
+All data-dependent thresholds are fitted on training data only
+and then applied unchanged to validation and test data.
+D. ITM Bank Training and Inference
+CRISP trains one ITM Mj for each hidden neuron j ∈
+{1, . . . , H}, as illustrated in Figure 1c–d. Each ITM predicts
+whether its assigned teacher neuron fires:
+ˆhj(x) = Mj(ϕ(x)) ,
+(8)
+where ϕ(x) is the Booleanized input. The surrogate bank then
+produces
+ˆh(x) =
+h
+ˆh1(x), . . . , ˆhH(x)
+i
+.
+(9)
+Each clause in Mj is a conjunction over literals from ϕ(x)
+and their negations. A reconstructed bit ˆhj(x) = 1 therefore
+corresponds to a set of active clauses, and each active clause
+identifies a specific input-threshold pattern associated with the
+teacher neuron’s activation.
+E. Interpretability Scope and Computational Cost
+The symbolic part of CRISP is the ITM bank, where the
+teacher remains as a learned neural model. CRISP should
+therefore be interpreted as a representation-level reconstruction
+method rather than a claim of full teacher transparency.
+The reconstruction metric in Equation (2) measures whether
+the ITM bank reconstructs the teacher LLAV. The clause
+representation also allows each reconstructed bit to be inspected,
+which is possible because Booleanization assigns a known
+meaning to every input bit, as each literal relates to a feature-
+threshold statement instead of an anonymous array index. Thus,
+CRISP is neuro-symbolic in the sense that the reconstruction
+target originates from a neural teacher, and the reconstructed
+form is a set of symbolic clauses over named features [32].
+For a given sample, clause evidence is pooled across all H
+ITMs and mapped back to the input coordinates constrained by
+the surviving literals. Each literal is classified along two axes,
+namely, clause polarity, which indicates whether the clause
+supports or opposes its ITM output, and literal polarity, which
+indicates whether the literal demands a thresholded feature
+Xi or its negation Xi. Under thermometer encoding, the top
+threshold bit is always false by construction in Equation (5).
+Its negation is therefore excluded from the pooled maps so
+that a fixed, non-informative term does not dilute the evidence.
+Section IV-D applies this procedure to representative samples.
+Let H denote the number of LLAV coordinates, EITM the
+number of ITM training epochs, m the number of clauses per
+ITM, and d the Booleanized input dimension. A conservative
+worst-case training-pass cost scales as
+O(HEITMmd) ,
+(10)
+where the dominant term comes from evaluating clause
+literals across the ITM bank. This cost is parallel over LLAV
+coordinates, as each ITM is trained independently. The method
+introduces an offline reconstruction cost, but keeps inference
+and inspection modular, so that each reconstructed bit can be
+evaluated, inspected, or replaced without retraining the bank.
+III. EXPERIMENTAL SETUP
+A. Data
+Five ten-class image classification benchmarks are used
+as described in Table I, which summarizes the image size,
+channel count, and the training, validation, and test split of each
+dataset. The benchmark set spans grayscale digit recognition,
+visually similar handwritten character recognition, clothing
+classification, street-view digit recognition, and color object
+classification. This range tests whether LLAV reconstruction
+remains stable as the teacher representation becomes more
+spatially and semantically demanding. Binary network architec-
+tures are used as teachers because their classifier heads expose
+sign-based hidden interfaces, so the LLAV captures the state
+that the binary classifier consumes.
+TABLE I: Summary of the five benchmark datasets used.
+Dataset
+Size
+Channels
+Train
+Val
+Test
+MNIST
+28 × 28
+1
+55,000
+5,000
+10,000
+KMNIST
+28 × 28
+1
+55,000
+5,000
+10,000
+FMNIST
+28 × 28
+1
+55,000
+5,000
+10,000
+SVHN
+32 × 32
+3
+68,257
+5,000
+26,032
+CIFAR10
+32 × 32
+3
+45,000
+5,000
+10,000
+B. Teacher Architectures
+Two binary teacher variants are evaluated because they
+expose two levels of binarization. Both use six binary convolu-
+tional blocks with channel widths 1 →128 →128 →256 →
+256 →512 →512 for grayscale inputs and 3 →128 →· · · →
+512 for color inputs, three max-pooling stages, four binary
+fully connected blocks dflat →1024 →1024 →512 →256,
+and a binary output layer 256 →10. The penultimate fully
+connected layer produces the 256-dimensional pre-activation
+vector that is sign-binarized to form the LLAV.
+The teachers differ in binarization strategy. The BCCNN
+binarizes weights through a straight-through estimator, while
+retaining ReLU activations between hidden layers. The BNN
+binarizes both weights and activations by replacing ReLU
+with a sign function at each hidden layer. Thus, the BCCNN
+preserves continuous activation magnitudes during intermediate
+forward computation, while the BNN operates on binary hidden
+signals after the first layer. Both teachers use BatchNorm after
+each binary layer. These variants separate the effect of weight-
+only binarization from the effect of fully binarized hidden
+computation.
+
+
+C. Training Protocol
+CRISP’s protocol, as shown in Figure 1, has two parts. The
+first establishes baseline CRISP reconstruction across all five
+datasets using the baseline 8-bit thermometer input encoding.
+The second isolates the effect of input Booleanization on re-
+construction fidelity using SVHN and CIFAR10 configurations
+with binary thresholding, thermometer encoding, and quartile
+binning. For every dataset, the LLAV is extracted from the
+teacher’s pre-logit layer and the raw input is Booleanized
+(Figure 1c), forming the ITM targets and inputs, respectively.
+The ITMs (Figure 1d) are trained on this Booleanized input for
+5 epochs using fixed hyperparameters (50 clauses, threshold
+T = 20, specificity s = 4.0) instead of a per-dataset search,
+while data-dependent Booleanization thresholds are fitted on
+the training split only. ITMs run in parallel through a process
+pool, with progress checkpointed after each round.
+D. Evaluation Metrics
+The primary CRISP metric is reconstruction fidelity, defined
+in Equation (2) as the mean per-neuron bit-level accuracy of
+the ITM bank in reproducing the teacher LLAV, which is
+evaluated on the held-out test data. The ITM mean accuracy is
+the average per-neuron training accuracy across the ITM bank,
+computed using Equation (11):
+AccITM = 1
+H
+H
+X
+j=1
+aj,
+(11)
+where aj is the bit-level training accuracy of ITM Mj and H
+is the number of ITMs in the bank. Note that this in-sample
+quantity is used only for selection, and is not reported as a result.
+Teacher accuracy is reported to contextualize how informative
+the original teacher representation is, but the main CRISP
+objective is reconstruction of the teacher’s internal state rather
+than direct replacement of the teacher classifier. The LLAV
+injection test additionally reports Cohen’s κ and the Matthews
+correlation coefficient (MCC) to assess agreement beyond
+raw accuracy in the reconstructed-head setting [33], [34]. The
+Booleanization study reports the encoded input dimension and
+inference time to expose the cost of increasing the number of
+Boolean input bits.
+IV. RESULTS AND DISCUSSION
+The results are organized around the three research ques-
+tions. Section IV-A addresses RQ1 and RQ3 by reporting
+reconstruction behavior across datasets and teacher variants.
+Section IV-B isolates the effect of LLAV sign-binarization
+and ITM reconstruction error. Section IV-C addresses RQ2 by
+comparing Booleanization strategies on SVHN and CIFAR10.
+Section IV-D shows how the learned ITM clauses can be
+mapped back to input regions.
+A. Baseline Performances Across Datasets
+Table II reports CRISP’s baseline performance across the five
+image classification benchmarks using two binary teacher archi-
+tectures. Both teachers share the same six-block convolutional
+structure and four-layer fully connected stack with a 256-bit
+TABLE II: CRISP performance across datasets and two binary
+teacher architectures using 8-bit thermometer input encoding.
+Teacher
+Dataset
+Teacher accuracy (%)
+ITM test fidelity (%)
+BCCNN
+MNIST
+99.65
+85.99
+BCCNN
+KMNIST
+98.86
+74.63
+BCCNN
+FMNIST
+94.20
+83.92
+BCCNN
+SVHN
+95.01
+67.77
+BCCNN
+CIFAR10
+91.06
+71.54
+BNN
+MNIST
+98.98
+84.31
+BNN
+KMNIST
+96.93
+73.71
+BNN
+FMNIST
+87.83
+85.10
+BNN
+SVHN
+73.10
+73.12
+BNN
+CIFAR10†
+65.39
+70.99
+†The BNN/CIFAR10 teacher is a re-trained instance using the same BNN
+architecture described in Section III-B, as the original run submitted for peer
+review was not recoverable.
+LLAV, differing only in their binarization strategy. The baseline
+reconstruction setting uses an 8-bit thermometer input encoding,
+and the reconstruction column reports the test fidelity, which
+follows Equation (2): For each hidden neuron, the fraction
+of test samples on which the assigned ITM reproduces the
+teacher’s binary activation, averaged over the 256 coordinates.
+This measurement is computed on held-out inputs rather than
+the samples used to train the ITMs, so it reflects generalisation
+rather than in-sample fit. As a calibration check, the mean
+per-neuron majority-class baseline ranges from roughly 61% to
+74% across datasets (mean 65%), which the held-out fidelities
+exceed on most settings, so the reported values largely reflect
+learned reconstruction rather than trivial majority prediction.
+The exception is the low-accuracy BNN/SVHN teacher, whose
+reconstruction fidelity sits near its majority baseline.
+Two patterns follow from Table II. First, on the datasets
+where the teachers are directly comparable, the teacher accuracy
+is higher for the BCCNN teacher, which indicates that retaining
+real-valued hidden activations between binary weight layers
+gives stronger task performance in the reported architecture.
+Second, symbolic reconstruction fidelity does not follow teacher
+accuracy monotonically, as the BNN produces comparable or
+higher held-out fidelity than the BCCNN on FMNIST and
+SVHN despite having lower or similar task accuracy. This
+distinction matters because CRISP measures recoverability
+of the internal code, and not only the quality of the teacher
+classifier. In particular, a teacher can be accurate yet harder to
+reconstruct if its LLAV coordinates encode more distributed
+or spatially abstract evidence.
+The MNIST-family datasets generally show higher re-
+construction than the harder colour-image settings, as their
+class evidence is more closely tied to local stroke or shape
+patterns that can be expressed by pixel-threshold clauses,
+whereas SVHN and CIFAR10 require more spatial aggregation,
+which makes neuron-wise reconstruction from Booleanized
+pixels more difficult. KMNIST shows the lowest held-out
+fidelity relative to its teacher accuracy, and the injection test
+(Section IV-B) shows the same dataset losing the most classifier-
+head accuracy, which indicates that its hidden code generalises
+less readily to unseen inputs. These results answer RQ1 by
+showing that the LLAV can be reconstructed on held-out data
+
+
+TABLE III: Three-way LLAV injection test with the BNN
+teacher and 8-bit thermometer input encoding.
+Dataset
+Input to fc_out
+Accuracy (%)
+κ
+MCC
+MNIST
+BNN baseline
+98.98
+0.9887
+0.9887
+LLAV binarized
+98.98
+0.9887
+0.9887
+ITM reconstruction
+84.68
+0.8297
+0.8302
+FMNIST
+BNN baseline
+87.83
+0.8648
+0.8649
+LLAV binarized
+87.83
+0.8648
+0.8649
+ITM reconstruction
+78.41
+0.7601
+0.7623
+KMNIST
+BNN baseline
+96.93
+0.9659
+0.9659
+LLAV binarized
+96.93
+0.9659
+0.9659
+ITM reconstruction
+58.80
+0.5422
+0.5422
+across all tested settings, with reduced fidelity as the visual
+task becomes less aligned with simple local evidence. They
+also answer RQ3 by showing that teacher architecture affects
+both task accuracy and reconstruction difficulty, but not always
+in the same direction.
+B. Effect of LLAV Binarization and Reconstruction Error
+To isolate the cost of each stage in the symbolic pipeline, a
+three-way injection test was conducted using the BNN teacher
+and 8-bit thermometer input encoding. The teacher’s final
+classifier head (fc_out) was given three different inputs in
+turn which are the continuous pre-binarization activation vector
+of the penultimate layer, the sign-binarized LLAV, and the ITM
+reconstruction of that LLAV. Each input was passed through
+fc_out alone, with predictions evaluated against ground-truth
+labels on the test set. This test is reported on the MNIST-family
+datasets, where the BNN teacher operates near its accuracy
+ceiling, and restricting to these datasets isolates the effect
+of reconstruction error on the classifier head from teacher
+error. Extending the injection test to the lower-teacher-accuracy
+SVHN and CIFAR10 settings is left for future work.
+The injection test reveals two findings. First, sign-binarizing
+the LLAV incurs no accuracy cost in the reported rows,
+as the continuous and binary conditions are identical. This
+follows from the structure of fc_out as a BinLinear layer,
+it applies a sign operation before the linear transform and
+therefore discards magnitude information at this interface. In
+this setting, the binary LLAV is sufficient for reproducing the
+teacher head. Second, ITM reconstruction reduces accuracy
+across all reported datasets, with the largest drop on KMNIST.
+The main accuracy loss comes from imperfect reconstruction
+of the sign pattern, not from LLAV sign-binarization itself.
+A reconstruction error in one LLAV coordinate changes the
+input seen by fc_out. Since the output layer uses binarized
+weights and a sign-encoded input, flipping one LLAV bit
+changes each class logit by a fixed signed amount determined
+by the corresponding binary output weight [35]. Accumulated
+bit errors across the 256-dimensional LLAV can therefore
+change the class margin and produce a misclassification. This
+reframes CRISP’s bottleneck as the fidelity of the ITM bank
+in reproducing the teacher LLAV.
+TABLE IV: Effect of Booleanization strategy on ITM recon-
+struction fidelity for SVHN and CIFAR10.
+Dataset
+Enc.
+Bits
+Input
+Bits
+Train
+acc. (%)
+Test
+fid. (%)
+Inf.
+Time (s)
+SVHN
+Bin
+1
+3072
+82.94
+86.03
+275.8
+SVHN
+Th
+1
+3072
+82.66
+85.70
+274.4
+SVHN
+Th
+2
+6144
+79.19
+79.98
+499.1
+SVHN
+Th
+4
+12288
+81.49
+83.82
+1231.0
+SVHN
+Q
+1
+3072
+84.93
+87.52
+275.7
+SVHN
+Q
+2
+6144
+82.16
+84.06
+414.1
+SVHN
+Q
+4
+12288
+82.05
+83.02
+1056.0
+CIFAR10
+Bin
+1
+3072
+92.31
+92.08
+148.6
+CIFAR10
+Th
+1
+3072
+92.29
+92.04
+129.3
+CIFAR10
+Th
+2
+6144
+91.32
+91.45
+214.3
+CIFAR10
+Th
+4
+12288
+91.37
+91.47
+542.0
+CIFAR10
+Q
+1
+3072
+92.47
+92.12
+84.1
+CIFAR10
+Q
+2
+6144
+91.28
+91.39
+167.0
+CIFAR10
+Q
+4
+12288
+91.44
+91.54
+464.5
+C. Effect of Input Booleanization
+Table IV reports the effect of Booleanization strategy on
+SVHN and CIFAR10. The table includes the encoding (Enc.),
+bit depth, encoded input dimension (Input Bits), mean ITM
+training accuracy (Train acc.), test-set reconstruction fidelity
+(Test fid.), and inference time (Inf. time). Binary thresholding
+(Bin) is evaluated only at one bit because it produces one
+Boolean feature per scalar input, while thermometer (Th) and
+quartile (Q) encodings are evaluated at one, two, and four bits.
+Two patterns are visible in Table IV. First, reconstruction
+fidelity at one-bit depth is close across all three schemes. On
+SVHN, test fidelity ranges from 85.70% to 87.52%, while on
+CIFAR10, it ranges from 92.04% to 92.12%. This similarity
+is expected, as all three one-bit schemes reduce each scalar
+feature to a single threshold test. The threshold is fixed at 0.5
+for binary and thermometer encodings, and fitted as a training-
+set median for quartile binning. In particular, the one-bit binary
+thresholding (Eq. 3) and one-bit thermometer encoding (Eq. 5)
+are identical by construction, since both reduce to 1[u >
+0.5]. The small difference between their rows in Table IV
+(e.g. 86.03% vs. 85.70% on SVHN) reflects only run-to-run
+stochasticity in ITM training, which indicates that sub-point
+differences elsewhere in the table are within noise. Second,
+quartile binning gives the strongest one-bit result on SVHN
+(87.52%) where the margin exceeds run-to-run variation. For
+CIFAR10, the one-bit schemes are effectively tied (92.12% vs.
+92.08%) meaning no encoding is singled out.
+Fidelity does not improve monotonically with bit depth.
+For both thermometer and quartile encodings, most two-bit
+and four-bit settings are lower than the corresponding one-bit
+setting. As noted after Equation (5), the highest thermometer
+bit is constant by construction, so an nbits code carries fewer
+informative bits than its dimension suggests, and the input
+dimension grows faster than the useful threshold information
+available to the ITMs. The added dimensions also enlarge the
+clause search space, which can reduce reconstruction quality
+under a fixed training budget.
+The timing results show the cost of wider encodings. On
+SVHN, thermometer inference time rises from 274.44s at one
+
+
+Input
+(T-shirt/top) 
+Positive clauses Xi Negative clauses Xi 
+0 
+10
+71
+226
+515
+Positive clauses Xi 
+3625
+Negative clauses Xi 
+1593
+500
+69
+0
+(a) FMNIST T-shirt/top.
+Input
+(idx 3, label 0) 
+Positive clauses Xi Negative clauses Xi 
+0 
+2 
+14 
+44 
+99 
+Positive clauses Xi 
+6145 
+Negative clauses Xi 
+2701
+848
+117
+0
+(b) MNIST digit “0”.
+Fig. 2: Collective clause evidence pooled across all 256 ITMs for representative test samples. Each panel separates positive-
+and negative-polarity clauses and maps positive literals Xi and negated literals Xi back to image coordinates. Color intensity
+denotes pooled literal count within each row.
+bit to 1231.02s at four bits, while quartile inference time rises
+from 275.65s to 1056.01s over the same range. CIFAR10
+follows the same trend, but the absolute timings are lower.
+These are total wall-clock times over the full test set (Table
+I), where per-image latency is on the order of 10–50ms across
+the encodings. These results answer RQ2 by showing that
+richer Booleanization does not automatically improve LLAV
+reconstruction. In the reported experiments, one-bit quartile
+binning provides the best fidelity-cost trade-off.
+D. Explainable Symbolic Evidence from ITMs
+The preceding results quantify whether the ITM bank recon-
+structs the teacher’s LLAV. This section applies clause-evidence
+pooling, aggregating across all 256 ITMs, to representative test
+samples. The two examples in Figure 2 use 8-bit thermometer
+encoding on MNIST and FMNIST, matching the baseline
+reconstruction setting in Section IV-A.
+Although each ITM is trained on a flat vector of pixel-
+threshold features, the pooled evidence in Figure 2 forms
+spatially coherent maps. This structure arises from training
+pressure rather than an explicit spatial prior. An ITM retains
+literals that help predict its assigned LLAV bit and discards
+literals that do not. In centered image datasets, pixels on or
+near the object are more predictive than uniform background
+pixels, so pooled literals concentrate around the object region.
+The MNIST digit in Figure 2b provides a useful check
+because a “0” contains two background regions, namely, the
+outside of the digit and the hole inside the loop. The pooled
+Xi evidence fills the interior hole as well as the exterior
+background, which is consistent with local pixel-threshold
+evidence rather than a simple boundary-only pattern. The
+FMNIST example in Figure 2a similarly concentrates positive-
+literal evidence over the T-shirt silhouette.
+The raw scale of the Xi and Xi maps should not be compared
+directly. The negated-literal maps have larger counts because
+thermometer encoding allows near-zero background pixels to
+satisfy several low-threshold negations, while foreground pixels
+activate a narrower threshold band near their intensity. Thus, the
+spatial location of evidence is interpretable, but the magnitude
+gap between positive and negated literal maps should not be
+treated as a direct measure of foreground versus background
+importance. Negative-polarity clauses contribute less evidence
+in the two displayed samples, which is consistent with confident
+correct predictions where supporting clauses for the winning
+class carry most of the reconstruction signal.
+E. Limitations
+All results use a single training run per configuration,
+where training the full 256-ITM bank is memory-bound as a
+complete run on CIFAR10 over all training samples exceeds
+24 hours per configuration on our setup, which precludes multi-
+seed repetition and formal uncertainty estimation. Small inter-
+encoding differences should therefore be read with caution,
+as the 0.04-point quartile-over-binary advantage on CIFAR10
+detailed in Table IV lies within run-to-run variation and is not
+claimed as meaningful, whereas the larger SVHN gap is more
+robust. The per-coordinate ITMs are individually small, so the
+dominant cost is repeated evaluation of all training samples
+across the bank rather than ITM size; sample subsampling,
+minibatched clause updates, and scaling the bank beyond 256
+coordinates are left to future work. Reconstruction fidelity in
+Table II is reported on held-out test data following Eq. (2).
+V. CONCLUSION
+This paper presented CRISP, a neuro-symbolic framework
+that reconstructs the last-layer activation vector of a binary
+neural network as propositional clauses, assigning one ITM
+to each hidden neuron over a Boolean encoding of the
+input (Section II). The surrogate preserves the identity of
+every reconstructed coordinate and exposes its supporting
+literals, turning the teacher’s final hidden interface into an
+inspectable symbolic object. Experiments across five image
+benchmarks and two binary teacher architectures show that
+reconstruction fidelity is governed by task difficulty and teacher
+
+
+binarization (Sections IV-A and IV-B). Binarization alone does
+not reduce teacher-head accuracy in the tested BNN setting, so
+the dominant loss stems from imperfect ITM reconstruction,
+while the Booleanization study (Section IV-C) shows that one-
+bit quartile binning, rather than higher bit depth, yields the
+strongest fidelity-cost trade-off, most clearly on SVHN.
+Within the reported scope, LLAV reconstruction is feasible
+but harder on complex colour datasets (RQ1), one-bit quartile
+binning gives the best fidelity-cost balance (RQ2), and teacher
+architecture affects task accuracy and reconstructability inde-
+pendently (RQ3). Clause pooling further shows reconstructed
+bits forming spatial evidence maps despite the ITMs having
+no explicit spatial prior.
+VI. FUTURE WORK
+Several directions follow from this work. First, reconstruction
+could extend from the final hidden interface to intermediate
+layers, toward a layer-by-layer clause-level account of the
+whole network, potentially with reconstruction-aware teacher
+training so hidden representations become recoverable by
+construction. Second, clause banks could be coupled with
+satisfiability-based verification to state symbolic guarantees
+for safety-critical deployment. Finally, the approach could
+scale to larger color benchmarks with channel-specific RGB
+evidence and imbalance-aware baselines, and generalize to
+tabular, sensor, biomedical, and time-series data, where a logic-
+native clause bank offers an accurate, low-complexity, and
+explainable alternative.
+ACKNOWLEDGMENT
+This
+work
+was
+partially
+supported
+by
+the
+EPSRC
+EP/X036006/1 Scalability Oriented Novel Network of Event
+Triggered Systems (SONNETS) project.
+REFERENCES
+[1] Y. LeCun, Y. Bengio, and G. Hinton, “Deep learning,” Nature, vol. 521,
+no. 7553, pp. 436–444, 2015.
+[2] J. Schmidhuber, “Deep learning in neural networks: An overview,” Neural
+networks, vol. 61, pp. 85–117, 2015.
+[3] S. Gu, B. Kelly, and D. Xiu, “Empirical asset pricing via machine
+learning,” The Review of Financial Studies, vol. 33, no. 5, pp. 2223–
+2273, 2020.
+[4] Z.
+C.
+Lipton,
+“The
+mythos
+of
+model
+interpretability,”
+Queue,
+vol.
+16,
+no.
+3,
+pp.
+31–57,
+2018.
+[Online].
+Available:
+https:
+//dl.acm.org/doi/10.1145/3236386.3241340
+[5] O. Tarasyuk, A. Gorbenko, T. Rahman, L. Jiao, O.-C. Granmo, R. Shafik,
+and A. Yakovlev, “Learning dynamics, pattern recognition capability and
+interpretability of the tsetlin machine,” Pattern Recognition, p. 113028,
+2025.
+[6] E. C. Erku¸s, C. Özbey, and T. Çolako˘glu, “Artificial intelligence in
+technology and innovation: Concerns and future directions,” AIPA’s
+International Journal on Artificial Intelligence: Bridging Technology,
+Society and Policy, vol. 1, no. 1, pp. 1–12, 2024.
+[7] C. Rudin, “Stop explaining black box machine learning models for high
+stakes decisions and use interpretable models instead,” Nature machine
+intelligence, vol. 1, no. 5, pp. 206–215, 2019.
+[8] G. Montavon, W. Samek, and K.-R. Müller, “Methods for interpreting
+and understanding deep neural networks,” Digital signal processing,
+vol. 73, pp. 1–15, 2018.
+[9] J. Yosinski, J. Clune, Y. Bengio, and H. Lipson, “How transferable
+are features in deep neural networks?” Advances in neural information
+processing systems, vol. 27, 2014.
+[10] G. Alain and Y. Bengio, “Understanding intermediate layers using linear
+classifier probes,” arXiv preprint arXiv:1610.01644, 2016.
+[11] Y. Bengio, A. Courville, and P. Vincent, “Representation learning: A
+review and new perspectives,” IEEE Transactions on Pattern Analysis
+and Machine Intelligence, vol. 35, no. 8, pp. 1798–1828, 2013.
+[12] M. D. Zeiler and R. Fergus, “Visualizing and understanding convolutional
+networks,” in European Conference on Computer Vision (ECCV).
+Springer, 2014, pp. 818–833.
+[13] O.-C. Granmo, “The Tsetlin Machine - A Game Theoretic Bandit
+Driven Approach to Optimal Pattern Recognition with Propositional
+Logic,” arXiv preprint arXiv:1804.01508, 2018. [Online]. Available:
+https://arxiv.org/abs/1804.01508
+[14] M. Courbariaux, I. Hubara, D. Soudry, R. El-Yaniv, and Y. Bengio,
+“Binarized Neural Networks: Training Deep Neural Networks with
+Weights and Activations Constrained to +1 or -1,” 2016. [Online].
+Available: https://arxiv.org/abs/1602.02830
+[15] I. Hubara, M. Courbariaux, D. Soudry, R. El-Yaniv, and Y. Bengio, “Bi-
+narized neural networks,” in Advances in Neural Information Processing
+Systems (NeurIPS 2016), vol. 29.
+Curran Associates, Inc., 2016, pp.
+4107–4115.
+[16] H. Qin, R. Gong, X. Liu, X. Bai, J. Song, and N. Sebe, “Binary neural
+networks: A survey,” Pattern Recognition, vol. 105, p. 107281, 2020.
+[17] M. Courbariaux, Y. Bengio, and J.-P. David, “Binaryconnect: Training
+deep neural networks with binary weights during propagations,” Advances
+in neural information processing systems, vol. 28, 2015.
+[18] Y. Lecun, L. Bottou, Y. Bengio, and P. Haffner, “Gradient-based learning
+applied to document recognition,” Proc. IEEE, vol. 86, no. 11, pp. 2278–
+2324, 1998.
+[19] T. Clanuwat, M. Bober-Irizar, A. Kitamoto, A. Lamb, K. Yamamoto, and
+D. Ha, “Deep learning for classical japanese literature,” arXiv preprint
+arXiv:1812.01718, 2018.
+[20] H. Xiao, K. Rasul, and R. Vollgraf, “Fashion-mnist: a novel image
+dataset for benchmarking machine learning algorithms,” arXiv preprint
+arXiv:1708.07747, 2017.
+[21] Y. Netzer, T. Wang, A. Coates, A. Bissacco, B. Wu, and A. Y.
+Ng, “Reading Digits in Natural Images with Unsupervised Feature
+Learning,” in NIPS Workshop on Deep Learning and Unsupervised
+Feature
+Learning,
+vol.
+2011,
+2011,
+p.
+5.
+[Online].
+Available:
+http://ufldl.stanford.edu/housenumbers/
+[22] A. Krizhevsky, “Learning multiple layers of features from tiny images,”
+University of Toronto, Technical Report, 2009.
+[23] K. Simonyan, A. Vedaldi, and A. Zisserman, “Deep inside convolutional
+networks: Visualising image classification models and saliency maps,”
+2014. [Online]. Available: https://arxiv.org/abs/1312.6034
+[24] S. M. Lundberg and S.-I. Lee, “A unified approach to interpreting model
+predictions,” Advances in neural information processing systems, vol. 30,
+2017.
+[25] M. T. Ribeiro, S. Singh, and C. Guestrin, “" why should I trust you?"
+explaining the predictions of any classifier,” in Proceedings of the 22nd
+ACM SIGKDD international conference on knowledge discovery and
+data mining, 2016, pp. 1135–1144.
+[26] P. W. Koh, T. Nguyen, Y. S. Tang, S. Mussmann, E. Pierson, B. Kim,
+and P. Liang, “Concept bottleneck models,” in International conference
+on machine learning.
+PMLR, 2020, pp. 5338–5348.
+[27] A. Shmuel, N. Koren, O. Glickman, and T. Lazebnik, “Interpretable
+knowledge distillation via symbolic regression for feedforward neural
+networks,” Neural Computing and Applications, vol. 38, no. 7, p. 243,
+2026.
+[28] C. Kinateder, U. Anjum, and J. Zhan, “Distribution-enhanced knowledge
+distillation,” Neurocomputing, p. 133605, 2026.
+[29] A. d. Garcez and L. C. Lamb, “Neurosymbolic ai: The 3 rd wave,”
+Artificial Intelligence Review, vol. 56, no. 11, pp. 12 387–12 406, 2023.
+[30] J. Buckman, A. Roy, C. Raffel, and I. Goodfellow, “Thermometer
+encoding: One hot way to resist adversarial examples,” in International
+Conference on Learning Representations (ICLR), 2018.
+[31] Y. G. ter, O.-C. Granmo et al., “An optimized toolbox for advanced
+image processing with tsetlin machine composites,” arXiv preprint
+arXiv:2406.00704, 2024. [Online]. Available: https://arxiv.org/abs/2406.
+00704
+[32] B. P. Bhuyan, A. Ramdane-Cherif, R. Tomar, and T. Singh, “Neuro-
+symbolic artificial intelligence: a survey,” Neural Computing and
+Applications, vol. 36, no. 21, pp. 12 809–12 844, 2024.
+[33] J. R. Dettori and D. C. Norvell, “Kappa and beyond: is there agreement?”
+Global spine journal, vol. 10, no. 4, pp. 499–501, 2020.
+
+
+[34] D. Chicco and G. Jurman, “The advantages of the matthews correlation
+coefficient (mcc) over f1 score and accuracy in binary classification
+evaluation,” BMC genomics, vol. 21, no. 1, p. 6, 2020.
+[35] M. Rastegari, V. Ordonez, J. Redmon, and A. Farhadi, “Xnor-net:
+Imagenet classification using binary convolutional neural networks,” in
+European conference on computer vision.
+Springer, 2016, pp. 525–542.
