@@ -1,0 +1,205 @@
+Title: Weight Oracles: Reading Neural Network Weights with Language Models
+
+URL Source: https://arxiv.org/pdf/2610.07334v1
+
+Published Time: Wed, 07 Oct 2026 00:22:22 GMT
+
+Number of Pages: 14
+
+Markdown Content:
+# Weight Oracles: Reading Neural Network Weights with Language Models 
+
+Krishna Kabra Constantin Venhoff Christian Schroeder de Witt 
+
+University of Oxford 
+
+## Abstract 
+
+Interpretability methods for neural networks are predominantly reactive: they analyse activations produced during specific forward passes, requiring known inputs to find hidden capabilities such as backdoors. We propose Weight Oracles, fine-tuned language models that diagnose properties of a target network by reading its raw weights directly, without behavioural testing. We investigate this paradigm in two phases. Phase I establishes feasibility: through a staged curriculum and an external chain-of-computation that delegates composition to deterministic code, an explainer LLM learns the weight-reading primitive underlying the forward pass of small transformers, simulating them end-to-end, achieving 99% holdout accuracy on unseen targets. Phase II repurposes this infrastructure for safety auditing. We train an oracle on natural language diagnostic questions about weight anomalies using only benign pathologies as training signal, and evaluate it zero-shot on backdoors absent from training. The oracle achieves AUROC 0.93 on attention-routed backdoors and 0.81 across a diversified threat distribution including stealth and adversarially regularized variants. Hand-crafted statistical detectors are sharp on the threat models they implicitly target but collapse on threat-model shift, while the oracle remains uniformly competent across attack types. Scaling to realistic model sizes remains the principal open challenge. 
+
+## 1 Introduction 
+
+The rapid advancement and scaling of Large Language Models (LLMs) have introduced significant challenges for AI safety and alignment, as the internal reasoning of these “black-box” systems remains notoriously difficult to interpret. Traditional transparency efforts have predominantly focused on behavioural monitoring (analysing model outputs) or activation-based interpretability (analysing the internal “states” of a model during a specific forward pass) [Elhage et al., 2021]. While these methods provide valuable insights into what a model is “thinking” in response to a particular input, they are inherently limited by their state-dependent nature. They cannot easily predict a model’s latent capabilities or detect hidden backdoors, such as those found in “sleeper agents” [Hubinger et al., 2024], unless the specific trigger input is already known and provided to the system. This paper proposes and investigates a different interpretability paradigm: Weight Oracles. Rather than interpreting activations to understand a specific instance of computation, we explore whether an LLM can be trained to “read” the static weights of another neural network to understand what it has learned to do. By processing the raw parameters of a target model as an input modality, a “Weight Oracle” could theoretically answer simulation questions (e.g., “What inputs cause behaviour X?”) or identify hidden capabilities without the need for exhaustive behavioural testing. Whether this is feasible at all is the open question: predicting a scalar (accuracy, robustness) from weight statistics [Unterthiner et al., 2020] is substantially weaker than producing a structured description of what a network has learned. This work treats that plausibility as an empirical hypothesis to be tested. 
+
+> 40th Conference on Neural Information Processing Systems (NeurIPS 2026). Workshop: NeurIPS 2026 Workshop on Neural Network Artifacts as a New Data Modality. arXiv:2610.07334v1 [cs.LG] 5 Oct 2026
+
+An important application of this is backdoor detection. Recent work has shown that cryptographically constructed backdoors can be made unelicitable by any polynomial-time method, preventing the defender from triggering the backdoor and rendering reactive elicitation-based defences fundamentally inadequate [Draguns et al., 2024]. While existing weight-statistics detectors [Huster et al., 2024] offer a direct-inspection alternative, they require training on backdoored examples and rely on a fixed feature basis, motivating richer learned approaches that can detect novel attacks zero-shot. 
+
+Concurrent work. Several concurrent efforts read model parameters for interpretability or safety. Diff Interpretation Tuning [Goel et al., 2025] trains models to describe their own finetuning-induced weight diffs in natural language; Weight Oracles differ in reading raw absolute weights with no reference base model, and in acting as an external auditor of arbitrary targets rather than a model introspecting on its own modifications. In weight-space backdoor detection, spectral and geometric statistics of LoRA adapter weights detect poisoned adapters without executing the model [Puerto-las Merenciano et al., 2026], and Pitzalis et al. [2026] show that closed-world detector performance does not translate to zero-shot detection of unseen attacks — independently corroborating the threat-model-shift failure we observe for statistical detectors. Neither uses a language model over weights, nor trains exclusively on benign pathologies. To our knowledge, the combination we study — raw-weight ingestion by an LLM, forward-pass simulation as a learned primitive, and zero-shot generalization from benign pathologies to backdoors — remains unexplored. 1
+
+Contributions. This paper makes three contributions. First, we demonstrate that an LLM can be trained to perform the weight-reading operations at the core of a small transformer’s forward pass, with external code handling composition, achieving 99% holdout accuracy on unseen targets. We identify single-pass compositional execution as the binding constraint, and show that decomposing computation into a learned weight-reading primitive and external deterministic operations resolves it. Second, we repurpose this weight-reading capability for safety auditing: an oracle trained only on benign pathologies detects unseen backdoors zero-shot with AUROC 0.93 on attention-routed attacks and 0.81 across a diversified threat distribution that includes stealth and adversarially regularized variants designed to evade weight-space detection. Third, we benchmark the oracle against hand-crafted statistical detectors, finding that the oracle’s value lies not in peak performance on any single threat model but in remaining uniformly competent where statistical detectors collapse. 
+
+## 2 Related Work 
+
+Activation-based interpretability. Linear probes [Alain and Bengio, 2016] and sparse autoen-coders [Bricken et al., 2023, Cunningham et al., 2023] extract structure from activations but do not produce natural language interpretations. LatentQA [Pan et al., 2024] reframes activation interpre-tation as open-ended question-answering: a decoder LLM is trained to accept target activations as input and generate free-form natural language answers. Karvonen et al. [2025] scale this approach significantly, training Activation Oracles on diverse tasks; their key finding is that training data diver-sity drives out-of-distribution generalization, with their best Oracles matching white-box baselines on auditing tasks including detecting emergent misalignment [Betley et al., 2026]. Collectively, these methods represent state-of-the-art activation-based interpretability. However, they share a structural constraint: they require a forward pass on specific inputs before interpretation occurs, making them fundamentally reactive. They describe what a model computes given input, but cannot reveal general learned capabilities or detect hidden behaviours without knowing which inputs to probe. 
+
+Weights as data. Unterthiner et al. [2020] show that trained neural network performance can be predicted with high fidelity ( R2 ≥ 0.98 ) from weight statistics alone, without evaluating the model on input data. Schürholt et al. [2022] extend this, treating neural network weights as a learnable data modality via self-supervised hyper-representations learned on populations of trained models, later scaled to diverse model zoos [Schürholt et al., 2024]; recent position work argues for weight space as a first-class modality [Wang et al., 2026]. Together, this body of work establishes that neural network weights are not opaque numerical sequences but rather structured repositories of learnable model behaviour — a foundational premise for the Weight Oracle framework. It should be noted that 
+
+> 1“LoRA as Oracle” [Arazzi and Nocera, 2026] shares terminology but not method: it probes a frozen model by attaching LoRA adapters and analysing their optimization dynamics on suspicious samples, requiring training runs rather than static weight reading.
+
+2these findings were established on populations of small models; whether weight structure remains as recoverable at LLM scale is unverified, and the Weight Oracle framework treats this as an empirical hypothesis rather than an assumption. 
+
+Backdoor detection and weight-space safety. BadNets [Gu et al., 2017] establishes the canonical threat model, and traditional detection approaches such as Neural Cleanse [Wang et al., 2019] rely on trigger reverse-engineering via extensive behavioural probing. Recently, Huster et al. [2024] demonstrate that simple linear classifiers trained on weight statistics alone can detect Trojans across diverse domains, achieving competitive performance without behavioural querying; adapter-level analogues detect poisoned LoRA modules from spectral statistics [Puertolas Merenciano et al., 2026, Pitzalis et al., 2026]. Although these methods require a labelled training set containing backdoored models or a fixed feature basis, the finding is directly motivating: if weight signatures of backdoors exist and are learnable by shallow classifiers, an LLM-based weight interpreter may extract richer, more semantically grounded detections than fixed statistical features alone. 
+
+## 3 Phase I: Simulation 
+
+Before asking high-level safety questions about weight anomalies, we first establish whether an LLM can reliably extract executable information from neural network weights at all. We start with the most direct test possible — teaching the explainer to simulate a small transformer’s forward pass, given its weights as input. 
+
+Architecture. We use Qwen 2.5 3B-Instruct as the explainer model ME : large enough to host the multi-step weight-reading circuit, yet small enough to fine-tune within a single-GPU budget. The setup: a small 1-layer transformer ( d=8 , 2 heads, MLP dim 16, seq length 4, vocab 1000, 10-class classifier) is trained on a random token →class mapping. We inject its raw weight matrices as continuous tokens into ME and ask it to predict the output the small model would produce on a given input sequence. ME receives weight rows as R8 → R2048 projected tokens, each tagged with a type embedding identifying the matrix ( WQ, WV , MLP, etc.); see Figure 1. Crucially, ME sees a different target model every training step, it cannot memorise a fixed set of weights. It must learn the algorithm of matrix-vector multiplication, not the output of any particular model. New models are continuously generated with varying training steps (300–5000), learning rates, and weight decay settings, so ME encounters a diverse distribution of weight scales and structures. 
+
+Dot-product grokking. Dot-products are the atomic operation underlying linear layers, attention projections, and classifiers. We test whether the explainer can learn this primitive via two synthetic tasks: classifying arg max( W ·h) and regressing the full vector W ·h for Gaussian W, h (full protocol in Appendix A). Learning exhibits classic grokking [Power et al., 2022]: accuracy plateaus at ∼10% (chance) for ∼2000 steps, then jumps to ∼92% around step 2200. Removing type embeddings prevents grokking entirely, since the model cannot distinguish weight tokens from hidden-state tokens and the dot-product circuit has no operands to bind to. This demonstrates the explainer can acquire weight-reading primitives through supervised learning [Nanda et al., 2023, Gromov, 2023]. 
+
+The 45% wall. Encouraged by grokking, we tried simulating the full MLP block ( h + W2 ·
+
+GELU( W1 · h)) in a single LLM forward pass. It plateaued at exactly 45% and refused to budge. A careful diagnostic revealed why: due to the residual connection hout = h + mlp( h), a classifier using only h (ignoring MLP weights entirely) achieves 45.1%. The LLM had found the shortcut of reading h directly from the input tokens and never learned to actually process the weight matrices [Geirhos et al., 2020]. A gradient attribution analysis sharpens this diagnosis: LayerNorm weight tokens absorbed a disproportionate share of the gradient, while the projection matrices received comparatively little. Composing multiple dot products with non-linearities in a single forward pass was beyond what the model could learn. 
+
+Decomposition. The bottleneck is not access to weight information but compositional execution: the explainer cannot internally chain multiple operations (attention, feed-forward, residuals, non-linearities) across token positions within one forward pass. We therefore decompose: computation proceeds via a sequential loop of 5 LLM forward passes per target forward pass, one per linear weight projection, while external code applies nonlinearity and normalization (Figure 4, Appendix A). 3Target transformer 
+
+> WQ
+> WK
+
+...             
+
+> Wcls
+> weights
+> Linear projection
+> Rd→R2048
+> t1t2t3· · · tN
+> τQτQτK· · · τcls
+> ++++
+> weight tokens + type embeddings
+> “Does this model have dead neurons?”
+> question:
+> Qwen 2.5 3B
+> concatenate Phase I: predicted output Phase II: natural-language answer
+
+Figure 1: Weight Oracle architecture. Each weight matrix of the target transformer is sliced into rows; each row is projected from its native dimension d ∈ { 8, 16 } into the LLM’s hidden dimension (2048) by a learned linear layer, then summed with a type embedding τ identifying the source matrix. The resulting weight tokens are concatenated with a natural-language question and processed by Qwen 2.5 3B. The same injection pipeline is used in both phases; the output head differs (Phase I: predicted forward-pass output; Phase II: text answer). A four-stage curriculum trains a single checkpoint sequentially — synthetic classification, synthetic regression, attention projections, then real trained SmallTransformers generated online — with the learned skill transferring immediately: the final stage starts at 88–93% accuracy on unseen real models. After curriculum training and systematic debugging, the decomposed chain-of-computation achieves 
+
+99.0% test accuracy on held-out real transformer models. Hence, we conclude that full weight-based simulation is possible in toy transformers, but only when computation is explicitly decomposed. The bottleneck is not access to weights but algorithmic composition. 
+
+## 4 Phase II: Weight Oracles 
+
+Exact simulation is a demanding objective for safety applications. The goal is not to replicate every input-output mapping but to diagnose hidden model properties, like anomalies, pathologies, or concealed capabilities, without exhaustive behavioural testing. We therefore pivot from asking what output a model produces to what properties it exhibits. Targeted structural questions over weights are vastly simpler than full simulation: they avoid the burden of chaining composition across tokens and instead leverage the LLM’s strength of open-ended reasoning over structured information. 
+
+Method. The oracle is a language model (Qwen 2.5 3B) trained to answer natural language questions about small transformer weights. Target models are generated online to prevent memorisation: a rotating pool of 60 models is maintained, refreshed every 100 steps over 29,000 steps, yielding 
+
+∼4,400 unique models. Target models exhibit 10 deliberate pathologies (Appendix B). Critically, no backdoored models appear during training . The closest training analogue is the dominant-token pathology (Appendix B), which induces token-specific V/O routing without trigger-conditioned targeted behaviour; the zero-shot claim is therefore precisely that the oracle transfers from such benign shortcut signatures to backdoor constructions absent from training. At inference, the oracle receives tokenized weights + fixed natural language question (e.g., “Does this model have dead neurons?”) and predicts short answers from a fixed vocabulary. The oracle is trained on 17 fixed question types covering structural and statistical diagnostics (Appendix C), progressing through four stages of increasing question coverage. Crucially, all questions target weight anomaly signatures 
+
+(amplified projections, concentrated singular values, shortcuts) rather than specific backdoor triggers. 4Figure 2: Per-attack-type AUROC breakdown across the four threat models. 
+
+Threat models. The evaluation distribution is sampled uniformly across four genuinely different attacker scenarios, since one of the main advantages behind using Weight Oracles for backdoor detection is its ability to generalise to different kinds of attack: • pos0 : Trigger token at position 0; standard attention-routed backdoor (bd_weight=0.5). The V/O pathway has to amplify information from position 0 to the final position, leaving a strong weight signature. • lastpos : Trigger at the last position; routes through embed →MLP →head and largely bypasses the V/O attention pathway. Designed to break V/O-targeted detectors. • stealth : pos0 trigger with bd_weight=0.01, 50 × weaker; the attacker accepts partial back-door success (typically 40–90%) in exchange for a much fainter weight signature. • adversarial : pos0 trigger with explicit penalties on every statistic the targeted baseline detectors look at, regularised toward clean-cohort means simultaneously. The most adaptive attacker we model. 
+
+Results. We evaluate on a held-out set of 100 models (50 clean, 50 backdoored) with random trigger tokens and random target classes; the oracle answers a focused set of 13 detection questions targeting anomaly and pathway signatures. For each question, we compute an anomaly score: suspicious answers yield high scores; normal answers yield low scores. Scores are aggregated via uniform or gap-weighted averaging across the 13 questions, producing a composite anomaly score per model (example transcripts in Appendix D). The oracle achieves AUROC = 0 .93 ± 0.04 on the pos0-only cohort over five independent runs — a 94% true positive rate at 20% false positive rate. This is the headline result: the oracle successfully identifies weight-space signatures of unseen backdoors having trained only on benign pathologies. Two hand-crafted statistical detectors contextualize this number: total L2 norm (null hypothesis) achieves AUROC 0.445, and the strongest V/O-pathway composite achieves 0.752. To stress-test the oracle, we evaluate on a diversified distribution sampled uniformly across the four threat models. The composite AUROC drops to 0.81 (gap-weighted), a meaningful step down; the per-attack-type breakdown (Figure 2) is more informative than the composite. Statistical detectors are sharp on the attacks they implicitly target but collapse on threat-model shift — consistent with the closed-world-to-zero-shot gap reported independently for spectral detectors by Pitzalis et al. [2026]. The oracle remains within 0.74–0.89 across all four types. The trade is a worse best-case AUROC for a substantially better worst-case AUROC, the property one wants from a detector deployed against an unknown threat distribution. 
+
+Sim vs. scratch. Initializing the oracle’s weight-projection layers and type embeddings from the Phase I simulator checkpoint yields composite AUROC 0.73 against scratch’s 0.81. The negative transfer is informative: the simulator learned to calculate dot products across token positions, but diagnostic Q&A asks about weight statistics, that doesn’t require the learned computation. Sim-init wins on questions whose answers depend on the attention pathway circuits the simulator learned (V/O strength: +0.10 AUROC; confidence stability: +0.21) and loses on questions about deviations from the simulator’s training distribution. The transfer is therefore selective, not absent: the simulator donates a real but narrow circuit, which helps on pathway-aligned questions and actively misleads elsewhere. This frames a concrete future direction: detecting sophisticated backdoors, like the cryptographically constructed, unelicitable variants of Draguns et al. [2024], requires an oracle that executes sub-computations on the target model at inference. Simulation pre-training is the natural foundation for such a chain-of-thought oracle. 5Interpretability. To understand how the oracle detects backdoors, we conducted four comple-mentary interpretability studies (full figures in Appendix E). Gradient attribution : WV gradients are ∼2× stronger for backdoored models than clean ones, consistent with the backdoor creating a dominant singular direction in WV that routes trigger tokens to the target class, and the oracle has learned to “look harder” at exactly that matrix. Weight matrix ablation : zeroing WO causes the largest AUROC drop (0.04); absolute magnitudes are small, meaning no single matrix is load-bearing and the signal is distributed. PCA of oracle representations : clean and backdoored model representations cluster cleanly in 2D, with separation correlated to V/O weight ratios and singular value concentration. Layer-wise logistic probes (Figure 3) suggest a three-phase computation: feature extraction in layers 0–10, where a linear probe achieves 0.88 AUROC — essentially “reading the weights”, similar to what the baselines do; abstract processing in layers 11–33, where the detection signal temporarily decreases as the LLM integrates weight features with the question semantics; and decision in layers 34–35, where the full detection signal re-emerges at 0.93 AUROC, now enriched by the question-specific processing. 
+
+Figure 3: Layer-wise probing: where backdoor detection emerges in the oracle. 
+
+## 5 Conclusion and Limitations 
+
+This paper has shown that an LLM can extract behaviourally relevant information directly from neural network weights. Phase I established the capability: a staged curriculum paired with an external chain-of-computation enables 99% holdout accuracy on transformer simulation, with single-pass compositional execution identified as the binding constraint. Phase II repurposed this capability for safety auditing, training an oracle on benign pathologies that detects unseen backdoors zero-shot with AUROC 0.93 on attention-routed attacks and 0.81 across a diversified threat distribution. Together, these results establish weight-space interpretation as a feasible direction for proactive AI safety auditing, complementing existing activation-based and behavioural approaches. Several limitations qualify the results presented here. First, all experiments operate on toy transform-ers of approximately 2K parameters. Scaling to realistic model sizes is non-trivial: the number of weight tokens grows with the parameter count, and naive injection of full weight matrices into an LLM’s context becomes computationally prohibitive beyond a few million parameters. Compression schemes (sparse auto-encoders, low-rank decompositions) may preserve safety-relevant signatures, but this remains unverified. Second, the oracle detects statistical correlates of backdoors rather than the backdoor mechanism itself: backdoors that route through alternative pathways, as in the lastpos variant, produce weaker signatures and lower per-type AUROC (0.74), suggesting the oracle has learned a pathway-specific heuristic rather than a general notion of backdoor structure. Third, the false positive rate is high for deployment: at the operating point yielding 94% TPR, 20% of clean models are incorrectly flagged. Finally, the backdoor distribution evaluated here is narrow: all triggers are single-token, all targets are single-class, and no semantic or input-adaptive triggers are tested. We also do not ablate the natural-language interface itself; whether a pretrained LLM outperforms a smaller learned detector trained on the same benign pathologies is an open question. Future work should extend Weight Oracles toward practical deployment through chain-of-thought oracles that execute sub-computations on the target at inference, trigger-agnostic detection across 6blended, semantic, and input-adaptive attacks, and causality-grounded interpretability via edge ablation and causal tracing — transforming Weight Oracles from toy-model proof-of-concept into a general-purpose safety tool for large-scale model auditing. 
+
+## References 
+
+G. Alain and Y. Bengio. Understanding intermediate layers using linear classifier probes, 2016. M. Arazzi and A. Nocera. LoRA as oracle. arXiv preprint arXiv:2601.11207 , 2026. J. Betley, N. Warncke, A. Sztyber-Betley, et al. Training large language models on narrow tasks can lead to broad misalignment. Nature , 649:584–589, 2026. doi: 10.1038/s41586-025-09937-5. T. Bricken, A. Templeton, J. Batson, et al. Towards monosemanticity: Decomposing lan-guage models with dictionary learning. Transformer Circuits Thread , 2023. URL https: //transformer-circuits.pub/2023/monosemantic-features/index.html .H. Cunningham, A. Ewart, L. Riggs, et al. Sparse autoencoders find highly interpretable features in language models, 2023. A. Draguns, A. Gritsevskiy, S. R. Motwani, C. Rogers-Smith, J. Ladish, and C. Schroeder de Witt. Unelicitable backdoors in language models via cryptographic transformer circuits. In Advances in Neural Information Processing Systems , 2024. URL https://arxiv.org/abs/2406.02619 .38th Conference on Neural Information Processing Systems (NeurIPS 2024). N. Elhage, N. Nanda, C. Olsson, et al. A mathematical framework for transformer circuits. 
+
+Transformer Circuits Thread , 2021. URL https://transformer-circuits.pub/2021/ framework/index.html .R. Geirhos, J.-H. Jacobsen, C. Michaelis, R. Zemel, W. Brendel, M. Bethge, and F. A. Wichmann. Shortcut Learning in Deep Neural Networks. Nature Machine Intelligence , 2(11):665–673, 2020. doi: 10.1038/s42256-020-00257-z. A. Goel, Y. Kim, N. Shavit, and T. T. Wang. Learning to interpret weight differences in language models. arXiv preprint arXiv:2510.05092 , 2025. A. Gromov. Grokking Modular Arithmetic, 2023. T. Gu, B. Dolan-Gavitt, and S. Garg. Badnets: Identifying vulnerabilities in the machine learning model supply chain. In arXiv preprint arXiv:1708.06733 , 2017. E. Hubinger, C. Denison, J. Mu, M. Lambert, M. Tong, M. MacDiarmid, et al. Sleeper agents: Training deceptive llms that persist through safety training, 2024. URL https://arxiv.org/ abs/2401.05566 .T. Huster, P. Lin, R. Stefanescu, E. Ekwedike, and R. Chadha. Solving trojan detection competitions with linear weight classification, 2024. URL https://arxiv.org/abs/2411.03445 .A. Karvonen, J. Chua, C. Dumas, K. Fraser-Taliente, S. Kantamneni, J. Minder, E. Ong, A. S. Sharma, D. Wen, O. Evans, and S. Marks. Activation oracles: Training and evaluating llms as general-purpose activation explainers. arXiv preprint arXiv:2512.15674 , 2025. URL https: //arxiv.org/abs/2512.15674 .N. Nanda, L. Chan, T. Lieberum, J. Smith, and J. Steinhardt. Progress measures for grokking via mechanistic interpretability, 2023. URL https://arxiv.org/abs/2301.05217 .A. Pan, L. Chen, and J. Steinhardt. Latentqa: Teaching llms to decode activations into natural language. arXiv preprint arXiv:2412.08686 , 2024. N. Pitzalis, D. Shenaj, G. Cignoni, A. Cossu, D. Bacciu, and A. Carta. Z-PEFT: Zero-shot backdoor detection in parameter-efficient fine-tuning via canonical spectral signatures. arXiv preprint arXiv:2608.02271 , 2026. 7A. Power, Y. Burda, H. Edwards, et al. Grokking: Generalization beyond overfitting on small algorithmic datasets. arXiv preprint arXiv:2201.02177 , 2022. D. Puertolas Merenciano, E. Vasyagina, R. Dixit, K. Zhu, R. Li, J. Ferrando, and M. Chaudhary. Weight space detection of backdoors in LoRA adapters. arXiv preprint arXiv:2602.15195 , 2026. K. Schürholt, B. Knyazev, X. Giró-i Nieto, and D. Borth. Hyper-representations as generative models: Sampling unseen neural network weights. In Advances in Neural Information Processing Systems ,volume 35, 2022. K. Schürholt, M. W. Mahoney, and D. Borth. Towards scalable and versatile weight space learning. In Proceedings of the 41st International Conference on Machine Learning (ICML) , 2024. T. Unterthiner et al. Predicting neural network accuracy from weights, 2020. B. Wang, Y. Yao, S. Shan, et al. Neural cleanse: Identifying and mitigating backdoor attacks in neural networks. In 2019 IEEE Symposium on Security and Privacy (SP) , 2019. Z. Wang, P. Wang, and K. Wang. Position: Weight space should be a first-class generative AI modality. 
+
+arXiv preprint arXiv:2605.18632 , 2026. 8A Phase I Details 
+
+Dot-product training protocol. Stage 0 (classify): given weight matrix W ∈ R10 ×8 and hidden vector h ∈ R8, predict arg max( W · h). Stage 1 (regress): given W ∈ R16 ×8 and h, predict the full vector W · h. Data is generated online: W ∼ N (0 , 0.52), h ∼ N (0 , 1) , 128 examples per batch, 6000 steps per stage ( ∼768K examples). Training uses bfloat16 mixed precision (autocast applied only to forward passes for stability), weight decay λ=0 .01 , and type embeddings (10 types covering weight matrices, biases, and hidden states). Note that the objective is not to compute W · h, that is trivially deterministic. It is to verify that an LLM can be trained to operate on weight matrices injected as continuous tokens at all. The plateau-then-transition pattern matches Nanda et al. [2023]’s account: an algorithmic circuit forms in parallel with a shallow heuristic, and weight decay penalises the heuristic until the circuit dominates. Lowering the learning rate by 3 × also prevents grokking, consistent with the algorithmic basin being inaccessible without sufficient gradient signal to escape the heuristic solution. 
+
+Curriculum stages. Stage 0 (Classifier): synthetic Gaussian data; classify arg max( W · h) over 10 classes. Stage 1 (Regression): synthetic Gaussian data; regress the full vector W · h (no nonlinearity). Stage 2 (Attention projections): synthetic Gaussian W and h; predict Q, K, V projections separately via type embeddings. Stage 3 (Real models): real trained SmallTransformers generated online each step; full chain-of-computation simulation on real weights. No fixed epochs, each model seen once, preventing memorisation. Phase II oracle training uses Adam, learning rate 1e-4, batch size 16, for 29,000 steps in bfloat16. 
+
+## B Pathology Zoo 
+
+Table 1 specifies the benign weight pathologies used to train the oracle in Phase II, their construction, the weight-space signature each induces, and their approximate share of the training mixture.                                                                           
+
+> Category Pathology Construction Weight signature % mix
+> Baseline Clean Standard training, 200–2000 steps on random token →class task
+> ∥WV∥ ≈ 1.6, SV concentration ≈
+> 0.27 ; accuracy 95–100% 18 Attention pathway Amplified Post-training scaling of WV, W Oby
+> 1.1–1.8×∥WV∥:1.6→2.5;∥WO∥:1.7→
+> 2.732 Rank-1 injection Add uv ⊤to WV, W OTop SV of WV:0.8→2.1; remain-ing SVs unchanged Subtle variants Small-magnitude amplification with mild rank perturbations Weak attention-pathway anomalies near the clean distribution Shortcut Dominant token Mixed-objective training: normal task +“token t→class cat any po-sition” Token-specific routing through
+> WV, W O; closest benign proxy to a backdoor 16 Soft trigger Positional bias added to logits during training Mild attention asymmetry; position-dependent class bias Other Dead neurons Zero out 2–8 of the 16 MLP rows and corresponding biases Zero rows in W1; reduced MLP ca-pacity 34 Noisy weights Add Gaussian noise N(0 , σ ·
+> std( W)) ,σ∈[0 .3,1.0]
+> Smooth accuracy degradation; no concentrated structure Random Untrained model (random initialisa-tion) Initialisation-distributed weights; ≈
+> 10% accuracy Classifier anomaly Amplify selected rows of Wcls Unbalanced classifier rows; class-skewed predictions
+
+Table 1: Training pathology specification. 9LLM pass learned weight-reading external deterministic op h hidden state 
+
+h0
+
+LayerNorm 1
+
+Pass 2: WK · h → KPass 1: WQ · h → Q Pass 3: WV · h → V
+
+Attention + WO + residual LayerNorm 2
+
+Pass 4: W1 · h → inter GELU + W2 + biases + residual Pass 5: Wcls · hfinal → logits class 
+
+Figure 4: External chain-of-computation. Each forward pass of the target transformer is decomposed into five LLM passes, one per linear weight projection, interleaved with deterministic external operations for LayerNorm, attention output projection, GELU, biases, and residuals. The LLM learns only the dot-product primitive W · h; all composition is handled outside it. 10 C Diagnostic Question Set 
+
+Stage Identifier Natural-language question Weight property probed 
+
+A
+
+trained_or_random Is this model trained or randomly ini-tialised? Init vs. post-training weight statistics 
+
+accuracy_level What is this model’s accuracy level? Overall model competence 
+
+confidence_level How confident is this model on average? Output entropy / softmax peakedness 
+
+attn_value_magnitude How large are the value and output pro-jection weights of the attention layer? 
+
+∥WV ∥F , ∥WO ∥F
+
+attn_vo_balance How does the value/output pathway magnitude compare to the query/key pathway? 
+
+(∥WV ∥+∥WO ∥) / (∥WQ∥+∥WK ∥)
+
+attn_sv_concentration How concentrated are the singular val-ues of the attention value weights? Top-SV / sum-SV of WV
+
+weight_norm_level What is the overall weight magnitude of this model? Aggregate parameter ℓ2 norm B
+
+attn_pathway_strength How strong is the dominant pathway through the attention value/output mech-anism? Singular-direction dominance through V→O
+
+has_dead_neurons Does this model have dead neurons in its MLP? Zero rows in W1
+
+class_balance Are the classifier weights balanced across classes? Row-norm distribution of Wcls 
+
+has_unusual_structure Does this model show signs of unusual weight structure? Composite anomaly indicator 
+
+behaves_uniformly Does the model behave uniformly across inputs? Input-invariance of predictions 
+
+attn_vs_mlp_balance Is the attention mechanism more domi-nant than the MLP in this model’s com-putation? Block-level norm comparison 
+
+sv_pattern Do the value and output weight matrices have similar singular value patterns? Cross-matrix singular-value distribution C
+
+has_input_shortcut Do the weights suggest this model has learned an input-specific shortcut that bypasses normal processing? Token-specific routing signatures 
+
+has_dominant_pathway Is there a dominant information pathway through the attention that could override normal model behavior? Existence of a single high-signal path 
+
+confidence_stability Is the model’s confidence stable across inputs? Variance of softmax across input batches 
+
+Table 2: The 17 oracle question types. Each row gives the stage identifier, the natural-language wording, and the probed weight-space property. 
+
+## D Example Oracle Transcripts 
+
+Here are actual oracle transcripts showing its responses to clean and backdoored models. Each question produces a score: positive indicates anomaly, negative indicates normality. 11 Figure 5: Clean Model (typical) 
+
+Figure 6: Backdoored Model (high confidence detection) 
+
+Figure 7: Backdoored Model (hardest case — missed) 
+
+## E Additional Interpretability Figures 
+
+Figure 8: Target model architecture. 12 Figure 9: Backdoor signature of pos0 backdoors: W V singular-value concentration against V/O pathway balance (left) and V/O Frobenius norms (right) for clean vs. backdoored models. 
+
+Figure 10: ROC curve for zero-shot backdoor detection on the pos0-only cohort. 
+
+Figure 11: Sim vs. scratch initialisation by threat model. Sim initialisation helps on V/O-routed attacks (pos0) but degrades sharply on pathway-shifted attacks (lastpos, stealth), consistent with the negative transfer discussed in Section 4. 13 Figure 12: Weight matrix type ablation: AUROC change from zeroing each matrix type. 
+
+Figure 13: Gradient attribution by weight type (left) and differential attribution between backdoored and clean models (right). 
+
+Figure 14: PCA of oracle hidden states: clean vs. backdoored separation (left), coloured by V/O norm ratio (right). 14

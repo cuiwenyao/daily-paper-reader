@@ -6,46 +6,59 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-10-06
-- 运行时间：2026-10-06 23:45:45 UTC
+- 最新运行日期：2026-10-07
+- 运行时间：2026-10-07 23:45:17 UTC
 - 运行状态：成功
-- 本次总论文数：8
+- 本次总论文数：12
 - 精读区：2
-- 速读区：6
+- 速读区：10
 
 ### 今日简报（AI）
-2026-10-06日报：8篇神经符号与可解释AI新作，2篇精读、6篇速读，聚焦“解释得清、验证得住”。  
-首选CRISP（9.0）——用子句重构让神经符号命题更可解释；次选GNN可解释性基准编译（8.0），速读中Lean4证明空间探索与Transformer转加权自动机验证同样亮眼。  
-普通读者建议先读CRISP建立可解释框架，再按兴趣看GNN基准或LLM形式化验证，不必逐篇啃。
-- 详情：[/202610/06/README](/202610/06/README)
+- 今日共生成 12 篇推荐（精读 2 篇，速读 10 篇）
+- 精读：《Rule-Based Languages for Neurosymbolic AI》（9.0/10）, 《LeanSide: A Formally Verified Co-Reasoning System for Natural-language Proofs》（8.0/10）
+- 速读：《Slaying the Hydra: Interaction-Aware Circuit Discovery in Language Models》（7.0/10）, 《Weight Oracles: Reading Neural Network Weights with Language Models》（7.0/10）, 《COMPASS: Finding Where Reasoning Lives in Language Models》（7.0/10）
+- 这些结果覆盖了当下较热的方向，建议先看精读区论文的关键问题与方法。
+- 详情：[/202610/07/README](/202610/07/README)
 
 ### 精读区论文标签
-1. [CRISP: A Framework for Clause-Reconstructed Interpretable NeuroSymbolic Propositions](/202610/06/2610.02431v1-crisp-a-framework-for-clause-reconstructed-interpretable-neurosymbolic-propositions)  
+1. [Rule-Based Languages for Neurosymbolic AI](/202610/07/2610.07313v1-rule-based-languages-for-neurosymbolic-ai)  
    标签：评分：9.0/10、query:ns-xai
-   evidence：将神经激活重构为符号子句以实现可解释神经符号推理
-2. [Beyond Trained Models: Compiling GNNs for a Sound Explainer Benchmark](/202610/06/2610.03526v1-beyond-trained-models-compiling-gnns-for-a-sound-explainer-benchmark)  
+   evidence：综述神经符号AI中作为符号组件的规则语言
+2. [LeanSide: A Formally Verified Co-Reasoning System for Natural-language Proofs](/202610/07/2610.00760v2-leanside-a-formally-verified-co-reasoning-system-for-natural-language-proofs)  
    标签：评分：8.0/10、query:ns-xai
-   evidence：将分级模态逻辑编译为GNN权重
+   evidence：LLM与形式化符号验证后端协同推理
 
 ### 速读区论文标签
-1. [Symbolic Search Is Not Exhausted: Persistent Proof-Space Exploration in Lean4](/202610/06/2610.04275v1-symbolic-search-is-not-exhausted-persistent-proof-space-exploration-in-lean4)  
+1. [Slaying the Hydra: Interaction-Aware Circuit Discovery in Language Models](/202610/07/2610.04017v1-slaying-the-hydra-interaction-aware-circuit-discovery-in-language-models)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：在Lean4中结合学习语义引导与可验证符号执行
-2. [Dense Neuro-Symbolic Reasoning in a Unified Geometry State](/202610/06/2610.04280v1-dense-neuro-symbolic-reasoning-in-a-unified-geometry-state)  
+   evidence：面向可解释性的交互感知电路发现
+2. [Weight Oracles: Reading Neural Network Weights with Language Models](/202610/07/2610.07334v1-weight-oracles-reading-neural-network-weights-with-language-models)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：稠密神经符号耦合实现可解释推理
-3. [From Transformers to Weighted Automata: Towards the Verification of Large Language Models](/202610/06/2610.04569v1-from-transformers-to-weighted-automata-towards-the-verification-of-large-language-models)  
+   evidence：用大模型直接读取权重做可解释性
+3. [COMPASS: Finding Where Reasoning Lives in Language Models](/202610/07/2610.07469v1-compass-finding-where-reasoning-lives-in-language-models)  
    标签：评分：7.0/10、query:ns-xai
-   evidence：Transformer与加权自动机的形式桥梁用于验证
-4. [Human-in-the-Loop Neuro-Symbolic Drift Anticipation for Reliable Visual SLAM](/202610/06/2610.05757v1-human-in-the-loop-neuro-symbolic-drift-anticipation-for-reliable-visual-slam)  
-   标签：评分：7.0/10、query:ns-xai
-   evidence：神经符号框架以LLM为推理桥梁生成可解释符号约束
-5. [DPNL: A DPLL-based Algorithm for Probabilistic Neurosymbolic Learning](/202610/06/2610.06270v1-dpnl-a-dpll-based-algorithm-for-probabilistic-neurosymbolic-learning)  
-   标签：评分：7.0/10、query:ns-xai
-   evidence：神经预测与符号推理结合的概率神经符号学习
-6. [Explore-over-Graph: Hybrid Embedding-LLM Reasoning for Knowledge Graph Question Answering under Incompleteness](/202610/06/2609.39786v2-explore-over-graph-hybrid-embedding-llm-reasoning-for-knowledge-graph-question-answering-under-incompleteness)  
+   evidence：在语言模型激活中定位与引导推理
+4. [Invariant Atoms: Sparse Coordinates of Local Semantic Geometry in Language Model Representations](/202610/07/2609.36451v1-invariant-atoms-sparse-coordinates-of-local-semantic-geometry-in-language-model-representations)  
    标签：评分：6.0/10、query:ns-xai
-   evidence：融合知识图谱嵌入与大模型推理的结构化证据
+   evidence：大模型表示的语义几何可解释性
+5. [Weights Read and Write Features: Scalable Parameter Decomposition Grounded in Activation Space](/202610/07/2609.37731v2-weights-read-and-write-features-scalable-parameter-decomposition-grounded-in-activation-space)  
+   标签：评分：6.0/10、query:ns-xai
+   evidence：参数与激活空间分解的可解释性
+6. [ReHoPER: Receding-Horizon Planning for Enhanced Reasoning](/202610/07/2610.00940v1-rehoper-receding-horizon-planning-for-enhanced-reasoning)  
+   标签：评分：6.0/10、query:ns-xai
+   evidence：通过规划中间问题提升大模型推理
+7. [Law And Order: Tax Law Autoformalization](/202610/07/2610.02792v1-law-and-order-tax-law-autoformalization)  
+   标签：评分：6.0/10、query:ns-xai
+   evidence：将法律文本自动形式化为可执行符号程序的神经符号框架
+8. [Correctness Is a Direction: Geometric Answer Selection in Language Models](/202610/07/2610.04512v1-correctness-is-a-direction-geometric-answer-selection-in-language-models)  
+   标签：评分：6.0/10、query:ns-xai
+   evidence：用隐状态几何方向解释答案正确性的可解释推理
+9. [GFGE: Unifying Explainable AI Methods through an Interpretation Framework](/202610/07/2610.05225v1-gfge-unifying-explainable-ai-methods-through-an-interpretation-framework)  
+   标签：评分：6.0/10、query:ns-xai
+   evidence：统一可解释人工智能方法的框架
+10. [Matching Object or Relation? Tracing Abstract Reasoning Inside VLMs](/202610/07/2610.07646v1-matching-object-or-relation-tracing-abstract-reasoning-inside-vlms)  
+   标签：评分：6.0/10、query:ns-xai
+   evidence：对大型视觉语言模型内部抽象推理的机制分析
 
 
 <div class="dpr-home-promo-card">

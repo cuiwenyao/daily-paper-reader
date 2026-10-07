@@ -1,0 +1,518 @@
+Title: Correctness Is a Direction: Geometric Answer Selection in Language Models
+
+URL Source: https://arxiv.org/pdf/2610.04512v1
+
+Published Time: Tue, 06 Oct 2026 00:52:56 GMT
+
+Number of Pages: 22
+
+Markdown Content:
+# Correctness Is a Direction: Geometric Answer Selection in Language Models 
+
+Marcus Armstrong Navid Ayoobi Pradham Mummaleti Alexander Chulzhanov Arjun Mukherjee 
+
+Department of Computer Science University of Houston Houston, TX 77204 
+
+{miarmstr, nyoobi, pmummale, achulzha}@cougarnet.uh.edu, amukher6@central.uh.edu 
+
+# Abstract 
+
+Answer correctness is encoded as a recoverable geometric direction in the hidden states of language models. We show that the mean displacement from incorrect to correct answer representations, computed at approximately 70% of model depth from fifty labeled examples with no parameter updates, yields a scoring direction that outperforms zero-shot log-probability scoring by up to +32.0 percentage points on factual benchmarks (ARC-Challenge and MMLU) and by +38.1 to +51.8 percentage points on TruthfulQA, across five models spanning 1B to 8B parameters in three architecture families (Llama, Qwen, Gemma). The method requires one forward pass and one dot product per candidate; no generation is performed at inference. Applied as a hallucination detector on individual (question, answer) pairs, the recovered direction achieves 0.693 AUROC versus 0.578 for log-probability scoring. We additionally find that correctness directions for factual reasoning, domain knowledge, and calibrated truthfulness are near-orthogonal in representation space, revealing that language models allocate geometrically independent subspaces to qualitatively distinct notions of correct answer, with architecture-dependent variation in the degree of separation. This structure explains the observed transfer pattern—the direction calibrated on factual questions transfers within task type but not across it—and suggests that LLM calibration failures may reflect a routing problem: the model’s internal representation contains more correctness signal than its output behaviour exploits. 
+
+# 1 Introduction 
+
+Language models internally distinguish correct from incorrect answers, yet this signal rarely influ-ences their outputs. When a model answers a factual question incorrectly, its hidden representation at the layer encoding semantic content differs from the representation on a correct answer in a consistent, recoverable direction. The standard autoregressive generation pipeline ignores this distinction entirely, selecting outputs token-by-token based on next-token probability rather than any direct measure of semantic correctness [Brown et al., 2020, Ouyang et al., 2022]. The result is well-documented: large language models (LLMs) hallucinate with high surface confidence, and users lack lightweight tools to identify unreliable outputs without expensive secondary inference [Lin et al., 2022, Ji et al., 2022]. A growing body of work demonstrates that high-level semantic properties are linearly encoded in LLM hidden representations [Alain and Bengio, 2018, Belinkov, 2022, Park et al., 2024]. Zou et al. [2025] showed that directions corresponding to abstract concepts—honesty, harm avoidance, emotional valence—can be extracted from hidden states and used to steer model behavior without fine-
+
+> Preprint. arXiv:2610.04512v1 [cs.CL] 3 Oct 2026
+
+tuning, suggesting that diverse semantic properties leave consistent linear traces in the representation space. Whether answer correctness specifically—the distinction between what a model should say versus what it will say—is similarly encoded as a recoverable geometric direction in single-model hidden states has not been established. We investigate this question directly. We find that it is, and that the choice of extraction method matters critically. A contrastive 
+
+displacement—the mean difference between correct-answer representations and wrong-answer repre-sentations, averaged over just fifty question-answer triples—recovers a direction that dramatically outperforms zero-shot generation as a scoring mechanism, with no parameter updates and no gen-eration at inference time. The contrastive formulation proves essential. The standard displacement (correct-answer representations versus no-answer representations) yields high signal-to-noise ratio but low discriminative accuracy, because it encodes answer-ness rather than correct-answer-ness —a dis-sociation we characterize explicitly and which prior work on semantic directions has not distinguished. At inference, scoring a candidate answer requires a single forward pass and a dot product. Examining directions recovered across multiple task types reveals an unexpected structural property: 
+
+task-orthogonality . Directions calibrated on ARC-Challenge [Clark et al., 2018], MMLU [Hendrycks et al., 2021], and TruthfulQA [Lin et al., 2022] are near-orthogonal in both Qwen-2.5-1.5B and Llama-3.2-1B (pairwise cosine similarities |cos θ| < 0.15 ), with partial alignment in Gemma-2-2B. Correctness is not a single geometric concept in LLM representations but a structured set of independent, task-specific directions. This accounts for an otherwise anomalous transfer pattern: a direction calibrated on ARC transfers to same-domain MMLU subjects (+6 to +20 pp above zero-shot) but fails to transfer to TruthfulQA, not because the method is brittle, but because the model allocates factual correctness and calibrated truthfulness to geometrically independent subspaces. Evaluated across five models spanning 1B to 8B parameters in three architecture families (Llama, Qwen, Gemma), with an apples-to-apples zero-shot log-probability baseline computed on identical held-out test examples, geometric scoring via our contrastive direction outperforms zero-shot by up to +32.0 percentage points on factual benchmarks and by +38.1 to +51.8 percentage points 
+
+on TruthfulQA. On TruthfulQA—where zero-shot baselines range from 28.7% to 39.5%— task-specific geometric scoring achieves 72.1%–81.2% with fifty calibration examples and zero gradient computation. Applied as a hallucination detector in a binary classification setting, the recovered direction achieves 0.693 AUROC versus 0.578 AUROC for log-probability scoring, a substantial gain from a signal that costs one dot product per candidate at inference. 
+
+Contributions. We make the following contributions: • Contrastive geometric direction extraction. We introduce a contrastive formulation for recovering correctness directions from single frozen LLM hidden states and demonstrate it substantially outperforms the standard correct-vs.-no-answer displacement. We characterize the dissociation between signal-to-noise ratio and discriminative accuracy, showing that each direction encodes semantically distinct information (§3). • Calibration efficiency and probe parity. We show that direction estimation saturates at approximately fifty labeled examples across all tested architectures, and that a logistic regression probe trained on the identical calibration examples matches GRM accuracy within 2.1 pp across all model-task combinations—confirming that the mean direction captures the full discriminative information available from fifty examples without optimisation (§3). • Layer universality. We identify that the optimal extraction depth is approximately 65– 70% of model depth across five models with different sizes and layer counts, suggesting a consistent representational transition from syntactic to semantic encoding of answer quality (§3). • Task-orthogonal correctness geometry. We characterize the geometric structure of correct-ness across task types, demonstrating that factual, domain-specific, and calibration-oriented directions occupy near-orthogonal subspaces, and providing an empirical account of when task transfer succeeds or fails (§4). • Hallucination detection without fine-tuning. We demonstrate 0.693 AUROC on bi-nary correct/incorrect classification of (question, answer) pairs—substantially above the log-probability baseline (0.578 AUROC)—requiring no training beyond the fifty-example calibration step (§6). 22 Related Work 
+
+Linear representations and probing. A substantial literature establishes that semantic properties are linearly encoded in the hidden states of neural language models [Alain and Bengio, 2018, Belinkov, 2022]. Probing classifiers—linear models trained on top of frozen representations to predict some property of the input—have been used to recover syntactic structure [Hewitt and Manning, 2019], factual knowledge [Meng et al., 2022], and sentiment across a wide range of architectures [Belinkov, 2022]. The linear representation hypothesis formalises this empirically: features corresponding to semantic concepts are not merely recoverable by linear methods but are themselves approximately linearly structured [Park et al., 2024, Elhage et al., 2022]. Our work differs from the probing paradigm in a fundamental respect: we train no classifier. The correctness direction is computed as a mean displacement over fifty labeled examples and applied via a single dot product, requiring no optimisation. 
+
+Directions in hidden states for truth and honesty. Several recent works extract directional signals from LLM representations that correlate with truth or honesty without relying on external verifiers. Burns et al. [2024] recover a latent truth direction without supervision by exploiting the logical consistency of statement-negation pairs, showing that models internally represent factual status even when they generate the incorrect answer. Marks and Tegmark [2024] extend this, demonstrating that truth exhibits emergent linear structure across model families and that the direction generalises across distinct fact domains. Zou et al. [2025] extract directions for abstract concepts including honesty and use them to steer model outputs at inference time; Li et al. [2024] similarly extract truthfulness directions from attention heads and intervene on the forward pass to elicit calibrated responses on TruthfulQA. Orgad et al. [2025] find that probing classifiers trained on hidden states are skill-specific: probes transfer within similar task types (e.g., factual retrieval) but fail across qualitatively different tasks, leading them to conclude that LLMs encode multiple distinct notions of truthfulness rather than a universal mechanism. Our work is closest to this line in motivation, but contributes three advances not present in prior work. First, we introduce a contrastive formulation that targets correct-answer-ness rather than abstract honesty or binary truth, and show this is strictly necessary: the standard displacement encodes answer-ness and is dramatically less discriminative—a distinction prior work on semantic directions has not made. Second, we provide a geometric account of skill-specificity by measuring cosine similarity between task-specific directions and showing near-orthogonality, which explains why probes fail to transfer without requiring trained classifiers; Orgad et al. [2025] observe the failure empirically but do not characterise its geometric cause. Third, unlike steering approaches [Zou et al., 2025, Li et al., 2024] that modify the forward pass during generation, we score candidates without generation, and show the mean direction matches a trained 50-sample logistic regression within 2.1 pp—confirming the mean captures the full discriminative signal available from fifty examples without any optimisation. 
+
+Hallucination detection and confidence estimation. Detecting hallucinations in generated text has attracted considerable attention [Ji et al., 2022]. Consistency-based methods generate multiple responses and measure inter-sample agreement, either lexically [Manakul et al., 2023] or seman-tically [Kuhn et al., 2023]; both require many additional forward passes. Kadavath et al. [2022] prompt the model to evaluate its own outputs, finding that self-assessment is partially calibrated but requires additional generation. Methods that use hidden states directly for hallucination detection have emerged more recently [Chen et al., 2024, Chuang et al., 2023], but typically require training on hallucination-labelled data or specialised decoding procedures. Our hallucination detector requires neither: a direction calibrated on fifty general question-answer triples produces 0.693 AUROC on binary correct/incorrect classification, substantially above the log-probability baseline, with one dot product per candidate. 
+
+Answer selection and scoring. For multiple-choice tasks, log-probability scoring—assigning each candidate the log-probability the model assigns to its tokens given the question [Brown et al., 2020]—is the standard zero-shot baseline and forms our primary comparison throughout. Self-consistency [Wang et al., 2023] improves factual accuracy by sampling many chain-of-thought responses and taking the majority answer, but requires tens of generation calls per question. Minimum Bayes Risk decoding [Eikema and Aziz, 2020] similarly selects the candidate with highest similarity to the candidate pool, incurring heavy generation costs. Our method scores candidates from a single 3forward pass per candidate with no generation, and outperforms log-probability scoring by up to +32.0 pp on factual benchmarks and by +38.1 to +51.8 pp on TruthfulQA. 
+
+# 3 Geometric Correctness Directions 
+
+We describe our method for extracting a correctness direction from a single frozen language model and analyse two properties that bear directly on its practical utility: the optimal layer at which to extract it, and the number of calibration examples required. 
+
+3.1 The Contrastive Correctness Direction Setup. Let Q denote a question, A+ its correct answer, and W = {w1, . . . , w K } the set of incorrect candidate answers. For a frozen language model with L transformer layers, let hℓ(Q, A ) ∈ Rd denote the hidden state at layer ℓ and the final token position of the concatenated prompt "Question: {Q}\nAnswer: {A}" . We work with L2-normalised representations throughout: ˜hℓ(Q, A ) = 
+
+hℓ(Q, A ) / ∥hℓ(Q, A )∥.
+
+Standard and contrastive directions. Given a calibration set D = {(Qi, A + 
+
+> i
+
+, Wi)}Ni=1 , two natural displacement vectors can be computed at layer ℓ:
+
+d std  
+
+> i
+
+= ˜hℓ(Qi, A + 
+
+> i
+
+) − ˜hℓ(Qi, ∅) (1) 
+
+d con  
+
+> i
+
+= ˜hℓ(Qi, A + 
+
+> i
+
+) − 1
+
+|W i|
+
+X
+
+> w∈W i
+
+˜hℓ(Qi, w ) (2) where ∅ denotes an empty answer string. The standard direction (1) measures the displacement when any answer is appended to a question. The contrastive direction (2) measures the displacement specifically from incorrect answers to the correct one. In both cases the direction estimate is 
+
+ˆδ = ¯d / ∥¯d∥, where ¯d = 1
+
+> N
+
+P 
+
+> i
+
+di.We characterise the consistency of each estimate via signal-to-noise ratio: 
+
+SNR = ∥¯d∥
+
+σ(d) (3) where σ(d) is the mean per-dimension standard deviation across calibration examples. 
+
+Inference. Given a question Q and candidate answers {A1, . . . , A K }, each candidate is scored by its projection onto the recovered direction: 
+
+si = ˆδ⊤˜hℓ(Q, A i), ˆA = arg max  
+
+> i
+
+si (4) No generation is performed at inference time. Each candidate requires one forward pass and one dot product. 
+
+The SNR–accuracy dissociation. A counter-intuitive finding motivates the contrastive formulation: across all tested models and layer depths, the standard direction consistently achieves higher SNR than the contrastive direction (27–60 × vs. 8–15 ×), yet the contrastive direction substantially outperforms in answer selection accuracy in every configuration tested. Table 1 shows results at the validation-selected layer for each sub-3B model. The standard direction encodes answer-ness —the generic geometric change that occurs when any text is appended to a question—rather than correct-answer-ness . High SNR in the standard direction reflects this consistency, but consistency in the wrong direction is not discriminative. The contrastive direction explicitly cancels the answer-ness component, retaining only the displacement attributable to answer quality. The exception is Llama-3.2-1B at layer fraction 0.75 (absolute layer 12 of 16), where standard and contrastive directions converge to cosine similarity ≈0.99 and yield comparable accuracies (58.0% and 53.2%, respectively). We interpret this as a layer-specific phenomenon in which the Llama architecture conflates answer-ness and correct-answer-ness at this depth; we return to this in Section 3.2. 4Table 1: Standard vs. contrastive direction at the layer selected via held-out validation for each model. Zero-shot log-probability on identical held-out test examples (ARC-Challenge) provides the baseline. Layer selection uses a 20% validation split; all reported accuracies are on the remaining 80% test set. Accuracy changes relative to zero-shot in parentheses.                              
+
+> Model Layer Zero-shot Standard ˆδContrastive ˆδStd SNR Con SNR Llama-3.2-1B 0.60 35.0% 26.1% ( −8.9) 44.7% (+9.7) 43.4 ×8.1 ×
+> Qwen-2.5-1.5B 0.65 41.0% 35.1% ( −5.9) 61.1% (+20.1) 49.4 ×9.0 ×
+> Gemma-2-2B 0.70 44.4% 27.6% ( −16.8) 66.5% (+22.1) 27.2 ×10.1 ×
+
+3.2 Layer Depth and Extraction Point 
+
+The representational content of LLM hidden states varies substantially across depth. Early layers process syntactic structure; later layers encode increasingly abstract semantic content [Tenney et al., 2019, Belinkov, 2022]. We evaluated contrastive direction extraction at seven fractional depths (0.60, 0.65, 0.70, 0.75, 0.80, 0.85, 0.90) across all model families, with layer selection performed on a 20% held-out validation split to avoid test-set contamination. Results are shown in Figure 1. 
+
+Universal optimality at 65–70% depth. Qwen-2.5-1.5B (28 layers) and Llama-3.1-8B (32 layers) peak at fraction 0.65; Gemma-2-2B (26 layers) and Qwen-2.5-7B (32 layers) peak at fraction 0.70; Llama-3.2-1B (16 layers) peaks at fraction 0.60 (absolute layer 9), which corresponds to 56% of depth but lies within one layer of the 65% point given the coarser granularity of a 16-layer model. Across all five models the optimal extraction depth falls between absolute layers corresponding to 56–70% of total depth, despite architectures ranging from 16 to 32 layers and 1B to 8B parameters. We interpret this as evidence of a consistent representational transition in this depth range where models shift from encoding syntactic and shallow semantic features to encoding answer-quality-relevant geometry. 
+
+Standard direction underperforms zero-shot at shallow depth. At the selected layer, the standard direction underperforms zero-shot log-probability for all three sub-3B models (Table 1). For Gemma-2-2B at fraction 0.70, the standard direction achieves only 27.6% versus 44.4% zero-shot—a −16 .8 pp degradation. This confirms that the standard direction encodes answer-ness rather than correct-answer-ness even at the semantically richest extraction depth: appending any text to a question moves hidden states in a direction that is not only non-discriminative but actively anti-correlated with correct-answer selection at these depths. The contrastive direction at the same layer achieves 66.5% (+22.1 pp above zero-shot), confirming that subtracting the wrong-answer representations isolates the quality-relevant component. 
+
+Llama convergence at fraction 0.75. As noted in Section 3.1, at layer 12 of Llama, the standard and contrastive directions converge to cosine similarity 0.99, and both yield their highest accuracy for this model (58.0% and 53.2%). The convergence suggests that at this specific depth the model has organised its representations such that answer-ness and correct-answer-ness are nearly identical—a property that holds at layer 12 but not at layer 11 (0.70) or layer 13 (0.80, which maps to the same layer for Llama). We note that this convergence is architecture-specific: it does not occur for Qwen or Gemma at any tested depth. 
+
+3.3 Calibration Efficiency 
+
+A practical concern for any calibration-based method is the number of labeled examples required. We compared N =50 and N =100 calibration examples across all three models and both direction types (Table 2). SNR is consistently higher at N =50 than N =100 for all models, and downstream accuracy does not improve with doubling the calibration set. We attribute this to two factors. First, the mean direction estimate converges quickly because the per-example deltas are highly consistent (SNR >7× even at N =50 ), leaving little variance for additional examples to reduce. Second, larger calibration sets drawn from an ARC train split with fixed random seed increasingly include borderline questions whose displacement vectors are noisy, marginally degrading the mean direction. The saturation at N =50 has a practical implication: calibration requires approximately 250 forward passes (50 examples × 5 passes each: one for Q⊕A+, one for Q⊕∅, and three for Q⊕wj ) and 50.6 0.7 0.75 0.8 0.9       
+
+> Layer depth (fraction)
+> 20 30 40 50 60 70
+> ARC-C Accuracy (\%)
+> Llama-3.2-1B
+> 0.6 0.7 0.75 0.8 0.9
+> Layer depth (fraction)
+> 20 30 40 50 60 70
+> ARC-C Accuracy (\%)
+> Qwen-2.5-1.5B
+> 0.6 0.7 0.75 0.8 0.9
+> Layer depth (fraction)
+> 20 30 40 50 60 70
+> ARC-C Accuracy (\%)
+> Gemma-2-2B
+> Contrastive Standard Zero-shot (37.7\%)
+
+Figure 1: ARC-Challenge accuracy (%) for standard ˆδ (orange, dashed) and contrastive ˆδ (blue, solid) across five layer fractions, for all three model families. The zero-shot log-probability baseline is shown as a dotted horizontal line for each model. The faint vertical guide marks fraction 0.70. Contrastive extraction outperforms standard at all tested depths for Qwen and Gemma. For Llama, the directions converge at fraction 0.75 (layer 12 of 16), where the standard direction reaches its global maximum of 58.0%; at all other depths the contrastive direction is superior. Qwen and Gemma peak at fraction 0.70 despite differing architectures, consistent with a universal representational transition near this depth. Llama-3.2-1B points at fractions 0.75 and 0.80 are identical because both map to layer 12 in a 16-layer architecture. completes in under five minutes on a consumer GPU for the model sizes tested. No gradient computation is involved. Table 2: Effect of calibration set size on direction SNR and ARC-Challenge accuracy at the validation-selected optimal layer. SNR and accuracy do not improve with doubled calibration set size. Llama-3.2-1B results omitted from tabular comparison as the N=50 vs. N=100 systematic comparison was conducted at the previously identified 0.75 layer; the general pattern (no improvement with N=100) is consistent across all models and layer configurations tested. 
+
+N = 50 N = 100 
+
+Model Layer SNR Acc. (%) SNR Acc. (%) Qwen-2.5-1.5B 0.70 8.4 × 60.6 8.4 × 60.6 Gemma-2-2B 0.75 10.0 × 67.8 9.7 × 65.6 
+
+# 4 Task-Specific Geometric Structure 
+
+The experiments in Section 3 calibrate a direction on ARC-Challenge and evaluate it on ARC-Challenge. We now ask what happens when we move the calibration source, the evaluation task, or both. The answer reveals a structured geometric property of LLM representations that we call 
+
+task-orthogonality : directions encoding correctness for different task types occupy near-independent subspaces, with partial exceptions that are themselves informative. 
+
+4.1 Orthogonality of Correctness Directions 
+
+We compute contrastive correctness directions for three task types—factual reasoning (ARC-Challenge), domain knowledge (MMLU, high-school biology subject), and calibrated truthfulness (TruthfulQA)—and measure pairwise cosine similarity between each pair. Because all direction 6ARC MMLU ARC TQA MMLU TQA 
+
+> Llama-3.2-1B Qwen-2.5-1.5B Gemma-2-2B Qwen-2.5-7B Llama-3.1-8B
+
++0.042 +0.083 -0.041 +0.153 -0.016 -0.076 +0.250 +0.302 +0.046 +0.311 +0.166 +0.033 +0.101 +0.034 +0.034 
+
+> sub-3B 7B 8B 0.4
+> 0.2
+> 0.0 0.2 0.4
+> Cosine similarity
+
+Figure 2: Pairwise cosine similarity between contrastive correctness directions calibrated on ARC-Challenge, MMLU-Biology, and TruthfulQA for all five tested models (rows), across the three task-direction pairs (columns). Warm colours indicate positive alignment; white indicates orthogonality; values are annotated directly in each cell. The dashed line separates sub-3B models (above) from 7B–8B models (below). Near-orthogonality ( | cos θ| < 0.16 ) is the dominant pattern: Llama-3.2-1B, Qwen-2.5-1.5B, and Llama-3.1-8B satisfy this across all three pairs, with Llama-8B showing the strongest separation of any tested model (max | cos θ| = 0 .10 ). Gemma-2-2B shows partial alignment between ARC and TQA ( +0 .302 ); Qwen-2.5-7B shows moderate ARC ↔MMLU alignment ( +0 .311 )and partial ARC ↔TQA alignment ( +0 .166 ), indicating family-specific geometric organisation that can increase with scale. vectors are L2-normalised, cosine similarity equals their dot product. Results for all three model families are shown in Figure 2. 
+
+Near-orthogonality as the dominant pattern. Across all five models, no task-direction pair exceeds cosine +0 .31 , and most pairs satisfy | cos θ| < 0.17 . For the sub-3B Llama and Qwen models, all six off-diagonal similarities satisfy | cos θ| < 0.16 , indicating effectively independent subspaces. This is not a trivial consequence of high dimensionality: if models used a single generic correctness concept, all three directions would be strongly aligned. Instead, each task type has been allocated a geometrically distinct subspace. At 7B scale, the pattern diverges by architecture family in an informative way. Llama-3.1-8B shows the strongest orthogonality of any tested model, with all pairwise cosines at or below 0.10 —cleaner separation than its 1B counterpart. Qwen-2.5-7B moves in the opposite direction: ARC ↔MMLU rises to +0 .311 and ARC ↔TQA to +0 .166 , indicating that factual and domain knowledge directions partially converge at this scale for the Qwen family. 
+
+The Gemma exception. Gemma-2-2B shows substantially higher alignment: ARC ↔ TQA at +0 .302 and ARC ↔ MMLU at +0 .250 . This partial alignment has a direct consequence for transfer: we show in Section 4.2 that the ARC direction yields +12 .9 pp on TruthfulQA for Gemma, versus +4 .8 pp for Qwen and +8 .6 pp for Llama. The stronger alignment in Gemma suggests its representations organise correctness at a coarser granularity than the other two models, potentially a consequence of its larger parameter count (2B vs. 1–1.5B) or its instruction-tuning procedure [Team et al., 2024]. The Qwen-7B result—where ARC ↔TQA rises from −0.016 (1.5B) to +0 .166 (7B)— suggests that Gemma’s partial alignment reflects a family-specific property that can emerge with 7Table 3: Transfer of ARC-Challenge calibrated ˆδ to target tasks ( ∆ pp relative to zero-shot log-probability baseline on identical test examples). The bottom row shows TruthfulQA results when recalibrated on TruthfulQA examples (own ˆδ), confirming that calibration source determines perfor-mance. Bold entries indicate positive transfer; negative entries indicate the ARC direction actively hurts relative to zero-shot.                              
+
+> Category Task Qwen-1.5B Gemma-2B Llama-1B
+> Factual MC
+> ARC-C (source) +24.3 +20.3 +6.3
+> MMLU-Biology +20.4 +19.7 +5.0
+> MMLU-Chemistry +4.9 +8.4 −4.4
+> MMLU-World History +13.5 +22.4 +6.8
+> Coherence HellaSwag −11 .0−16 .7−26 .7
+> Calibration TruthfulQA (ARC ˆδ)+4.8 +12.9 +8.6 TruthfulQA (own ˆδ)+41.5 +38.1 +44.9
+
+scale rather than an isolated anomaly. Both cases warrant investigation across a broader range of model families. 
+
+4.2 Transfer Within and Across Task Types 
+
+The cosine similarity data predicts a specific transfer pattern: directions should transfer between tasks whose geometric directions are aligned, and fail—or invert—between tasks whose directions are orthogonal or anti-correlated. Table 3 tests this prediction directly by evaluating an ARC-calibrated direction on six target benchmarks spanning three semantic categories. 
+
+Factual tasks: positive transfer. The ARC direction transfers positively to all factual multiple-choice tasks for Qwen and Gemma. MMLU-Biology receives +19 .7–+20 .4 pp above zero-shot from the ARC direction, comparable to its own-calibration result ( +7 .7 pp for Gemma, +0 .0 pp for Qwen). The ARC direction is a more effective calibration source than MMLU’s own validation split, which we attribute to calibration quality rather than task mismatch: ARC’s train split provides clean, unambiguous science questions with clearly correct and clearly wrong distractors, whereas MMLU’s small validation splits (10–30 examples per subject) contain borderline examples that add noise to the direction estimate. World History, which is semantically distant from ARC’s science focus, still benefits substantially ( +13 .5–+22 .4 pp), consistent with a direction that captures general factual correctness rather than domain-specific knowledge. 
+
+Coherence tasks: negative transfer. HellaSwag, a sentence-completion benchmark requiring commonsense coherence rather than factual retrieval, shows strongly negative transfer for all three models ( −11 .0 to −26 .7 pp). The ARC direction actively degrades performance below zero-shot. When calibrated on HellaSwag directly, the own direction achieves +6 .3 pp (Qwen) and −4.7 pp (Gemma) relative to zero-shot, confirming that HellaSwag accuracy is not well-served by geometric scoring in general at this calibration size. We interpret this as evidence that the geometric signal for commonsense coherence is orthogonal—or slightly anti-correlated—to the geometric signal for factual correctness. Completing a sentence naturally requires fluency and world-model consistency, which may be encoded in different representational subspaces than declarative fact retrieval. 
+
+Calibration tasks: near-zero ARC transfer, large own-direction gains. TruthfulQA tests whether models produce calibrated, honest answers rather than confidently incorrect ones. The ARC direction yields modest gains under argmax scoring ( +4 .8–+12 .9 pp), but the TruthfulQA-calibrated direction under argmax scoring yields +38 .1–+51 .8 pp—the largest single-task improvement in our experi-ments. This confirms that TruthfulQA has a distinct correctness direction that is only weakly aligned with the ARC direction in Qwen and Llama (cosine |<0.09 |) and partially aligned in Gemma (cosine 
+
++0 .302 ). Importantly, the TruthfulQA direction does not require argmin scoring: the contrastive formulation, computed on TruthfulQA (correct, wrong) pairs, extracts a direction that already points toward calibrated answers rather than overconfident ones. 84.3 Multi-Dimensional Correctness 
+
+The transfer results are parsimoniously explained by a simple model: LLMs allocate geometrically independent subspaces to qualitatively distinct notions of answer quality. We identify three such dimensions in the tasks studied: • Factual correctness — whether a statement corresponds to a retrievable fact. Encoded in the ARC and MMLU directions; these are moderately correlated (cosine +0 .04 –+0 .31 ) and transfer positively within the category. • Commonsense coherence — whether a sentence completion is plausible and grammatically natural. Encoded in a direction approximately orthogonal or anti-correlated to factual correctness, as evidenced by HellaSwag’s negative transfer. • Calibrated truthfulness — whether a model’s answer reflects appropriate epistemic con-fidence. Encoded in the TruthfulQA direction, near-orthogonal to factual correctness for Qwen and Llama. This taxonomy does not preclude further subdivision: MMLU’s 57 subjects likely contain finer-grained geometric structure within the factual category. Nor does it preclude overlap: the partial Gemma alignment between ARC and TruthfulQA suggests the boundaries between categories are not crisp for all architectures. What the data establish is that the single-direction assumption—that one universal “correctness” direction covers all task types—is inconsistent with the geometric structure of the models we tested, and that the boundaries between categories can be estimated from just fifty calibration examples per task type. 
+
+# 5 Geometric Answer Selection 
+
+We evaluate the full geometric scoring pipeline across five benchmarks and three model families. Section 3 described the contrastive direction extraction and scoring procedure; we apply it here using task-specific calibration—50 examples drawn from each target task’s training split—except for MMLU subjects, where the ARC-Challenge calibration set transfers more effectively than MMLU’s own small validation splits (see Section 4.2). 
+
+5.1 Experimental Setup Models. We evaluate five instruction-tuned models spanning three architecture families: Llama-3.2-1B-Instruct (16 layers, d=2 ,048 ) and Llama-3.1-8B-Instruct (32 layers, d=4 ,096 ) [Grattafiori et al., 2024]; Qwen-2.5-1.5B-Instruct (28 layers, d=1 ,536 ) and Qwen-2.5-7B-Instruct (32 layers, 
+
+d=3 ,584 ) [Qwen et al., 2025]; and Gemma-2-2B-IT (26 layers, d=2 ,304 ) [Team et al., 2024]. All models are used frozen; no parameters are updated at any stage. 
+
+Benchmarks. We evaluate on ARC-Challenge [Clark et al., 2018] (1,172-question science rea-soning test, 4-way MC), MMLU [Hendrycks et al., 2021] (high-school biology and world history subjects, 4-way MC), TruthfulQA [Lin et al., 2022] (817-question calibrated truthfulness benchmark, MC1 format), and HellaSwag [Zellers et al., 2019] (commonsense sentence completion, 4-way MC). 
+
+Baseline. The zero-shot baseline scores each candidate by its length-normalised log-probability given the question prefix, computed on the same held-out test examples used to evaluate the GRM. This is the standard zero-shot multiple-choice evaluation procedure [Brown et al., 2020] and represents the model’s own probability estimate without any geometric signal. 
+
+5.2 Main Results 
+
+Table 4 reports accuracy and improvement over zero-shot for each benchmark and model. Fig-ure 3 visualises the per-task improvement pattern across the three semantic categories identified in Section 4.3. 9Table 4: Geometric scoring accuracy and improvement over zero-shot log-probability (same held-out test set; layer selected on a 20% validation split). Calibration: ARC ˆδ for ARC-Challenge (50 ARC training examples), TQA ˆδ for TruthfulQA (50 TQA examples). Probe gap rows show GRM minus a logistic regression probe trained on the identical 200 calibration hidden states (50 questions × 4candidates); values within ±3 pp confirm that the mean direction captures the full discriminative information available from fifty examples without optimisation. Improvements above ≈8 pp are statistically significant at α=0 .05 (two-proportion z-test). 
+
+Llama-1B Qwen-1.5B Gemma-2B Qwen-7B Llama-8B Task ZS GRM ∆ GRM ∆ GRM ∆ GRM ∆ GRM / ∆
+
+ARC-C (35 / 41 / 44 / 48 / 46%) — 44.7 +9.7 61.1 +20.1 66.5 +22.1 80.0 +32.0 59.0 / +13.4 
+
+TruthfulQA (33 / 31 / 39 / 40 / 29%) — 75.9 +43.4 72.5 +41.9 76.5 +38.0 81.2 +41.7 80.4 / +51.7 
+
+Probe gap (ARC) — −1.0 +0 .2 +0 .0 +1 .0 −1.0
+
+Probe gap (TQA) — −2.1 −1.2 +0 .7 −1.6 −0.5Llama 1B Qwen 1.5B Gemma 2B Qwen 7B Llama 8B 0510 15 20 25 30 35      
+
+> pp vs.\ zero-shot
+> 44.7\% 61.1\% 66.5\% 80.0\% 59.0\%
+> ARC-Challenge
+> Llama 1B Qwen 1.5B Gemma 2B Qwen 7B Llama 8B 010 20 30 40 50
+> pp vs.\ zero-shot
+> 75.9\% 72.5\% 76.5\% 81.2\% 80.4\%
+> TruthfulQA
+> Llama-3.2-1B Qwen-2.5-1.5B Gemma-2-2B Qwen-2.5-7B Llama-3.1-8B
+
+Figure 3: Improvement in accuracy ( ∆ pp) over the zero-shot log-probability baseline on ARC-Challenge (left) and TruthfulQA (right) for all five models. Error bars show 95% confidence intervals (two-proportion z-test). Annotated values above each bar show absolute GRM accuracy. Colours indicate architecture family: blues for Llama (light = 1B, dark = 8B), oranges for Qwen (light = 1.5B, dark = 7B), green for Gemma-2B. On ARC-Challenge, improvements scale with model size within each family: Qwen 1.5B →7B gains an additional 18.9 pp; Llama 1B →8B gains 14.3 pp. On TruthfulQA, where zero-shot baselines fall near or below chance (28.7–39.5%), geometric scoring achieves 72.5–81.2% across all five models, with the largest single improvement in the study coming from Llama-3.1-8B (+51.7 pp). MMLU and HellaSwag transfer results are reported in Table 3. 
+
+Factual multiple choice. On ARC-Challenge, contrastive geometric scoring improves over zero-shot by 9.7 pp (Llama-1B), +20.1 pp (Qwen-1.5B), and +22.1 pp (Gemma-2B). These gains are consistent across architectures despite the models differing in layer count, hidden dimension, and training procedure. The same ARC-calibrated direction transfers directly to MMLU, with Qwen and Gemma receiving +13.5 to +22.4 pp on world history and +19.7 to +20.4 pp on biology—comparable to or exceeding their ARC performance—while Llama receives modest but positive gains (+5.0 to +6.8 pp). The larger Llama gap on subject-specific MMLU is consistent with Llama’s weaker ARC performance overall and its smaller parameter count. 10 Calibrated truthfulness. TruthfulQA produces the largest improvements in the study. Llama-3.1-8B achieves the highest absolute gain: +51.7 pp (28.7% to 80.4%), the largest single improvement across all models and benchmarks in this work. Sub-3B models achieve +38.0 to +43.4 pp; Qwen-7B achieves +41.7 pp (39.5% to 81.2%). All improvements are statistically significant by a wide margin. The magnitude reflects two compounding factors. First, TruthfulQA’s zero-shot baselines (28.7–39.5%) are near or below chance, indicating that log-probability scoring—which rewards confident answers—is misaligned with TruthfulQA’s structure, where overconfident answers are systematically wrong. Second, the TruthfulQA-calibrated direction explicitly encodes the distinction between calibrated and overconfident answers, which is the precise semantic contrast TruthfulQA tests. 
+
+Commonsense coherence. HellaSwag, which tests whether a sentence completion is natural and plausible rather than factually accurate, shows the method’s scope boundary. With own-calibrated directions (50 HellaSwag training examples), Qwen achieves a modest gain (+6.4 pp) while Gemma and Llama fall below zero-shot ( −4.7 and −16 .4 pp, respectively). The geometric signal for commonsense coherence is recoverable for Qwen with 50 examples but not for the other models at this calibration size, consistent with the near-orthogonal direction geometry reported in Section 4. We do not claim geometric scoring as a general-purpose replacement for log-probability on coherence tasks. 
+
+5.3 Analysis Model size and performance. Larger models produce stronger geometric signals. Contrastive SNR increases monotonically with scale within each family: Llama-1B ( 8.1×) to Llama-8B ( 11 .2×); Qwen-1.5B ( 8.4×) to Qwen-7B ( 14 .9×). Accuracy follows the same trend on ARC-Challenge: Qwen-1.5B to Qwen-7B improves from 61.1% to 80.0% (+18.9 pp absolute); Llama-1B to Llama-8B improves from 44.7% to 59.0% (+14.3 pp). On TruthfulQA the pattern differs: Llama-8B’s gain (+51.7 pp) exceeds Llama-1B’s (+43.4 pp), but Qwen-7B (+41.7 pp) does not exceed Qwen-1.5B (+41.9 pp). This asymmetry is consistent with the finding that smaller models are more poorly calibrated on average [Kadavath et al., 2022]: the geometric direction recovers signal that log-probability scoring loses, and the magnitude of recovery depends on how miscalibrated the output probabilities already are, not only on model scale. 
+
+Task type determines the magnitude of improvement. Factual tasks receive +5 to +22 pp; TruthfulQA receives +38 to +52 pp. The difference is not primarily a function of benchmark difficulty but of how well zero-shot log-probability already exploits the model’s internal knowledge. On factual multiple-choice tasks, log-probability scoring is already partially effective (baselines of 38–46%), and the geometric direction provides an additional signal. On TruthfulQA, log-probability is actively misleading (baselines near chance), and the geometric direction provides most of the discriminative signal. 
+
+Calibration specificity. The strong TruthfulQA results depend on using a TruthfulQA-calibrated direction: when the ARC direction is used instead, TruthfulQA gains are only +4.8 to +12.9 pp (Section 4.2). This confirms that the 50-example calibration step is not a minor tuning detail but the primary mechanism by which the method adapts to the semantic structure of the target task. The practical workflow implied by these results is: calibrate a direction on 50 task-specific examples (five minutes on a consumer GPU), then score candidates with a dot product at inference time. 
+
+# 6 Hallucination Detection 
+
+The preceding sections evaluate geometric scoring in a selection setting: a fixed set of candidate answers is provided and the method picks one. We now consider a complementary setting motivated by production language model deployment: given a single generated answer, can the GRM score predict whether it is correct? This is a binary classification problem—correct or incorrect—over individual (question, answer) pairs, and the classifier signal is the projection of the answer’s hidden-state representation onto the calibrated direction ˆδ. We term this use case hallucination detection : a high-confidence flag for answers that land far from the correctness direction in representation space. 11 Table 5: Hallucination detection AUROC on ARC-Challenge (Qwen-2.5-1.5B, n=1 ,999 pairs). AUROC measures P (correct score > wrong score ); 0.5 is random. GRM requires one forward pass and one dot product per pair; no training beyond the 50-example calibration step. 
+
+Classifier AUROC ∆ vs Random Random baseline 0.500 —Zero-shot log-prob 0.578 +7.8 pp GRM contrastive ˆδ 0.693 +19.3 pp 0.1 0.0 0.1            
+
+> GRM score h(Q,A)
+> 012345678
+> Density
+> AUROC = 0.693
+> (a) Score distributions
+> Correct ( =+0.0255)
+> Wrong (=-0.0084)
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> False positive rate
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> True positive rate (b) ROC curves
+> GRM (AUROC=0.693) Log-prob (AUROC=0.578) Random
+
+Figure 4: (a) Score distributions of the contrastive GRM projection for correct (blue, solid) and incorrect (orange, dashed) answer representations. Curves are Gaussian approximations fitted to the empirical means and standard deviations; the theoretical AUROC from these fits is 0.691, closely matching the empirical 0.693. The shaded region shows distribution overlap. Vertical dotted lines mark the class means ( μcorrect =+0 .0255 , μwrong =−0.0084 ); the separation of 0.034 score units is modest but consistent. (b) ROC curves for GRM (AUROC 0.693, solid blue) and zero-shot log-probability (AUROC 0.578, dashed orange), derived analytically from Gaussian fits to empirical score distributions. The diagonal dotted line represents a random classifier. 
+
+6.1 Setup 
+
+We treat every (question, answer) pair in the ARC-Challenge test set as an independent classification instance. For each of the 500 test questions with four candidate answers, we assign label 1 to the correct answer and label 0 to each of the three incorrect answers, yielding 1,999 labelled pairs (500 correct, 1,499 incorrect). Each pair is scored by its GRM projection s = ˆδ⊤˜hℓ(Q, A ) using the ARC-calibrated direction from Section 3. The zero-shot log-probability score serves as the baseline classifier. Evaluation uses Area Under the ROC Curve (AUROC), which measures P (score correct > score incorrect )
+
+across all possible correct/incorrect pairings without requiring a threshold to be chosen. AUROC is threshold-free and unaffected by the class imbalance (1:3 correct-to-incorrect ratio). 
+
+6.2 Results 
+
+Table 5 shows AUROC results; Figure 4 shows the score distributions and resulting ROC curves. The GRM direction achieves 0.693 AUROC, compared to 0.578 for zero-shot log-probability—an 11.5 pp gap in AUROC, representing a 2.5 × improvement in discriminative signal above the random baseline. The score distributions in Figure 4(a) show why: correct answers project to a higher mean score ( μ=+0 .0255 ) than incorrect answers ( μ=−0.0084 ), a separation of 0.034 score units across 12 standard deviations of approximately 0.048 . The distributions substantially overlap—the method is not a reliable stand-alone detector—but the systematic directionality is consistent enough to provide a meaningful signal. The score separation is modest but consistent across the full test set: correct answers score higher than all three of their incorrect alternatives on 69.3% of questions, compared to 33.3% expected at random. Full threshold-level operating point analysis (precision, recall, and false positive rate at multiple decision thresholds) is provided in Appendix D. 
+
+6.3 Scope: Structured Candidates vs. Free-form Generation 
+
+The hallucination detection result—and the selection results in Section 5—rely on a shared property: the candidate answer is presented to the model in the same prompt format as the calibration examples, 
+
+"Question: {Q}\nAnswer: {A}" . When this format assumption breaks, the method degrades. We tested GRM reranking in an open-domain generation setting using TriviaQA [Joshi et al., 2017]: for each question, the model generates five candidate answers via greedy decoding plus temperature sampling ( T =0 .8), scores them with the ARC-calibrated direction, and selects the highest-scoring candidate. The result was a −0.7 pp change in exact-match accuracy relative to greedy decoding alone (35.3% vs. 36.0%), compared to an oracle ceiling of +10 .7 pp (46.7%) if the best candidate could be perfectly identified. GRM reranking recovered −6% of the oracle ceiling—a clear null result. The failure is attributable to format mismatch. ARC-Challenge calibration pairs consist of short, well-formed declarative answers (“ Photosynthesis ” or “ The mitochondria ”). TriviaQA generation produces variable-length natural-language responses (“ The answer to that question is the Battle of Hastings, which took place in... ”). The representation at the final token of a long generated response is not in the same region of the hidden-state space as the representation at the final token of a structured calibration answer. The calibrated direction ˆδ therefore loses its discriminative meaning when applied to out-of-format text. The straightforward remedy is format-matched calibration: calibrate ˆδ using examples whose answer format matches the expected generation format. If generated answers are consistently short (e.g., from constrained decoding), or if the generation prompt is identical in structure to the calibration prompt, reranking should recover effectiveness. We leave systematic evaluation of this fix to future work. The practical boundary of the method is therefore: geometric scoring is effective for structured candidate selection (multiple-choice evaluation, retrieval reranking with structured candidates) and single-answer hallucination detection when the answer format is consistent with calibration. It is not a drop-in replacement for generation-time scoring of arbitrary free-form outputs. 
+
+# 7 Discussion 
+
+7.1 Why Fifty Examples Suffice 
+
+The direction estimate saturates rapidly. At N =50 , standard direction SNR is already 27–60 ×
+
+across all five models, and contrastive SNR is 8–15 ×. Doubling the calibration set to N =100 
+
+decreases SNR in every tested configuration and does not improve downstream accuracy. Two mechanisms likely contribute. First, the per-example displacement vectors are highly consistent: a SNR of 8–11 × at N =50 means the mean direction already dominates the within-calibration variance. Additional examples provide little new information about the direction’s orientation. Second, larger calibration sets drawn from a fixed benchmark’s training split increasingly include borderline examples—questions where the correct-vs-incorrect distinction is less geometrically clear—which marginally diffuse the mean. The saturation has a direct implication for deployment. Calibrating a direction requires approximately 250 forward passes ( 50 × 5, as detailed in Section 3) and completes in under five minutes on a consumer GPU. Recalibration for a new task or domain costs the same. This makes the method viable in settings where per-task adaptation is needed but fine-tuning is not: a practitioner with fifty labeled 13 examples can calibrate a direction, score candidates with a dot product, and discard the calibration set entirely. 
+
+7.2 Layer Universality as a Representational Finding 
+
+The convergence of the optimal extraction depth to approximately 65–70% of model depth across five models differing in architecture, scale, and training procedure supports a functional account of transformer depth. The validation-selected optimal layers span absolute depths of 56–70% of total depth: Llama-3.2-1B peaks at fraction 0.60 (layer 9 of 16), Qwen-2.5-1.5B and Llama-3.1-8B at fraction 0.65 (layers 18 and 21 of 28 and 32), and Gemma-2-2B and Qwen-2.5-7B at fraction 0.70 (layers 18 and 22 of 26 and 32). The finding is consistent with a functional account of transformer depth: early layers process token identity, positional, and syntactic information; middle layers integrate context into semantic representations; late layers compress representations toward output distributions [Tenney et al., 2019, Belinkov, 2022]. The correctness direction is most recoverable at the depth where semantic content is fully integrated but before the final compression to a next-token distribution discards geometric structure in favour of the output vocabulary projection. The early-layer inversion observed for Llama at fraction 0.60—the shallowest tested depth, and the validation-selected optimum for Llama-3.2-1B—where the standard direction is anti-correlated with correctness, consistent with this account: at layer nine of sixteen, representations still encode surface-level answer properties rather than answer quality. The contrastive direction is unaffected because subtracting wrong-answer representations cancels the shallow-layer confound, isolating only the quality-relevant component. 
+
+7.3 Multi-Dimensional Correctness in LLM Representations 
+
+The near-orthogonality of correctness directions across task types is the most theoretically significant finding in this paper. If language models encoded a single unified concept of answer quality, the directions calibrated on factual questions (ARC), domain questions (MMLU), and calibrated truthfulness questions (TruthfulQA) would be aligned. Instead, for Qwen and Llama they are nearly orthogonal ( | cos θ| < 0.16 ), implying that the model has allocated independent geometric dimensions to qualitatively distinct notions of what it means to be correct. This suggests a richer internal taxonomy than the uniform surface behaviour of LLMs implies. A model that generates a confident wrong answer on TruthfulQA is not failing to represent truthfulness internally; it may be failing to route its internal calibration signal through to the output distribution. The geometric direction captures that internal signal before the routing failure occurs. Equivalently, the gap between zero-shot log-probability performance (28.7–39.5% on TruthfulQA) and geometric scoring (72–81%) quantifies how much of the model’s internal correctness signal is lost in the generation step. Gemma-2-2B and Qwen-2.5-7B both show partial ARC ↔TQA alignment ( +0 .302 and +0 .166 
+
+respectively), while Llama-3.1-8B shows the strongest orthogonality of any tested model (max 
+
+| cos θ|=0 .10 ) despite being the largest. The divergence within the Qwen family—near-zero at 1.5B, partial at 7B— and between Llama-8B and Gemma-2B despite similar scale suggests that architectural and training-data factors interact in determining the granularity of geometric task separation. Disentangling these factors would require controlled ablations across a broader range of model families and training procedures, which we leave to future work. 
+
+7.4 Relationship to Probing and Representation Engineering 
+
+Our method shares surface similarity with probing classifiers and with Representation Engineer-ing [Zou et al., 2025] but differs in important ways. Probing trains a supervised classifier (typically a linear model) on frozen representations to predict a property [Alain and Bengio, 2018, Belinkov, 2022]. Our method trains nothing: it computes a mean displacement vector from fifty examples and uses it as a fixed scoring direction. The distinction is not merely computational. A trained probe can overfit to spurious features in the calibration set; a mean displacement cannot fit to anything beyond the mean direction. The method’s simplicity is a feature: the direction has an interpretable geometric meaning (the average displacement from wrong-answer to correct-answer representations) that a probe’s weight vector does not. 14 Representation Engineering uses contrast-pair directions to steer model behaviour by adding the direction vector to hidden states during generation [Zou et al., 2025]. We use a similar direction extraction procedure but apply the result as a scoring signal rather than a steering intervention, which means no modification to the model’s forward pass is required at inference. Two contributions are distinct from prior work in this line. First, we demonstrate that the contrastive formulation (correct vs. wrong answers, Eq. 2) is necessary for discriminative accuracy, while the standard formulation (correct vs. no answer, Eq. 1) encodes answer-ness rather than correct-answer-ness—a dissociation the Representation Engineering literature does not distinguish. Second, we characterise the task-specific geometric structure of these directions for the first time, finding task-orthogonality that explains when and why transfer across tasks succeeds or fails. Burns et al. [2024] extract a truth direction without any labels using logical consistency constraints; we use fifty labeled examples per task and achieve substantially larger accuracy improvements, suggesting the additional supervision efficiently concentrates the direction on task-relevant correctness rather than generic truth-likeness. 
+
+Limitations. The experiments cover three architecture families, all instruction-tuned, with models ranging from 1B to 8B parameters. Whether the findings generalise to base (non-instruction-tuned) models, models above 8B, or non-English tasks is unknown. The method requires a fixed candidate set, ruling out direct application to free-form generation without format-matched calibration (Section 6.3). Fifty labeled calibration examples are required per task; while this is cheap relative to fine-tuning, it is not zero-shot in the strict sense. 
+
+# 8 Conclusion 
+
+We have shown that language models encode answer correctness as a structured geometric property of their hidden representations, recoverable from fifty labeled examples with no parameter updates. A contrastive displacement—the mean difference between correct-answer and incorrect-answer repre-sentations at approximately 65–70% of model depth— serves as a scoring direction that outperforms zero-shot log-probability by up to +32.0 percentage points on factual benchmarks and by +38.0 to +51.7 percentage points on TruthfulQA, across five models spanning 1B to 8B parameters in three architecture families. The extraction requires one forward pass per candidate and one dot product at inference; no generation, sampling, or secondary model is involved. A logistic regression probe trained on the identical fifty calibration examples matches this accuracy within 2.1 pp across all tested configurations, confirming that the mean direction captures the full discriminative information available without optimisation. The theoretical contribution is the characterisation of task-orthogonality: correctness directions calibrated on factual reasoning, domain knowledge, and calibrated truthfulness are near-orthogonal across four of five tested models ( | cos θ| < 0.17 for all task pairs in Llama-3.2-1B, Qwen-2.5-1.5B, and Llama-3.1-8B; Llama-3.1-8B shows the strongest separation of any tested model with max 
+
+| cos θ|=0 .10 ). Partial alignment in Gemma-2-2B and Qwen-2.5-7B suggests the degree of geometric separation varies with architecture family and scale. LLMs do not maintain a single concept of “correct answer” but allocate geometrically independent subspaces to qualitatively distinct notions of answer quality. The practical consequence is that the 50-example calibration step is not a minor tuning detail but the mechanism by which the method adapts to the semantic structure of each task. A striking implication of the TruthfulQA results deserves emphasis. The gap between zero-shot log-probability (28.7–39.5%) and geometric scoring (72.1–81.2%) on TruthfulQA does not arise because models lack knowledge of calibrated truthfulness; it arises because the generation process fails to route that internal signal to the output distribution. Geometric scoring recovers correctness information that next-token prediction discards, and the magnitude of recovery scales with how miscalibrated the output probabilities already are—not only with model size. Several directions follow naturally from this work. he probe parity result—mean direction matches trained classifier within 2.1 pp—suggests that the discriminative structure is concentrated in a low-dimensional subspace. A natural next step is a small model ( ∼30 M parameters) trained explicitly with a contrastive geometric objective, which would eliminate the inference cost of the full model forward pass for candidate scoring. A second direction is multi-direction scoring: learning scalar coefficients to combine task-specific directions, enabling a single calibrated scorer to generalise across tasks that require different notions of correctness. Third, extending the method to format-matched free-form 15 generation would close the gap between structured candidate selection and the open-ended settings where hallucination detection is most practically valuable. 
+
+# References 
+
+G. Alain and Y. Bengio. Understanding intermediate layers using linear classifier probes, 2018. URL 
+
+https://arxiv.org/abs/1610.01644 .Y. Belinkov. Probing classifiers: Promises, shortcomings, and advances. Computational Linguistics ,48(1):207–219, Mar. 2022. doi: 10.1162/coli_a_00422. URL https://aclanthology.org/ 2022.cl-1.7/ .T. Brown, B. Mann, N. Ryder, M. Subbiah, J. D. Kaplan, P. Dhariwal, A. Neelakantan, P. Shyam, G. Sastry, A. Askell, S. Agarwal, A. Herbert-Voss, G. Krueger, T. Henighan, R. Child, A. Ramesh, D. Ziegler, J. Wu, C. Winter, C. Hesse, M. Chen, E. Sigler, M. Litwin, S. Gray, B. Chess, J. Clark, C. Berner, S. McCandlish, A. Radford, I. Sutskever, and D. Amodei. Language models are few-shot learners. In H. Larochelle, M. Ranzato, R. Hadsell, M. Balcan, and H. Lin, editors, 
+
+Advances in Neural Information Processing Systems , volume 33, pages 1877–1901. Curran As-sociates, Inc., 2020. URL https://proceedings.neurips.cc/paper_files/paper/2020/ file/1457c0d6bfcb4967418bfb8ac142f64a-Paper.pdf .C. Burns, H. Ye, D. Klein, and J. Steinhardt. Discovering latent knowledge in language models without supervision, 2024. URL https://arxiv.org/abs/2212.03827 .C. Chen, K. Liu, Z. Chen, Y. Gu, Y. Wu, M. Tao, Z. Fu, and J. Ye. Inside: Llms’ internal states retain the power of hallucination detection, 2024. URL https://arxiv.org/abs/2402.03744 .Y.-S. Chuang, Y. Xie, H. Luo, Y. Kim, J. R. Glass, and P. He. Dola: Decoding by con-trasting layers improves factuality in large language models. In ICLR 2024 , Septem-ber 2023. URL https://www.microsoft.com/en-us/research/publication/ dola-decoding-by-contrasting-layers-improves-factuality-in-large-language-models/ .P. Clark, I. Cowhey, O. Etzioni, T. Khot, A. Sabharwal, C. Schoenick, and O. Tafjord. Think you have solved question answering? try arc, the ai2 reasoning challenge, 2018. URL https: //arxiv.org/abs/1803.05457 .B. Eikema and W. Aziz. Is MAP decoding all you need? the inadequacy of the mode in neural machine translation. In D. Scott, N. Bel, and C. Zong, editors, Proceedings of the 28th International Conference on Computational Linguistics , pages 4506–4520, Barcelona, Spain (Online), Dec. 2020. International Committee on Computational Linguistics. doi: 10.18653/v1/2020.coling-main.398. URL https://aclanthology.org/2020.coling-main.398/ .N. Elhage, T. Hume, C. Olsson, N. Schiefer, T. Henighan, S. Kravec, Z. Hatfield-Dodds, R. Lasenby, D. Drain, C. Chen, R. Grosse, S. McCandlish, J. Kaplan, D. Amodei, M. Wat-tenberg, and C. Olah. Toy models of superposition. Transformer Circuits Thread , 2022. 
+
+https://transformer-circuits.pub/2022/toy_model/index.html .A. Grattafiori, A. Dubey, A. Jauhri, et al. The llama 3 herd of models, 2024. URL https://arxiv. org/abs/2407.21783 .D. Hendrycks, C. Burns, S. Basart, A. Zou, M. Mazeika, D. Song, and J. Steinhardt. Measuring massive multitask language understanding, 2021. URL https://arxiv.org/abs/2009.03300 .J. Hewitt and C. D. Manning. A structural probe for finding syntax in word representations. In J. Burstein, C. Doran, and T. Solorio, editors, Proceedings of the 2019 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies, Volume 1 (Long and Short Papers) , pages 4129–4138, Minneapolis, Minnesota, June 2019. Association for Computational Linguistics. doi: 10.18653/v1/N19-1419. URL 
+
+https://aclanthology.org/N19-1419/ .Z. Ji, N. Lee, R. Frieske, T. Yu, D. Su, Y. Xu, E. Ishii, Y. Bang, D. Chen, W. Dai, A. Madotto, and P. Fung. Survey of hallucination in natural language generation. ACM Computing Surveys , 55:1 – 38, 2022. URL https://api.semanticscholar.org/CorpusID:246652372 .16 M. Joshi, E. Choi, D. Weld, and L. Zettlemoyer. TriviaQA: A large scale distantly supervised challenge dataset for reading comprehension. In R. Barzilay and M.-Y. Kan, editors, Proceedings of the 55th Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) ,pages 1601–1611, Vancouver, Canada, July 2017. Association for Computational Linguistics. doi: 10.18653/v1/P17-1147. URL https://aclanthology.org/P17-1147/ .S. Kadavath, T. Conerly, A. Askell, T. Henighan, D. Drain, E. Perez, N. Schiefer, Z. Hatfield-Dodds, N. DasSarma, E. Tran-Johnson, S. Johnston, S. El-Showk, A. Jones, N. Elhage, T. Hume, A. Chen, Y. Bai, S. Bowman, S. Fort, D. Ganguli, D. Hernandez, J. Jacobson, J. Kernion, S. Kravec, L. Lovitt, K. Ndousse, C. Olsson, S. Ringer, D. Amodei, T. Brown, J. Clark, N. Joseph, B. Mann, S. McCandlish, C. Olah, and J. Kaplan. Language models (mostly) know what they know, 2022. URL https://arxiv.org/abs/2207.05221 .L. Kuhn, Y. Gal, and S. Farquhar. Semantic uncertainty: Linguistic invariances for uncertainty estimation in natural language generation, 2023. URL https://arxiv.org/abs/2302.09664 .K. Li, O. Patel, F. Viégas, H. Pfister, and M. Wattenberg. Inference-time intervention: Eliciting truthful answers from a language model, 2024. URL https://arxiv.org/abs/2306.03341 .S. Lin, J. Hilton, and O. Evans. TruthfulQA: Measuring how models mimic human falsehoods. In S. Muresan, P. Nakov, and A. Villavicencio, editors, Proceedings of the 60th Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 3214–3252, Dublin, Ireland, May 2022. Association for Computational Linguistics. doi: 10.18653/v1/2022.acl-long. 229. URL https://aclanthology.org/2022.acl-long.229/ .P. Manakul, A. Liusie, and M. Gales. SelfCheckGPT: Zero-resource black-box hallucination detection for generative large language models. In H. Bouamor, J. Pino, and K. Bali, editors, Proceedings of the 2023 Conference on Empirical Methods in Natural Language Processing , pages 9004– 9017, Singapore, Dec. 2023. Association for Computational Linguistics. doi: 10.18653/v1/2023. emnlp-main.557. URL https://aclanthology.org/2023.emnlp-main.557/ .S. Marks and M. Tegmark. The geometry of truth: Emergent linear structure in large language model representations of true/false datasets, 2024. URL https://arxiv.org/abs/2310.06824 .K. Meng, D. Bau, A. Andonian, and Y. Belinkov. Locating and editing factual associations in gpt. In Proceedings of the 36th International Conference on Neural Information Processing Systems ,NIPS ’22, Red Hook, NY, USA, 2022. Curran Associates Inc. ISBN 9781713871088. H. Orgad, M. Toker, Z. Gekhman, R. Reichart, I. Szpektor, H. Kotek, and Y. Belinkov. Llms know more than they show: On the intrinsic representation of llm hallucinations, 2025. URL 
+
+https://arxiv.org/abs/2410.02707 .L. Ouyang, J. Wu, X. Jiang, D. Almeida, C. L. Wainwright, P. Mishkin, C. Zhang, S. Agarwal, K. Slama, A. Ray, J. Schulman, J. Hilton, F. Kelton, L. Miller, M. Simens, A. Askell, P. Welinder, P. Christiano, J. Leike, and R. Lowe. Training language models to follow instructions with human feedback, 2022. URL https://arxiv.org/abs/2203.02155 .K. Park, Y. J. Choe, and V. Veitch. The linear representation hypothesis and the geometry of large language models, 2024. URL https://arxiv.org/abs/2311.03658 .Qwen, :, A. Yang, B. Yang, B. Zhang, B. Hui, B. Zheng, B. Yu, C. Li, D. Liu, F. Huang, H. Wei, H. Lin, J. Yang, J. Tu, J. Zhang, J. Yang, J. Yang, J. Zhou, J. Lin, K. Dang, K. Lu, K. Bao, K. Yang, L. Yu, M. Li, M. Xue, P. Zhang, Q. Zhu, R. Men, R. Lin, T. Li, T. Tang, T. Xia, X. Ren, X. Ren, Y. Fan, Y. Su, Y. Zhang, Y. Wan, Y. Liu, Z. Cui, Z. Zhang, and Z. Qiu. Qwen2.5 technical report, 2025. URL https://arxiv.org/abs/2412.15115 .G. Team, T. Mesnard, C. Hardin, R. Dadashi, S. Bhupatiraju, S. Pathak, L. Sifre, M. Rivière, M. S. Kale, J. Love, P. Tafti, L. Hussenot, P. G. Sessa, A. Chowdhery, A. Roberts, A. Barua, A. Botev, A. Castro-Ros, A. Slone, A. Héliou, A. Tacchetti, A. Bulanova, A. Paterson, B. Tsai, B. Shahriari, C. L. Lan, C. A. Choquette-Choo, C. Crepy, D. Cer, D. Ippolito, D. Reid, E. Buchatskaya, E. Ni, E. Noland, G. Yan, G. Tucker, G.-C. Muraru, G. Rozhdestvenskiy, H. Michalewski, I. Tenney, I. Grishchenko, J. Austin, J. Keeling, J. Labanowski, J.-B. Lespiau, J. Stanway, J. Brennan, J. Chen, J. Ferret, J. Chiu, J. Mao-Jones, K. Lee, K. Yu, K. Millican, L. L. Sjoesund, L. Lee, L. Dixon, 17 M. Reid, M. Mikuła, M. Wirth, M. Sharman, N. Chinaev, N. Thain, O. Bachem, O. Chang, O. Wahltinez, P. Bailey, P. Michel, P. Yotov, R. Chaabouni, R. Comanescu, R. Jana, R. Anil, R. McIlroy, R. Liu, R. Mullins, S. L. Smith, S. Borgeaud, S. Girgin, S. Douglas, S. Pandya, S. Shakeri, S. De, T. Klimenko, T. Hennigan, V. Feinberg, W. Stokowiec, Y. hui Chen, Z. Ahmed, Z. Gong, T. Warkentin, L. Peran, M. Giang, C. Farabet, O. Vinyals, J. Dean, K. Kavukcuoglu, D. Hassabis, Z. Ghahramani, D. Eck, J. Barral, F. Pereira, E. Collins, A. Joulin, N. Fiedel, E. Senter, A. Andreev, and K. Kenealy. Gemma: Open models based on gemini research and technology, 2024. URL https://arxiv.org/abs/2403.08295 .I. Tenney, D. Das, and E. Pavlick. BERT rediscovers the classical NLP pipeline. In A. Korhonen, D. Traum, and L. Màrquez, editors, Proceedings of the 57th Annual Meeting of the Association for Computational Linguistics , pages 4593–4601, Florence, Italy, July 2019. Association for Computational Linguistics. doi: 10.18653/v1/P19-1452. URL https://aclanthology.org/ P19-1452/ .X. Wang, J. Wei, D. Schuurmans, Q. Le, E. Chi, S. Narang, A. Chowdhery, and D. Zhou. Self-consistency improves chain of thought reasoning in language models, 2023. URL https:// arxiv.org/abs/2203.11171 .R. Zellers, A. Holtzman, Y. Bisk, A. Farhadi, and Y. Choi. HellaSwag: Can a machine really finish your sentence? In A. Korhonen, D. Traum, and L. Màrquez, editors, Proceedings of the 57th Annual Meeting of the Association for Computational Linguistics , pages 4791–4800, Florence, Italy, July 2019. Association for Computational Linguistics. doi: 10.18653/v1/P19-1472. URL 
+
+https://aclanthology.org/P19-1472/ .A. Zou, L. Phan, S. Chen, J. Campbell, P. Guo, R. Ren, A. Pan, X. Yin, M. Mazeika, A.-K. Dombrowski, S. Goel, N. Li, M. J. Byun, Z. Wang, A. Mallen, S. Basart, S. Koyejo, D. Song, M. Fredrikson, J. Z. Kolter, and D. Hendrycks. Representation engineering: A top-down approach to ai transparency, 2025. URL https://arxiv.org/abs/2310.01405 .
+
+# A Complete Layer Sweep Results 
+
+Tables 6–8 report accuracy and signal-to-noise ratio for both standard and contrastive directions across five layer fractions (0.60, 0.70, 0.75, 0.80, 0.90) for the sub-3B models; seven fractions (additionally 0.65 and 0.85) for the 7B models, with layer selection performed on a 20% held-out validation split in all cases. All results use ARC-Challenge, N =50 calibration examples, and n=500 held-out test examples. Zero-shot log-probability baselines: Llama 37.7%, Qwen 42.0%, Gemma 46.0%. Table 6: Full layer sweep — Llama-3.2-1B-Instruct (16 layers). Fractions 0.75 and 0.80 map to the same absolute layer (layer 12); results are identical by construction.                                         
+
+> Standard ˆδContrastive ˆδ
+> Layer SNR ArgMax ArgMin SNR ArgMax ArgMin 0.60 43.4 ×29.4 20.8 8.1 ×44.2 11.2 0.70 38.5 ×24.0 21.2 7.6 ×40.2 14.2 0.75 †‡ 36.4 ×58.0 38.0 35.9 ×53.2 54.0 0.80 †36.4 ×58.0 38.0 35.9 ×53.2 54.0 0.90 35.7 ×33.6 17.8 7.2 ×38.4 16.2
+> †Both map to layer 12 in a 16-layer model.
+
+# B Calibration Size Analysis 
+
+Table 11 compares N =50 and N =100 calibration examples for both standard (upper rows, n=200 
+
+test) and contrastive (lower rows, n=500 test, at optimal layer per model) directions. SNR decreases with N in every configuration. Accuracy shows no systematic improvement: in 7 of 9 comparisons, 
+
+N =50 matches or exceeds N =100 .18 Table 7: Full layer sweep — Qwen-2.5-1.5B-Instruct (28 layers).                                        
+
+> Standard ˆδContrastive ˆδ
+> Layer SNR ArgMax ArgMin SNR ArgMax ArgMin 0.60 51.9 ×36.8 15.2 8.5 ×53.0 10.4 0.70 49.7 ×39.0 15.0 8.4 ×60.6 8.0 0.75 41.0 ×37.4 18.2 7.7 ×53.0 8.0 0.80 39.6 ×35.4 17.0 7.5 ×48.6 9.2 0.90 32.6 ×31.2 19.0 6.5 ×49.0 10.4
+
+Table 8: Full layer sweep — Gemma-2-2B-IT (26 layers).                                        
+
+> Standard ˆδContrastive ˆδ
+> Layer SNR ArgMax ArgMin SNR ArgMax ArgMin 0.60 30.9 ×33.2 21.2 11.0 ×65.0 6.0 0.70 27.2 ×28.4 24.6 10.1 ×67.6 6.4 0.75 29.0 ×33.2 20.8 10.0 ×67.8 6.4 0.80 28.7 ×35.4 18.4 9.7 ×65.6 6.0 0.90 31.7 ×36.4 16.8 9.9 ×62.4 6.2
+
+# C MMLU Subject Transfer: Full Results 
+
+Table 12 reports accuracy for each MMLU subject tested in Section 4.2, using the ARC-Challenge calibrated direction and the optimal contrastive layer for each model. Zero-shot baselines are model-specific and computed on identical test sets. 
+
+# D Hallucination Detection: Threshold Operating Points 
+
+Table 13 reports precision, recall, and false positive rate at five operating points for the GRM hallucination detector, computed analytically from Gaussian fits to the empirical score distributions (μcorrect =+0 .0255 , σ=0 .0478 ; μwrong =−0.0084 , σ=0 .0483 ; fit validated by theoretical AUROC 0.691 vs. empirical 0.693). Precision accounts for the 1:3 correct-to-incorrect class ratio in ARC. Note: the GRM score is a ranking signal, not a calibrated probability. Precision is high (81–90%) because the 3:1 wrong-to-correct class ratio means the majority of low-scoring answers are genuinely incorrect. The practical operating trade-off is between TPR (fraction of wrong answers caught) and FPR (fraction of correct answers wrongly flagged); both rise monotonically with the threshold. At 
+
+t=0 , 56.9% of wrong answers are flagged at a false positive rate of 29.7%, with 85.2% precision on the flagged set. 
+
+# E Implementation Details 
+
+Prompt format. All hidden states are extracted from the following fixed template, consistent across calibration and inference: 
+
+"Question: {Q}\nAnswer: {A}" 
+
+For calibration with an empty answer string, A="" . Tokens are extracted at the final position of the full prompt. 
+
+Algorithms. Algorithms 1 and 2 formalise the calibration and inference procedures described in Section 3. 
+
+Model specifications. Table 14 summarises the key architectural parameters of the three models and the absolute layer indices corresponding to the optimal extraction fraction. 19 Table 9: Layer sweep — Qwen-2.5-7B-Instruct (32 layers). Contrastive ˆδ only; accuracy on 20% validation split used for layer selection. Zero-shot baseline: 48.0%.                 
+
+> Layer Con SNR Con ArgMax (val) 0.60 12.4 ×62.8 0.65 13.5 ×75.2 0.70 14.9 ×82.5
+> 0.75 15.4 ×75.2 0.80 14.4 ×74.8 0.85 13.7 ×73.1 0.90 12.3 ×68.8 Bold = validation-selected layer.
+
+Table 10: Layer sweep — Llama-3.1-8B-Instruct (32 layers). Contrastive ˆδ only; accuracy on 20% validation split used for layer selection. Zero-shot baseline: 45.6%.                 
+
+> Layer Con SNR Con ArgMax (val) 0.60 11.2 ×55.6 0.65 11.1 ×56.0
+> 0.70 10.8 ×53.4 0.75 10.5 ×49.6 0.80 10.4 ×50.9 0.85 10.1 ×52.6 0.90 10.0 ×50.4 Bold = validation-selected layer.
+
+Computational requirements. All experiments use models loaded in bfloat16 precision with 
+
+device_map="auto" . Calibration (250 forward passes, N =50 ) completes in approximately 5 minutes on a single GPU; evaluation of 500 test examples with 4 candidates each ( ≈2,000 forward passes) completes in approximately 25 minutes on the same hardware. The contrastive direction vector itself occupies d × 4 bytes (8.2 kB for Llama-1B, 6.1 kB for Qwen-1.5B, 9.2 kB for Gemma, 14.3 kB for Qwen-7B, and 16.4 kB for Llama-8B) and is stored as a single float32 tensor. Inference adds one dot product per candidate, which is computationally negligible relative to the forward pass. 20 Table 11: Effect of calibration size on SNR and ARC-Challenge accuracy. Upper section: standard direction at two layer fractions per model ( n=200 test). Lower section: contrastive direction at optimal layer per model ( n=500 test). SNR consistently decreases as N increases; accuracy shows no systematic benefit beyond N =50 .                                                         
+
+> N= 50 N= 100
+> Model Layer SNR Acc. (%) SNR Acc. (%)
+> Standard direction (n= 200 )Llama 0.90 35.7 ×32.0 35.6 ×26.5 Llama 0.75 36.3 ×28.0 35.5 ×31.5 Qwen 0.90 32.6 ×28.5 30.9 ×30.0 Qwen 0.75 41.0 ×39.0 38.5 ×34.5 Gemma 0.90 31.7 ×37.0 29.8 ×27.5 Gemma 0.75 29.0 ×31.5 27.7 ×28.0
+> Contrastive direction (n= 500 , optimal layer) Llama 0.75 35.9 ×53.2 35.5 ×54.0 Qwen 0.70 8.4 ×60.6 8.4 ×60.6 Gemma 0.75 10.0 ×67.8 9.7 ×65.6
+
+Table 12: ARC-calibrated contrastive direction on MMLU subjects ( n=300 test examples per subject). “Own” columns show accuracy when the direction is calibrated on the same subject’s validation split (N ≤50 , typically 10–30 examples available). Dashes indicate subject calibration was not separately tested.                                                                      
+
+> ARC ˆδOwn ˆδ
+> Subject Model ZS Acc. ∆Acc. ∆
+> Biology Llama 37.7 42.7 +5.0 35.0 −2.7
+> Qwen 40.3 60.7 +20.4 40.3 +0 .0
+> Gemma 41.0 60.7 +19.7 48.7 +7 .7
+> Chemistry Llama 31.0 26.6 −4.4——Qwen 32.0 36.9 +4.9 ——Gemma 30.0 38.4 +8.4 ——Physics Llama 29.8 25.8 −4.0——Qwen 31.1 36.4 +5.3 ——Gemma 35.1 30.5 −4.6——History Llama 38.0 44.7 +6.8 ——Qwen 42.6 56.1 +13.5 ——Gemma 42.6 65.0 +22.4 ——
+
+Table 13: GRM detector operating points at selected score thresholds. TPR: fraction of wrong answers correctly flagged (high GRM score < threshold flags answer as suspect — note: we flag low-scoring answers, so high TPR requires a high threshold t). FPR: fraction of correct answers incorrectly flagged.                    
+
+> Threshold tTPR (wrong flagged) FPR (correct flagged) Precision
+> −0.04 30.7% 10.5% 89.7%
+> −0.02 40.4% 17.1% 87.6%
+> 0.00 56.9% 29.7% 85.2%
+> +0 .02 64.5% 40.0% 82.8%
+> +0 .04 72.0% 50.1% 81.1%
+
+21 Algorithm 1 Contrastive direction calibration 
+
+Require: LLM f with L layers, calibration set D={(Qi, A + 
+
+> i
+
+, Wi)}Ni=1 , layer fraction ρ
+
+Ensure: Direction ˆδ 
+
+> 1:
+
+ℓ ← ⌊ ρ · L⌋ 
+
+> 2:
+
+for i = 1 to N do  
+
+> 3:
+
+˜h+ 
+
+> i
+
+← hℓ(Qi, A + 
+
+> i
+
+) / ∥hℓ(Qi, A + 
+
+> i
+
+)∥ 
+
+> 4:
+
+¯h− 
+
+> i
+
+← 1
+
+> |W i|
+
+P 
+
+> w∈W i
+
+hℓ(Qi, w ) / ∥hℓ(Qi, w )∥ 
+
+> 5:
+
+di ← ˜h+ 
+
+> i
+
+− ¯h− 
+
+> i
+> 6:
+
+end for  
+
+> 7:
+
+¯d ← 1
+
+> N
+
+PNi=1 di 
+
+> 8:
+
+return ˆδ ← ¯d / ∥¯d∥
+
+Algorithm 2 Geometric candidate scoring 
+
+Require: Question Q, candidates {A1, . . . , A K }, direction ˆδ, layer ℓ
+
+Ensure: Predicted answer ˆA 
+
+> 1:
+
+for i = 1 to K do  
+
+> 2:
+
+si ← ˆδ⊤ · hℓ(Q, A i) / ∥hℓ(Q, A i)∥ 
+
+> 3:
+
+end for  
+
+> 4:
+
+return ˆA ← Aarg max i si
+
+Table 14: Model architectures and optimal extraction layers. 
+
+Model Params Layers d Opt. frac Opt. layer Llama-3.2-1B-Instruct 1.24B 16 2,048 0.60 9Qwen-2.5-1.5B-Instruct 1.54B 28 1,536 0.65 18 Gemma-2-2B-IT 2.61B 26 2,304 0.70 18 Qwen-2.5-7B-Instruct 7.61B 32 3,584 0.70 22 Llama-3.1-8B-Instruct 8.03B 32 4,096 0.65 20 
+
+22

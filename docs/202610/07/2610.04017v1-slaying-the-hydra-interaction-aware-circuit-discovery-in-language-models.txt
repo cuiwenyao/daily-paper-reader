@@ -1,0 +1,1262 @@
+Title: Slaying the Hydra: Interaction-Aware Circuit Discovery in Language Models
+
+URL Source: https://arxiv.org/pdf/2610.04017v1
+
+Published Time: Tue, 06 Oct 2026 00:17:29 GMT
+
+Number of Pages: 35
+
+Markdown Content:
+Preprint 
+
+# SLAYING THE HYDRA : I NTERACTION -A WARE CIRCUIT 
+
+# DISCOVERY IN LANGUAGE MODELS 
+
+Sankaran Vaidyanathan 1,2∗ Rafal Urbaniak 1∗ Emily Bunnapradist 1
+
+Michelangelo Naim 1 Daniel Waxman 1,31 Basis Research Institute 2 University of Massachusetts Amherst 3 MIT 
+
+## ABSTRACT 
+
+Localizing behavior to individual components of a language model is a central goal of mechanistic interpretability. However, scoring components one at a time misses context-dependent effects: a primary component can inhibit the activation of a backup , leading to issues with ranking components. Actual causality studies the structure of such interactions via witnesses : variables that provide contextual information to resolve interaction terms. However, estimation with witnesses typically requires combinatorial enumeration and is infeasible in practice. We introduce the witness-integrated set effect (WISE) , a family of causal estimands that build on the witness mechanism while taking expectations over sets of causes and witnesses to remain computationally feasible. Building on this approach, we introduce J UNTA LEARNER , a gradient-based circuit discovery method that learns to rank components by their causal impact across varying-sized sets of components and witnesses. Alongside faithfulness metrics, we introduce measures of necessity and task specificity, and the circuit recognition score (CRS) to summarize each metric across circuit sizes while emphasizing effects achieved by small circuits. Across tasks and models of increasing size, J UNTA LEARNER achieves higher mean CRS compared to attribution baselines on all metrics. Since its cost does not grow with the number of candidate components, J UNTA LEARNER scales to large models while accounting for set-level interactions and avoiding first-order approximations. 
+
+## 1 INTRODUCTION 
+
+Localizing behavior to individual components of a language model is a fundamental goal of mechanis-tic interpretability (Olah et al., 2020). The standard measures of each component’s causal contribution are the natural indirect effect (NIE) (Pearl, 2001) and pure indirect effect (PIE) (VanderWeele, 2013), often referred to as noising and denoising , respectively (Heimersheim & Nanda, 2024). Activation patching (Vig et al., 2020; Geiger et al., 2021) computes these quantities exactly, and first-order gradient-based approximations (Hanna et al., 2024; Syed et al., 2024) have made them applicable at scale (Ameisen et al., 2025; Marks et al., 2025). However, individual NIE scores are systematically distorted by interactions between components; genuine causes can be missed and individual effects need not compose into circuit effects (Mueller, 2024). The canonical example is preemption : a primary component masks a backup that takes over once the primary is patched (Wang et al., 2023), a form of self-repair that McGrath et al. (2023) call the Hydra effect , after the monster that grows new heads for each one cut off (Hesiod, ca. 700 BCE). Interactions can also be superadditive or subadditive , with joint effects above or below the sum of individual effects (VanderWeele & Knol, 2014). These phenomena reflect a combinatorial structure: the joint effect of any component set includes cross-interactions for every combination of its members, which per-component scores cannot separate (Vaidyanathan et al., 2026). These failures leave circuit localization caught between Scylla and Charybdis. On one side are per-component scores that ignore interactions. Exact per-component patching needs a forward pass for every component on every prompt, so its cost grows with the model, and it still misses joint 
+
+> ∗
+
+Co-first authorship. A full contribution statement is available at the end of the paper. Correspondence to 
+
+sankaranv@cs.umass.edu and rfl.urbaniak@gmail.com .
+
+1arXiv:2610.04017v1 [cs.LG] 2 Oct 2026 Preprint 0 .5 1             
+
+> k
+> 1
+> CPR = ∫ +dk
+> CMD = ∫ +dk
+> CRS = 1 − ∫ d(log k)
+> CRS 1 − CMD CPR CRS 1 − CMD CPR CRS 1 − CMD CPR
+> Faithfulness Net Kill
+> 0.60 .06 .12 .18 SVA Arithmetic Induction
+> Relative scores Control-task damage AUC Metrics
+> JuntaLearner (Ours; Default) Per-head NIE, signed MAttr
+
+Figure 1: Interactions and evaluation on GPT-2/IOI. Left: performance of J UNTA LEARNER ,compared to the signed per-head NIE and MAttr, across a combination of our metrics. Center: as some task (IOI) is successfully “killed” (by removing the estimated 10 -head IOI circuit), other tasks may also take collateral damage; this is captured in our “net” metric. Right: MAttr faithfulness on GPT-2/IOI incurs significant “overshoot”; CPR rewards this overshoot, while CMD penalizes it. Meanwhile, CRS rewards early discovery by measuring area under the log-curve. effects. First-order approximations are cheaper but discard interactions altogether. On the other side, exhaustive set-level scoring captures interactions but grows exponentially with the number of components, which makes it infeasible for real models. Prior work escapes the search by using prior knowledge to restrict which interactions are considered, either searching for backups to an assumed primary circuit (Wang et al., 2023; Gong et al., 2026) or predefining the interaction structure (Chen et al., 2025). What is missing is a method that accounts for interactions at feasible cost. In this paper, we make the following contributions: (a) Witness-Integrated Set Effects (WISE) , a family of set-level causal estimands parameterized by an effect measure such as NIE, PIE or their soft minimum. WISE scores components by averaging causal effects over sets in which they interact, while blocking self-repair from outside the set via 
+
+witness pinning , which holds specific downstream sites at their clean values. Witnesses originate in actual causality (Halpern, 2016); we generalize them to the causal mediation setting. (b) J UNTA LEARNER , a scalable circuit discovery method based on WISE maximization over a learned distribution of candidate sets, through a differentiable Gumbel-top-k relaxation with a dynamically annealed set size. A single run produces a component ranking from which circuits of different sizes can be extracted. (c) A set of circuit evaluation metrics that expand on the notion of circuit quality beyond faithfulness: 
+
+kill , net , and the circuit recognition score (CRS) . Kill measures necessity as the task-performance loss when a circuit is patched, while net measures task specificity by penalizing the collateral damage that patching one task’s circuit does to other tasks. CRS summarizes each metric across circuit sizes, rewarding early recognition (Truchon & Bayly, 2007) by giving greater weight to high effects achieved by smaller circuits. (d) On five tasks across GPT-2 small, Qwen3-1.7B and Llama-3.1-8B, J UNTA LEARNER outperforms attribution baselines including EAP-IG (Hanna et al., 2024) and MAttr (Arora et al., 2026) on kill and net, and performs at least as well as exact per-head NIE. On the public test split of the MIB Circuit Localization track (Mueller et al., 2025), a single untuned run of J UNTA LEARNER 
+
+beats MAttr’s released circuits on kill, net, and the CMD metric for faithfulness that MIB uses to penalize overshooting the original model’s performance. 
+
+## 2 WITNESS -I NTEGRATED CAUSAL EFFECTS 
+
+Counterfactual estimands can give unintuitive answers when causes are redundant, a problem studied at length in actual causality (Halpern, 2016). The standard example is preemption (Hall, 2004): Suzy and Billy both throw rocks at a bottle, and Suzy’s arrives first and shatters it. Had she not thrown, 2Preprint 10.0 9.6 9.9 9.7 10.6 11.2 10.1 10.10 10.2 11.9 9.0 NM BU NM BU −0.4 0.0 0.4 0.8 1.2        
+
+> NIE
+> Name Movers Backups Alone Witness-integrated
+> 0.41 -0.41 0.08 0.33 0.32 -0.26 0.19 0.17 -0.13 0.07 0.02 0.14 0.74 1.16 0.60
+
+Figure 2: Witness interactions in the GPT-2 IOI circuit. The Name Mover group plays a primary role in the GPT-2 IOI circuit, but its backups obscure this role under the standard NIE; witness-integration recovers the intuitive result that the primaries (NM) rank above the backups (BU). Billy’s rock would have shattered the bottle anyway, so her throw has no counterfactual effect even though it broke the bottle. Language models show the same pattern (Mueller, 2024): GPT-2’s IOI circuit has backup name mover heads that were only active once the primary name movers were ablated (Wang et al., 2023), and ablating a layer can trigger self-repair in the subsequent layers (McGrath et al., 2023). 
+
+Indirect Effects Take a factual prompt a, an alternative prompt a′, and a set M of model compo-nents, the mediators (Steen et al., 2017). The natural indirect effect (NIE) (Pearl, 2001) asks how much of the behavior is lost when M alone takes its alternative values. The pure indirect effect (PIE) (VanderWeele, 2013) asks how much comes back when M alone is restored to its factual values: 1
+
+NIE M(a, a ′) = Y (a, M(a)) − Y (a, M(a′)) , (1) 
+
+PIE M(a, a ′) = Y (a′, M(a)) − Y (a′, M(a′)) . (2) Here Y (a, M(a′)) is the model’s output on a with M patched to the values it takes on a′. The NIE measures necessity and the PIE sufficiency. Interpretability calls them the noising and denoising 
+
+directions of activation patching (Heimersheim & Nanda, 2024), and we average both over a task’s prompt pairs. Either way the whole set gets a single number, which cannot tell us which members carry the effect or how they depend on one another. That gap matters most when components compensate for each other or cancel out (Wang et al., 2023). 
+
+Witnesses Witnesses are components downstream of M that we pin to their values on the starting prompt ( a for the NIE, a′ for the PIE), so that they cannot compensate for an intervention on M.In the rock throwing example, if we hold fixed that Billy’s rock never hits, the bottle now survives whenever Suzy does not throw, and her throw regains its effect. Figure 2 shows the same result in the IOI circuit. Scored alone, the backup name movers outrank the primaries (NIE 0.74 against 0.14 ); with witnesses integrated, the primaries lead ( 1.16 against 0.60 for the backups). With witnesses W, the witness-informed NIE and PIE are: 
+
+NIE M;W(a, a ′) ≜ Y (a, M(a), W(a)) − Y (a, M(a′), W(a)) , (3) 
+
+PIE M;W(a, a ′) ≜ Y (a′, M(a), W(a′)) − Y (a′, M(a′), W(a′)) . (4) Each witness is pinned to the value it takes on the prompt the run starts from, which is a for the NIE and a′ for the PIE. 
+
+Witness Integration Since we rarely know in advance which witnesses to pin, we average over a distribution of witness sets (Urbaniak et al., 2026). Let V be all the variables of the model and 
+
+C ⊆ V the pool of candidates we search over. Each draw splits V three ways. The mediators 
+
+M ⊆ C get patched. The witnesses W ⊆ reach( M) get pinned, where reach( M) is everything downstream of M outside M itself. The remaining free variables F recompute as usual. For a         
+
+> 1Taking aas the treated level and a′as the control, our PIE is the pure indirect effect of VanderWeele (2013), which equals the NIE of Pearl (2001), and our NIE is the total indirect effect of VanderWeele (2013), which holds the treatment at its active level. We keep the names NIE and PIE to distinguish the two patching directions.
+
+3Preprint distribution p(M, W | C) over mediators and witnesses, we define the witness-integrated set effect (WISE) of any set-level score S as 
+
+WISE p, S (a, a ′) ≜ Ep(M,W | C)
+
+SM;W(a, a ′). (5) Setting S = NIE gives the witness-integrated NIE , WINIE p ≜ WISE p, NIE , the objective that our JUNTA LEARNER usually maximizes (Section 3), and S = PIE gives WIPIE p ≜ WISE p, PIE . 2
+
+Sets and witnesses expose interaction effects , the part of a joint effect that per-head evaluation typically misses. When a primary component and its backup fall in the same mediator set, patching them together exposes their joint effect; when the backup is left outside the mediator set, pinning it as a witness does the same. Set sampling and witness pinning are partly overlapping ways of exposing interactions, and how much witnesses add depends on the model; in our experiments it helps most on Qwen3. See Section 4 and Figures 17 and 19 in Appendix D for details. Enumerating mediator and witness sets becomes impractical as the candidate pool grows. Monte Carlo sampling over set sizes and witnesses can approximate WISE; details are inAppendix A. However, every candidate needs many sampled sets, each of which gets a forward pass, so it scales poorly to large models. In the next section, we describe a gradient-based learner that uses WINIE 
+
+maximization to identify circuits more efficiently. 
+
+## 3 CIRCUIT DISCOVERY WITH JUNTA LEARNER 
+
+Since scoring every set of candidates is out of reach, J UNTA LEARNER learns which sets are worth scoring. Each candidate has a trainable inclusion logit. At each step, the method draws sets from these logits, scores each set on paired prompts, and updates the logits to favor sets with higher scores. The set size starts large and shrinks as training proceeds. At the end, a readout of the run ranks the candidates, and the top ℓ form the circuit of size ℓ. Appendix B gives the full procedure. 
+
+Objective Let θi be the inclusion logit of candidate Ci ∈ C. At set size k, the logits and the witness-sampling rule define a distribution pθ,k (M, W | C) over mediator–witness pairs with 
+
+|M| = k. Training maximizes the witness-integrated score of Section 2 under that distribution: 
+
+max  
+
+> θ
+
+WISE pθ,k ,S (a, a ′) = max  
+
+> θ
+
+Epθ,k 
+
+SM;W(a, a ′). (6) With S = NIE this is WINIE , taken over sets of size k. The choice of S decides what the ranking looks for: NIE trains toward necessity, and PIE toward sufficiency. We may also obtain a hybrid score by taking the soft minimum of NIE and PIE , which we call the bottleneck score :3
+
+ˆSM;W(a, a ′) ≜ −τ log 
+
+
+
+e− NIE M;W (a,a ′)/τ + e− PIE M;W (a,a ′)/τ 
+
+, τ > 0, (7) A candidate’s gradient tracks how the expected score changes as that candidate becomes more likely to be drawn. 
+
+Sampling and updates Each step takes P prompt pairs and draws B mediator sets from the logits. A set is drawn by adding independent Gumbel noise to every logit and keeping the k largest: 
+
+gi
+
+> iid
+
+∼ Gumbel(0 , 1) , M = {Ci : i ∈ top k(θ + g)}. (8) For each mediator set, we sample witnesses uniformly from its eligible downstream candidates, with the witness count determined by a chosen fraction m of that eligible pool. With m = 0 no witnesses are pinned, and the score is the plain set-level NIE or PIE. All B sets are scored on the same prompt pairs. The forward pass uses the hard selection, so every component is either patched, pinned or left free to recompute. The backward pass uses a straight-through estimator (Jang et al., 2017), which takes its gradient from the continuous Gumbel-top-k relaxation of Xie & Ermon (2019). The Adam optimizer with gradient clipping then updates the logits.               
+
+> 2Per-component scores can be read off WISE by contrasting sampled sets with and without a component; see Appendix A for details.
+> 3As τ→0it approaches min(NIE ,PIE) ; for large τit behaves like their mean shifted by −τlog 2 and tends to −∞ , so τshould be small relative to the scale of the effects.
+
+4Preprint 
+
+Algorithm 1 JUNTA LEARNER 
+
+Require: Candidate pool C; score S; ladder k1, . . . , k R; step budget T ; B sets and P prompt pairs per step; witness fraction m ∈ [0 , 1] 
+
+Ensure: score( i) for every candidate Ci ∈ C 
+
+> 1:
+
+θ ← 0 ▷ one inclusion logit per candidate  
+
+> 2:
+
+for r = 1 , . . . , R do  
+
+> 3:
+
+while budget remains and ( r = R or rung r has not ended) do  
+
+> 4:
+
+Take P prompt pairs without replacement  
+
+> 5:
+
+for b = 1 , . . . , B do  
+
+> 6:
+
+g ∼ Gumbel(0 , 1) |C| 
+
+> 7:
+
+Mb ← { Ci : i ∈ top kr (θ + g)} ▷ straight-through gradients  
+
+> 8:
+
+Eb ← components downstream of Mb 
+
+> 9:
+
+Wb ∼ Unif  {W ⊆ E b : |W | = ⌊m|E b|⌉}  
+
+> 10:
+
+end for  
+
+> 11:
+
+γ ← − e∇θ 1
+
+> B
+
+PBb=1 bSMb;Wb ; record γ 
+
+> 12:
+
+θ ← Adam( θ, γ ) ▷ with gradient clipping  
+
+> 13:
+
+end while  
+
+> 14:
+
+end for  
+
+> 15:
+
+score( i) ← P 
+
+> t
+
+clip(ˆ γt,i ), over the recorded γt normalized per step ▷ Equation (9) 
+
+Shrinking the set size Training follows a descending ladder of set sizes k1 > · · · > k R, carrying the logits and the optimizer state from one rung to the next. Large sets allow training to find effects that appear only when several components are patched together, and the smaller sets that follow help separate the members of a good set. A rung ends early once its top candidates have stopped changing from step to step, without flipping back and forth, and the logit gap at the kr-th place is still widening; see Definition B.1 for details. Otherwise it ends after ⌊T /R ⌋ steps of the total budget 
+
+T . The last rung runs until the budget is spent, so it also gets the steps that earlier rungs saved. In our experiments, training over decreasing set sizes improves all evaluation scores on every model compared with training only on single-component sets throughout (Section 4). 
+
+Ranking Since Adam adjusts the update scale separately for each inclusion logit, final logits need not preserve the relative magnitudes of candidates’ effects and hence would make a poor ranking. We therefore rank candidates using gradients recorded during training, normalized per step and clipped per candidate (Equation (9)). The normalization and clipping are engineering choices that are not dictated by the estimands in Section 2; we describe them and how we set them in Appendix B. Writing C(1) , . . . , C (n) for the ranked candidates, the circuit of size ℓ is {C (1) , . . . , C(ℓ)}, and one training run yields the whole nested family of circuits. Algorithm 1 summarizes the procedure, with 
+
+bS for the score averaged over the step’s prompt pairs and e∇θ for the straight-through gradient. 
+
+## 4 EXPERIMENTS 
+
+We test how well J UNTA LEARNER can localize task behavior to compact circuits across models and tasks. We evaluate on GPT-2 small, Qwen3-1.7B-Base, and Llama-3.1-8B, using their attention heads as candidate causes and witnesses. The outcome Y is the correct-answer logit minus the incorrect-answer logit at the final position. For each model, we study performance on indirect object identification (IOI; Wang et al., 2023), subject–verb agreement (Finlayson et al., 2021), two-digit addition (Stolfo et al., 2023), induction (Elhage et al., 2021; Olsson et al., 2022), and entity tracking (Prakash et al., 2024). We provide experimental settings and examples of each task in Appendix C. We compare J UNTA LEARNER against rankings obtained by single-component activation patching (per-head NIE), EAP (Syed et al., 2024), and EAP-IG (Hanna et al., 2024), evaluating rankings by both signed scores and absolute score magnitudes. We also compare against Matryoshka Attribution (MAttr; Arora et al., 2026) and random rankings. The MIB Circuit Localization track (Mueller et al., 2025) gets a separate comparison in Appendix E. 5Preprint 4.1 CIRCUIT EVALUATION 
+
+Recovering the model’s task performance is the most well-known dimension of circuit quality. Faith-fulness measures this by ablating components outside the circuit and testing how much performance remains (Wang et al., 2023), and faithfulness across circuit sizes is often summarized using aggregate metrics such as CPR and CMD (Mueller et al., 2025). While faithfulness establishes how much performance the circuit can support, it does not tell us how much the intact model depends on it: components elsewhere may compensate when the circuit is removed. Moreover, a large removal effect may reflect damage to general-purpose components that support many tasks. We also ask how few components are needed to achieve these effects, to reflect the goal of localizing behavior to small circuits. We therefore supplement standard circuit metrics with measures of removal effects and task specificity, and aggregates across circuit sizes that give greater weight to small circuits. 
+
+Faithfulness and Necessity Let the circuit Cℓ contain a ranking’s top ℓ candidates, and write 
+
+YCℓ = Y (a, Cℓ(a′)) for the outcome when components in Cℓ are patched to their alternative-prompt values. Faithfulness measures the performance retained when the circuit’s complement is patched, while kill measures necessity, the effect of patching the circuit itself. In both cases, the remaining components recompute normally, with no witnesses pinned. Then: 
+
+Faithfulness( ℓ) = E[YC\C ℓ ] − E[YC]
+
+E[Y∅] − E[YC] , Kill( ℓ) = E[Y∅] − E[YCℓ ]
+
+E[Y∅] − E[YC] .0.1% 1% 10% 100%          
+
+> proportion of pool kept, k
+> 0.25 .5 .75 1
+> faithfulness  f(k)
+> CPR 1− CMD CRS mc, held 0.94 0.94 0.76
+> trained, free 1.01 0.95 0.59
+
+Figure 3: Two faithfulness curves on Qwen3-1.7B-Base, SVA, at MIB’s ten log-spaced proportions. CPR and 1 − CMD prefer the late, overshooting curve; CRS prefers the early one. All expectations are over held-out prompt pairs, and both metrics are normalized by the effect of patching the full candidate pool. The numerator of kill is the circuit’s NIE. Faithfulness reaches 1 when the circuit recovers the intact model’s mean outcome; kill reaches 1 when removing the circuit has the same effect as patching the full pool. 
+
+Task Specificity To measure task specificity, we apply the same circuit Cℓ to the set T of the model’s other tasks. 4 Let 
+
+Kill j (ℓ) denote the removal effect on task j using its own prompt pairs and normalization. We define net as target-task removal minus mean collateral damage: 
+
+Net( ℓ) = min {1, Kill( ℓ)} − 1
+
+|T | 
+
+X
+
+> j∈T
+
+max {0, Kill j (ℓ)}.
+
+We cap the target effect at one so that removing the circuit earns no extra credit for causing more damage than patching all candidate components. We floor each control effect at zero so that improving one task cannot offset damage to another. Higher net values indicate greater target-task disruption relative to damage on the other tasks. 
+
+Aggregation Across Circuit Sizes A ranking localizes behavior more compactly when small circuits already achieve the desired effect. Faithfulness is usually summarized using the integrated circuit performance ratio (CPR), the area under the faithfulness curve, and the integrated circuit-model distance (CMD), the area between that curve and one (Mueller et al., 2025). CPR rewards greater recovered performance, including performance that overshoots the intact model’s, whereas CMD penalizes deviations in either direction (lower CMD is better; in figures we plot 1 − CMD , so that higher is better on every summary). Both integrate over circuit size on a linear scale, so performance at circuit sizes of 1–2% of the candidate pool receives the same weight as performance at sizes of 50–51%, where nearly every ranking has already recovered the behavior. To prioritize small circuits, we adopt the principle of rewarding early success used in discounted cumulative gain for information retrieval (Järvelin & Kekäläinen, 2002) and early-recognition metrics 
+
+> 4All four others on Qwen3 and Llama, and on GPT-2 the others except entity tracking, which GPT-2 small barely performs.
+
+6Preprint 0.6 0.8 
+
+> Kill CRS
+> IOI
+> 0.5 0.75
+> SVA
+> 00.5
+> Arithmetic
+> 0.4 0.6
+> Induction
+> 0.4 0.6
+> Entity tracking
+> 0.2 0.4 0.6
+> Faith CRS
+> 0.6 0.8
+> 0.25 0.5 0.75
+> 0.5 0.6 0.7
+> 0.3 0.4 0.5
+> GPT-2 Qwen3 Llama
+> 0.25 0.5 0.75
+> Net CRS
+> GPT-2 Qwen3 Llama
+> 0.25 0.5 0.75
+> GPT-2 Qwen3 Llama
+> 00.5
+> GPT-2 Qwen3 Llama
+> 00.2 0.4
+> GPT-2 Qwen3 Llama
+> 00.2 0.4
+> JuntaLearner (Ours; Tuned)
+> EAP, signed
+> JuntaLearner (Ours; Default)
+> MAttr NIE, signed EAP-IG, signed
+
+Figure 4: Every (model, task) cell, scored by CRS. Per-model default is one configuration per model, chosen by median per-cell score; Tuned is, for each cell and each goal, the J UNTA LEARNER 
+
+configuration with the highest CRS on that goal (mean over seeds) for virtual screening (Truchon & Bayly, 2007), and average performance over circuit sizes on a logarithmic scale. For each evaluation curve h, we define its circuit recognition score (CRS) over evaluated sizes ℓ1 < · · · < ℓ J , with ℓ1 > 0, as 
+
+CRS( h) = 
+
+PJj=1 wj min {1, h (ℓj )}
+
+PJj=1 wj
+
+.
+
+The weights wj are the local spacings of log ℓj , computed by central differences at interior points and one-sided differences at the endpoints. Faithfulness is evaluated at MIB’s ten log-spaced proportions of the candidate pool, and kill and net at the top ℓ = 1 , . . . , 25 heads (26 on some cells). Capping faithfulness and kill at one gives no additional credit or penalty for exceeding their reference outcomes; net is already bounded above by one by construction. Applying CRS to the three curves gives Sfaith ,
+
+Skill , and Snet , respectively. Figure 3 shows how the choice of summary can reverse a verdict. One curve recovers the behavior from the smallest circuits onward; the other stays at zero until about 1% of the pool and then overshoots. CPR and 1 − CMD rank the late curve higher (1.01 and 0.95 against 0.94 and 0.94), and CRS ranks the early one higher (0.76 against 0.59). We report CRS in the main text; Appendix E reports all three summaries side by side. 4.2 RESULTS 
+
+We evaluate two configuration-selection strategies across the fifteen model–task combinations. De-fault uses one configuration per model, selected by its median score across the five tasks. Tuned 
+
+uses task-specific configurations selected from the sweep (Appendix C). We compare the resulting rankings on faithfulness, kill, and net, summarized by CRS. 
+
+JuntaLearner outperforms attribution baselines on average. The tuned configurations achieve the highest mean faithfulness, kill, and net scores, leading five of six columns in Table 1. With one 7Preprint 
+
+Kill ( ↑) Faithfulness ( ↑) Net ( ↑)Method Mean Worst Mean Worst Mean Worst JUNTA LEARNER (Ours; Tuned) 0.67 0.38 0.61 0.38 0.54 0.28 
+
+JUNTA LEARNER (Ours; Default) 0.65 0.38 0.59 0.32 0.48 0.21 Per-head NIE, signed 0.64 0.37 0.59 0.31 0.47 0.12 EAP, signed 0.56 0.31 0.53 0.28 0.45 0.22 MAttr 0.55 0.24 0.58 0.42 0.36 -0.03 Per-head NIE 0.56 0.29 0.50 0.22 0.40 0.13 EAP-IG, signed 0.51 -0.03 0.48 0.07 0.29 -0.10 EAP 0.39 -0.07 0.43 0.15 0.31 -0.11 EAP-IG 0.44 0.13 0.44 0.24 0.20 -0.11 
+
+Table 1: CRS across the fifteen model-task cells. Worst is the lowest score across all cells; higher is better in every column. Best results are bold and second-best results are underlined, ranked before rounding. Baselines marked "signed" order heads by signed score instead of magnitude. Figure 4 shows the per-cell variation in scores. −0.2 0.0 GPT-2 small Qwen3-1.7B Llama-3.1-8B   
+
+> Kill
+> −0.2 0.0
+> Margin Over Per-Head NIE
+> Faith
+> −0.2 0.0
+> Net
+> JuntaLearner (Ours; Default)
+> MAttr EAP (m=1), signed EAP (m=1) EAP-IG (m=5), signed EAP-IG (m=5) random order per-head NIE
+
+Figure 5: Each model’s default against signed per-head NIE , pooled over its five tasks, with a 95% 
+
+interval across tasks. Vertical rules mark the other baselines’ margins on the same axis. Arrows denote that random order is lies significantly off-axes, and would distort the scale to be included. fixed configuration per model, J UNTA LEARNER scores comparably to signed exact per-head NIE and higher than EAP, EAP-IG, and MAttr. Worst-cell net scores separate the methods further: MAttr, both EAP-IG variants, and magnitude-ranked EAP each have at least one negative-net cell. Figure 4 shows per-cell scores: on GPT-2 small, our default, signed per-head NIE, and signed EAP are within a few hundredths on nearly every panel; on Llama-3.1-8B, J UNTA LEARNER default exceeds all attribution baselines on each metric when pooled across tasks. Figure 5 reports margins over signed per-head NIE with 95% intervals across seeds. 
+
+The baselines’ strengths are metric-specific. On Qwen3-1.7B, signed EAP-IG matches the strongest methods on kill for four of five tasks, yet its net score is negative on three—its top-ranked heads recur across tasks (mean IoU 0.28 vs. 0.12 for exact per-head NIE). MAttr shows the opposite profile: highest worst-cell faithfulness ( 0.42 ), beating our default on faithfulness in eight of fifteen cells, while our default exceeds it on kill in twelve and on net in thirteen. These differences reflect training objectives: MAttr patches the complement of the circuit, which is what faithfulness measures; JUNTA LEARNER patches the circuit itself, which is what kill measures. 
+
+Training is faster than exact scoring on the largest model. On Llama-3.1-8B, J UNTA LEARNER 
+
+trains in 14 –16 minutes on the slowest task, versus 97 minutes for exact per-head NIE—a 4–7×
+
+speedup that holds across all timed runs (Figure 6). On the smaller models, training is 2–8× slower than exact patching, which takes seconds to minutes. The difference is structural: exact scoring costs 
+
+Θ( |M | · N ) forward passes, scaling with the candidate pool; training costs Θ( T · B · P ), independent of pool size. 8Preprint 
+
+JuntaLearner tuning favors descending set sizes and necessity objectives, with model-specific gains from witness pinning. Each run is shaped by five knobs: whether to descend a ladder of set sizes or train on single candidates throughout, how wide to start the ladder (as a share of the candidate pool), which objective to score ( NIE , NIE + PIE , or the bottleneck score of Equation (7)), how many downstream witnesses to pin (none, half, or all), and whether to add a final measurement stage that scores leading candidates individually. We fit a Gaussian process to each model’s training runs and select settings by expected improvement, double-checked by CatBoost (Figure 17). Compared with training on single components throughout, the descending ladder improves predicted faithfulness, kill, and net on all three models. Starting the ladder with larger sets further improves kill and net, with a small loss in faithfulness, since large early sets favor heads whose removal matters in combination. Scoring sampled sets for necessity alone performs at least as well as combining necessity and sufficiency through either their sum or the bottleneck score. The optional measurement stage has a smaller effect, changing no model–metric comparison by more than 0.4 posterior standard deviations. 10 0 10 1 10 2 10 3 10 4  
+
+> Per-head NIE time (s)
+> 10 0
+> 10 1
+> 10 2
+> 10 3
+> 10 4
+> JuntaLearner time (s)
+> GPT-2 Qwen3 Llama
+
+Figure 6: Training time for each model–task– regime run (seconds, log scales). The dashed line marks equal time; points below it favor JUNTA LEARNER .The benefit of witness pinning depends on the model and metric. Pinning all eligible witnesses lowers all three scores on GPT-2 and Llama. On Qwen3, it im-proves net while reducing kill and faithfulness, with normalized changes of +0 .7, −1.8, and −2.5, respec-tively. This tradeoff also appears in the task-specific results: configurations with witnesses pinned achieve the highest net scores on all five tasks in Qwen3. This is potentially suggestive of many multi-functional backup heads in Qwen3, though we do not further investigate this claim in this work. 
+
+Evaluation on MIB We extend the comparison to the MIB Circuit Localization track (Mueller et al., 2025), covering twelve model–task combinations across four models and six tasks. We compare J UN -
+
+> TA
+
+LEARNER with exact per-node NIE and MAttr’s released circuits on the public test split, with one shot untuned runs. Faithfulness uses MIB’s native evalu-ator over circuits containing attention heads, MLPs, and the input embedding; we additionally evaluate kill and net over the attention heads in each ranking. We selected necessity as the score for training sets using GPT-2 IOI validation data; further protocol details and sensitivity analyses appear in Appendix E. Across the twelve cells, J UNTA LEARNER achieves better aggregate kill and net scores than MAttr under all three summaries, and exceeds exact per-node NIE on CRS for faithfulness, kill, and net. MAttr’s mean faithfulness curve rises earlier, giving it a higher CRS, and its higher CPR comes mostly from overshoot (Figure 23). J UNTA LEARNER ’s circuits do far better on CMD since it penalizes overshoot: summed over the twelve cells, their 1 − CMD is 9.1 against MAttr’s 1.0 (Figure 22). 
+
+## 5 DISCUSSION 
+
+In the presence of interactions, recovering a behavior and selectively disabling it need not lead to the same circuit. A set of components can support the behavior while backups elsewhere preserve it after removal; removing a different set can disrupt the behavior through damage to machinery shared across tasks. WISE and J UNTA LEARNER account for how components contribute in the context of other sets of components. The clearest sign that component sets matter comes from training itself: the descending ladder improves scores over singleton training on all metrics. Additionally, JUNTA LEARNER ’s higher net scores indicate circuits that are more localized to the specific task being studied, which helps with controlling its behavior in isolation. However, the choice of evaluation metric can reverse a verdict on circuit quality. Strong removal effects alone do not establish task specificity; several baselines achieve competitive kill scores yet negative net scores. MAttr matches or exceeds the J UNTA LEARNER default on faithfulness in about 9Preprint half of cases, particularly with CPR, but much of its lead comes from overshoot and CMD penalizes this. Our default is also ahead on kill and net in the majority of cases. These findings motivate reporting necessity and task specificity alongside faithfulness, with multiple summaries of each curve. Several limitations remain. Our main experiments focus only on attention heads, and on MIB we ran a single untuned configuration. Training is slower than exact per-head patching on the smaller GPT-2 and Qwen3 models, and the cost advantage appears only once the pool is large. The benefit of witness pinning depends on the model and was primarily seen on Qwen3; a principled account of this dependence would clarify when and why witnesses will help identify context-dependent mechanisms. CONTRIBUTION STATEMENT 
+
+SV and RU jointly led the project. SV, RU, and EB developed and implemented the core samplers, forward methods, and dataset formatting. SV proposed using witness-based methods for circuit discovery, and SV and RU jointly proposed its initial mathematical formulation. RU designed and implemented the J UNTA LEARNER training algorithm, suggested new metrics, and ran the experiments. DW and MN contributed to the WISE estimand and its supporting theory. SV, RU, and DW led the writing of the paper. AI U SE STATEMENT 
+
+Human authors are solely responsible for the research idea, theoretical analysis, interpretation of results, experiment design, and final editing and writing of this research. Generative AI (specifically, Anthropic’s Claude Sonnet 5 and Opus 5, through the Claude Code CLI, and GPT-6 Astra through the Codex CLI) were used in the engineering and experimental work behind this paper in order to re-format code, debug code, and execute the experimental sweeps. The authors approved all runs in the experimental sweeps. We have reviewed all AI-assisted work. Every number and every figure in the paper is regenerated by a script in the codebase from saved run artifacts. We take responsibility for the final content of this work, including artifacts produced with the aid of generative AI. 10 Preprint 
+
+## REFERENCES 
+
+Emmanuel Ameisen, Jack Lindsey, Adam Pearce, Wes Gurnee, Nicholas L. Turner, Brian Chen, Craig Citro, David Abrahams, Shan Carter, Basil Hosmer, Jonathan Marcus, Michael Sklar, Adly Templeton, Trenton Bricken, Callum McDougall, Hoagy Cunningham, Thomas Henighan, Adam Jermyn, Andy Jones, Andrew Persic, Zhenyi Qi, T. Ben Thompson, Sam Zimmerman, Kelley Rivoire, Thomas Conerly, Chris Olah, and Joshua Batson. Circuit tracing: Revealing computational graphs in language models. Transformer Circuits Thread , 2025. URL https: //transformer-circuits.pub/2025/attribution-graphs/methods.html .Aryaman Arora, Kirill Acharya, Nathan Hu, Yanzhe Zhang, Noah Goodman, Dan Jurafsky, and Christopher Potts. Matryoshka attribution: Learning to attribute language model outputs to representations and weights, 2026. URL https://arxiv.org/abs/2609.25518 .Hang Chen, Jiaying Zhu, Xinyu Yang, and Wenya Wang. Rethinking circuit completeness in language models: AND, OR, and ADDER gates. In The Thirty-ninth Annual Conference on Neural Information Processing Systems , 2025. URL https://openreview.net/forum? id=1WkolvkTVi .Nelson Elhage, Neel Nanda, Catherine Olsson, Tom Henighan, Nicholas Joseph, Ben Mann, Amanda Askell, Yuntao Bai, Anna Chen, Tom Conerly, Nova DasSarma, Dawn Drain, Deep Ganguli, Zac Hatfield-Dodds, Danny Hernandez, Andy Jones, Jackson Kernion, Liane Lovitt, Kamal Ndousse, Dario Amodei, Tom Brown, Jack Clark, Jared Kaplan, Sam McCandlish, and Chris Olah. A mathematical framework for transformer circuits. Transformer Circuits Thread , 2021. https://transformer-circuits.pub/2021/framework/index.html. Matthew Finlayson, Aaron Mueller, Sebastian Gehrmann, Stuart Shieber, Tal Linzen, and Yonatan Belinkov. Causal analysis of syntactic agreement mechanisms in neural language models. In Chengqing Zong, Fei Xia, Wenjie Li, and Roberto Navigli (eds.), Proceedings of the 59th An-nual Meeting of the Association for Computational Linguistics and the 11th International Joint Conference on Natural Language Processing (Volume 1: Long Papers) , pp. 1828–1843, Online, August 2021. Association for Computational Linguistics. doi: 10.18653/v1/2021.acl-long.144. URL https://aclanthology.org/2021.acl-long.144/ .Atticus Geiger, Hanson Lu, Thomas F Icard, and Christopher Potts. Causal abstractions of neural networks. In A. Beygelzimer, Y. Dauphin, P. Liang, and J. Wortman Vaughan (eds.), Advances in Neural Information Processing Systems , 2021. URL https://openreview.net/forum? id=RmuXDtjDhG .Zhiren Gong, He Lu, Tiantong Wang, Yichi Zhang, Yixin Wang, Zihao Zeng, Ming Xiao, Chau Yuen, and Wei Yang Bryan Lim. Conditional co-ablation: Recovering self-repair backups in transformer circuits, 2026. URL https://arxiv.org/abs/2607.01940 .Ned Hall. Two concepts of causation. In John Collins, Ned Hall, and L. A. Paul (eds.), Causation and Counterfactuals . The MIT Press, 06 2004. ISBN 9780262270663. doi: 10.7551/mitpress/ 1752.003.0010. URL https://doi.org/10.7551/mitpress/1752.003.0010 .Joseph Y. Halpern. Actual Causality . MIT Press, Cambridge, MA, 2016. Michael Hanna, Sandro Pezzelle, and Yonatan Belinkov. Have faith in faithfulness: Going beyond circuit overlap when finding model mechanisms. In First Conference on Language Modeling , 2024. URL https://openreview.net/forum?id=TZ0CCGDcuT .Stefan Heimersheim and Neel Nanda. How to use and interpret activation patching, 2024. URL 
+
+https://arxiv.org/abs/2404.15255 .Hesiod. Theogony . ca. 700 BCE. Eric Jang, Shixiang Gu, and Ben Poole. Categorical reparameterization with gumbel-softmax. In 
+
+International Conference on Learning Representations , 2017. URL https://openreview. net/forum?id=rkE3y85ee .Kalervo Järvelin and Jaana Kekäläinen. Cumulated gain-based evaluation of IR techniques. ACM Transactions on Information Systems , 20(4):422–446, 2002. 11 Preprint Samuel Marks, Can Rager, Eric J Michaud, Yonatan Belinkov, David Bau, and Aaron Mueller. Sparse feature circuits: Discovering and editing interpretable causal graphs in language models. In The Thirteenth International Conference on Learning Representations , 2025. URL https: //openreview.net/forum?id=I4e82CIDxv .Thomas McGrath, Matthew Rahtz, Janos Kramar, Vladimir Mikulik, and Shane Legg. The hydra effect: Emergent self-repair in language model computations, 2023. URL https://arxiv. org/abs/2307.15771 .Aaron Mueller. Missed causes and ambiguous effects: Counterfactuals pose challenges for inter-preting neural networks. In ICML 2024 Workshop on Mechanistic Interpretability , 2024. URL 
+
+https://openreview.net/forum?id=pJs3ZiKBM5 .Aaron Mueller, Atticus Geiger, Sarah Wiegreffe, Dana Arad, Ivan Arcuschin, Adam Belfki, Yik Siu Chan, Jaden Fiotto-Kaufman, Tal Haklay, Michael Hanna, et al. MIB: A mechanistic interpretability benchmark, 2025. URL https://arxiv.org/abs/2504.13151 .Chris Olah, Nick Cammarata, Ludwig Schubert, Gabriel Goh, Michael Petrov, and Shan Carter. Zoom in: An introduction to circuits. Distill , 2020. doi: 10.23915/distill.00024.001. https://distill.pub/2020/circuits/zoom-in. Catherine Olsson, Nelson Elhage, Neel Nanda, Nicholas Joseph, Nova DasSarma, Tom Henighan, Ben Mann, Amanda Askell, Yuntao Bai, Anna Chen, et al. In-context learning and induction heads. 
+
+Transformer Circuits Thread , 2022. https://transformer-circuits.pub/2022/in-context-learning-and-induction-heads/index.html. Judea Pearl. Direct and indirect effects. In Proceedings of the Seventeenth Conference on Uncertainty in Artificial Intelligence , UAI’01, pp. 411–420, San Francisco, CA, USA, 2001. Morgan Kaufmann Publishers Inc. ISBN 1558608001. Nikhil Prakash, Tamar Rott Shaham, Tal Haklay, Yonatan Belinkov, and David Bau. Fine-tuning enhances existing mechanisms: A case study on entity tracking. In Proceedings of the 2024 International Conference on Learning Representations , 2024. arXiv:2402.14811. Johan Steen, Tom Loeys, Beatrijs Moerkerke, and Stijn Vansteelandt. Flexible mediation analysis with multiple mediators. American Journal of Epidemiology , 186(2):184–193, 2017. doi: 10.1093/ aje/kwx051. Alessandro Stolfo, Yonatan Belinkov, and Mrinmaya Sachan. A mechanistic interpretation of arithmetic reasoning in language models using causal mediation analysis. In Houda Bouamor, Juan Pino, and Kalika Bali (eds.), Proceedings of the 2023 Conference on Empirical Methods in Natural Language Processing , pp. 7035–7052, Singapore, December 2023. Association for Computational Linguistics. doi: 10.18653/v1/2023.emnlp-main.435. URL https://aclanthology.org/ 2023.emnlp-main.435/ .Aaquib Syed, Can Rager, and Arthur Conmy. Attribution patching outperforms automated cir-cuit discovery. In Yonatan Belinkov, Najoung Kim, Jaap Jumelet, Hosein Mohebbi, Aaron Mueller, and Hanjie Chen (eds.), Proceedings of the 7th BlackboxNLP Workshop: Analyzing and Interpreting Neural Networks for NLP , pp. 407–416, Miami, Florida, US, November 2024. Association for Computational Linguistics. doi: 10.18653/v1/2024.blackboxnlp-1.25. URL 
+
+https://aclanthology.org/2024.blackboxnlp-1.25/ .Jean-François Truchon and Christopher I. Bayly. Evaluating virtual screening methods: Good and bad metrics for the “early recognition” problem. Journal of Chemical Information and Modeling ,47(2):488–508, 2007. Rafal Urbaniak, Sam Witty, Daniel Waxman, Andy Zane, Poorva Garg, Emily Bunnapradist, Sankaran Vaidyanathan, Jack Feser, Drew Lehe, and Eli Bingham. A computationally feasible framework for causal probabilistic explanation, 2026. URL https://arxiv.org/abs/2609.04177 .Sankaran Vaidyanathan, David Arbour, Aaron Mueller, Scott Niekum, and David Jensen. The curse of multiple mediators: Hidden interaction effects in activation patching, 2026. URL https: //arxiv.org/abs/2606.27510 .12 Preprint Tyler J. VanderWeele. A Three-way Decomposition of a Total Effect into Direct, Indirect, and Interactive Effects. Epidemiology , 24(2):224–232, 2013. ISSN 1044-3983. Tyler J VanderWeele and Mirjam J Knol. A tutorial on interaction. Epidemiologic methods , 3(1): 33–72, 2014. Jesse Vig, Sebastian Gehrmann, Yonatan Belinkov, Sharon Qian, Daniel Nevo, Yaron Singer, and Stuart Shieber. Investigating gender bias in language models using causal mediation analysis. In H. Larochelle, M. Ranzato, R. Hadsell, M.F. Balcan, and H. Lin (eds.), Ad-vances in Neural Information Processing Systems , volume 33, pp. 12388–12401. Curran Asso-ciates, Inc., 2020. URL https://proceedings.neurips.cc/paper_files/paper/ 2020/file/92650b2e92217715fe312e6fa7b90d82-Paper.pdf .Kevin Ro Wang, Alexandre Variengien, Arthur Conmy, Buck Shlegeris, and Jacob Steinhardt. Interpretability in the wild: a circuit for indirect object identification in GPT-2 small. In 
+
+The Eleventh International Conference on Learning Representations , 2023. URL https: //openreview.net/forum?id=NpsVSN6o4ul .Sang Michael Xie and Stefano Ermon. Reparameterizable subset sampling via continuous relaxations. 
+
+International Joint Conference on Artificial Intelligence (IJCAI) , 2019. 13 Preprint 
+
+## A SAMPLING ALGORITHM 
+
+This paper builds a per-candidate ranking in two ways. The sampled ranking described here is based on a Monte Carlo estimate of the WISE score of Section 2 and some similar scores: it draws candidate sets, scores each one as a set, and reads a candidate’s contribution off the difference between the sets that hold it and the sets that do not. The trained ranking of Appendix B, roughly speaking, learns an inclusion distribution and is read off the training trace. Everything in Section 4 uses the trained ranking, as MC is costly for larger models like Llama-3.1-8B. We do use the MC estimands on smaller models to look at the overlaps between the resulting rankings (Appendix B) for the family of estimands introduced in Section 2. For simplicity we describe the sampler with witnessed NIE as the objective, which can be swapped for any of the others. 
+
+Algorithm 2 Sampling. One pass over the sweep, then one score per candidate. 
+
+Require: pool P; sizes K with a draw budget nk for each; a witness regime 
+
+Ensure: score( i) for every candidate i ∈ P  
+
+> 1:
+
+D ← ∅ ▷ scored sets  
+
+> 2:
+
+for k ∈ K with k < |P| do ▷ k = |P| splits nothing  
+
+> 3:
+
+for nk draws do  
+
+> 4:
+
+S ∼ Unif  { S ⊆ P : |S| = k } 
+
+> 5:
+
+W ← the regime’s witness draw on reach( S) 
+
+> 6:
+
+D ← D ∪ { (S, NIE S;W )} 
+
+> 7:
+
+end for  
+
+> 8:
+
+end for  
+
+> 9:
+
+for i ∈ P do  
+
+> 10:
+
+Ki ← { k ∈ K : some draw at size k holds i and some does not } 
+
+> 11:
+
+score( i) ← 1
+
+|K i|
+
+X
+
+> k∈K i
+
+
+
+mean  
+
+> (S,v )∈D
+> i∈S, |S|=k
+
+v − mean  
+
+> (S,v )∈D
+> i / ∈S, |S|=k
+
+v
+
+ 
+
+> 12:
+
+end for 
+
+The key element in the above is the matching of sets within a size. A larger set removes more of the margin whoever is in it, so a candidate drawn mostly into large sets would otherwise be credited for the size. The price is that the number is a contrast a candidate with no causal role is not guaranteed a score of zero (only the induced ordering is every used to generate circuits, though). 
+
+## B LEARNING ALGORITHM 
+
+Most of a model’s heads do nothing for any given task, and the learner looks for the few that do. It trains one inclusion logit per candidate, saying how likely that candidate is to be switched on, in order to maximize the causal effect. Training then repeats the following steps: draw sets of candidates from those logits (and witnesses, if any), run forward computing the causal effect, and backpropagate to move the logits. Candidate set size is annealed. Typically, training starts with some set size k1 broad enough to quickly explore a larger number of candidates at a high level, and ends with kR, narrow enough that a set’s score says something about single candidates. The strategy is that of the twelve-ball balance puzzle, where three weighings find the odd ball only because each one puts groups of decreasing size on the pans. Here k falls for analogous reasons. We call the sequence of sizes a ladder and one size a rung. A run descends the ladder and stays on each rung until that rung is earned or its step budget runs out. One step of Algorithm 3 goes as follows. It takes P prompt pairs and draws B candidate sets of the rung’s size kr , each set with its own witness subset drawn from what that set reaches. It scores every set with the witness-integrated objective S on those pairs. It then takes one Adam step on the logits. The draw is a top-k Gumbel sample with a straight-through estimator, which makes a hard set of kr
+
+candidates differentiable in θ. Prompt pairs are taken without replacement from a shuffled pass over 14 Preprint 
+
+Algorithm 3 Learning. One pass down the cardinality ladder. 
+
+Require: pool P; effect score S; ladder k1, . . . , k R in the order the schedule visits them; step budget 
+
+T ; B sets and P prompt pairs per step; witness fraction m ∈ [0 , 1] 
+
+Ensure: score( i) for every candidate i ∈ P  
+
+> 1:
+
+θ ← 0 ▷ one inclusion logit per candidate  
+
+> 2:
+
+C ← ⌊ T /R ⌋ ▷ each rung’s step ceiling  
+
+> 3:
+
+for r = 1 , . . . , R do  
+
+> 4:
+
+while rung r is neither earned nor at its ceiling do ▷ rung R runs until T is spent  
+
+> 5:
+
+take P prompt pairs without replacement  
+
+> 6:
+
+for b = 1 , . . . , B do  
+
+> 7:
+
+g ∼ Gumbel(0 , 1) |P|  
+
+> 8:
+
+Sb ← top kr (θ + g) ▷ straight-through, so ∂S b/∂θ exists  
+
+> 9:
+
+Wb ∼ Unif  { W ⊆ reach( Sb) : |W | = ⌊m |reach( Sb)|⌉ }  
+
+> 10:
+
+end for  
+
+> 11:
+
+record ∇θ for this step  
+
+> 12:
+
+θ ← Adam 
+
+
+
+θ, −∇ θ 1
+
+> B
+
+P 
+
+> b
+
+SSb;Wb
+
+ 
+
+> 13:
+
+end while  
+
+> 14:
+
+end for  
+
+> 15:
+
+score( i) ← the readout of Equation (9) over the recorded gradients the training split, refilled when the pass runs out, so no pair is seen much more often than another. And all B sets in a step score the same pairs. 
+
+Advancing a rung. A rung ends one of two ways. Either the logits settle, and the rung is earned , or the rung runs out of steps and ends at its ceiling (the last rung always runs until the budget is spent). Settling means three things at once: the top of the ranking stops changing from step to step, it is not merely oscillating, and the gap at the cut is still widening. 
+
+Definition B.1 (Earned rung) . Rung r trains at cardinality kr over a sequence of steps, each ending with an Adam update to θ. At step t, let w = max( kr , min(10 , |P| )) and supp t = top w(θt), the index set of the top w logits. w is wider than kr itself: at kr = 1 a one-element set makes overlap binary, reporting only whether the leader changed. The step-to-step overlap is ot = |supp t∩supp t−1||supp t∪supp t−1| ,
+
+and the separation margin μt is the gap between the kr-th and (kr +1) -th largest entries of θt,normalized by the spread between the median of its top fifth and the median of the whole vector. Let C = ⌊T /R ⌋ be the rung’s step ceiling, α = min(1 , 3/C ), and span = max(2 , round(1 /α )) ,about a third of C. Let ¯ot be the exponential moving average of ot with decay α. Rung r is earned at the first step t ≥ span where the following three conditions are met: 5
+
+1. (Convergence) The moving average of ot exceeds a threshold τ , i.e., ¯ot ≥ τ ;2. (Stability) Over a sliding window, ot has never dropped more than ϵ-far from the threshold 
+
+τ , defined as min( ot−span+1 , . . . , o t) ≥ τ − ϵ; and 3. (Separation) The separation margin μt has improved over the beginning of the sliding window, i.e., μt ≥ μt−span+1 .
+
+Readout. First of all, the optimizer in this task has quite a bit to handle. The gradient of a set score has no fixed scale. It depends on the objective, on the model, on how many candidates the set holds and on which other candidates came with them, and it falls several-fold over the course of the ladder as k narrows. Plain gradient ascent at a fixed learning rate therefore behaves differently on every task and every rung. Adam normalization smooths things over and in a sense removes the scale. It keeps a              
+
+> 5We use τ= 0 .9and ϵ= 0 .1throughout. Each condition rules out a different way of being fooled. Two runs can reach the same ¯ot: one that has settled, and one that flips between two members every other step. Only the flipping one dips below τ−ϵinside the span, and that dip is what the second condition looks for. The third catches a run that has gone quiet instead of resolving, where the top krstop changing because the logits have stopped moving at all.
+
+15 Preprint running estimate of each logit’s own recent gradient magnitude and divides that logit’s update by it, so every logit moves about one learning rate per step whatever its raw gradient happened to be. Only the direction and the consistency of a candidate’s gradient survive the division. That is what makes one step budget work across models, tasks and objectives. It is also what makes the final logit not great as a direct score. Adam normalization divides away the effect size and so candidates can end a run at the same logit for quite different reasons: one had a large effect on a few steps, the other a small effect on every step. Just looking at the logits won’t help you resolve this. Note however that the gradients themselves are still in the trace. We cannot just sum them up: with B
+
+sets drawn per step, a single large gradient at a step can be an artifact of the company a candidate happened to be drawn with, and that one step might easily dominate the sum. So the next simple thing one could do is to (1) normalize within step to account for changes in set sizes (and resulting changes in gradient absolute values), and (2) cap the sum do mitigate the impact of extreme bursts. Write gt ∈ R|P| for the negated gradient recorded at step t (line 11 of Algorithm 3). Normalize each step, then clip each candidate’s contribution against its own scale: 
+
+ˆgt = gt
+
+max  ∥gt∥2, 0.25 median t∥gt∥2
+
+ , si = median t|ˆgt,i |,
+
+score( i) = X
+
+> t
+
+clip  ˆgt,i , −c s i, c s i
+
+,
+
+(9) with c = 3 , and the median taken over every step, including the steps that did not draw i. The per-step normalization gives every rung one unit-norm vote, because gradient scale falls several-fold over the ladder, and an unnormalized sum would weight the broad early rungs, where nothing is resolved yet, over the narrow late ones where the run settles its top-k. The cap limits one step to c times a candidate’s own typical gradient, so a burst adds at most three medians however large it is, while a candidate with real support on most steps keeps accumulating at full strength. 
+
+Measuring in readout. Equation (9) is an indirect score. A candidate’s gradient is read in the company of whichever other candidates its set happened to hold, and the sum has to be normalized and capped to keep that company from deciding the answer. Where a direct measurement of a candidate’s own effect is available, it is the quantity the ranking wants, and no inference is needed. A ladder whose last rung is k = 1 makes some of those measurements for free. Every set drawn on that rung holds exactly one candidate, so the set’s score is not evidence about that candidate’s effect, it is that effect, measured on the step’s prompts. So, if the last rung actually happened to be k = 1 ,one trick to test is to use the individual effects from that stage directly to sort the final top candidates. Training still decides who gets measured. Draws on the last rung come from the logits, so a candidate is drawn at k = 1 only if the ladder has already carried it near the top. The measurements settle the order among those finalists, assuming the signal-to-noise ratio in this final stage is promising. 6
+
+Measurement stage in training. A final training rung at k = 1 , as discussed above, draws from the logits and spends most of its draws on the current leaders, whose correct ordering matters the most for circuit discovery. While that sounds like the right place to spend them, it isn’t always the case. The reason is how the draws are spread inside the leading group. It might happen that the candidate in front is drawn again and again, long after its position has stopped being in doubt, so measurement after measurement is spent confirming something already settled. The candidates just behind it might still be drawn once or twice each, and one or two draws cannot order them properly. The allocation is somewhat self-reinforcing: the candidate the logits favour is the candidate the draws keep going to. The measurement stage conducts some measurements in a more balanced fashion to alleviate those potential undesirable inequalities, and since we already sample them one by one, it corrects by their own individual effects. It focuses on a set of the top M = ⌊B T ′/d ⌋ candidates by logit, for B worlds per step, T ′ steps remaining and d measurements per candidate, with d = 4 throughout. Inside that set every candidate is measured the same number of times, the leader and the M -th alike, because the  
+
+> 6None of this applies to a ladder whose last rung is larger than one, since no set it draws ever holds a single candidate. That is Llama’s case: its default ladder is 142 -71 -43 -21 -7, so every set holds at least seven candidates, no direct measurement is ever taken, and the ranking is Equation (9) and nothing else.
+
+16 Preprint 1 5 26 50 0.0 0.5 1.0          
+
+> Shared fraction
+> Free
+> 1526 50
+> Half held
+> 1526 50
+> Held
+> Number of top heads ( k, log scale)
+> WINIE Per-head NIE EAP-IG Random sets
+
+Figure 7: Agreement of three score orderings with the learned J UNTA LEARNER ordering for GPT-2/IOI (seed 0). Plots the free, half-held, and held witness regimes, for the first 50 out of 144 attention heads. Each curve gives the fraction of the top k learned heads also in a score ordering’s top k. The gray dashed curve is the random-set expectation k/ |P| ; the dotted vertical line marks k = 26 . The Qwen held cell was not run. stage draws them in a balanced cycle instead of drawing from the logits. Candidates outside keep the logits and gradients from the training. The push starts from the logit each covered candidate had when the stage began. Writing yi,m for candidate i’s m-th measurement, the stage keeps a running mean: 
+
+θi ← θi + yi,m − θi
+
+m . (10) The first measurement has m = 1 , so it moves θi the whole way onto yi, 1 and the entry logit drops out. Algorithm 3 optimizes an inclusion distribution while using a set-based score such as WINIE , and never estimates the WISE score of Section 2. The relation between the resulting rankings and the ones that would have been established using the estimands is interesting. While deeper theoretical connections await exploration, we have partially answered this question empirically (Figure 7). Each panel plots, for one (model, task) cell, the share of a reference ordering’s top k that three per-candidate orderings also put in their top k, against the k/ |P| two random sets of that size share. Per-head NIE 
+
+and WINIE score a candidate alone, with witnesses free and integrated respectively. EAP-IG is the gradient baseline. We find that per-head NIE is most in line with J UNTA LEARNING when witnesses are free, and that WINIE comes further into agreement (with modest correlation) as witnesses are held (either half-held or fully held). Under the junta reading, the two estimands that agree most are the two exact ones at the ends of the marginal-contribution family, LOO at the full complement and per-head NIE at the empty context. Note also that here agreement is not accuracy: none of the five orderings is ground truth. If anything is, it is the circuit performance. 
+
+Runtime Scoring every candidate set exactly costs Θ(2 |M |) forward passes for a pool M , which is infeasible. The per-head grid replaces it with |M | singleton patches, one forward pass per candidate per prompt pair, so it costs Θ( |M | · N ) for N pairs, linear in a pool of 144 , 448 or 1024 heads here. J UNTA LEARNER instead spends a fixed budget of T steps, each drawing B candidate sets over P prompt pairs, so it costs Θ( T · B · P ) forward-backward passes, independent of |M |. A forward-backward pass costs a small constant multiple of a forward one, so the comparison is |M | · N
+
+against T BP . The gradient approximations cost Θ( m · N ) for m integration steps, also independent of |M |, but their circuits score worse. 17 Preprint Table 2: Distinct trained configurations by model and task.                      
+
+> Task GPT-2 small Qwen3-1.7B Llama-3.1-8B IOI 51 32 44 SVA 51 36 24 Arithmetic 76 31 32 Induction 51 31 32 Entity tracking 26 29 26 Total 255 159 158
+
+## C EXPERIMENTS 
+
+In Section 4 we describe the models, tasks, metrics and baselines, and in Table 5 we provide more details about the tasks. Here we discuss how we chose the configurations and how experimental runs were orchestrated. 
+
+Choosing configurations. Each training run costs GPU time, so two surrogate models chose the 
+
+572 configurations behind Section 4. After each round we fit a Gaussian process to every run so far, one per goal, with the model, the task and the knobs of Table 3 as inputs and the CRS as output. We use BoTorch’s MixedSingleTaskGP , which pairs a Matérn kernel over the numeric knobs with a kernel over the categorical ones, and pick the next runs by expected improvement. Gradient-boosted trees (CatBoost), fit to the same table, serve as a check on each recommendation. The search covers 
+
+24 to 76 configurations per cell (Table 2), and 150 of the 572 runs are seed replicates, so the per-cell best scores in Figure 4 show what tuning buys within a limited search. 
+
+One run. Figure 8 follows Llama’s default on addition, the ladder 142 -71 -43 -21 -7 with no witnesses pinned. The first four rungs each end early, once the drawn sets stop changing. The last rung runs to its step budget while the ordering is still moving, which is what it is for. The candidates’ log-probabilities fan out from a flat start, and the separation between the kept candidates and the rest climbs to about 
+
+0.3 over the final rung. 
+
+Knobs and seeds. Table 3 lists the knobs we varied. Step budgets run from 30 to 90 steps on GPT-2 and Qwen3 and from 30 to 150 on Llama. Table 3: The knobs varied across the trained configurations.                              
+
+> Knob Values tried Meaning Witness regime free, half held, held share of the eligible witness pool pinned
+> kschedule ladder, k=1 , reverted decreasing, one flat k, or rising Ladder shape top rung 1to 512 ,1to 7rungs compared as a share of the pool Measurement stage on, off measures the leading candidates one at a time in the final steps Objective NIE ,NIE + PIE , bottleneck PIE alone is out of scope Prompt pairs 100 ,150 ,200 150 on Llama only
+
+The three per-model defaults are GPT-2’s free, 200 pairs , Qwen3’s free, interior 150, 200 pairs, measured and Llama’s free, 142-71-43-21-7 ladder , where the first word names the witness regime. We retrained each default under independent seeds on every task, 5 to 35 times per cell. Each per-cell interval in Section 4 is a 95% t-interval over those seeds, and each pooled interval in Figure 5 is a t-interval over the five per-task seed means. Cells whose first five seeds left the margin indistinguishable from zero got more seeds. That rule depends on the result it measures, so an interval that clears zero on a topped-up cell is weaker evidence than the same interval on a cell replicated to a fixed depth. 18 Preprint −8 −7 −6 −5 −4 −3 
+
+> selection log prob
+> k=142 ended: earned k=71 ended: earned k=43 ended: earned k=21 ended: earned k=7 ended: budget
+
+Inclusion Log Prob per Candidate (points = drawn that step)     
+
+> 020 40 60 80
+
+step 
+
+> 0.0 0.1 0.2 0.3
+> separation margin
+
+Separation of the Top-k from the Rest     
+
+> 020 40 60 80
+
+step 
+
+> 0.0 0.1 0.2 0.3 0.4 0.5
+> objective / k
+
+Objective per Member of the Drawn Set (pale = per step, solid = smoothed)     
+
+> 020 40 60 80
+
+step 
+
+> 0.00 0.25 0.50 0.75 1.00
+> top-k shared with the previous step  stage advances above 0.9
+
+Top-k Shared with the Previous Step 
+
+Figure 8: One training run on Llama-3.1-8B: arithmetic, the free witness regime, seed 0, ladder 
+
+(142 , 71 , 43 , 21 , 7) . Top: every candidate’s inclusion log-prob across steps, a point marking a step that drew it, with vertical rules where a rung ends and why. Bottom left: the separation margin, climbing again once a new rung starts. Bottom right: the mean objective per member of the drawn set, smoothed; a jump at a boundary is the change in k. Bottom: the share of the top k carried over from the previous step, which is the quantity a rung has to hold above 0.9 to end early. 19 Preprint Table 4: Settings per model. The candidate pool and the default ladder describe each model’s default; the other rows summarize all of its runs. Setting GPT-2 small Qwen3-1.7B Llama-3.1-8B Candidate pool 144 head writes 448 1024 
+
+Prompt pairs 100 or 200 100 or 200 100 or 150 
+
+Default ladder 20 -10 -6-3-1 150 -67 -33 -8-1 142 -71 -43 -21 -7
+
+Steps per run 30 to 90 30 to 90 30 to 150 
+
+Configurations 255 159 158 
+
+Seeds per default cell 5 to 35 5 to 10 5 to 10 
+
+Table 5: Example factual prompts and the single change that produces each alternative prompt.                         
+
+> Task Factual prompt →answer Alternative prompt IOI When Mary and John went to the store, John gave a drink to →Mary Second subject mention replaced by a third name SVA The friends →have Subject number flipped ( The friend
+> →has) Arithmetic Q: How much is 27 plus 64? A: →91 Both operands resampled Induction A random word block, repeated: oak map . . . rat hat oak map . . . rat →hat Boundary word changed ( hat →
+> cow )Entity tracking The apple is in Box C. The key is in Box A. . . . Box C contains the →apple Same box queried, different object placed in it
+
+## D RESULTS IN DETAIL 
+
+Figures 9 to 11 show, for each of the fifteen cells, the best-scoring trained configuration against all eight baselines. A reader who distrusts the aggregation can check here whether a higher CRS corresponds to a walk they would have preferred by eye. The winner is reselected per task and goal. Figures 12 to 14 put several settings on one grid per model, with CRS bars. The difference is that we chose one default configuration per model, without optimizing for task-specific performance. Moving to uncertainty, Figure 15 takes the per-model default, the single configuration Section 4 selects for each model, and retrains it under several seeds on each of that model’s five tasks. each with a 95% interval. To illustrate that defaults that work decently across tasks can be beaten by goal and task optimized ones, Figure 16 replaces that single defaul t with best configuration kill-wise on that specific (model, task). Table 2 in Appendix C counts the experiments actually run per (model, task) pair, which shows that we did not extensively over-optimize per-task configurations. Every contrast in Figure 17 and in Figure 19 is built using a GP trained on the experimetnal results. For a knob k with levels a and b, take model m’s own recorded training runs Dm. For each row 
+
+xi ∈ D m, build two copies agreeing on every covariate except k, stack all 2|D m| of them into one input X, and draw S = 300 samples jointly from a Gaussian process fitted to that goal. Figure 19 repeats the grid with the task fixed as well. Figure 18 ranks every knob by how much shuffling its column hurts the fitted model. 20 Preprint 012
+
+> IOI
+
+GPT-2 small 
+
+0.0 0.5 1.0 
+
+Qwen3-1.7B 
+
+0.0 0.5 1.0 
+
+Llama-3.1-8B 
+
+0.0 0.5 1.0 
+
+> SVA
+
+0.0 0.5 1.0 010.0 0.5 1.0 1.5 
+
+> Arithmetic
+
+−0.5 0.0 0.5 1.0 0.0 0.5 1.0 0.0 0.5 1.0 
+
+> Induction
+
+0.0 0.5 1.0 0.0 0.5 1.0 1 2 5 10 20 0.0 0.5 1.0 
+
+> Entity tracking
+
+1 2 5 10 20 0.0 0.5 1.0 1 2 5 10 20 0.0 0.5 1.0 
+
+Heads patched (top k) 
+
+per-head NIE, signed MAttr per-head NIE EAP (m=1), signed EAP (m=1) EAP-IG (m=5), signed EAP-IG (m=5) random order 
+
+JuntaLearner (Ours; Tuned) 
+
+Figure 9: Kill curves for each cell’s best-scoring trained configuration (best configuration, for brevity) against all eight baselines. The x axis is the number of attention heads patched, log-scaled. 21 Preprint 012
+
+> IOI
+
+GPT-2 small 
+
+012
+
+Qwen3-1.7B 
+
+024
+
+Llama-3.1-8B 
+
+0.0 0.5 1.0 
+
+> SVA
+
+0.0 0.5 1.0 012012
+
+> Arithmetic
+
+0.0 0.5 1.0 1.5 0120.0 0.5 1.0 
+
+> Induction
+
+0.0 0.5 1.0 1.5 0.0 0.5 1.0 1.5 1 10 100 0.0 0.5 1.0 
+
+> Entity tracking
+
+1 10 100 011 10 100 1000 012
+
+Heads patched (top k) 
+
+per-head NIE, signed MAttr per-head NIE EAP (m=1), signed EAP (m=1) EAP-IG (m=5), signed EAP-IG (m=5) random order 
+
+JuntaLearner (Ours; Tuned) 
+
+Figure 10: Faithfulness curves for each cell’s best configuration, selected on Sfaith and so not always the same configuration as Figure 9. 22 Preprint −0.5 0.0 0.5 1.0 
+
+> IOI
+
+GPT-2 small 
+
+0.0 0.5 1.0 
+
+Qwen3-1.7B 
+
+0.0 0.5 1.0 
+
+Llama-3.1-8B 
+
+0.0 0.5 
+
+> SVA
+
+0.00 0.25 0.50 0.75 0.0 0.5 1.0 0.0 0.5 1.0 
+
+> Arithmetic
+
+−0.5 0.0 0.5 0.0 0.5 1.0 0.0 0.5 
+
+> Induction
+
+−0.25 0.00 0.25 0.50 0.00 0.25 0.50 1 2 5 10 20 0.0 0.2 0.4 0.6 
+
+> Entity tracking
+
+1 2 5 10 20 0.0 0.5 1 2 5 10 20 0.0 0.2 0.4 
+
+Heads patched (top k) 
+
+per-head NIE, signed MAttr per-head NIE EAP (m=1), signed EAP (m=1) EAP-IG (m=5), signed EAP-IG (m=5) random order 
+
+JuntaLearner (Ours; Tuned) 
+
+Figure 11: Net curves for each cell’s own best configuration. Net regularly picks a different winner from kill and faithfulness. 23 Preprint 012
+
+> IOI
+
+Kill 
+
+012
+
+Faithfulness 
+
+−0.5 0.0 0.5 1.0 
+
+Net 
+
+0.0 0.5 1.0 
+
+> SVA
+
+0.0 0.5 1.0 0.0 0.5 0.0 0.5 1.0 1.5 
+
+> Arithmetic
+
+0120.0 0.5 1.0 0.0 0.5 1.0 
+
+> Induction
+
+0.0 0.5 1.0 0.0 0.5 1 2 5 10 20 0.0 0.5 1.0 
+
+> Entity tracking
+
+1 10 100 0.0 0.5 1.0 1 2 5 10 20 0.0 0.2 0.4 0.6 
+
+Heads patched (top k) 
+
+per-head NIE, signed MAttr per-head NIE EAP (m=1), signed EAP (m=1) EAP-IG (m=5), signed EAP-IG (m=5) random order 20-10-6-3-1 (free; 200 prompt pairs) 72-32-16-4-1 (free; measured) 72-32-16-4 (free) (net winner) 
+
+Figure 12: GPT-2 small: three best settings against the baselines on all three goals, with the CRS ranking at the right of each row. 24 Preprint 0.0 0.5 1.0 
+
+> IOI
+
+Kill 
+
+012
+
+Faithfulness 
+
+0.0 0.5 1.0 
+
+Net 
+
+0.0 0.5 1.0 
+
+> SVA
+
+0.0 0.5 1.0 0.00 0.25 0.50 0.75 −0.5 0.0 0.5 1.0 
+
+> Arithmetic
+
+0.0 0.5 1.0 1.5 −0.5 0.0 0.5 0.0 0.5 1.0 
+
+> Induction
+
+0.0 0.5 1.0 1.5 0.00 0.25 0.50 1 2 5 10 20 0.0 0.5 1.0 
+
+> Entity tracking
+
+1 10 100 011 2 5 10 20 0.0 0.5 
+
+Heads patched (top k) 
+
+per-head NIE, signed MAttr per-head NIE EAP (m=1), signed EAP (m=1) EAP-IG (m=5), signed EAP-IG (m=5) random order 224-100-50-12-1 (free) 20-10-6-3-1 (free) (net winner) 224-100-50-12-1 (free; measured; 200 prompt pairs) 150-67-33-8-1 (free; measured; 200 prompt pairs) 
+
+Figure 13: Qwen3-1.7B, drawn as Figure 12. Its ladder shapes score within a few thousandths of each other on kill. 25 Preprint 012
+
+> IOI
+
+Kill 
+
+024
+
+Faithfulness 
+
+0.0 0.5 1.0 
+
+Net 
+
+01
+
+> SVA
+
+0120.0 0.5 1.0 0.0 0.5 1.0 
+
+> Arithmetic
+
+0120.0 0.5 1.0 0.0 0.5 1.0 
+
+> Induction
+
+0.0 0.5 1.0 1.5 0.00 0.25 0.50 1 2 5 10 20 0.0 0.5 1.0 
+
+> Entity tracking
+
+1 10 100 1000 0121 2 5 10 20 0.0 0.2 0.4 0.6 
+
+Heads patched (top k) 
+
+per-head NIE, signed MAttr per-head NIE EAP (m=1), signed EAP (m=1) EAP-IG (m=5), signed EAP-IG (m=5) random order 1-3-5-10-20-40 / SVA 9-37-73-165 (half held; reverted) (net winner) 40-20-10-5-3-1 / SVA 165-73-37-9 (half held) 1-3-5-10-20-40 / SVA 9-37-73-165 (free; reverted) 512-228-114-80 (free) 512-228-114-80 (half held) 80-114-228-512 (half held; reverted) 
+
+Figure 14: Llama-3.1-8B, drawn as Figure 12. 26 Preprint −0.2 −0.1 0.0 0.1 Llama / ioi (n=10) Llama / sva (n=5) Llama / arithmetic (n=5) Llama / induction (n=5) Llama / entity_tracking_v2 (n=5) Qwen3 / ioi (n=5) Qwen3 / sva (n=10) Qwen3 / arithmetic (n=5) Qwen3 / induction (n=5) Qwen3 / entity_tracking_v2 (n=10) GPT / ioi (n=5) GPT / sva (n=5) GPT / arithmetic (n=35) GPT / induction (n=5) GPT / entity_tracking_v2 (n=5) 
+
+> Kill
+
+−0.30 −0.25 −0.20 −0.15 −0.10 −0.05 0.00 0.05 Llama / ioi (n=10) Llama / sva (n=5) Llama / arithmetic (n=5) Llama / induction (n=5) Llama / entity_tracking_v2 (n=5) Qwen3 / ioi (n=5) Qwen3 / sva (n=10) Qwen3 / arithmetic (n=5) Qwen3 / induction (n=5) Qwen3 / entity_tracking_v2 (n=10) GPT / ioi (n=5) GPT / sva (n=5) GPT / arithmetic (n=35) GPT / induction (n=5) GPT / entity_tracking_v2 (n=5) 
+
+> Faith
+
+−0.3 −0.2 −0.1 0.0 0.1 
+
+Margin Over Per-Head NIE 
+
+Llama / ioi (n=10) Llama / sva (n=5) Llama / arithmetic (n=5) Llama / induction (n=5) Llama / entity_tracking_v2 (n=5) Qwen3 / ioi (n=5) Qwen3 / sva (n=10) Qwen3 / arithmetic (n=5) Qwen3 / induction (n=5) Qwen3 / entity_tracking_v2 (n=10) GPT / ioi (n=5) GPT / sva (n=5) GPT / arithmetic (n=35) GPT / induction (n=5) GPT / entity_tracking_v2 (n=5) 
+
+> Net
+
+Figure 15: Per-cell margins over signed per-head NIE for model-level default configurations. 27 Preprint −0.2 −0.1 0.0 0.1 
+
+Margin Over Per-Head NIE 
+
+> Llama / ioi* (n=5) Llama / sva (n=5) Llama / arithmetic* (n=5) Llama / induction* (n=4) Llama / entity_tracking_v2 (n=5) Qwen3 / ioi* (n=5) Qwen3 / sva* (n=5) Qwen3 / arithmetic* (n=5) Qwen3 / induction (n=5) Qwen3 / entity_tracking_v2* (n=5) GPT / ioi* (n=5) GPT / sva* (n=5) GPT / arithmetic (n=35) GPT / induction* (n=5) GPT / entity_tracking_v2 (n=5)
+> Kill
+
+Figure 16: Kill margins over signed per-head NIE for each cell’s own winner, drawn as Figure 15. GPT-2 Qwen3 Llama GPT-2 Qwen3 Llama GPT-2 Qwen3 Llama 
+
+Half held − free Held − free One step − ladder Wide − narrow Measured − unmeasured NIE + PIE − NIE NIE/PIE bottleneck − NIE 
+
+Kill Faith Net 
+
+-0.5 -1.4 -0.2 -0.4 -0.8 +0.1 -0.5 +0.3 -0.2 -0.6 -1.8 -0.6 -0.6 -2.5 -0.6 -0.6 +0.7 -0.5 -0.4 -0.9 -0.9 -0.6 -0.7 -0.9 -0.4 -0.6 -0.9 +0.6 +0.9 +0.1 -0.2 -0.4 -0.3 +0.4 +0.4 +0.1 +0.2 +0.4 -0.2 0.0 +0.3 0.0 +0.1 +0.1 +0.2 -0.7 -0.6 -0.5 -0.4 0.0 -0.3 -0.6 -0.1 -0.4 -0.7 -0.1 -0.4 -0.4 0.0 -0.4 -0.7 -0.1 -0.5 −3 −2 −1 0123
+
+> z score
+
+Figure 17: GP-estimated effects of each knob, grouped by goal and model. Rows compare each setting while holding other settings at their observed values. Cells give the posterior mean difference divided by its standard deviation. 28 Preprint 0.00 0.02 0.04 0.06 0.08 0.10 
+
+RMSE increase when shuffled 
+
+top_rung_share ladder_len top_rung_size n_junta_steps curriculum n_pairs pool_size family k_schedule objective measurement_stage regime model task 
+
+kill     
+
+> 0.00 0.05 0.10 0.15 0.20
+
+RMSE increase when shuffled 
+
+top_rung_share n_junta_steps ladder_len top_rung_size pool_size k_schedule n_pairs objective curriculum family measurement_stage regime model task 
+
+faith        
+
+> 0.00 0.02 0.04 0.06 0.08 0.10 0.12 0.14
+
+RMSE increase when shuffled 
+
+top_rung_share ladder_len top_rung_size n_pairs curriculum pool_size n_junta_steps k_schedule family objective measurement_stage regime model task 
+
+net 
+
+task / model (structural, not a tunable knob) tunable setting 
+
+Figure 18: Permutation importance over the fitted model: the increase in error when one column is shuffled. 29 Preprint Half held − free Held − free One step − ladder Wide − narrow Measured − off NIE + PIE − NIE Bottleneck − NIE 
+
+-3.3 -0.4 -0.5 +0.1 -0.2 -5.1 -0.8 -0.6 +0.2 -0.1 -0.1 -0.4 -1.0 0.0 +0.2 +0.6 +0.6 +0.7 +0.6 +0.4 +0.3 +0.6 -0.1 +0.4 +0.1 -2.2 -0.2 -1.1 -0.1 -0.3 -2.4 0.0 -1.2 -0.2 -0.4 
+
+GPT-2 small 
+
+-1.8 -2.6 -1.6 -0.8 -1.0 -2.3 -2.4 -2.3 -1.9 -1.6 -0.8 -2.7 -1.7 -1.0 +0.1 +1.0 +1.0 +1.0 +1.0 +0.9 +0.4 +0.5 +0.6 +0.2 +0.2 -1.1 -0.9 -0.9 -0.5 0.0 -1.1 -0.5 +0.3 +0.6 +0.2 
+
+Qwen3-1.7B 
+
+-1.8 -0.1 +1.0 +0.6 -0.6 -3.3 -0.2 -0.1 +0.4 -0.3 -1.4 -0.5 -2.3 -0.6 -0.2 +0.1 0.0 +0.7 0.0 -0.1 -0.4 -0.2 +0.4 -0.5 -0.1 -0.5 -0.7 -2.1 -0.1 +0.1 -1.2 -0.4 -0.7 0.0 +0.2 
+
+Llama-3.1-8B 
+
+Half held − free Held − free One step − ladder Wide − narrow Measured − off NIE + PIE − NIE Bottleneck − NIE 
+
+-2.4 -0.2 +0.2 -0.1 -0.3 -7.0 -0.8 -0.1 -0.1 -0.7 -0.4 -1.0 -0.9 -0.2 -0.4 -0.3 -0.2 -0.3 -0.2 -0.1 +0.2 +0.4 -0.4 +0.2 +0.1 -2.3 0.0 0.0 +0.2 -0.3 -2.6 +0.3 +0.2 +0.1 -0.4 
+
+-0.8 -1.2 -0.3 -0.3 -2.4 -3.9 -1.9 -2.5 -4.1 -4.5 -0.7 -2.8 -0.6 0.0 -0.5 -0.3 -0.3 -0.3 -0.3 -0.3 +0.2 +0.5 +0.5 0.0 +0.5 +0.2 -0.4 -0.3 0.0 +0.2 -0.3 +0.5 -0.3 0.0 +0.3 
+
+-0.2 +0.2 +0.8 +0.2 -0.5 -6.1 -0.1 -0.2 -0.1 -0.3 -0.8 -1.1 -2.1 -0.6 -0.3 -0.8 -0.4 +0.6 -0.7 -0.7 0.0 -0.1 +0.5 -0.5 +0.2 +0.1 -0.4 -2.4 -0.1 -0.1 -0.5 0.0 -0.7 -0.1 -0.1 
+
+> IOI SVA Arith. Induct. Entity
+
+Half held − free Held − free One step − ladder Wide − narrow Measured − off NIE + PIE − NIE Bottleneck − NIE 
+
+-3.7 -0.3 -0.4 +0.2 +0.1 -7.0 -0.8 -0.5 +0.1 +0.2 -0.1 -0.5 -1.1 0.0 -0.1 +0.5 +0.4 +0.5 +0.4 +0.2 0.0 +0.4 -0.5 +0.3 +0.3 -2.5 +0.1 -1.5 -0.1 -0.3 -3.5 +0.3 -1.7 -0.5 -0.6 
+
+> IOI SVA Arith. Induct. Entity
+
++0.4 -1.5 +0.5 +1.8 +2.9 +1.1 -0.5 +2.1 +2.3 +3.8 +0.1 -2.1 -0.2 -0.7 -0.9 +0.4 +0.5 +0.4 +0.4 +0.4 -0.3 +0.6 +0.1 +0.2 -0.2 +0.1 -0.9 +0.3 +0.3 +0.2 +0.1 -0.6 0.0 +0.1 +0.2 
+
+> IOI SVA Arith. Induct. Entity
+
+-1.8 -0.1 +0.9 +0.2 -0.5 -2.9 -0.1 -0.1 +0.4 -0.1 -1.7 -0.5 -2.2 -0.3 -0.3 +0.1 +0.2 +0.6 0.0 +0.1 -0.1 +0.6 +0.5 -0.4 +0.5 -0.2 -0.5 -2.0 -0.1 +0.2 -1.4 -0.3 -0.5 -0.2 +0.2 
+
+−3 −2 −1 0123
+
+> z score
+> Kill Faith Net
+
+Figure 19: Task-specific knob contrasts across the three goals (rows) and models (columns). Each cell is the mean GP posterior difference divided by its standard deviation. The signed color scale is shared across panels and clipped at ±3; labels denote the first setting minus the second. 30 Preprint 
+
+## E MIB B ASELINE AND COMPARISON TO MA TTR 
+
+In this section, we compare J UNTA LEARNER with the recently released Matryoshka Attribution (MAttr, Arora et al., 2026), and through this comparison we assess the strengths and weaknesses of our evaluation methods alongside their incumbents, CPR and CMD on faithfulness. 
+
+On our tasks, our methods lead on CRS and 1 − CMD , and MAttr leads on faithfulness CPR 
+
+(Figure 20); summed over all three goals, our tuned configuration and MAttr are tied on CPR (41.1 against 41.2). MAttr’s profile across the three summaries is uneven: on faithfulness it attains the highest CPR and the lowest 1 − CMD , with a CRS close to ours .Two properties of CPR account for this. It gives substantial weight to the right-hand part of the curve, reached after most of the relevant components have been recovered, and so rewards late recovery as much as early detection; and it credits overshoot. Figure 21 shows both effects: MAttr’s mean faithfulness curve starts below the others at small shares of the pool (left), and most of MAttr’s CPR advantage comes from overshoot (right). CRS CPR 1− CMD 
+
+> Centre 0.55
+
+Faithfulness  
+
+> 0.70 0.85 1.00
+> CRS CPR 1− CMD
+> Centre 0.75
+
+Kill  
+
+> 0.83 0.92 1.00
+> CRS CPR 1− CMD
+> Centre 0.60
+
+Net 
+
+> 0.73 0.87 1.00
+> JuntaLearner (Ours; Tuned) JuntaLearner (Ours; Default)
+> Per-head NIE, signed MAttr
+
+Figure 20: The fifteen cells of the main experiments: ours, tuned , ours, default , signed per-head NIE 
+
+and MAttr with its authors’ published MIB recipe. Note that for readability each triangle has its own scale and that values between goals are not directly comparable. Ours, tuned is chosen per cell and goal by CRS, as in Table 1, and scored under all three summaries. Each axis shows a method’s summed score relative to the best, so outward is better on every axis; CMD appears as 1 − CMD ..MAttr seems to have been developed and evaluated mostly with the MIB’s circuit track (Mueller et al., 2025). 7 On MIB’s public test split, our untuned run is close to a tie with MAttr’s circuits on CRS summed over the three goals, ahead on 1 − CMD and behind on CPR . As we also care about the other evaluation axes, we include also triangles that correspond to them (Figure 22). On kill and net, summed over cells, our untuned defaults beat MAttr on all three summaries. Moreover, the CPR dominance for MAttr comes to a large extent from overshoot here too. Most of MAttr’s CPR lead on MIB comes from overshoot. (Figure 23). That being said, notice how the mean MAttr for faithfulness here climbs a bit faster than ours, and so CRS rightly prefers MAttr’s released circuits over our untuned default for faithfulness on MIB .MAttr is a strong method, and the two methods are trained in opposite directions, which may explain some of the uneven picture. MAttr’s released circuits are optimized for what MIB faithfulness      
+
+> 7MIB’s circuit track pairs four models with six tasks in twelve cells, scored at the node level, where a circuit is a set of attention heads, MLPs and the input embedding; its Qwen model is Qwen2.5-0.5B. Our MIB scoring for this paper comes from the public test split, in which we follow Arora et al. (2026). As for settings, our only choice on MIB data was the training objective, NIE , made on MIB validation from pilot runs of four objectives on GPT-2 IOI; a few further objective and configuration variants on the Qwen and Llama IOI and MCQA cells served only as sensitivity checks. Every score reported here comes from one training seed per cell. Faithfulness comes from MIB’s own evaluator. Kill and net walk each ranking’s top attention heads as in the main experiments, on up to 200 test pairs (as few as 17 on MCQA and ARC), with MLPs left out, since on GPT-2 IOI patching the first-layer MLP alone removes every task and saturates both curves.
+
+31 Preprint 0.1% 1% 10% 100% 
+
+Share of heads kept 
+
+> 01
+> Faithfulness
+
+Mean over cells    
+
+> Tuned Default NIE MAttr 010 20
+> Summed CPR
+
+Recovery and overshoot 
+
+> JuntaLearner (Ours; Tuned) JuntaLearner (Ours; Default)
+> Per-head NIE, signed MAttr Recovery (capped at 1) Overshoot (above 1)
+
+Figure 21: Faithfulness for fifteen cells of the main experiments. Left: each method’s faithfulness curve, averaged over cells; shading marks where it rises above 1. Right: each method’s faithfulness CPR, split in two components: area under the curve capped at 1 with area above one stacked 13above. explicitly scores: to keep a set of components and patch everything else. Ours are trained by patching the set itself, which is closer to what is scored by kill. Sums over cells can hide how these differences play out on individual cells, so Figures 24 and 25 provide every curve behind them, one row per cell (MIB’s faithfulness, faithfulness over heads, kill and net). CRS CPR 1− CMD 
+
+> Centre 0.05
+
+Faithfulness 
+
+> 0.37 0.68 1.00
+
+CRS CPR 1− CMD 
+
+> Centre 0.85
+
+Kill 
+
+> 0.90 0.95 1.00
+
+CRS CPR 1− CMD 
+
+> Centre 0.85
+
+Net 
+
+> 0.90 0.95 1.00
+> JuntaLearner (Ours; Default)
+> Per-node NIE MAttr
+
+Figure 22: The twelve MIB cells, public test split: ours, default in one untuned pass, per-node NIE 
+
+and MAttr’s released circuits, drawn as Figure 20, with faithfulness from MIB’s evaluator. CMD appears as 1 − CMD .32 Preprint 0.1% 1% 10% 100% 
+
+Share of nodes kept 
+
+> 012
+> Faithfulness
+
+Mean over cells   
+
+> Default NIE MAttr 010 20
+> Summed CPR
+
+Recovery and overshoot 
+
+JuntaLearner (Ours; Default) 
+
+Per-node NIE MAttr Recovery (capped at 1) Overshoot (above 1) 
+
+Figure 23: Twelve MIB cells, drawn and computed as Figure 21. 33 Preprint 012
+
+Faithfulness (all nodes) 
+
+> 012
+
+Faithfulness (heads) 
+
+> 01
+
+Kill 
+
+> 01
+
+Net   
+
+> 012
+> 01
+> 01
+> 01
+> 012
+> 01
+> 01
+> 01
+> 013
+> 01
+> 01
+> 01
+> 012
+> 01
+> 01
+> 01
+> 0.1% 3% 100%
+
+Share kept   
+
+> 013
+> 0.1% 3% 100%
+
+Share kept   
+
+> 01
+> 113 26
+
+k heads patched   
+
+> 01
+> 113 26
+
+k heads patched 
+
+> 01
+> IOI GPT-2 IOI Qwen2.5-0.5B IOI Gemma-2-2B IOI Llama-3.1-8B MCQA Qwen2.5-0.5B MCQA Gemma-2-2B
+> JuntaLearner (Ours; Default)
+
+Per-node NIE MAttr 
+
+Figure 24: MIB public test, the four IOI cells and two of the three MCQA cells. Columns: MIB faithfulness over all nodes and faithfulness over heads (share of the pool kept), then kill and net (top k heads patched). Dashed grey marks f = 1 and kill d = 1 (d is the share of the full-pool effect removed), the ideal values, and net = 0 , where a circuit’s damage to the target equals its mean damage to the controls; the ideal net is 1.34 Preprint 012
+
+Faithfulness (all nodes) 
+
+01
+
+Faithfulness (heads) 
+
+01
+
+Kill 
+
+01
+
+Net 
+
+01
+
+01
+
+01
+
+01
+
+01
+
+01
+
+01
+
+01
+
+013
+
+01
+
+01
+
+01
+
+012
+
+01
+
+01
+
+01
+
+0.1% 3% 100% 
+
+Share kept 
+
+012
+
+0.1% 3% 100% 
+
+Share kept 
+
+01
+
+1 13 26 
+
+k heads patched 
+
+01
+
+1 13 26 
+
+k heads patched 
+
+01
+
+MCQA Llama-3.1-8B Add Llama-3.1-8B Sub Llama-3.1-8B ARC-e Gemma-2-2B ARC-e Llama-3.1-8B ARC-c Llama-3.1-8B 
+
+JuntaLearner (Ours; Default) 
+
+Per-node NIE MAttr 
+
+Figure 25: MIB public test, the remaining cells, drawn as Figure 24. 35

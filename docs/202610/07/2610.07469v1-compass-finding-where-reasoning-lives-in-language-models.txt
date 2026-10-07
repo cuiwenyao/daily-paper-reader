@@ -1,0 +1,425 @@
+Title: COMPASS: Finding Where Reasoning Lives in Language Models
+
+URL Source: https://arxiv.org/pdf/2610.07469v1
+
+Published Time: Wed, 07 Oct 2026 00:31:05 GMT
+
+Number of Pages: 15
+
+Markdown Content:
+# COMPASS: Finding Where Reasoning Lives in Language Models 
+
+Pratyay Dutta ∗
+
+pdutt005@ucr.edu 
+
+Kowshik Thopalli †
+
+thopalli1@llnl.gov 
+
+Vivek Narayanaswamy †
+
+narayanaswam1@llnl.gov 
+
+## Abstract 
+
+Explicitly eliciting reasoning substantially improves LLM performance. Existing approaches require a predefined characterization of reasoning, whether through CoT prompt design, contrastive CoT directions, or via SAE derived reasoning features. For mathematical reasoning with verifiable answers, we show that a much simpler signal suffices, which is the correctness of the model’s own direct answer attempts. This signal yields a latent direction that elicits reasoning. This direction is decodable within the activations of most attention heads, but only a small subset of them can be effectively intervened. We introduce COMPASS, an inference-time steering method that identifies these heads using a logit-space attribution score and steers their activations along the correctness direction, requiring only per-head activation statistics. Across three model families and multiple math benchmarks, COMPASS outperforms the activation-steering baselines we compare against, improves GSM8K accuracy by 16 percentage points on average, and approaches CoT accuracy with 20-70% fewer generated tokens. Interventions transfer without re-fitting to unseen benchmarks, and ablations show that both the correctness direction and the small set of heads carrying it are necessary, with the effect concentrated in remarkably few heads. 
+
+## 1 Introduction 
+
+Large language models (LLMs) exhibit strong reasoning capabilities across a wide range of tasks [1, 2]. A standard approach for eliciting reasoning is chain-of-thought (CoT) prompting [3], which encourages the model to generate intermediate steps before producing a final answer. Recent work, however, suggests that reasoning-relevant computation also resides in the model’s hidden states and can be elicited without explicit CoT prompting [4, 5, 6], indicating that internal representations contain meaningful computational signatures that can be intervened upon. For instance, Sparse Autoencoders (SAEs) have been used to elicit reasoning by identifying a reasoning-associated feature, though doing so requires a contrast condition prompt and a separate SAE per layer [4]. More broadly, linear probes, including probes trained on individual attention head activations, have been shown to decode or steer behavioral properties such as truthfulness from internal states. However only such specific properties have been steered so far, not reasoning [7, 8, 9, 10]. Each of these approaches requires some predefined characterization of reasoning, whether through a contrast prompt, a trained auxiliary model, or a property specific probe. For mathematical reasoning with verifiable answers, which is our focus, whether an intervention can be found without additional requirements and specifications remains underexplored. Surprisingly, we find that an effective reasoning intervention can be elicited from a signal as simple as a direction separating correctly and incorrectly answered samples, requiring no CoT demonstra-
+
+> ∗University of California, Riverside, CA 92521. Work performed during a summer internship at Lawrence Livermore National Laboratory
+> †Lawrence Livermore National Laboratory, Livermore, CA 94550. 40th Conference on Neural Information Processing Systems (NeurIPS 2026). arXiv:2610.07469v1 [cs.AI] 5 Oct 2026
+
+tions, reasoning-specific information, or contrastive direct-versus-CoT prompting. This direction is estimated locally, at each attention head, by using last token activations of the brief input prompts alone associated with the correct and incorrect generations. The key remaining challenge is where to intervene. Correctness information is decodable across many attention heads. However, this decodability alone is not causally sufficient for effective steering [8, 7]. Heads selected without regard to causal effect, including at random, yield no reliable benefit (Fig. 5, left). We find that only a small subset of heads are thus useful for reasoning intervention. To that end, we introduce COMPASS ( CO rrectness-Mapped Per-head Attribution for 
+
+Steering), an inference-time steering framework that identifies and steers the heads with the highest output sensitivity to the correctness direction, rather than selecting heads by decodability alone. Unlike SAE-based approaches, COMPASS needs no trained auxiliary model, only the per-head mean activation computed separately over correct and incorrect samples, making the method as cheap to deploy as it is effective. Remarkably, COMPASS is never provided with a representation of reasoning itself, yet steering the selected heads elicits concise intermediate computations that often convert incorrect direct answers into correct solutions. Across three model families [11, 12, 13] and multiple mathematical reasoning benchmarks [14, 15, 2], COMPASS outperforms existing activation-steering baselines in most model–benchmark pairs, improves GSM8K accuracy by 16 points on average, and approaches CoT performance with substantially shorter generations. Ablations show that both the correctness direction and its intervention location are necessary, with much of the effect concentrated in only a few heads . The identified interventions further transfer without re-fitting to GSM-Plus [16] and HARP [17]. Our main contributions are: • Reasoning intervention from outcome supervision alone. We show that correct/incorrect outcomes help recover an effective reasoning intervention, without CoT demonstrations, predefined reasoning directions, or identified reasoning features. • Attribution-based steering. We introduce COMPASS, which combines per-head correct-ness directions with their predicted downstream logit effect to identify effective intervention sites. • Concentrated internal control. Controlled head and direction ablations show that both, what is injected and where it is injected matter, with much of the intervention effect concentrated in remarkably few attention heads. • Accuracy, efficiency, and transfer. Across three model families and multiple reasoning benchmarks, COMPASS closes much of the gap to explicit CoT, with substantially shorter generations and without any re-fitting on unseen distributions, demonstrating that the same lightweight intervention is simultaneously accurate, efficient, and general. 
+
+## 2 Related Work 
+
+Eliciting Reasoning from LLMs. The reasoning capabilities of LLMs are most commonly elicited through chain-of-thought (CoT) prompting [3, 1], where performance improves significantly as the model is made to think through intermediate steps before answering. However, prompting is not the only route to reasoning. Recent work shows that the internal states of the LLM carry useful computational signatures that can be extracted directly, without relying on the prompt alone. Fractional reasoning [18] takes a direct prompt and a CoT prompt, identifies the linear direction separating their latent activations, and shifts the model into a controlled reasoning regime along this direction. In a similar spirit, sparse autoencoder features extracted from direct and CoT prompts have been used to uncover a latent reasoning mode [4], and contrastive prompt pairs have been used to steer metacognitive behaviors in [19]. Each of these methods requires some prior specification of what reasoning should look like, rather than discovering it directly from the model’s own behavior. In contrast, COMPASS requires no such explicit specifications or requirements. 
+
+Probing Hidden States of LLMs. A second line of work extracts information from hidden states via probing, using simple classifiers, typically linear, trained on activations to predict a target property. Inference-time intervention [7] trains such probes at every attention head and shifts activations along the probe direction at the heads where properties (e.g., truthfulness) are most detectable. Follow-up 2work refined how the probe guides generation [8, 10], and applied probing to new targets, including whether a model believes its own answer is correct [20], whether a math problem is solvable at all [21], and whether code is correct before it is written [22]. However, each method trains a probe on a single, curated property, such as truthfulness, honesty, or solvability, requiring its own labeled dataset, and only a subset of these properties has been shown to be steerable at all and none for reasoning. Our steering or intervention direction requires only a labeled set of single-pass generations, split by the LLM’s own correctness, with heads selected by their causal effect on the output rather than by property detectability alone. 
+
+Activation Steering in LLMs. A third line of work steers behavior directly through activations rather than through the prompt. This traces back to in-context learning [23, 24], where prompt demonstra-tions change model behavior by shifting internal activations, an effect shown to be compressible into a single latent task vector [25]. In-context vectors made this actionable by distilling demonstrations into a vector added back during inference [26]. Subsequent methods derived directions from paired prompts [27, 28] or curated datasets [29], applied steering conditionally on the input [30], synthesized query specific vectors from a mixture of steering experts [31], or restricted intervention to an invariant low rank subspace of reasoning trajectories [32]. Each requires paired task demonstrations, a separate forward pass, or a labeling scheme. Our steering direction requires none of these, extracted instead from the model’s own outcome labels in a single pass. 
+
+## 3 Proposed Approach 
+
+In this section, we present COMPASS, a method that recovers a coarse correctness direction from a model’s own hidden states, identifies the attention heads that causally carry this direction to the output, and steers only those heads to elicit reasoning. Our key insight builds on the observations of [7, 8] that behavioral properties such as truthfulness or honesty, properties that at a high level resemble correctness, are decodable from the activations of several attention heads. However, only a small subset of these heads causally affect the output, which we define as a head whose intervened activation changes the model’s generated answer, as opposed to merely correlating with it. We introduce a selection procedure that distinguishes these causal heads from the many that merely encode correctness as a decodable signal. We find that the causal effect is concentrated in remarkably few heads. COMPASS answers two questions keeping the LLM frozen: (i) which direction in activation space separates the model’s correct attempts from its incorrect ones (§3.1), and (ii) which attention heads carry this direction into the output when it is intervened upon (§3.2). 
+
+Preliminaries. Consider a decoder-only transformer with L layers and vocabulary V. Each layer has H attention heads, hidden dimension d, and per-head dimension dh = d/H . Let xl ∈ Rd
+
+denote the layer l input at a fixed token position. Head (l, h ) computes an attention weighted value vector ahl ∈ Rdh , which is projected into the layer output through its slice W l,h O ∈ Rd×dh of the corresponding output projection matrix. The next layer input is updated as 
+
+xl+1 = xl +
+
+> H
+
+X
+
+> h=1
+
+W l,h O ahl + mlp l, (1) where mlp l is the output of the layer’s MLP sublayer. After the final layer L, xL+1 is normalized and mapped to a next token distribution by the unembedding matrix WU ∈ R|V|× d,
+
+p = softmax( WU LN( xL+1 )) ∈ R|V| , (2) where LN denotes the LayerNorm. 
+
+3.1 Estimating the Correctness Direction 
+
+Let D = {(qi, y ⋆i )}Ni=1 be a training set of problems qi with ground truth answers y⋆i . For every 
+
+qi, we run a fixed direct answer prompt once and obtain the generation gi. We cache the activation 
+
+ahl (qi) of every attention head (l, h ) at the last prompt token position, before generation begins. Each generation gi is graded against y⋆i , yielding a binary label yi ∈ { 0, 1}, where yi = 1 if gi is correct 3✗ incorrect runs  
+
+> ✓correct runs
+> decision boundary
+
+alh + α σ lh θlh
+
+alh
+
+𝜽 𝒍 𝒉 ∝ 𝝁 + − 𝝁 −      
+
+> μ−
+> μ+
+> heads → layers ↓
+> 𝐮 (Eq 8)
+> 𝜹 𝒍 𝒉 (Eq 6) Head (l, h)
+> Δp (Eq 7)
+> "To" "$" "Let" "The" "60" "25"
+> favored when correct → ← favored when incorrect
+> 𝒔 𝒍 𝒉 =⟨ 𝜹 𝒍 𝒉 , 𝒖 ⟩
+> Top-k
+> Selected heads
+> Score of head (l, h)
+
+Figure 1: Left: The per-head correctness direction. In the activation space of a head, activations from correctly and incorrectly answered problems form two populations, with means μl,h  
+
+> +
+
+and μl,h  
+
+> −
+
+.
+
+θhl is the unit vector connecting these means, and σhl is the standard deviation of the activations projected onto θhl . Steering shifts an activation on the incorrect side by α σ hl along θhl . Right: Head selection by attribution score. Top: the score shl of each head, with the K heads selected within the promoted layer band outlined in blue. Bottom: the outcome contrast ∆p measured on the fitting rows. First generated tokens for correct answers concentrate on “To”, and for incorrect answers on “$”. and yi = 0 otherwise. The label yi indicates whether the model, under the direct answer prompt, answers qi correctly. Following [7], for head (l, h ) we estimate a correctness direction θhl as the unit vector along the difference between the mean activation on correct samples and the mean activation on incorrect samples. This direction captures the axis along which the two populations tend to shift, on average, and is defined as 
+
+μl,h  
+
+> +
+
+= E [ahl | y=1] , μl,h  
+
+> −
+
+= E [ahl | y=0] , θhl = μl,h  
+
+> +
+
+− μl,h 
+
+> −
+
+∥μl,h  
+
+> +
+
+− μl,h  
+
+> −
+
+∥ . (3) As a unit vector, θhl specifies the direction of the correctness axis but not the scale of the head’s activations along it. A fixed shift magnitude is not comparable across heads, since different heads have different activation scales. We therefore normalize the shift using the standard deviation of each head’s activations along its own correctness direction, 
+
+σhl = std q∈D 
+
+ ⟨ahl (q), θ hl ⟩. (4) A displacement of α σ hl along θhl corresponds to α standard deviations along the correctness direction, making α a scale invariant steering strength shared across all heads. Following the intervention procedure of ITI [7], we steer the model by adding α σ hl θhl to the output of each selected head, before it is projected into the layer input, 
+
+xl+1 = xl +
+
+> H
+
+X
+
+> h=1
+
+W l,h O
+
+ ahl + α σ hl θhl
+
+ + mlp l, (5) where θhl ≡ 0 for every head not selected for steering. Since W l,h O is linear, each unit of α contributes a fixed vector to the layer input, 
+
+δhl = W l,h O σhl θhl ∈ Rd, (6) which is the correctness direction of head (l, h ), projected into the layer input. δhl is the contribution head (l, h ) makes to the layer input per unit of α.43.2 Where to Intervene: Selecting Causal Heads 
+
+Equation (5) leaves the choice of heads open. The direction θhl from Eq. (3) exists for every head, since a difference of means can be computed regardless of whether that head’s output has any effect on the model’s generation. Decodability, in this sense, only requires that correct and incorrect activations differ on average, it places no constraint on whether adding δhl to the layer input changes the final output. Selecting heads by decodability alone can therefore result in heads with no causal effect, or with an effect that opposes the intended direction. This is confirmed empirically in the ITI row of Table 1, where steering the heads that decode correctness best yields little or no improvement, and is at times detrimental. On MATH-500, it lowers Llama-3.1-8B accuracy from 40.8% to 23.6%, and Qwen3-4B from 53.8% to 30.6%. A head is useful for intervention only if its contribution δhl changes the model’s output. Decodability in activation space, as used to define θhl , only tells us that correct and incorrect activations differ, not whether that difference affects the generated token. To capture causal effect, the selection criterion must therefore be defined in terms of the shift a head’s contribution produces in the next token logits, rather than in the space of activations. The unembedding matrix WU maps a vector in the layer input space to a vector of next token logits (Eq. 2). Rather than mapping δhl forward through WU , which would require rerunning the model, we use the identity ⟨WU x, z ⟩ = ⟨x, W ⊤ 
+
+> U
+
+z⟩. For any target logit direction z, its inner product with a layer input vector x can be computed entirely in layer input space, using W ⊤ 
+
+> U
+
+z. This lets us score δhl directly against a target logit direction, without any additional forward pass. We first define a target shift in the space of first generated tokens. Following [33], who show that an LLM’s knowledge of whether its answer will be correct is most concentrated in the distribution of its first generated token, we use this distribution as our target. Let p+, p − ∈ ∆|V| be the empirical first generated token distributions for questions the model answers correctly and incorrectly, under the same prompt. Their difference, 
+
+∆p = p+ − p−, (7) is positive on tokens more likely to precede a correct answer and negative on tokens more likely to precede an incorrect answer (Figure 1(b)). 
+
+∆p lies in vocabulary space, while δhl lies in layer input space. To compare them, we map ∆p into layer input space using the transpose of the unembedding matrix, 
+
+u = W ⊤ 
+
+> U
+
+∆p ∈ Rd. (8) We call u the target direction. A head whose contribution aligns with u shifts the first generated token logits toward tokens that precede correct answers. We score head (l, h ) by how well its contribution δhl aligns with the target direction u,
+
+shl = ⟨u, δ hl ⟩ = W ⊤ 
+
+> U
+
+∆p W l,h O σhl θhl . (9) A high score implies that δhl is large and points in the direction of u. We select the top K heads by shl
+
+and steer only these heads, setting θhl ≡ 0 for all other heads. Across three open weight models and multiple short answer math benchmarks, intervening only these selected heads consistently improves accuracy over standard prompt generation. This requires a single forward pass over the training dataset, and steering vectors are applied zero shot at inference. Algorithm 1 summarizes the steering procedure. Figure 2 shows this effect on two problems. In both cases, the direct answer prompt produces an incorrect answer. The steered model instead opens with "To", derives the answer in a few lines, and reaches the correct answer. Chain of thought prompting reaches the same answer using three to four times as many tokens. This shows that steering does not make the model imitate a chain of thought style response. Instead, it causes the model to begin deriving an answer rather than stating one directly, and the model stops once it has derived enough to answer. 
+
+## 4 Experiments and Results 
+
+We evaluate COMPASS across three LLMs over mathematical reasoning benchmarks, measuring accuracy ( ↑) against ground-truth answers, transfer of fitted directions to unseen datasets, and ablations isolating which components of the method drive performance. 5Algorithm 1 COMPASS 
+
+Require: frozen W l,h O , W U ; pool D; K
+
+1: One graded pass over D: label yi, activations ahl (qi), first generated token t(qi) ∀ qi ∈ D 
+
+2: Compute θhl , σ hl by Eqs. (3), (4); δhl ← W l,h O σhl θhl ∀ (l, h )
+
+3: p+, p − ← first generated token histograms over correct, incorrect rows 4: u ← W ⊤ 
+
+> U
+
+(p+ − p−)
+
+5: shl ← ⟨ u, δ hl ⟩; S ← top-K heads by shl
+
+6: Apply Eq. (5) at test time, with θhl ≡ 0 ∀ h / ∈ S                                    
+
+> Llama-3.1-8B, GSM8K. Mary has 30 sheep. She gets 1 kg of milk from half of them and 2 kg of milk from the other half every day. How much milk does she collect every day? gold: 45
+> DIRECT 15 kg. ×3 tokens
+> COMPASS To find the total milk collected, we need to calculate the milk from the first half and the second half separately and then add them together. First half: 15 sheep * 1 kg = 15 kg. Second half: 15 sheep * 2 kg = 30 kg. Total milk collected = 15 kg + 30 kg = 45 kg. ✓74 tokens
+> COT ## Step 1: Calculate the number of sheep that produce 1 kg of milk per day. Mary has 30 sheep, and half of them produce 1 kg of milk per day. So, the number of sheep that produce 1 kg of milk per day is 30 / 2 = 15. ## Step 2: Calculate the number of sheep that produce 2 kg of milk per day. [. . . Steps 3–5 . . . ] Therefore, the final answer is: 45 .✓282 tokens
+> Qwen3-4B, MATH-500. In how many ways can 6 girls and 2 boys sit in a row if the 2 boys insist on sitting next to each other?
+> gold: 10,080
+> DIRECT Final answer: 864. ×8 tokens
+> COMPASS To solve this, treat the 2 boys as a single unit. Then we have 7 units to arrange (6 girls + 1 boy unit). These 7 units can be arranged in 7! ways. The 2 boys can be arranged among themselves in 2! ways. So the total number of arrangements is: 7! ×2! = 5040 ×2 = 10080 .Final answer: 10080.
+> ✓108 tokens
+> COT We are given: 6 girls, 2 boys. We are to find the number of ways they can sit in a row if the 2 boys must sit next to each other. ### Step 1: Treat the 2 boys as a single unit. Since the 2 boys must sit next to each other, we can treat them as one “block”. This block can be in two different internal arrangements [. . . Steps 2–4 . . . ] Final Answer: 10080 .✓323 tokens
+
+Figure 2: Steering elicits a short derivation, not a chain-of-thought transcript. The direct-answer prompt gets the answer wrong. With COMPASS, the same model reaches the correct answer with a short derivation, generating 3.0–3.8× lesser tokens than a chain-of-thought prompt. 
+
+Datasets. We use GSM8K [14], SVAMP [15], and MATH-500 [34] for main experiments, with disjoint train and test splits. We evaluate zero-shot transfer, without re-fitting, on GSM-Plus [16] and HARP [17]. All benchmarks are short-answer mathematics with a single gold answer per problem, graded by exact or numeric equivalence. Full details are provided in Appendix A.3. 
+
+Baselines. We compare against (i) Inference-Time Intervention (ITI) [7], which selects heads by probe accuracy and steers the activation them along the probe direction, and (ii) Fractional Reasoning [18], which steers every layer of the LLM along a pre-computed reasoning direction from contrastive prompts. Full baseline details are provided in Appendix A.5. 
+
+Models. We apply all methods to three open-weight models namely Llama-3.1-8B-Instruct [11], Qwen3-4B [12], and Gemma4-12B-it [13]. 
+
+Oracles. For reference only, we report a CoT oracle (the same model prompted for explicit chain-of-thought) and a frontier oracle, GPT-5.4-mini with reasoning effort high . All methods are evaluated and graded identically. 
+
+Basic Setup. For every sample, we use a fixed, LLM specific brief answer prompt that instructs the model to produce a short answer without explanation. Full prompt details are in Appendix A.1. On the training split, we run this prompt once per sample and store the activation of every attention head at the last prompt token, prior to generation. Each generation is then graded against the ground truth answer, labeling the sample correct or incorrect. Full grading details are in Appendix A.2. For every head, we obtain a correctness direction as the difference between the mean activation over correct samples and the mean activation over incorrect samples. α is a hyperparameter controlling the intensity of the intervention, and we select α separately for every dataset through a hyperparameter search. Evaluation is a single zero shot pass on the test split of each dataset. 
+
+Head and Layer Selection. shl ranks heads reliably within a layer, but not across layers at different depths, since it does not account for how much a head’s contribution is transformed before reaching the unembedding layer (Appendix A.4). We therefore restrict head selection to a contiguous band of layers, chosen using the layer aggregated elicitation mass , ml = P 
+
+> h
+
+max( shl , 0) , computed by 6Table 1: Accuracy (%) scores with mean generated tokens in gray. The heads selected by COMPASS lift the direct-answer (standard prompt) baseline toward the chain-of-thought and frontier oracles at a fraction of their token cost. ITI and Fractional Reasoning were re-run and we report their optimal performance.                                                                                                                       
+
+> Llama-3.1-8B Qwen3-4B Gemma4-12B
+> GSM8K SVAMP MATH-500 GSM8K SVAMP MATH-500 GSM8K SVAMP MATH-500 Standard Prompt 66.8 (93) 81.0 (48) 42.4 (345) 76.2 (68) 81.0 (22) 55.2 (250) 49.4 (67) 74.7 (3) 68.4 (347)
+> ITI [7] 73.8 (132) 68.7 (45) 23.6 (409) 71.9 (45) 44.3 (78) 30.6 (56) 22.3 (52) 64 (46) 30.3 (872)
+> Fractional Reasoning [18] 79.9 (214) 81.0 (119) 42.2 (524) 88.3 (220) 89.3 (118) 77.8 (561) 65.4 (55) 85.6 (7) 72.7 (371)
+> COMPASS (ours) 83.7 (143) 85.7 (81) 45.2 (515) 89.8 (138) 90.7 (68) 77.8 (404) 88.0 (140) 79.3 (51) 79.8 (366)
+> CoT (oracle) 83.4 (205) 85.0 (157) 47.0 (788) 92.3 (303) 91.7 (224) 83.2 (924) 96.1 (338) 94.3 (261) 91.4 (730)
+> GPT-5.4-mini (oracle) 95.1 (273) 94.7 (202) 88.2 (786) 95.1 (273) 94.7 (202) 88.2 (786) 95.1 (273) 94.7 (202) 88.2 (786)
+
+Table 2: Transfer of steering heads and strength selected on GSM8K (to GSM-Plus) and MATH (to HARP), applied zero-shot, without re-tuning. Accuracy (%) with mean generated tokens in gray.                                     
+
+> Llama-3.1-8B Qwen3-4B
+> GSM-Plus HARP GSM-Plus HARP Standard Prompt 60.4 (136) 21.5 (366) 65.6 (82) 35.4 (396)
+> COMPASS (ours) 71.1 (180) 22.7 (750) 80.4 (164) 49.1 (575)
+> CoT (oracle) 72.7 (247) 27.1 (1020) 84.1 (360) 56.9 (1505)
+> GPT-5.4-mini (oracle) 88.4 (385) 69.7 (1509) 88.4 (385) 69.7 (1509)
+
+summing only the positive head scores within each layer. Full head and band selection details are in Appendix A.4. Within the selected band, the K = 8 highest scoring heads are steered. 
+
+4.1 COMPASS Predominantly Outperforms Steering Baselines 
+
+Table 1 reports accuracy and mean generated tokens for the direct answer baseline (standard prompt), ITI [7], Fractional Reasoning [18], and COMPASS, with the CoT and frontier model (GPT-5.4 mini) reported as reference. COMPASS improves over the direct answer baseline on every model and dataset, and over both ITI and Fractional Reasoning on every model and dataset except Gemma4-12B on SVAMP, where Fractional Reasoning performs best. On GSM8K, COMPASS closes most of the gap to the CoT reference on Llama and Qwen3, reaching 83.7% against an 83.4% ceiling and 89.8% against 92.3% respectively, and recovers a substantial part of the gap on Gemma4-12B, reaching 88.0% against a 96.1% ceiling. It does so while generating 20 to 70% fewer tokens than CoT across datasets, for instance 68 versus 224 tokens on Qwen3 SVAMP. COMPASS thus achieves accuracy comparable to or approaching explicit reasoning at a fraction of its token cost. 
+
+4.2 COMPASS Transfers Without Refitting to Unseen Datasets 
+
+Table 2 reports accuracy on GSM-Plus and HARP using the direction, heads, and α obtained from the training splits of GSM8K and MATH-500 respectively, applied without modification. On GSM-Plus, accuracy rises from 60.4% to 71.1% on Llama and from 65.6% to 80.4% on Qwen3. On HARP, accuracy increases from 21.5% to 22.7% on Llama and from 35.4% to 49.1% on Qwen3. GSM-Plus consists of adversarial modifications of GSM8K test problems, and HARP is a harder competition level dataset than MATH-500. Since the directions and heads were never exposed to either dataset, this transfer indicates that they capture a property of the model rather than a fit to the source dataset. 
+
+4.3 Ablations Studies 
+
+We ablate three components of COMPASS in isolation, the layer band, the head set, and the steering direction, to identify which are necessary for the observed performance improvements. 
+
+Layer Band Selection is Concentrated in the Final Layers. Each head is scored by the shift it delivers toward the target outcome according to (Eq. 9), and a layer’s aggregated score is ml. Figure 3 plots ml for both LLama-3.1-8B-it and Qwen3-4B. For roughly the first two thirds of the network, 75 10 15 20 25 30       
+
+> Layer
+> 0.00 0.02 0.04 0.06 0.08 0.10
+> Aggregated layer score
+> Llama-3.1-8B (32 layers)
+> Not steered Steered band 510 15 20 25 30 35
+> Layer
+> 0.0 0.5 1.0 1.5 2.0 2.5
+> Aggregated layer score
+> Qwen3-4B (36 layers)
+
+Figure 3: Aggregated layer score The sum of the positive head-attribution scores in each layer. Yellow marks the layers from which the steering heads are selected based on the score (Eq 9). 
+
+ml is near zero, indicating that heads in these layers contribute little to the output. ml then rises sharply over the last few layers, motivating restriction of head selection to this late band rather than the full network. We validate this choice on a held out, development split containing 300 samples, disjoint from both the training and the test set (Appendix A.3). Holding α fixed, we steer using each candidate band so that only the head set varies. Figure 4 shows that the band with the highest ml achieves the best or near best development accuracy on both models, confirming that ml identifies an effective intervention band. 31–32 32–32        
+
+> Steered band (layers)
+> 60 70 80 90
+> Dev accuracy (%)
+> Llama-3.1-8B (32 layers)
+> 31–36 32–36 33–36 34–36 35–36 36–36
+> Steered band (layers)
+> 60 70 80
+> Dev accuracy (%)
+> Qwen3-4B (36 layers)
+> Candidate band Promoted band Unsteered baseline
+
+Figure 4: Best development set accuracy per candidate band. Bands are compared at constant α
+
+and the comparison isolates which heads are steered rather than how hard. Yellow is the band the scan promoted (Llama 32–32 at α = 15 .66 ; Qwen3 35–36 at α = 25 .53 ). The dashed line is the unsteered direct-answer baseline on the same rows. 
+
+Both Head Selection and the Correctness Direction are Necessary. Within the selected band, we compare three settings on the full MATH-500 test set, holding the band and α fixed: 1. Selected heads, correctness direction : our method, top K=8 heads by shl , steered along the correctness direction θhl .2. Random heads, correctness direction : K=8 heads drawn uniformly at random from the same band, steered along θhl .3. Selected heads, random direction : the same top K=8 heads, steered along a random unit vector of matched magnitude. Figure 5 (left) shows that our method reaches 45.0% accuracy, a +4 .2 point gain over the 40.8% baseline. Randomizing head selection while keeping the correctness direction reduces this to 41.1%, within one third of a point of baseline. Randomizing the direction while keeping the selected heads 8θhl @selected heads           
+
+> θhl@random heads random dir. @ selected heads 40 45 50
+> Accuracy (%)
+> 45.0
+> 41.1 39.7 Selected Control Unsteered baseline 8421
+> Number of steered heads
+> 65 70 75 80 85 90
+> Accuracy (%)  83.7 81.9 80.4 75.1 +18.7 +16.8 +15.3 +10.0
+> Llama-3.1-8B | GSM8K Unsteered baseline Llama-3.1-8B GSM8K Qwen3-4B MATH-500 020 40 60 80 100
+> Accuracy (%)
+> 65.0 82.9 46.8 53.8 77.6 28.0 Unsteered θhl−θhl
+
+Figure 5: Head-level ablations. Left: Head and direction controls, on the full 500-row split. K
+
+and α are identical across bars. Only the intervention differs (error bars: sample standard deviation). Middle: Accuracy as only the K best-ranked heads are steered, with band and α frozen. Right: Reverses the sign of the injected direction at the selected heads. is actively harmful, at 39.7%, below baseline. Both the head set and the correctness direction are therefore required for the effect and neither alone is sufficient. 
+
+The Effect Concentrates in Remarkably Few Heads. Figure 5 (middle) varies K ∈ { 8, 4, 2, 1} on Llama-3.1-8B GSM8K. Accuracy degrades gradually as K decreases: 83.7%, 81.9%, 80.4%, and 75.1% at K=1 , each still a substantial gain over the 65.0% baseline. A single head retains +10 .0 of the +18 .7 point gain achieved at K=8 , indicating that most of the effect is concentrated in a small number of heads rather than distributed evenly across the selected set. 
+
+Reversing the Correctness Direction Actively Harms Accuracy. Figure 5 (right) reverses the sign of the steering direction at the selected heads, injecting −θhl in place of θhl , with the band, α, and head set otherwise unchanged. On Llama-3.1-8B GSM8K, accuracy falls from 82.9% at θhl to 46.8% at −θhl , below the 65.0% unsteered baseline. On Qwen3-4B MATH-500, accuracy falls from 77.6% to 28.0%, below the 53.8% baseline. Reversal does not merely remove the gain, it drives the model below its unsteered accuracy, confirming that θhl is signed toward correctness rather than an arbitrary axis of variation the model happens to be sensitive to. 
+
+## 5 Conclusions and Future Work 
+
+We presented COMPASS, an inference-time steering framework that recovers a reasoning intervention from outcome supervision alone, without chain of thought demonstrations or a predefined notion of reasoning. A single forward pass over a pool of graded problems yields a per-head correctness direction and a logit-space attribution score, together identifying the few heads whose contribution shifts the first generated token toward a correct answer. Across three model families and multiple math benchmarks, COMPASS outperforms existing activation-steering baselines, closes much of the gap to explicit chain of thought at a fraction of the token cost, and transfers to unseen datasets without re-fitting. While effective in this setting, COMPASS opens several directions for future work. Our attribution score is defined for domains with a binary notion of correctness, such as short-answer math questions. Extending it to open-ended tasks such as proof generation, where outcomes are not directly gradable, is a natural next step. Similarly, while our ablations identify which heads causally drive correctness, a mechanistic account of why these specific heads emerge, and why they promote tokens that initiate correct derivations, is left to future work. We view COMPASS as a step toward using a model’s own outcomes, rather than externally imposed notions of reasoning, to identify and steer the internal computation that produces them. 
+
+## Acknowledgments and Disclosure of Funding 
+
+This work was performed under the auspices of the U.S. Department of Energy (DOE) by Lawrence Livermore National Laboratory under Contract No. DE-AC52-07NA27344. This work was supported 9by LDRD 25-SI-001. Portions of this work were performed in part at VISLab, UC Riverside. LLNL-CONF-2024134. 
+
+## References 
+
+[1] Takeshi Kojima, Shixiang Shane Gu, Machel Reid, Yutaka Matsuo, and Yusuke Iwasawa. Large language models are zero-shot reasoners. Advances in neural information processing systems ,35:22199–22213, 2022. [2] Dan Hendrycks, Collin Burns, Saurav Kadavath, Akul Arora, Steven Basart, Eric Tang, Dawn Song, and Jacob Steinhardt. Measuring mathematical problem solving with the MATH dataset. In Advances in Neural Information Processing Systems Datasets and Benchmarks Track , 2021. [3] Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten Bosma, Fei Xia, Ed Chi, Quoc V Le, Denny Zhou, et al. Chain-of-thought prompting elicits reasoning in large language models. 
+
+Advances in neural information processing systems , 35:24824–24837, 2022. [4] Zhenghao He, Guangzhi Xiong, Bohan Liu, Sanchit Sinha, and Aidong Zhang. Reasoning beyond chain-of-thought: A latent computational mode in large language models. arXiv preprint arXiv:2601.08058 , 2026. [5] Lihao Sun, Hang Dong, Bo Qiao, Qingwei Lin, Dongmei Zhang, and Saravan Rajmohan. Llm reasoning as trajectories: Step-specific representation geometry and correctness signals. In 
+
+Proceedings of the 64th Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 26872–26887, 2026. [6] Yuntian Deng, Kiran Prasad, Roland Fernandez, Paul Smolensky, Vishrav Chaudhary, and Stuart Shieber. Implicit chain of thought reasoning via knowledge distillation. arXiv preprint arXiv:2311.01460 , 2023. [7] Kenneth Li, Oam Patel, Fernanda Viégas, Hanspeter Pfister, and Martin Wattenberg. Inference-time intervention: Eliciting truthful answers from a language model. In Advances in Neural Information Processing Systems , volume 36, 2023. [8] Dimitri von Rütte, Sotiris Anagnostidis, Gregor Bachmann, and Thomas Hofmann. A language model’s guide through latent space. In Proceedings of the 41st International Conference on Machine Learning , volume 235 of Proceedings of Machine Learning Research , pages 49655–49687. PMLR, 2024. [9] Dhananjay Ashok and Jonathan May. Language models can predict their own behavior. Ad-vances in Neural Information Processing Systems , 38:62708–62739, 2026. [10] Ian Li, Kapilesh Guruprasad, Raunak Sengupta, Ninad Satish, Loris D’Antoni, and Rose Yu. Manifold-guided attention steering. In ICML 2026 Workshop on Foundations of Deep Generative Models: Understanding Memorization, Generalization, and Reasoning , 2026. [11] Aaron Grattafiori et al. The Llama 3 herd of models. arXiv preprint arXiv:2407.21783 , 2024. [12] An Yang et al. Qwen3 technical report. arXiv preprint arXiv:2505.09388 , 2025. [13] Gemma Team, Google DeepMind. Gemma 4 technical report. arXiv preprint arXiv:2607.02770 ,2026. [14] Karl Cobbe, Vineet Kosaraju, Mohammad Bavarian, Mark Chen, Heewoo Jun, Lukasz Kaiser, Matthias Plappert, Jerry Tworek, Jacob Hilton, Reiichiro Nakano, Christopher Hesse, and John Schulman. Training verifiers to solve math word problems. arXiv preprint arXiv:2110.14168 ,2021. [15] Arkil Patel, Satwik Bhattamishra, and Navin Goyal. Are NLP models really able to solve simple math word problems? In Proceedings of the 2021 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies ,pages 2080–2094, 2021. [16] Qintong Li, Leyang Cui, Xueliang Zhao, Lingpeng Kong, and Wei Bi. GSM-Plus: A compre-hensive benchmark for evaluating the robustness of LLMs as mathematical problem solvers. In Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , 2024. 10 [17] Albert S. Yue, Lovish Madaan, Ted Moskovitz, DJ Strouse, and Aaditya K. Singh. HARP: A challenging human-annotated math reasoning benchmark. arXiv preprint arXiv:2412.08819 ,2024. [18] Sheng Liu, Tianlang Chen, Pan Lu, Haotian Ye, Yizheng Chen, Lei Xing, and James Zou. Fractional reasoning via latent steering vectors improves inference time compute. arXiv preprint arXiv:2506.15882 , 2025. [19] Yanshi Li, Xueru Bai, Shuman Liu, Haibo Zhang, and Anxiang Zeng. Decomposing and steering functional metacognition in large language models. arXiv preprint arXiv:2605.08942 ,2026. [20] Anqi Zhang, Yulin Chen, Jane Pan, Chen Zhao, Aurojit Panda, Jinyang Li, and He He. Reasoning models know when they’re right: Probing hidden states for self-verification. arXiv preprint arXiv:2504.05419 , 2025. [21] Nikolaos Xiros, Maria-Eleni Zoumpoulidi, and Georgios Paraskevopoulos. Knowledge knows, verbalization tells: Disentangling latent directions for mathematical solvability in LLMs. arXiv preprint arXiv:2607.05013 , 2026. [22] Carlo Di Cicco. Code correctness is linearly decodable from LLM hidden states before generation. arXiv preprint arXiv:2606.14530 , 2026. [23] Jiaoda Li, Yifan Hou, Mrinmaya Sachan, and Ryan Cotterell. What do language models learn in context? the structured task hypothesis. In Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 12365–12379, 2024. [24] Benoit Dherin, Michael Munn, Hanna Mazzawi, Michael Wunder, and Javier Gonzalvo. Learning without training: The implicit dynamics of in-context learning. arXiv preprint arXiv:2507.16003 , 2025. [25] Roee Hendel, Mor Geva, and Amir Globerson. In-context learning creates task vectors. In 
+
+Findings of the Association for Computational Linguistics: EMNLP 2023 , pages 9318–9333, 2023. [26] Sheng Liu, Haotian Ye, Lei Xing, and James Y. Zou. In-context vectors: Making in context learning more effective and controllable through latent space steering. In Forty-first International Conference on Machine Learning , 2024. [27] Alexander Matt Turner, Lisa Thiergart, Gavin Leech, David Udell, Juan J. Vazquez, Ulisse Mini, and Monte MacDiarmid. Activation addition: Steering language models without optimization. 
+
+arXiv preprint arXiv:2308.10248 , 2023. [28] Nina Rimsky, Nick Gabrieli, Julian Schulz, Meg Tong, Evan Hubinger, and Alexander Matt Turner. Steering Llama 2 via contrastive activation addition. In Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 15504–15522, 2024. [29] Andy Zou, Long Phan, Sarah Chen, James Campbell, Phillip Guo, Richard Ren, et al. Represen-tation engineering: A top-down approach to AI transparency. arXiv preprint arXiv:2310.01405 ,2023. [30] Bruce W. Lee, Inkit Padhi, Karthikeyan Natesan Ramamurthy, Erik Miehling, Pierre Dognin, Manish Nagireddy, and Amit Dhurandhar. Programming refusal with conditional activation steering. In International Conference on Learning Representations , 2025. [31] Zixuan Weng, Jinghuai Zhang, Kunlin Cai, Ying Li, Peiran Wang, and Yuan Tian. FineSteer: A unified framework for fine-grained inference-time steering in large language models. arXiv preprint arXiv:2604.15488 , 2026. [32] Arun Vignesh Malarkkan, Manan Roy Choudhury, Utkarsh Byahut, Yash Ravindra Charde, Vivek Gupta, and Yanjie Fu. Invariant reasoning directions in latent trajectories of language models. arXiv preprint arXiv:2606.29164 , 2026. [33] Qinyu Zhao, Ming Xu, Kartik Gupta, Akshay Asthana, Liang Zheng, and Stephen Gould. The first to know: How token distributions reveal hidden knowledge in large vision-language models? arXiv preprint arXiv:2403.09037 , 2024. [34] Hunter Lightman, Vineet Kosaraju, Yuri Burda, Harrison Edwards, Bowen Baker, Teddy Lee, Jan Leike, John Schulman, Ilya Sutskever, and Karl Cobbe. Let’s verify step by step. In 
+
+International Conference on Learning Representations , 2024. 11 A Appendix for COMPASS: Finding Where Reasoning Lives in Language Models 
+
+This section contains detailed explanations of every protocol followed in our experimental setup. Our code is publicly available at : https://github.com/pratyay2510/COMPASS.git 
+
+A.1 Prompts 
+
+Llama-3.1-8B and Qwen3-4B use one prompt on every dataset. Gemma-4-12B-it uses two prompts, both with thinking mode off. On GSM8K and SVAMP it uses a direct answer prompt. On MATH-500 the prompt asks for only the final answer. The prompt is deliberately terse and asks for the answer without an explanation, so that the baseline reflects what the model does when reasoning is not requested. Each box below reproduces the full prompt string exactly as the code builds it. The marker {problem} shows where the question text is inserted, and a blank line inside a box is a blank line in the prompt. The system message is empty for every family, so the rendered input is a single user turn.            
+
+> Llama-3.1-8B all datasets
+> You are a helpful assitant. Question: {problem}. Give me the answer directly.
+> Qwen3-4B all datasets
+> Answer the following question with only the final answer. Do not show any working or explanation. Question: {problem} Final answer:
+> Gemma-4-12B-it GSM8K and SVAMP
+> Answer the following question directly. Question: {problem}
+> Gemma-4-12B-it MATH and MATH-500
+> Answer the following question with only the final answer. Question: {problem}
+
+Decoding is greedy everywhere, with a cap of 512 new tokens on the GSM8K and SVAMP fitting pools and 2,048 new tokens on MATH and on every evaluation split. A generation that hits the cap is counted incorrect. 
+
+A.2 Grading 
+
+Free form generations do not reliably carry a marker such as \boxed{} . A correct answer that ends in “ . . . = 109 33 ” is extracted as “33” by a naive last number rule. Grading therefore proceeds in two passes over every generation. The first pass is deterministic. An answer is extracted from the raw generation and compared with the gold answer through a fixed cascade. The cascade checks normalized string equality, then numeric equality at relative tolerance 10 −6 with percent signs and unit tails stripped, then reduction of a derivation chain to its final value, and finally bounded symbolic equivalence through SymPy. We call the resulting label the single pass grade. The second pass follows Fractional Reasoning [18] and uses an LLM formatter. A second call to the same model, never steered, restates the generation as a single line of the form Answer: \[\boxed{...}\] , and the same deterministic cascade then grades the boxed answer. The system message of the formatting call tells the model that its job is to extract the final short answer from the more detailed answer. The user prompt depends on the model and the dataset as follows. 12 Every model uses the prompt below on every dataset, The placeholder {reasoning} carries the generation being graded.     
+
+> Formatting prompt
+> Here is a worked solution: {reasoning} Copy its final answer, exactly as the solution states it, into this line and output nothing else: Answer: \[ \boxed{your_answer_here} \] Do not solve the problem. Do not explain. Do not recompute anything. If the solution states no final answer, box its last expression.
+
+The final label of a row is the OR of the single pass grade and the formatted answer grade. Only rows the single pass grade marks incorrect are sent to the formatting call, so the formatter can promote a row whose answer the extraction missed but can never demote a row the deterministic cascade already accepts. This is due to the fact that the formatting call is itself a generation and can fail as one. Hence, a regrade that can only add keeps such failures from destroying correct labels. Truncated generations are sent to the formatter as well, since a capped generation can still contain its final answer, and their label follows the same rule. The same instrument grades everything, so every accuracy score comes from a single universal grader. Accuracy is always reported over all rows of the split. 
+
+A.3 Dataset Splits 
+
+Table 3 shows the datasets that have been used for this work and their corresponding details. Table 3: Benchmarks. Train splits are fitting pools only; test splits are evaluated in full. GSM-Plus and HARP are used for transfer only.         
+
+> Dataset Description
+> GSM8K [14] Grade-school word problems with integer answers; 7,473 train and 1,319 test problems. SVAMP [15] 1,000 one-step arithmetic word problems built by perturbing existing problems so that surface cues do not determine the operation; 700/300 train/test split of the public release (ChilleD/SVAMP). Train and test share no question text. MATH-500 [34] The 500-problem subset of the MATH test set [2], seven subjects (prealgebra to precalculus) at five difficulty levels, LaTeX answers. No fitting is done on these 500 problems: the Llama selection is fitted on the 7,500-problem MATH train split, and the Qwen3 selection on the remaining 4,500 MATH test problems (MATH test minus MATH-500, matched on normalized problem text and verified disjoint). GSM-Plus [16] 10,552 adversarial perturbations of GSM8K test problems across eight perturbation types. The 1,319 critical-thinking rows are unanswerable by construction (gold “None”) and are dropped, leaving 9,233 evaluated problems. HARP [17] 4,780 short-answer problems from US national mathematics competitions (AMC, AIME, and others), six difficulty levels, LaTeX answers. No train split by design; steered with the MATH selection.
+
+Every dataset uses three disjoint row sets, and the convention is the same for all of them: a fitting pool , from which the correctness direction and the head ranking are estimated; a 300-row dev (scan) set, on which the depth band and the strength α are chosen; and the test split, which is generated once at the promoted configuration and never consulted before that. The details of the three fully disjoint sets are as follows: 
+
+Fitting Set This is the provided train set for each dataset. It is collected once under the direct-answer prompt (Section 4). Each row stores the generation, its grade against gold, and the activation of every attention head at the last prompt token. The pool supplies both the outcome target u and 13 the per-head mass-mean directions θhl with their scales σhl . The convention differs slightly between GSM8K, MATH and SVAMP. Details are as follows: • GSM8K and MATH : Both GSM8K and MATH have large training sets (GSM8K - 7473 problems, MATH - 7500 problems). For them, after collecting the entire training sets, we construct this fitting pool of 1600 rows where the correct-incorrect split is exactly equal (800-800). This is done so that the correctness direction remains unbiased and no class imbalance affects either the θhl or shl .• SVAMP : The training set of SVAMP has only 700 problems. In this dataset, we use 400 
+
+rows as our fitting set. The rest 300 are used as the dev set. 
+
+Dev (scan) set For all datasets, this is a set of 300 rows. For GSM8K and MATH, due to its large size, it is a random set of rows from the spare ones after the fitting pool is identified. For SVAMP, it is carved out of the training set before any fitting takes place. Throughout the study, the scan set is always fully disjoint from the fitting set. 
+
+Test Set This is the benchmark’s evaluation split, taken in full. It is fully disjoint from both the fitting and dev sets. 
+
+GSM-Plus and HARP (transfer). Neither dataset has a fitting pool or a dev set. The direction, the head set, and α selected on GSM8K are applied unchanged to GSM-Plus. Those selected on MATH are applied unchanged to HARP. GSM-Plus released 10 , 552 problems. However, 1, 319 
+
+problems are critical-thinking problems, which are unanswerable by construction (gold “None”). Hence, GSM-Plus is evaluated on 9, 233 problems. HARP is evaluated on all 4, 780 rows. 
+
+A.4 The Operating Point: Depth Band and Dose 
+
+The elicitation mass ml = P 
+
+> h
+
+max( shl , 0) , gives a per-layer profile of how much correct-opening logit the layer can deliver. Only positive scores are summed: a head whose injection moves the logits away from a correct opening is not a candidate, and letting it cancel a useful head in the same layer would misreport what that layer is worth. The profile is essentially flat through the first two thirds of the network, then a sharp rise over the last four to six layers (Figure 3). This makes a band, the natural search space. We take the elbow , ℓ∗ to be the lowest layer l such that it is the deepest point from which the mass never again falls below 35% of its peak. 
+
+ml′ ≥ 0.35 × max( m), ∀l′ ≥ l. 
+
+The candidate layers are the nested bands [ℓ⋆, L ], [ℓ⋆+1 , L ], . . . , [L, L ]. Within a band, the K = 8 
+
+highest-scoring heads are steered. 
+
+Matched dose and the operating point. Because α multiplies a per-head norm, the same α
+
+is a different perturbation in every band. Bands are therefore compared at matched dose , D =
+
+α P 
+
+> (l,h )∈S
+
+∥δhl ∥, the total norm added to the residual stream by the selected set S. The widest band fixes a ladder of four to five doses from an α range ( α ∈ [8 , 32] ). Every other band receives the α
+
+values that land it on the same doses. These sets of points (band, α) are used to steer the dev sets of each dataset. The single operating point (band, α) with the highest dev accuracy is promoted, and is used to steer the test set. 
+
+A.5 Baselines and Oracles 
+
+ITI and Fractional Reasoning are re-implemented and run on our models, prompts, splits, token caps, and grader. ITI selects the K = 8 heads with the highest probe validation accuracy over all heads of the model, steers them along the same mass-mean direction, and is swept over a fixed α ladder ( α ∈ [8 , 32] ) and reported at the best accuracy. Fractional Reasoning experiments are constructed using its own codebase. It builds a steering vector from the mean and first principal component of the (chain-of-thought − direct) last-token differences over 256 training problems. Intervention is applied at every layer with norm-preserving rescaling. 14 The paper does not specify a gold α, but reports a band ( α ∈ [0 .01 , 0.2] ). We run it on that α range in steps of 0.02 and report the best achieved accuracy. The CoT oracle is each model’s published chain-of-thought evaluation prompt, run on the full test split at a 2,048-token cap and graded identically. This is the reference ceiling for a non-thinking model of that size. It is the accuracy the model reaches when reasoning is explicitly requested. The CoT prompts for the three models are as follows: 
+
+Llama-3.1-8B chain of thought 
+
+Solve the following math problem efficiently and clearly: - For simple problems (2 steps or fewer): Provide a concise solution with minimal explanation. - For complex problems (3 steps or more): Use this step-by-step format: ## Step 1: [Concise description] [Brief explanation and calculations] ## Step 2: [Concise description] [Brief explanation and calculations] ... Regardless of the approach, always conclude with: Therefore, the final answer is: $\boxed{answer}$. I hope it is correct. Where [answer] is just the final number or expression that solves the problem. Problem: {problem} 
+
+Qwen3-4B chain of thought 
+
+{problem} Please reason step by step, and put your final answer within \boxed{}. 
+
+Gemma-4-12B-it chain of thought 
+
+{problem} Please reason step by step, and put your final answer within \boxed{}. 
+
+As with the direct answer prompts, {problem} marks where the question text is inserted, a blank line inside a box is a blank line in the prompt, and the system message is empty for every family. 15
